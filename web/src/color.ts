@@ -229,9 +229,23 @@ export interface KmeansResult {
  * centroids — for cube faces we seed from the six face-center samples, which
  * is what keeps red/orange from being merged (see MILESTONES M1). Without
  * seeds, greedy farthest-point init is used.
+ *
+ * `anchors` (when given) pins sample `anchors[j]` to cluster `j` on every
+ * iteration. For cube faces the anchors are the six center cells: a physical
+ * cube's centers ARE six distinct colors, so Lloyd is never allowed to
+ * collapse two center clusters into one — under a strong color cast (white
+ * stickers lit by a blue monitor) it otherwise merges white into blue and
+ * the whole scan dies (fixture cube-scan-1789102942492).
  */
-export function kmeans(samples: readonly Lab[], k: number, seeds?: readonly Lab[], maxIters = 32): KmeansResult {
+export function kmeans(
+  samples: readonly Lab[],
+  k: number,
+  seeds?: readonly Lab[],
+  maxIters = 32,
+  anchors?: readonly number[],
+): KmeansResult {
   if (samples.length < k) throw new Error(`kmeans: ${samples.length} samples < k=${k}`);
+  if (anchors && anchors.length !== k) throw new Error(`kmeans: ${anchors.length} anchors != k=${k}`);
   let centroids: Lab[];
   if (seeds) {
     if (seeds.length !== k) throw new Error(`kmeans: ${seeds.length} seeds != k=${k}`);
@@ -241,6 +255,7 @@ export function kmeans(samples: readonly Lab[], k: number, seeds?: readonly Lab[
   }
 
   const labels = new Array<number>(samples.length).fill(0);
+  const pin = () => anchors?.forEach((idx, j) => (labels[idx] = j));
   for (let iter = 0; iter < maxIters; iter++) {
     let changed = false;
     for (let i = 0; i < samples.length; i++) {
@@ -250,6 +265,7 @@ export function kmeans(samples: readonly Lab[], k: number, seeds?: readonly Lab[
         changed = true;
       }
     }
+    pin();
     // Recompute means; an empty cluster steals the sample farthest from its centroid.
     const sums = centroids.map(() => ({ L: 0, a: 0, b: 0, n: 0 }));
     for (let i = 0; i < samples.length; i++) {
@@ -266,6 +282,7 @@ export function kmeans(samples: readonly Lab[], k: number, seeds?: readonly Lab[
         let worst = 0;
         let worstD = -1;
         for (let i = 0; i < samples.length; i++) {
+          if (anchors?.includes(i)) continue; // never steal a pinned center
           const d = labDistance(samples[i]!, centroids[labels[i]!]!);
           if (d > worstD && sums[labels[i]!]!.n > 1) {
             worstD = d;

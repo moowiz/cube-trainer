@@ -43,14 +43,12 @@ describe('scan fixtures', () => {
           const res = assembleState(captures);
           expect(res.facelets).toBe(fx.lettersAfterFixes);
         });
-      } else if (fx.assembleError) {
-        it('assembly fails for this scan (as it did live)', () => {
-          expect(() => assembleState(captures)).toThrow();
-        });
       } else {
-        // No ground truth to hold the classifier to — just require that
-        // assembly of these real captures either produces a full 54-sticker
-        // state or refuses with a human-readable error (never crashes).
+        // No ground truth to hold the classifier to (a live assembleError is
+        // not normative — the pipeline may since have learned to handle the
+        // scan). Just require that assembly of these real captures either
+        // produces a full 54-sticker state or refuses with a human-readable
+        // error (never crashes).
         it('assembles or fails gracefully', () => {
           try {
             const res = assembleState(captures);
@@ -63,6 +61,24 @@ describe('scan fixtures', () => {
       }
     });
   }
+});
+
+describe('cube-scan-1789102942492 (kitchen, blue monitor cast — known scramble)', () => {
+  it('assembles despite whites reading blue, with at least 43/54 correct', () => {
+    // White stickers lit mainly by a blue monitor read at b≈-27 — nearly the
+    // chroma of real blue stickers; only absolute lightness separates them.
+    // Anchored k-means keeps the six centers distinct, so this scan assembles
+    // (the misread whites are tap-to-fix material) instead of dying with a
+    // center-collision error as it did live.
+    const SCRAMBLE = "U L B2 U2 L D2 B2 L U2 R' F2 B' D2 F D L' B' F U'";
+    const truth = new Cube().move(SCRAMBLE).asString();
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789102942492.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    const res = assembleState(captures);
+    let matches = 0;
+    for (let i = 0; i < 54; i++) if (res.facelets[i] === truth[i]) matches++;
+    expect(matches).toBeGreaterThanOrEqual(43);
+  });
 });
 
 describe('cube-scan-1789102641416 (kitchen, evening — known scramble)', () => {
