@@ -101,6 +101,70 @@ export function sampleGridCells(img: ImageData, rect: Rect, patchSize = 12): Cel
   return gridCellCenters(rect).map(([cx, cy]) => samplePatch(img, cx, cy, patchSize));
 }
 
+/** Component-wise mean. */
+export function labMean(samples: readonly Lab[]): Lab {
+  if (samples.length === 0) throw new Error('labMean: empty input');
+  let L = 0;
+  let a = 0;
+  let b = 0;
+  for (const s of samples) {
+    L += s.L;
+    a += s.a;
+    b += s.b;
+  }
+  const n = samples.length;
+  return { L: L / n, a: a / n, b: b / n };
+}
+
+/** Largest Lab distance between any two samples — 0 means perfectly uniform. */
+export function maxPairwiseLabDistance(samples: readonly Lab[]): number {
+  let max = 0;
+  for (let i = 0; i < samples.length; i++) {
+    for (let j = i + 1; j < samples.length; j++) {
+      const d = labDistance(samples[i]!, samples[j]!);
+      if (d > max) max = d;
+    }
+  }
+  return max;
+}
+
+/**
+ * Sample up to 8 patches in the region surrounding `rect` (edge midpoints and
+ * corners, halfway between the rect and the image border). Used to tell a
+ * cube face from bare background: background continues outside the grid,
+ * a cube doesn't.
+ */
+export function sampleSurroundPatches(img: ImageData, rect: Rect, patchSize = 12): CellSample[] {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const half = patchSize / 2;
+  const left = rect.x / 2;
+  const right = (rect.x + rect.w + img.width) / 2;
+  const top = rect.y / 2;
+  const bottom = (rect.y + rect.h + img.height) / 2;
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const points: Array<[number, number]> = [
+    [left, cy],
+    [right, cy],
+    [cx, top],
+    [cx, bottom],
+    [left, top],
+    [right, top],
+    [left, bottom],
+    [right, bottom],
+  ];
+  const out: CellSample[] = [];
+  for (const [px, py] of points) {
+    const x = clamp(px, half, img.width - half);
+    const y = clamp(py, half, img.height - half);
+    // Skip degenerate placements that would land back inside the grid
+    // (possible when the rect nearly fills the image).
+    if (x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h) continue;
+    out.push(samplePatch(img, x, y, patchSize));
+  }
+  return out;
+}
+
 // ---------- k-means in Lab ----------
 
 export interface KmeansResult {

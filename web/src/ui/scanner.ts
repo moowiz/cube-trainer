@@ -6,7 +6,15 @@
 import './scanner.css';
 import { Camera } from '../camera';
 import { FpsCounter } from '../debug/fps';
-import { rgbCss, sampleGridCells, labDistance, type Rect } from '../color';
+import {
+  rgbCss,
+  sampleGridCells,
+  sampleSurroundPatches,
+  labDistance,
+  labMean,
+  maxPairwiseLabDistance,
+  type Rect,
+} from '../color';
 import type { CellSample, FaceId } from '../types';
 import { FACE_ORDER, DEFAULT_SCHEME_HEX } from '../types';
 import {
@@ -50,6 +58,15 @@ const GRID_FRACTION = 0.55;
 const PATCH_SIZE = 12;
 const DUPLICATE_CENTER_DIST = 14;
 const LOW_CONFIDENCE = 0.35;
+// DECISION: background rejection. A capture whose 9 cells are near-uniform
+// (max pairwise Lab distance < 15) is only accepted when the surroundings of
+// the grid look different from the face (otherwise we're staring at a
+// ceiling/wall/desk, not a cube). "Different" = at least half the surround
+// patches are >= 16 Lab away from the face's mean color. A solved,
+// single-color face still passes as long as the cube is held against any
+// contrasting background. Multi-colored (scrambled) faces skip the check.
+const UNIFORM_FACE_SPREAD = 15;
+const BG_SIMILAR_DIST = 16;
 
 export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): ScannerHandle {
   root.innerHTML = `
@@ -269,6 +286,23 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     const face = FACE_ORDER[faceIdx]!;
     const cells = stabilizer.result();
     const center = cells[4]!;
+
+    // Background guard: a near-uniform reading that blends into the grid's
+    // surroundings is not a cube face. Reject and wait for the scene to move.
+    if (maxPairwiseLabDistance(cells) < UNIFORM_FACE_SPREAD) {
+      const frame = camera.grabFrame();
+      if (frame) {
+        const surround = sampleSurroundPatches(frame, gridRectFor(frame.width, frame.height), PATCH_SIZE);
+        const faceMean = labMean(cells);
+        const similar = surround.filter((s) => labDistance(s.lab, faceMean) < BG_SIMILAR_DIST).length;
+        if (surround.length > 0 && similar >= surround.length / 2) {
+          needMotion = true;
+          stabilizer.reset();
+          setHint("That looks like the background, not a cube — hold the cube's " + face + ' face inside the grid.', true);
+          return;
+        }
+      }
+    }
 
     // Duplicate guard: a new face's center color must differ from every face
     // captured so far. Warn once; accept on the second consecutive stable read

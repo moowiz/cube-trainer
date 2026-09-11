@@ -9,6 +9,9 @@ import {
   kmeans,
   nearestCentroid,
   rgbCss,
+  labMean,
+  maxPairwiseLabDistance,
+  sampleSurroundPatches,
   type Rect,
 } from '../src/color';
 import type { Lab } from '../src/types';
@@ -386,5 +389,64 @@ describe('rgbCss', () => {
 
   it('rounds fractional components', () => {
     expect(rgbCss([254.6, 0.2, 127.5])).toBe('rgb(255, 0, 128)');
+  });
+});
+
+describe('labMean / maxPairwiseLabDistance', () => {
+  it('labMean averages component-wise and throws on empty', () => {
+    const m = labMean([
+      { L: 10, a: -4, b: 6 },
+      { L: 30, a: 4, b: 10 },
+    ]);
+    expect(m).toEqual({ L: 20, a: 0, b: 8 });
+    expect(() => labMean([])).toThrow();
+  });
+
+  it('maxPairwiseLabDistance is 0 for uniform input and finds the widest pair', () => {
+    const u = { L: 50, a: 0, b: 0 };
+    expect(maxPairwiseLabDistance([u, u, u])).toBe(0);
+    const spread = [u, { L: 53, a: 4, b: 0 }, { L: 50, a: 0, b: 40 }];
+    expect(maxPairwiseLabDistance(spread)).toBeCloseTo(labDistance(spread[1]!, spread[2]!), 5);
+  });
+});
+
+describe('sampleSurroundPatches', () => {
+  // 100x100 image: a 40x40 "cube" rect at (30,30) painted red, everything
+  // else (the background) painted gray.
+  function makeScene(bg: readonly [number, number, number]): { img: ImageData; rect: Rect } {
+    const img = makeImage(100, 100);
+    const rect: Rect = { x: 30, y: 30, w: 40, h: 40 };
+    for (let y = 0; y < 100; y++) {
+      for (let x = 0; x < 100; x++) {
+        const inside = x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
+        setPixel(img, x, y, inside ? [200, 40, 40] : bg);
+      }
+    }
+    return { img, rect };
+  }
+
+  it('samples only outside the rect and sees the background color', () => {
+    const { img, rect } = makeScene([120, 120, 120]);
+    const patches = sampleSurroundPatches(img, rect, 8);
+    expect(patches.length).toBe(8);
+    const gray = srgbToLab(120, 120, 120);
+    for (const p of patches) {
+      expect(labDistance(p.lab, gray)).toBeLessThan(1);
+    }
+  });
+
+  it('distinguishes cube-against-background from wall-to-wall background', () => {
+    const { img, rect } = makeScene([120, 120, 120]);
+    const faceMean = srgbToLab(200, 40, 40); // the "cube" color
+    const patches = sampleSurroundPatches(img, rect, 8);
+    const similar = patches.filter((p) => labDistance(p.lab, faceMean) < 16).length;
+    expect(similar).toBe(0); // contrasting background: no surround patch matches the face
+
+    // Now a "ceiling": the whole frame is the face color.
+    const wall = makeImage(100, 100);
+    for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) setPixel(wall, x, y, [200, 40, 40]);
+    const wallPatches = sampleSurroundPatches(wall, rect, 8);
+    const wallSimilar = wallPatches.filter((p) => labDistance(p.lab, faceMean) < 16).length;
+    expect(wallSimilar).toBe(wallPatches.length); // everything matches -> not a cube
   });
 });
