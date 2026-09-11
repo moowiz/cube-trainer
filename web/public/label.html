@@ -266,6 +266,19 @@
     'bottom-right · sticker 9',
     'bottom-left · sticker 7',
   ];
+  // Which two neighboring faces (by color) each corner of each face touches.
+  // Derived from the generator's corner tables (model/gen/scene.mjs
+  // FACE_DATA) — the physical definition of the corner order, so the status
+  // line can say "the corner touching white + green" instead of asking the
+  // labeler to mentally re-orient the cube.
+  const CORNER_ADJ = {
+    U: [['orange', 'blue'], ['red', 'blue'], ['red', 'green'], ['orange', 'green']],
+    R: [['white', 'green'], ['white', 'blue'], ['yellow', 'blue'], ['yellow', 'green']],
+    F: [['white', 'orange'], ['white', 'red'], ['yellow', 'red'], ['yellow', 'orange']],
+    D: [['orange', 'green'], ['red', 'green'], ['red', 'blue'], ['orange', 'blue']],
+    L: [['white', 'blue'], ['white', 'green'], ['yellow', 'green'], ['yellow', 'blue']],
+    B: [['white', 'red'], ['white', 'orange'], ['yellow', 'orange'], ['yellow', 'red']],
+  };
   const MARKER_RADII = [10, 8, 6, 4.5]; // corner 0 biggest, shrinking to corner 3
   const HIT_RADIUS = 8; // px, screen space, for picking up an existing marker
   const STORAGE_PREFIX = 'cubeLabeler:';
@@ -624,8 +637,10 @@
         (state.repositioning.index + 1) + ' — click the new location.';
     } else if (state.activeFace) {
       const n = state.tempCorners.length;
+      const adj = CORNER_ADJ[state.activeFace][n];
       statusEl.textContent = 'Placing ' + state.activeFace + ': click corner ' + (n + 1) +
-        ' of 4 (' + CORNER_LABELS[n] + '). Esc to cancel, Delete to clear.';
+        ' of 4 — the corner touching ' + adj[0] + ' + ' + adj[1] +
+        ' (' + CORNER_LABELS[n] + '). Esc to cancel.';
     } else {
       statusEl.textContent = 'Select a face (button or U/R/F/D/L/B), then click 4 corners. Click a marker to move it.';
     }
