@@ -4,7 +4,7 @@ Each milestone ends with something you can run on a phone. Don't start the next 
 
 ---
 
-## M0 — Skeleton
+## M0 — Skeleton ✅ (done 2026-09)
 
 Vite + TypeScript project in `web/`. Camera feed rendered to a canvas. FPS counter. HTTPS dev server (camera requires it). Deployable as static files.
 
@@ -12,7 +12,7 @@ Vite + TypeScript project in `web/`. Camera feed rendered to a canvas. FPS count
 
 ---
 
-## M1 — Grid overlay scanner (the baseline product)
+## M1 — Grid overlay scanner (the baseline product) ✅ (done 2026-09)
 
 Fixed 3x3 grid overlay on the video. Sample 9 cells per frame. Lab conversion + k-means classification. Scan six faces in U R F D L B order with an on-screen prompt. Face locks after N stable frames. Full state assembled, validated with cubejs, solution displayed. Tap any sticker to override.
 
@@ -22,13 +22,17 @@ This is the fallback path that must keep working forever.
 
 **Watch for:** red/orange split. If k-means merges them, seed centroids from the six centers instead of random init.
 
+**Exit evidence:** a scrambled scan (fixture `cube-scan-1789102641416`, known scramble) classified 54/54 first try with zero corrections in kitchen evening light. Beyond the bar: exposure-normalized + center-anchored k-means (seeded from centers, per the watch-for) so a strong color cast (blue monitor as main light, fixture `…2942492`) degrades to 43/54 + low-confidence tap-to-fix instead of failing. Known limit: white vs blue under monitor-only lighting is separable only by absolute lightness — graceful degradation is the intended behavior there.
+
 ---
 
-## M2 — Test harness and debug tooling
+## M2 — Test harness and debug tooling ✅ (done 2026-09)
 
 Save-frame button that dumps the current `ImageData` plus the detected sticker colors to `web/test/fixtures/`. Debug panel with Lab and HSV views, cluster centroids, per-sticker confidence. Unit tests for `color.ts` and `state.ts` against fixtures.
 
 **Done when:** a color misread can be reproduced from a fixture in a test without a camera.
+
+**Exit evidence:** "Save debug frame" / "Save scan report" buttons + a phone→repo upload loop (Claude Fixture Inbox artifact); 12 real fixtures in `web/test/fixtures/` with a data-driven test driver; every lighting failure so far (underexposure, backlit, duplicate face, monitor cast) was reproduced from a fixture and fixed test-first. 66 tests.
 
 ---
 

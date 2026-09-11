@@ -1,0 +1,282 @@
+// Browser-side synthetic scene (M3). Runs inside headless Chrome, driven by
+// generate.mjs over page.evaluate. Renders a stickered or stickerless 3x3 cube
+// with a real random scramble (cubies are rigid bodies rotated in 90° face
+// turns, so sticker geometry is always physically consistent), random camera
+// pose, random warm/cool lighting with occasional glare, and random
+// backgrounds including procedural grids/tiles as hard negatives.
+//
+// window.renderSample(opts) -> { dataUrl, label }
+//   opts: { seed, style: 'stickered'|'stickerless', width, height, photoUrls }
+//
+// Label corner order per face is [top-left, top-right, bottom-right,
+// bottom-left] in that face's cubejs sticker-layout orientation (the corner
+// touching sticker 1, 3, 9, 7 respectively). Faces are always reported; the
+// `visible` flag marks faces actually presented to the camera.
+import * as THREE from 'three';
+import { proceduralBackground, pick } from '/backgrounds.mjs';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const SPACING = 1;          // cubie grid pitch
+const CUBIE = 0.96;         // cubie edge length
+const H = SPACING + CUBIE / 2; // outer half-size of the whole cube (1.48)
+
+// DECISION: corner tables match cubejs facelet orientation (verified against
+// the right = forward x up screen convention for each face's outside view).
+const FACE_DATA = {
+  U: { n: [0, 1, 0], corners: [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]] },
+  R: { n: [1, 0, 0], corners: [[1, 1, 1], [1, 1, -1], [1, -1, -1], [1, -1, 1]] },
+  F: { n: [0, 0, 1], corners: [[-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]] },
+  D: { n: [0, -1, 0], corners: [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]] },
+  L: { n: [-1, 0, 0], corners: [[-1, 1, -1], [-1, 1, 1], [-1, -1, 1], [-1, -1, -1]] },
+  B: { n: [0, 0, -1], corners: [[1, 1, -1], [-1, 1, -1], [-1, -1, -1], [1, -1, -1]] },
+};
+// BoxGeometry material index order: +x -x +y -y +z -z
+const DIRS = [
+  { face: 'R', axis: 'x', sign: 1 }, { face: 'L', axis: 'x', sign: -1 },
+  { face: 'U', axis: 'y', sign: 1 }, { face: 'D', axis: 'y', sign: -1 },
+  { face: 'F', axis: 'z', sign: 1 }, { face: 'B', axis: 'z', sign: -1 },
+];
+const SCHEME = { U: 0xffffff, R: 0xc41e3a, F: 0x009e60, D: 0xffd500, L: 0xff5800, B: 0x0051ba };
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function kelvinToColor(k) {
+  k /= 100;
+  let r, g, b;
+  if (k <= 66) { r = 255; g = 99.47 * Math.log(k) - 161.12; } else { r = 329.7 * Math.pow(k - 60, -0.1332); g = 288.12 * Math.pow(k - 60, -0.0755); }
+  if (k >= 66) b = 255; else if (k <= 19) b = 0; else b = 138.52 * Math.log(k - 10) - 305.04;
+  const c = (x) => Math.min(255, Math.max(0, x)) / 255;
+  return new THREE.Color(c(r), c(g), c(b));
+}
+
+function faceColors(rnd) {
+  // Per-image jitter: sticker pigments vary between cubes, and we never want
+  // the model keying on one exact RGB.
+  const out = {};
+  for (const [f, hex] of Object.entries(SCHEME)) {
+    const c = new THREE.Color(hex);
+    c.offsetHSL((rnd() - 0.5) * 0.04, (rnd() - 0.5) * 0.2, (rnd() - 0.5) * 0.1);
+    out[f] = c;
+  }
+  return out;
+}
+
+function buildCube(rnd, style) {
+  const group = new THREE.Group();
+  const colors = faceColors(rnd);
+  const rough = 0.15 + rnd() * 0.5; // low roughness -> specular glare
+  const boxGeo = new THREE.BoxGeometry(CUBIE, CUBIE, CUBIE);
+  const stickerSize = CUBIE * (0.8 + rnd() * 0.09);
+  const stickerGeo = new THREE.PlaneGeometry(stickerSize, stickerSize);
+  const plastic = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.35 + rnd() * 0.3 });
+  const interior = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.6 });
+  const faceMats = {};
+  for (const f of Object.keys(SCHEME)) {
+    faceMats[f] = new THREE.MeshStandardMaterial({ color: colors[f], roughness: rough, metalness: 0 });
+  }
+
+  const cubies = [];
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+    if (x === 0 && y === 0 && z === 0) continue;
+    const g = { x, y, z };
+    let mesh;
+    if (style === 'stickerless') {
+      const mats = DIRS.map((d) => (g[d.axis] === d.sign ? faceMats[d.face] : interior));
+      mesh = new THREE.Mesh(boxGeo, mats);
+    } else {
+      mesh = new THREE.Mesh(boxGeo, plastic);
+      for (const d of DIRS) {
+        if (g[d.axis] !== d.sign) continue;
+        const sticker = new THREE.Mesh(stickerGeo, faceMats[d.face]);
+        if (d.axis === 'x') sticker.rotateY((Math.PI / 2) * d.sign);
+        else if (d.axis === 'y') sticker.rotateX((-Math.PI / 2) * d.sign);
+        else if (d.sign < 0) sticker.rotateY(Math.PI);
+        sticker.position[d.axis] = d.sign * (CUBIE / 2 + 0.004);
+        sticker.castShadow = true;
+        mesh.add(sticker);
+      }
+    }
+    mesh.position.set(x * SPACING, y * SPACING, z * SPACING);
+    mesh.castShadow = true;
+    group.add(mesh);
+    cubies.push(mesh);
+  }
+
+  // Scramble with real face turns.
+  const axisVec = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
+  const nMoves = 14 + Math.floor(rnd() * 16);
+  for (let i = 0; i < nMoves; i++) {
+    const axis = pick(rnd, ['x', 'y', 'z']);
+    // Outer layers only: slice moves would relocate center cubies, breaking
+    // the face-letter <-> center-color identity the labels promise.
+    const layer = rnd() < 0.5 ? -1 : 1;
+    const dir = rnd() < 0.5 ? 1 : -1;
+    const q = new THREE.Quaternion().setFromAxisAngle(axisVec[axis], (dir * Math.PI) / 2);
+    for (const c of cubies) {
+      if (Math.round(c.position[axis] / SPACING) !== layer) continue;
+      c.position.applyAxisAngle(axisVec[axis], (dir * Math.PI) / 2);
+      c.position.round();
+      c.quaternion.premultiply(q);
+    }
+  }
+  return { group, nMoves };
+}
+
+const texLoader = new THREE.TextureLoader();
+const photoCache = new Map();
+async function photoTexture(url) {
+  if (!photoCache.has(url)) {
+    const t = await texLoader.loadAsync(url);
+    t.colorSpace = THREE.SRGBColorSpace;
+    photoCache.set(url, t);
+  }
+  return photoCache.get(url);
+}
+
+function canvasTexture(rnd) {
+  const t = new THREE.CanvasTexture(proceduralBackground(rnd));
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+window.renderSample = async function renderSample(opts) {
+  const { seed, style, width = 640, height = 480, photoUrls = [] } = opts;
+  const rnd = mulberry32(seed);
+  if (canvas.width !== width || canvas.height !== height) renderer.setSize(width, height, false);
+
+  const scene = new THREE.Scene();
+  const disposables = [];
+
+  // --- background ---
+  let bgKind;
+  if (photoUrls.length && rnd() < 0.4) {
+    bgKind = 'photo';
+    scene.background = await photoTexture(pick(rnd, photoUrls));
+  } else {
+    bgKind = 'procedural';
+    const t = canvasTexture(rnd);
+    scene.background = t;
+    disposables.push(t);
+  }
+
+  // --- cube ---
+  const { group, nMoves } = buildCube(rnd, style);
+  scene.add(group);
+
+  // --- camera ---
+  const fov = 30 + rnd() * 32;
+  const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 200);
+  const R = H * Math.sqrt(3);
+  const fill = 0.22 + rnd() * 0.42; // cube radius as a fraction of frame half-height
+  const dist = R / (fill * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
+  const dirV = new THREE.Vector3().randomDirection();
+  camera.position.copy(dirV).multiplyScalar(dist);
+  const target = new THREE.Vector3().randomDirection().multiplyScalar(rnd() * H * 1.1);
+  camera.lookAt(target);
+  camera.rotateZ((rnd() - 0.5) * 0.9 + (rnd() < 0.1 ? Math.PI * rnd() : 0));
+  camera.updateMatrixWorld();
+
+  // --- surfaces behind/below (perspective hard negatives + shadow catcher) ---
+  const viewDir = target.clone().sub(camera.position).normalize();
+  const hasTable = rnd() < 0.45;
+  if (rnd() < 0.55) {
+    const t = canvasTexture(rnd);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    const rep = 2 + Math.floor(rnd() * 5);
+    t.repeat.set(rep, rep);
+    const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), mat);
+    plane.position.copy(viewDir).multiplyScalar(4 + rnd() * 8);
+    plane.lookAt(camera.position);
+    plane.rotateX((rnd() - 0.5) * 0.8);
+    plane.rotateY((rnd() - 0.5) * 0.8);
+    scene.add(plane);
+    disposables.push(t, mat, plane.geometry);
+  }
+  if (hasTable) {
+    const t = canvasTexture(rnd);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(4, 4);
+    const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.85 });
+    const table = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), mat);
+    table.rotateX(-Math.PI / 2);
+    table.position.y = -H - 0.02;
+    table.receiveShadow = true;
+    scene.add(table);
+    disposables.push(t, mat, table.geometry);
+  }
+
+  // --- lights ---
+  const hemi = new THREE.HemisphereLight(kelvinToColor(4500 + rnd() * 3500), 0x202025, 0.25 + rnd() * 0.7);
+  scene.add(hemi);
+  const nDir = 1 + (rnd() < 0.6 ? 1 : 0);
+  const kelvins = [];
+  for (let i = 0; i < nDir; i++) {
+    const k = 2500 + rnd() * 4500; // warm indoor light is the known hard case
+    kelvins.push(Math.round(k));
+    const dl = new THREE.DirectionalLight(kelvinToColor(k), 0.6 + rnd() * 2.2);
+    dl.position.set((rnd() - 0.5) * 16, 2 + rnd() * 10, (rnd() - 0.5) * 16);
+    if (i === 0 && hasTable) {
+      dl.castShadow = true;
+      dl.shadow.camera.left = dl.shadow.camera.bottom = -6;
+      dl.shadow.camera.right = dl.shadow.camera.top = 6;
+      dl.shadow.mapSize.set(1024, 1024);
+    }
+    scene.add(dl);
+  }
+  if (rnd() < 0.3) {
+    // Glare: a bright point source near the camera blows out the nearest face.
+    const pl = new THREE.PointLight(kelvinToColor(2800 + rnd() * 3500), 30 + rnd() * 120, 0, 2);
+    pl.position.copy(camera.position).multiplyScalar(0.5).add(new THREE.Vector3((rnd() - 0.5) * 3, rnd() * 3, (rnd() - 0.5) * 3));
+    scene.add(pl);
+  }
+
+  renderer.render(scene, camera);
+  const dataUrl = renderer.domElement.toDataURL('image/png');
+
+  // --- labels ---
+  const faces = {};
+  const camPos = camera.position;
+  for (const [f, fd] of Object.entries(FACE_DATA)) {
+    const normal = new THREE.Vector3(...fd.n);
+    const center = normal.clone().multiplyScalar(H);
+    const facing = normal.dot(camPos.clone().sub(center).normalize());
+    const corners = fd.corners.map(([x, y, z]) => {
+      const v = new THREE.Vector3(x * H, y * H, z * H).project(camera);
+      return [Number(((v.x * 0.5 + 0.5) * width).toFixed(2)), Number(((-v.y * 0.5 + 0.5) * height).toFixed(2))];
+    });
+    const pc = center.clone().project(camera);
+    const cx = (pc.x * 0.5 + 0.5) * width;
+    const cy = (-pc.y * 0.5 + 0.5) * height;
+    const inFrame = cx > -8 && cx < width + 8 && cy > -8 && cy < height + 8;
+    faces[f] = { visible: facing > 0.15 && inFrame, facing: Number(facing.toFixed(3)), corners };
+  }
+
+  // --- cleanup ---
+  scene.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) m.dispose(); }
+  });
+  for (const d of disposables) if (d.dispose) d.dispose();
+
+  return {
+    dataUrl,
+    label: {
+      width, height, style, faces,
+      meta: { seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins },
+    },
+  };
+};
+
+window.ready = true;
