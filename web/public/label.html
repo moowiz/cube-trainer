@@ -197,13 +197,14 @@
       <ul>
         <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> &mdash; previous / next image</li>
         <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
-        <li>click 4&times; on canvas &mdash; place that face's corners in order</li>
+        <li>click 4&times; on canvas &mdash; place that face's corners going
+          around the face</li>
         <li>click a marker (no face selected) &mdash; pick it up, next click drops it</li>
         <li>placing/dropping near another face's marker &mdash; snaps to it, so
           shared corners coincide exactly</li>
         <li>"Suggest (model)" &mdash; pre-fills unlabeled faces with the current
-          model's guess; verify corner order (dot sizes) and fix by picking
-          markers up. Needs the deployed site (not a local file).</li>
+          model's guess; verify positions and fix by picking markers up.
+          Needs the deployed site (not a local file).</li>
         <li><kbd>Esc</kbd> &mdash; cancel in-progress face</li>
         <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label</li>
         <li>mouse wheel &mdash; zoom toward cursor</li>
@@ -211,30 +212,15 @@
         <li><kbd>0</kbd> &mdash; reset zoom/pan to fit image</li>
       </ul>
       <div class="cornerOrder">
-        Corner order is <b>physical, not what's upper-left in the photo</b>:
-        each corner is named by the neighboring faces it touches, so first
-        identify the face by its <b>center color</b> (white=U, red=R, green=F,
-        yellow=D, orange=L, blue=B), then mentally right the cube and go
-        clockwise from corner 0:
-        <ul>
-          <li><b>Side faces</b> (R F L B): imagine white up, that face toward
-            you &mdash; corner 0 is then the visual top-left. E.g. green's
-            corner 0 touches <b>white + orange</b>; red's touches
-            <b>white + green</b>; orange's touches <b>white + blue</b>;
-            blue's touches <b>white + red</b>.</li>
-          <li><b>White (U)</b>: look down with green toward you &mdash;
-            corner 0 touches <b>blue + orange</b> (back-left).</li>
-          <li><b>Yellow (D)</b>: look at it straight on with green at the top
-            of your view &mdash; corner 0 touches <b>green + orange</b>.</li>
-        </ul>
-        Then 1 = next corner clockwise (top-right), 2 = bottom-right,
-        3 = bottom-left, in that righted view. Corner 0's marker is drawn
-        biggest, shrinking to corner 3. If the photo shows the cube tilted,
-        click the physical corners wherever they appear &mdash; do NOT
-        re-orient to the image. Rounded/stickerless corners: click the
-        outermost point of the plastic itself; don't extrapolate past the
-        edge. Corners hidden by fingers or objects: estimate and click
-        anyway. Label every face whose center you can identify.
+        Corner order: <b>just go around the face</b> &mdash; start at any
+        corner, either direction. The only wrong order is a zigzag (crossing
+        the face diagonally mid-way), which draws a bowtie instead of a
+        quad. Which face it is comes from its <b>center color</b> (white=U,
+        red=R, green=F, yellow=D, orange=L, blue=B). Rounded/stickerless
+        corners: click the outermost point of the plastic itself; don't
+        extrapolate past the edge. Corners hidden by fingers or objects:
+        estimate and click anyway; corners off the frame edge go outside the
+        image. Label every face whose center you can identify.
       </div>
     </details>
   </div>
@@ -269,26 +255,10 @@
     U: '#f2f2f2', R: '#e6483c', F: '#3fae49',
     D: '#f4d61f', L: '#f19f2c', B: '#3f6fe0',
   };
-  const CORNER_LABELS = [
-    'top-left · sticker 1',
-    'top-right · sticker 3',
-    'bottom-right · sticker 9',
-    'bottom-left · sticker 7',
-  ];
-  // Which two neighboring faces (by color) each corner of each face touches.
-  // Derived from the generator's corner tables (model/gen/scene.mjs
-  // FACE_DATA) — the physical definition of the corner order, so the status
-  // line can say "the corner touching white + green" instead of asking the
-  // labeler to mentally re-orient the cube.
-  const CORNER_ADJ = {
-    U: [['orange', 'blue'], ['red', 'blue'], ['red', 'green'], ['orange', 'green']],
-    R: [['white', 'green'], ['white', 'blue'], ['yellow', 'blue'], ['yellow', 'green']],
-    F: [['white', 'orange'], ['white', 'red'], ['yellow', 'red'], ['yellow', 'orange']],
-    D: [['orange', 'green'], ['red', 'green'], ['red', 'blue'], ['orange', 'blue']],
-    L: [['white', 'blue'], ['white', 'green'], ['yellow', 'green'], ['yellow', 'blue']],
-    B: [['white', 'red'], ['white', 'orange'], ['yellow', 'orange'], ['yellow', 'red']],
-  };
-  const MARKER_RADII = [10, 8, 6, 4.5]; // corner 0 biggest, shrinking to corner 3
+  // Corner order is free up to rotation: training uses a cyclic-shift-
+  // invariant loss and the importer normalizes winding, so the only rule is
+  // to click AROUND the face (no zigzag). Radii still show the click order.
+  const MARKER_RADII = [10, 8, 6, 4.5]; // first click biggest, shrinking to the fourth
   const HIT_RADIUS = 8; // px, screen space, for picking up an existing marker
   const STORAGE_PREFIX = 'cubeLabeler:';
 
@@ -650,10 +620,8 @@
         (state.repositioning.index + 1) + ' — click the new location.';
     } else if (state.activeFace) {
       const n = state.tempCorners.length;
-      const adj = CORNER_ADJ[state.activeFace][n];
       statusEl.textContent = 'Placing ' + state.activeFace + ': click corner ' + (n + 1) +
-        ' of 4 — the corner touching ' + adj[0] + ' + ' + adj[1] +
-        ' (' + CORNER_LABELS[n] + '). Esc to cancel.';
+        ' of 4 — go around the face (any start, either direction, no zigzag). Esc to cancel.';
     } else {
       statusEl.textContent = 'Select a face (button or U/R/F/D/L/B), then click 4 corners. Click a marker to move it.';
     }
@@ -798,7 +766,7 @@
     updateProgress();
     render();
     showToast(filled
-      ? 'Model suggested ' + filled + ' face(s)' + (skipped ? ' (' + skipped + ' already labeled, kept yours)' : '') + ' — verify corner order!'
+      ? 'Model suggested ' + filled + ' face(s)' + (skipped ? ' (' + skipped + ' already labeled, kept yours)' : '') + ' — verify positions!'
       : 'Model found no unlabeled faces above 50% confidence');
   }
   document.getElementById('suggestBtn').addEventListener('click', () => { void suggestFromModel(); });
