@@ -95,6 +95,35 @@ describe('cube-scan-1789102641416 (kitchen, evening — known scramble)', () => 
   });
 });
 
+describe('cube-scan-1789107876392 (second cube, known scramble)', () => {
+  it('classifies all 54 stickers to the exact state the scramble produces', () => {
+    // A different physical cube than every earlier fixture. Scanned live
+    // 54/54 with zero manual corrections — second full M1 exit case.
+    const SCRAMBLE = "B2 F2 U' R2 F2 D' U F2 R2 U2 F' D2 L U B' F' R' D2 B L'";
+    const truth = new Cube().move(SCRAMBLE).asString();
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789107876392.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    const res = assembleState(captures);
+    expect(res.facelets).toBe(truth);
+  });
+});
+
+describe('cube-scan-1789108244116 (matte-face cube, same scramble as 107876392)', () => {
+  it('classifies at least 52/54 against the scramble truth', () => {
+    // Same scramble state as the scan above (verified: 52/54 vs this
+    // scramble, 17/54 vs the other candidate). Live it silently misread two
+    // stickers — the state still assembled, so this pins the floor.
+    const SCRAMBLE = "B2 F2 U' R2 F2 D' U F2 R2 U2 F' D2 L U B' F' R' D2 B L'";
+    const truth = new Cube().move(SCRAMBLE).asString();
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789108244116.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    const res = assembleState(captures);
+    let matches = 0;
+    for (let i = 0; i < 54; i++) if (res.facelets[i] === truth[i]) matches++;
+    expect(matches).toBeGreaterThanOrEqual(52);
+  });
+});
+
 describe('cube-scan-1789102120226 (kitchen, evening — a SOLVED cube)', () => {
   it('classifies at least 53/54 stickers of the solved cube correctly', () => {
     // The physical cube was solved, so ground truth is each capture's own
