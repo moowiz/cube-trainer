@@ -16,6 +16,7 @@ import {
   solveState,
   warmSolver,
   inverseMoves,
+  type AssembledState,
   type FaceCapture,
 } from '../state';
 
@@ -70,6 +71,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       <div class="cs-controls">
         <button class="cs-btn" type="button" data-a="redo" hidden>Redo last face</button>
         <button class="cs-btn" type="button" data-a="restart" hidden>Restart scan</button>
+        <button class="cs-btn" type="button" data-a="saveframe" hidden>Save debug frame</button>
       </div>
       <div class="cs-review" hidden>
         <p class="cs-sub">Tap any sticker to correct it (the ringed ones are low-confidence reads).</p>
@@ -84,6 +86,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
           <button class="cs-btn cs-primary" type="button" data-a="trainer" hidden>Practice in trainer</button>
           <button class="cs-btn" type="button" data-a="copystate">Copy state</button>
           <button class="cs-btn" type="button" data-a="copysol" hidden>Copy solution</button>
+          <button class="cs-btn" type="button" data-a="savescan">Save scan report</button>
           <button class="cs-btn" type="button" data-a="rescan">Scan again</button>
         </div>
       </div>
@@ -111,6 +114,8 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   const copyStateBtn = $('[data-a="copystate"]') as HTMLButtonElement;
   const copySolBtn = $('[data-a="copysol"]') as HTMLButtonElement;
   const rescanBtn = $('[data-a="rescan"]') as HTMLButtonElement;
+  const saveFrameBtn = $('[data-a="saveframe"]') as HTMLButtonElement;
+  const saveScanBtn = $('[data-a="savescan"]') as HTMLButtonElement;
 
   const camera = new Camera();
   const fps = new FpsCounter();
@@ -135,6 +140,8 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   let confidences: number[] = [];
   let badStickers: number[] = [];
   let solveToken = 0;
+  /** The k-means result as assembled, before any tap-to-fix edits. */
+  let assembled: AssembledState | null = null;
 
   // ---------- face progress strip ----------
 
@@ -174,14 +181,18 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
 
   // ---------- scan loop ----------
 
-  function gridRect(): Rect {
-    const side = Math.round(Math.min(canvas.width, canvas.height) * GRID_FRACTION);
+  function gridRectFor(w: number, h: number): Rect {
+    const side = Math.round(Math.min(w, h) * GRID_FRACTION);
     return {
-      x: Math.round((canvas.width - side) / 2),
-      y: Math.round((canvas.height - side) / 2),
+      x: Math.round((w - side) / 2),
+      y: Math.round((h - side) / 2),
       w: side,
       h: side,
     };
+  }
+
+  function gridRect(): Rect {
+    return gridRectFor(canvas.width, canvas.height);
   }
 
   function loop(now: number): void {
@@ -299,6 +310,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     renderFaces();
     redoBtn.hidden = true;
     restartBtn.hidden = true;
+    saveFrameBtn.hidden = true;
     reviewEl.hidden = false;
     camera.stop(); // save battery while reviewing
     cancelAnimationFrame(raf);
@@ -306,10 +318,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     fpsEl.hidden = true;
 
     try {
-      const assembled = assembleState(captures);
+      assembled = assembleState(captures);
       letters = [...assembled.stickerFaces];
-      confidences = assembled.confidences;
+      confidences = [...assembled.confidences];
     } catch (e) {
+      assembled = null;
       netEl.innerHTML = '';
       validEl.className = 'cs-valid err';
       validEl.textContent = e instanceof Error ? e.message : String(e);
@@ -398,6 +411,66 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     buttons.forEach((b, idx) => b.classList.toggle('bad', badStickers.includes(idx)));
   }
 
+  // ---------- debug fixtures (milestone M2) ----------
+  // Both buttons download a JSON file meant for web/test/fixtures/: enough to
+  // reproduce a color misread in a unit test without a camera.
+
+  function download(filename: string, text: string): void {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  /** Clean current frame (no overlay) + its grid samples, as a fixture. */
+  function saveDebugFrame(): void {
+    const img = camera.grabFrame();
+    if (!img) {
+      setHint('No camera frame to save yet.', true);
+      return;
+    }
+    const rect = gridRectFor(img.width, img.height);
+    const cells = sampleGridCells(img, rect, PATCH_SIZE);
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext('2d')!.putImageData(img, 0, 0);
+    const fixture = {
+      type: 'frame',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      targetFace: FACE_ORDER[faceIdx],
+      faceIdx,
+      gridRect: rect,
+      patchSize: PATCH_SIZE,
+      cells,
+      capturedSoFar: captures.map((cap, i) => ({ face: cap.face, cells: cap.cells, rgb: captureRgb[i] })),
+      imagePng: c.toDataURL('image/png'),
+    };
+    download(`cube-frame-${fixture.targetFace}-${Date.now()}.json`, JSON.stringify(fixture, null, 1));
+    setHint('Debug frame saved to your downloads.');
+  }
+
+  /** Everything the classifier saw and decided for a completed scan. */
+  function saveScanReport(): void {
+    const report = {
+      type: 'scan',
+      version: 1,
+      savedAt: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      captures: captures.map((cap, i) => ({ face: cap.face, cells: cap.cells, rgb: captureRgb[i] })),
+      autoLetters: assembled ? assembled.stickerFaces.join('') : null,
+      centroids: assembled?.centroids ?? null,
+      confidences: assembled ? assembled.confidences : null,
+      assembleError: assembled ? null : validEl.textContent,
+      lettersAfterFixes: letters.length ? letters.join('') : null,
+      validation: letters.length ? validateState(letters.join('')) : null,
+    };
+    download(`cube-scan-${Date.now()}.json`, JSON.stringify(report, null, 1));
+  }
+
   // ---------- lifecycle ----------
 
   function resetScan(): void {
@@ -410,10 +483,12 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     letters = [];
     confidences = [];
     badStickers = [];
+    assembled = null;
     solveToken++;
     reviewEl.hidden = true;
     redoBtn.hidden = false;
     restartBtn.hidden = false;
+    saveFrameBtn.hidden = false;
     setHint('');
     renderFaces();
   }
@@ -465,6 +540,8 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     void startCamera();
   });
   copyStateBtn.addEventListener('click', () => void navigator.clipboard?.writeText(facelets()));
+  saveFrameBtn.addEventListener('click', saveDebugFrame);
+  saveScanBtn.addEventListener('click', saveScanReport);
 
   resetScan();
   setPrompt();
