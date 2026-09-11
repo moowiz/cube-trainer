@@ -1,0 +1,15 @@
+{
+  "name": "cube-datagen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "data": "node generate.mjs --count 20000 --out ../data",
+    "preview": "node generate.mjs --count 60 --out ../data/preview",
+    "viz": "node visualize.mjs --data ../data/preview --count 12"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer": "^23.11.1",
+    "three": "^0.169.0"
+  }
+}
