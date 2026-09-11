@@ -44,7 +44,10 @@ def evaluate(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="../data", help="dataset root(s), comma-separated (e.g. ../data,../data_real)")
+    ap.add_argument("--data", default="../data",
+                    help="dataset root(s), comma-separated; append *N to oversample a root "
+                         "(e.g. ../data,../data_real*150 - a handful of real frames must not "
+                         "drown in tens of thousands of synthetic ones)")
     ap.add_argument("--init", default=None, help="checkpoint to initialize from (M5 fine-tune)")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
@@ -58,13 +61,27 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    roots = [r for r in args.data.split(",") if r]
+    roots = []
+    for spec in args.data.split(","):
+        if not spec:
+            continue
+        path, _, rep = spec.partition("*")
+        roots.append((path, max(1, int(rep or 1))))
+
+    def concat(split, augment):
+        parts = []
+        for path, rep in roots:
+            ds = CubeKeypointDataset(path, split=split, input_size=INPUT_WH, augment=augment)
+            if len(ds):
+                parts.extend([ds] * (rep if split == "train" or split == "all" else 1))
+        return ConcatDataset(parts)
+
     if args.overfit:
-        ds = ConcatDataset([CubeKeypointDataset(r, split="all", input_size=INPUT_WH, augment=None) for r in roots])
+        ds = concat("all", None)
         train_ds = val_ds = Subset(ds, range(min(args.overfit, len(ds))))
     else:
-        train_ds = ConcatDataset([CubeKeypointDataset(r, split="train", input_size=INPUT_WH, augment=augment_sample) for r in roots])
-        val_ds = ConcatDataset([CubeKeypointDataset(r, split="val", input_size=INPUT_WH, augment=None) for r in roots])
+        train_ds = concat("train", augment_sample)
+        val_ds = concat("val", None)
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                           pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
     val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=0)
