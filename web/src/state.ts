@@ -119,6 +119,14 @@ export function normalizeFaceCells(cells: readonly Lab[]): Lab[] {
   return cells.map((c) => ({ L: (c.L - medL) * CLUSTER_L_WEIGHT, a: c.a, b: c.b }));
 }
 
+// DECISION: two capture centers closer than this in the normalized space are
+// treated as the same physical face scanned twice (the scanner's duplicate
+// guard uses the same constant). Calibrated on fixtures: genuinely duplicated
+// or unusable center pairs sit at ~6 (cube-scan-1789101879130), while the
+// hardest legitimate pair seen — white under a blue monitor cast vs a real
+// blue center (cube-scan-1789102942492) — sits at 12.8 and must assemble.
+export const CENTER_MIN_DIST = 10;
+
 export interface AssembledState {
   facelets: string; // 54 chars, faces in U R F D L B order, cubejs facelet convention
   stickerFaces: FaceId[]; // length 54, classification of each sticker
@@ -172,23 +180,29 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     normalized.push(...normalizeFaceCells(samples.slice(f * 9, f * 9 + 9)));
   }
 
-  const seeds = FACE_ORDER.map((face) => normalized[centerIndex[face]]!);
-  const { centroids, labels } = kmeans(normalized, 6, seeds);
+  // Indistinguishable centers mean the same face was scanned twice (or a
+  // capture is unusable) — no clustering can recover from that.
+  for (let i = 0; i < FACE_ORDER.length; i++) {
+    for (let j = i + 1; j < FACE_ORDER.length; j++) {
+      const a = FACE_ORDER[i]!;
+      const b = FACE_ORDER[j]!;
+      if (labDistance(normalized[centerIndex[a]]!, normalized[centerIndex[b]]!) < CENTER_MIN_DIST) {
+        throw new Error(`Couldn't tell the ${a} and ${b} centers apart — rescan in better light.`);
+      }
+    }
+  }
+
+  // Anchored k-means: each center cell stays pinned to its own cluster, so a
+  // strong color cast can degrade per-sticker confidence but can never
+  // collapse two faces into one.
+  const anchors = FACE_ORDER.map((face) => centerIndex[face]);
+  const seeds = anchors.map((i) => normalized[i]!);
+  const { centroids, labels } = kmeans(normalized, 6, seeds, 32, anchors);
 
   const clusterToFace = new Map<number, FaceId>();
-  for (const face of FACE_ORDER) {
-    const label = labels[centerIndex[face]]!;
-    const existing = clusterToFace.get(label);
-    if (existing !== undefined) {
-      throw new Error(`Couldn't tell the ${existing} and ${face} centers apart — rescan in better light.`);
-    }
-    clusterToFace.set(label, face);
-  }
+  FACE_ORDER.forEach((face, i) => clusterToFace.set(i, face));
 
   const stickerFaces: FaceId[] = labels.map((l) => clusterToFace.get(l)!);
-  for (const face of FACE_ORDER) {
-    stickerFaces[centerIndex[face]] = face; // force centers to their face id
-  }
 
   const confidences: number[] = normalized.map((s) => {
     const { dist, secondDist } = nearestCentroid(s, centroids);
