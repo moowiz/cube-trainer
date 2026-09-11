@@ -54,6 +54,27 @@ def is_val(path: Path) -> bool:
     return zlib.crc32(path.stem.encode()) % 20 == 0
 
 
+def letterbox_params(w: int, h: int, iw: int, ih: int):
+    """Aspect-preserving fit of (w,h) into (iw,ih): returns (scale, dx, dy).
+
+    Phones capture portrait (480x640); squashing it into the 4:3 model input
+    would teach corner geometry at the wrong aspect ratio. Letterbox instead:
+    scale to fit, center, pad. Corner transform: p' = p * scale + (dx, dy).
+    """
+    scale = min(iw / w, ih / h)
+    dx = (iw - w * scale) / 2
+    dy = (ih - h * scale) / 2
+    return scale, dx, dy
+
+
+def letterbox_image(img: Image.Image, iw: int, ih: int) -> Image.Image:
+    scale, dx, dy = letterbox_params(img.width, img.height, iw, ih)
+    out = Image.new("RGB", (iw, ih), (114, 114, 114))
+    out.paste(img.resize((round(img.width * scale), round(img.height * scale)), Image.BILINEAR),
+              (round(dx), round(dy)))
+    return out
+
+
 def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
     cdir.mkdir(parents=True, exist_ok=True)
     n = len(files)
@@ -64,11 +85,10 @@ def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
     for i, f in enumerate(files):
         img_rel, (w, h), conf, corners = load_label(f)
         img = Image.open(root / img_rel).convert("RGB")
-        if img.size != (iw, ih):
-            img = img.resize((iw, ih), Image.BILINEAR)
-        imgs[i] = np.asarray(img)
+        scale, dx, dy = letterbox_params(w, h, iw, ih)
+        imgs[i] = np.asarray(letterbox_image(img, iw, ih))
         confs[i] = conf
-        corns[i] = corners / np.array([w, h], dtype=np.float32)
+        corns[i] = (corners * scale + [dx, dy]) / np.array([iw, ih], dtype=np.float32)
         if (i + 1) % 2500 == 0:
             print(f"  cache {i + 1}/{n}", flush=True)
     imgs.flush()

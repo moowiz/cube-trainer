@@ -89,7 +89,9 @@ def main():
     (WEB_MODELS / "facekp.onnx").write_bytes(int8_path.read_bytes())
     meta = {
         "input": {"name": "image", "shape": [1, 3, INPUT_WH[1], INPUT_WH[0]], "layout": "NCHW rgb",
-                  "mean": NORM_MEAN.tolist(), "std": NORM_STD.tolist(), "scale": "pixel/255 then (x-mean)/std"},
+                  "mean": NORM_MEAN.tolist(), "std": NORM_STD.tolist(), "scale": "pixel/255 then (x-mean)/std",
+                  "letterbox": "aspect-preserving fit, centered, pad rgb(114,114,114); "
+                               "coords map back as (u*W - dx)/scale (see train/dataset.py letterbox_params)"},
         "output": {"name": "faces", "shape": [1, 6, 9], "faces": "URFDLB",
                    "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
                    "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation"},

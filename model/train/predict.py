@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 
-from dataset import FACE_ORDER, NORM_MEAN, NORM_STD
+from dataset import FACE_ORDER, NORM_MEAN, NORM_STD, letterbox_image, letterbox_params
 from model import FaceKP
 
 INPUT_WH = (320, 240)
@@ -46,18 +46,20 @@ def main():
         raise SystemExit(f"no images match {args.images}")
     for path in files:
         img = Image.open(path).convert("RGB")
-        small = img.resize(INPUT_WH, Image.BILINEAR)
+        small = letterbox_image(img, *INPUT_WH)
         x = (np.asarray(small, dtype=np.float32) / 255.0 - NORM_MEAN) / NORM_STD
         with torch.no_grad():
             pred = model(torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device))[0].cpu().numpy()
         draw = ImageDraw.Draw(img)
-        sx, sy = img.width, img.height  # coords are normalized -> original size
+        # predictions are normalized in the letterboxed frame -> map back
+        scale, dx, dy = letterbox_params(img.width, img.height, *INPUT_WH)
         lines = []
         for f in range(6):
             conf = 1 / (1 + np.exp(-pred[f, 0]))
             if conf < 0.25:
                 continue
-            quad = [(pred[f, 1 + 2 * k] * sx, pred[f, 2 + 2 * k] * sy) for k in range(4)]
+            quad = [((pred[f, 1 + 2 * k] * INPUT_WH[0] - dx) / scale,
+                     (pred[f, 2 + 2 * k] * INPUT_WH[1] - dy) / scale) for k in range(4)]
             width = 4 if conf >= 0.5 else 1
             draw.line(quad + [quad[0]], fill=COLORS[FACE_ORDER[f]], width=width)
             r = 6
