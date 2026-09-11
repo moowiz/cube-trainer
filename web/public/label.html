@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cube Corner Labeler</title>
+<style>
+  :root {
+    --bg: #121212;
+    --panel: #1a1a1a;
+    --panel-2: #1f1f1f;
+    --border: #333;
+    --text: #ddd;
+    --muted: #888;
+    --accent: #4da3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+  }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 14px; margin: 0 12px 0 0; font-weight: 600; color: #fff; }
+  header .spacer { flex: 1; }
+  #progress { color: var(--muted); white-space: nowrap; }
+
+  button, .btn {
+    background: #2a2a2a;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  button:hover, .btn:hover { background: #333; border-color: #555; }
+  button:active { background: #222; }
+
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  #sidebar {
+    width: 260px;
+    flex: 0 0 auto;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  #imgList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+  }
+  .img-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .img-item:hover { background: #262626; }
+  .img-item.current { background: #2d3f56; outline: 1px solid var(--accent); }
+  .img-item .chk { color: #5fd45f; width: 12px; flex: 0 0 auto; text-align: center; font-weight: bold; }
+  .img-item .name { overflow: hidden; text-overflow: ellipsis; }
+
+  #helpBox {
+    border-top: 1px solid var(--border);
+    padding: 8px 10px;
+    max-height: 45%;
+    overflow-y: auto;
+    flex: 0 0 auto;
+  }
+  #helpBox summary { cursor: pointer; color: var(--muted); margin-bottom: 6px; }
+  #helpBox ul { margin: 4px 0; padding-left: 16px; }
+  #helpBox li { margin: 3px 0; line-height: 1.4; }
+  #helpBox kbd {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 3px;
+    padding: 0 4px;
+    font-family: inherit;
+  }
+  #helpBox .cornerOrder { margin-top: 6px; color: var(--muted); }
+
+  #canvasArea {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .face-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    font-weight: 700;
+    border: 2px solid transparent;
+    font-size: 13px;
+  }
+  .face-btn.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+  #statusLine {
+    color: var(--muted);
+    margin-left: 8px;
+    flex: 1;
+    min-width: 200px;
+  }
+
+  #canvasWrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #0a0a0a;
+  }
+  #canvas { position: absolute; inset: 0; cursor: crosshair; }
+
+  #dropOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(30, 60, 100, 0.35);
+    border: 3px dashed var(--accent);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: #fff;
+    pointer-events: none;
+    z-index: 50;
+  }
+  #dropOverlay.show { display: flex; }
+
+  #toast {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    background: #234;
+    color: #fff;
+    border: 1px solid var(--accent);
+    padding: 8px 14px;
+    border-radius: 4px;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    z-index: 60;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+
+  #fileInput { display: none; }
+</style>
+
+<header>
+  <h1>Cube Corner Labeler</h1>
+  <button id="loadBtn">Load images</button>
+  <input id="fileInput" type="file" accept="image/*" multiple>
+  <div id="progress">0 images, 0 labeled, 0 faces total</div>
+  <div class="spacer"></div>
+  <button id="saveCurrentBtn">Save current</button>
+  <button id="exportAllBtn">Export all labeled</button>
+</header>
+
+<main>
+  <div id="sidebar">
+    <div id="imgList"></div>
+    <details id="helpBox" open>
+      <summary>Shortcuts &amp; conventions</summary>
+      <ul>
+        <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> &mdash; previous / next image</li>
+        <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
+        <li>click 4&times; on canvas &mdash; place that face's corners in order</li>
+        <li>click an existing marker &mdash; pick it up, next click re-places it</li>
+        <li><kbd>Esc</kbd> &mdash; cancel in-progress face</li>
+        <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label</li>
+        <li>mouse wheel &mdash; zoom toward cursor</li>
+        <li>middle-drag, or <kbd>space</kbd>+drag &mdash; pan</li>
+        <li><kbd>0</kbd> &mdash; reset zoom/pan to fit image</li>
+      </ul>
+      <div class="cornerOrder">
+        Corner order per face: 0 = top-left (touches sticker&nbsp;1),
+        1 = top-right (touches sticker&nbsp;3), 2 = bottom-right (touches sticker&nbsp;9),
+        3 = bottom-left (touches sticker&nbsp;7). Corner 0's marker is drawn biggest,
+        shrinking to corner 3.
+      </div>
+    </details>
+  </div>
+
+  <div id="canvasArea">
+    <div id="toolbar">
+      <button class="face-btn" data-face="U" style="background:#f2f2f2;color:#111">U</button>
+      <button class="face-btn" data-face="R" style="background:#e6483c;color:#fff">R</button>
+      <button class="face-btn" data-face="F" style="background:#3fae49;color:#fff">F</button>
+      <button class="face-btn" data-face="D" style="background:#f4d61f;color:#111">D</button>
+      <button class="face-btn" data-face="L" style="background:#f19f2c;color:#111">L</button>
+      <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
+      <button id="clearFaceBtn">Clear face</button>
+      <div id="statusLine">Load images to begin.</div>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+</main>
+
+<div id="dropOverlay">Drop images to load</div>
+<div id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const FACE_ORDER = ['U', 'R', 'F', 'D', 'L', 'B'];
+  const FACE_COLORS = {
+    U: '#f2f2f2', R: '#e6483c', F: '#3fae49',
+    D: '#f4d61f', L: '#f19f2c', B: '#3f6fe0',
+  };
+  const CORNER_LABELS = [
+    'top-left · sticker 1',
+    'top-right · sticker 3',
+    'bottom-right · sticker 9',
+    'bottom-left · sticker 7',
+  ];
+  const MARKER_RADII = [10, 8, 6, 4.5]; // corner 0 biggest, shrinking to corner 3
+  const HIT_RADIUS = 8; // px, screen space, for picking up an existing marker
+  const STORAGE_PREFIX = 'cubeLabeler:';
+
+  // ---- state -----------------------------------------------------------
+  const state = {
+    images: [],           // [{name, url, width, height, img}]
+    current: -1,
+    labels: new Map(),    // filename -> {U:{visible,corners}, ...}
+    cw: 0, ch: 0,          // logical (CSS-pixel) canvas size
+    baseScale: 1,          // fit-to-window scale for the current image
+    zoom: 1,
+    panX: 0, panY: 0,
+    activeFace: null,      // face id currently being placed, or null
+    tempCorners: [],       // corners placed so far for activeFace
+    repositioning: null,   // {face, index} of a picked-up existing corner
+    isPanning: false,
+    panStartMouse: null,
+    panStartOffset: null,
+    spaceDown: false,
+  };
+
+  function emptyFaces() {
+    const f = {};
+    for (const id of FACE_ORDER) f[id] = { visible: false, corners: null };
+    return f;
+  }
+  function cloneFaces(faces) {
+    const out = {};
+    for (const id of FACE_ORDER) {
+      const f = faces[id];
+      out[id] = { visible: f.visible, corners: f.corners ? f.corners.map(c => [c[0], c[1]]) : null };
+    }
+    return out;
+  }
+  function getFaces() {
+    const entry = state.images[state.current];
+    return entry ? state.labels.get(entry.name) : null;
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ---- DOM refs ----------------------------------------------------------
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('canvasWrap');
+  const listEl = document.getElementById('imgList');
+  const progressEl = document.getElementById('progress');
+  const statusEl = document.getElementById('statusLine');
+  const toastEl = document.getElementById('toast');
+  const dropOverlay = document.getElementById('dropOverlay');
+  const fileInput = document.getElementById('fileInput');
+
+  // ---- storage -------------------------------------------------------
+  function loadFromStorage(name) {
+    try {
+      const raw = localStorage.getItem(STORAGE_PREFIX + name);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function saveToStorage(name, faces) {
+    try { localStorage.setItem(STORAGE_PREFIX + name, JSON.stringify(faces)); } catch (e) { /* ignore */ }
+  }
+  function saveCurrentToStorage() {
+    const entry = state.images[state.current];
+    if (!entry) return;
+    saveToStorage(entry.name, state.labels.get(entry.name));
+  }
+
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toastEl.classList.remove('show'), 3500);
+  }
+
+  // ---- coordinate mapping (canvas/screen space <-> original image space) --
+  // Screen space here means CSS pixels within #canvas (origin at its top-left).
+  // image_point * (baseScale * zoom) + pan  =  screen_point
+  function getScale() { return state.baseScale * state.zoom; }
+  function imageToScreen(x, y) {
+    const s = getScale();
+    return [x * s + state.panX, y * s + state.panY];
+  }
+  function screenToImage(x, y) {
+    const s = getScale();
+    return [(x - state.panX) / s, (y - state.panY) / s];
+  }
+  function canvasMouseXY(e) {
+    const rect = canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  }
+
+  function resizeCanvasToContainer() {
+    const rect = wrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    state.cw = rect.width;
+    state.ch = rect.height;
+    // Backing store is scaled by devicePixelRatio for crispness; all logical
+    // coordinates (pan/scale/mouse events) stay in CSS-pixel space, matched
+    // by the ctx.setTransform(dpr,...) call at the top of render().
+    canvas.width = Math.max(1, Math.round(rect.width * dpr));
+    canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+  }
+
+  function fitImageToView() {
+    const entry = state.images[state.current];
+    if (!entry) return;
+    resizeCanvasToContainer();
+    const s = Math.min(state.cw / entry.width, state.ch / entry.height);
+    state.baseScale = s > 0 && isFinite(s) ? s : 1;
+    state.zoom = 1;
+    state.panX = (state.cw - entry.width * state.baseScale) / 2;
+    state.panY = (state.ch - entry.height * state.baseScale) / 2;
+  }
+
+  // ---- image loading ---------------------------------------------------
+  async function loadFiles(fileList) {
+    const files = Array.from(fileList).filter(f => /^image\//.test(f.type));
+    if (!files.length) return;
+    const loaded = await Promise.all(files.map(file => new Promise(resolve => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => resolve({ name: file.name, url, width: img.naturalWidth, height: img.naturalHeight, img });
+      img.onerror = () => resolve(null);
+      img.src = url;
+    })));
+
+    const wasEmpty = state.images.length === 0;
+    let restored = 0;
+    for (const entry of loaded) {
+      if (!entry) continue;
+      state.images.push(entry);
+      if (!state.labels.has(entry.name)) {
+        const stored = loadFromStorage(entry.name);
+        if (stored) { state.labels.set(entry.name, stored); restored++; }
+        else state.labels.set(entry.name, emptyFaces());
+      }
+    }
+
+    renderSidebar();
+    updateProgress();
+    if (wasEmpty && state.images.length > 0) selectImage(0);
+    if (restored > 0) showToast('Restored ' + restored + ' stored label' + (restored === 1 ? '' : 's'));
+  }
+
+  function selectImage(i) {
+    if (i < 0 || i >= state.images.length) return;
+    state.current = i;
+    cancelActive();
+    fitImageToView();
+    renderSidebar();
+    render();
+  }
+
+  // ---- face selection / placement --------------------------------------
+  function selectFace(id) {
+    if (!state.images[state.current]) return;
+    state.activeFace = id;
+    state.tempCorners = [];
+    state.repositioning = null;
+    updateFaceButtonsUI();
+    render();
+  }
+
+  function cancelActive() {
+    state.activeFace = null;
+    state.tempCorners = [];
+    state.repositioning = null;
+    updateFaceButtonsUI();
+    render();
+  }
+
+  function clearFace() {
+    if (!state.activeFace) return;
+    const faces = getFaces();
+    if (!faces) return;
+    faces[state.activeFace] = { visible: false, corners: null };
+    state.tempCorners = [];
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+    render();
+  }
+
+  function commitFace(faceId, corners) {
+    const faces = getFaces();
+    if (!faces) return;
+    faces[faceId] = { visible: true, corners: corners.map(c => [c[0], c[1]]) };
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+  }
+
+  function hitTestCorner(mx, my) {
+    const faces = getFaces();
+    if (!faces) return null;
+    for (const f of FACE_ORDER) {
+      const face = faces[f];
+      if (!face.visible) continue;
+      for (let i = 0; i < 4; i++) {
+        const [sx, sy] = imageToScreen(face.corners[i][0], face.corners[i][1]);
+        const dx = sx - mx, dy = sy - my;
+        if (dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS) return { face: f, index: i };
+      }
+    }
+    return null;
+  }
+
+  function handleLeftClick(e) {
+    const [mx, my] = canvasMouseXY(e);
+
+    // Finishing a pick-up: this click sets the picked-up corner's new
+    // location, unless it lands on a different marker (then re-target it).
+    if (state.repositioning) {
+      const hit = hitTestCorner(mx, my);
+      if (hit) { state.repositioning = hit; render(); return; }
+      const [ix, iy] = screenToImage(mx, my);
+      const faces = getFaces();
+      faces[state.repositioning.face].corners[state.repositioning.index] = [ix, iy];
+      state.repositioning = null;
+      saveCurrentToStorage();
+      renderSidebar();
+      updateProgress();
+      render();
+      return;
+    }
+
+    // Only allow picking up an existing marker before any corner of the
+    // active placement has been placed, so a stray click can't wipe out
+    // in-progress work on the current face.
+    if (!state.activeFace || state.tempCorners.length === 0) {
+      const hit = hitTestCorner(mx, my);
+      if (hit) {
+        state.activeFace = null;
+        state.tempCorners = [];
+        state.repositioning = hit;
+        updateFaceButtonsUI();
+        render();
+        return;
+      }
+    }
+
+    if (state.activeFace) {
+      const [ix, iy] = screenToImage(mx, my);
+      state.tempCorners.push([ix, iy]);
+      if (state.tempCorners.length === 4) {
+        commitFace(state.activeFace, state.tempCorners);
+        state.activeFace = null;
+        state.tempCorners = [];
+        updateFaceButtonsUI();
+      }
+      render();
+    }
+  }
+
+  // ---- rendering ---------------------------------------------------------
+  function drawFace(faceId, corners, partial) {
+    const color = FACE_COLORS[faceId];
+    const pts = corners.map(c => imageToScreen(c[0], c[1]));
+
+    if (pts.length >= 2) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      if (pts.length === 4 && !partial) ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      if (pts.length === 4) {
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    pts.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], MARKER_RADII[i], 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+
+    if (pts.length === 4) {
+      const cx = pts.reduce((a, p) => a + p[0], 0) / 4;
+      const cy = pts.reduce((a, p) => a + p[1], 0) / 4;
+      ctx.font = 'bold 18px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      ctx.strokeText(faceId, cx, cy);
+      ctx.fillStyle = color;
+      ctx.fillText(faceId, cx, cy);
+    }
+  }
+
+  function render() {
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, state.cw, state.ch);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, state.cw, state.ch);
+
+    const entry = state.images[state.current];
+    if (!entry) {
+      ctx.fillStyle = '#666';
+      ctx.font = '16px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Load images to begin', state.cw / 2, state.ch / 2);
+      updateStatusLine();
+      return;
+    }
+
+    const s = getScale();
+    ctx.drawImage(entry.img, state.panX, state.panY, entry.width * s, entry.height * s);
+
+    const faces = state.labels.get(entry.name);
+    for (const f of FACE_ORDER) {
+      if (state.activeFace === f) continue; // drawn as in-progress below instead
+      const face = faces[f];
+      if (face.visible) drawFace(f, face.corners, false);
+    }
+
+    if (state.activeFace && state.tempCorners.length > 0) {
+      drawFace(state.activeFace, state.tempCorners, true);
+    }
+
+    if (state.repositioning) {
+      const face = faces[state.repositioning.face];
+      const c = face.corners[state.repositioning.index];
+      const [sx, sy] = imageToScreen(c[0], c[1]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 13, 0, Math.PI * 2);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    updateStatusLine();
+  }
+
+  function updateStatusLine() {
+    if (!state.images[state.current]) {
+      statusEl.textContent = 'Load images to begin.';
+    } else if (state.repositioning) {
+      statusEl.textContent = 'Repositioning ' + state.repositioning.face + ' corner ' +
+        (state.repositioning.index + 1) + ' — click the new location.';
+    } else if (state.activeFace) {
+      const n = state.tempCorners.length;
+      statusEl.textContent = 'Placing ' + state.activeFace + ': click corner ' + (n + 1) +
+        ' of 4 (' + CORNER_LABELS[n] + '). Esc to cancel, Delete to clear.';
+    } else {
+      statusEl.textContent = 'Select a face (button or U/R/F/D/L/B), then click 4 corners. Click a marker to move it.';
+    }
+  }
+
+  function updateFaceButtonsUI() {
+    document.querySelectorAll('.face-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.face === state.activeFace);
+    });
+  }
+
+  function renderSidebar() {
+    listEl.innerHTML = '';
+    state.images.forEach((entry, i) => {
+      const faces = state.labels.get(entry.name);
+      const labeled = !!faces && FACE_ORDER.some(f => faces[f].visible);
+      const li = document.createElement('div');
+      li.className = 'img-item' + (i === state.current ? ' current' : '');
+      li.title = entry.name;
+      const chk = document.createElement('span');
+      chk.className = 'chk';
+      chk.textContent = labeled ? '✓' : '';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = entry.name;
+      li.appendChild(chk);
+      li.appendChild(name);
+      li.addEventListener('click', () => selectImage(i));
+      listEl.appendChild(li);
+    });
+  }
+
+  function updateProgress() {
+    let labeledImgs = 0, totalFaces = 0;
+    state.images.forEach(entry => {
+      const faces = state.labels.get(entry.name);
+      if (!faces) return;
+      let has = false;
+      FACE_ORDER.forEach(f => { if (faces[f].visible) { has = true; totalFaces++; } });
+      if (has) labeledImgs++;
+    });
+    progressEl.textContent = state.images.length + ' images, ' + labeledImgs + ' labeled, ' + totalFaces + ' faces total';
+  }
+
+  // ---- export ------------------------------------------------------------
+  function buildImageLabelObject(entry) {
+    const faces = state.labels.get(entry.name) || emptyFaces();
+    return { image: entry.name, width: entry.width, height: entry.height, style: 'real', faces: cloneFaces(faces) };
+  }
+  function downloadJSON(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+  function exportCurrent() {
+    const entry = state.images[state.current];
+    if (!entry) return;
+    const base = entry.name.replace(/\.[^./\\]+$/, '');
+    downloadJSON(buildImageLabelObject(entry), base + '.json');
+  }
+  function exportAll() {
+    if (!state.images.length) return;
+    downloadJSON(state.images.map(buildImageLabelObject), 'labels-all.json');
+  }
+
+  // ---- event wiring --------------------------------------------------
+  document.getElementById('loadBtn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) loadFiles(fileInput.files);
+    fileInput.value = '';
+  });
+  document.getElementById('saveCurrentBtn').addEventListener('click', exportCurrent);
+  document.getElementById('exportAllBtn').addEventListener('click', exportAll);
+  document.getElementById('clearFaceBtn').addEventListener('click', clearFace);
+  document.querySelectorAll('.face-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectFace(btn.dataset.face));
+  });
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
+      e.preventDefault();
+      state.isPanning = true;
+      state.panStartMouse = [e.clientX, e.clientY];
+      state.panStartOffset = [state.panX, state.panY];
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+    if (e.button === 0) handleLeftClick(e);
+  });
+  window.addEventListener('mousemove', e => {
+    if (state.isPanning) {
+      state.panX = state.panStartOffset[0] + (e.clientX - state.panStartMouse[0]);
+      state.panY = state.panStartOffset[1] + (e.clientY - state.panStartMouse[1]);
+      render();
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (state.isPanning) {
+      state.isPanning = false;
+      canvas.style.cursor = state.spaceDown ? 'grab' : 'crosshair';
+    }
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    if (!state.images[state.current]) return;
+    const [mx, my] = canvasMouseXY(e);
+    // Zoom toward the cursor: capture the image-space point under it, apply
+    // the zoom change, then re-solve pan so that point lands back under mx,my.
+    const [ix, iy] = screenToImage(mx, my);
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    state.zoom = clamp(state.zoom * factor, 0.05, 40);
+    const s = getScale();
+    state.panX = mx - ix * s;
+    state.panY = my - iy * s;
+    render();
+  }, { passive: false });
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space' && !e.repeat) {
+      state.spaceDown = true;
+      if (!state.isPanning) canvas.style.cursor = 'grab';
+      e.preventDefault();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'ArrowLeft') { selectImage(state.current - 1); e.preventDefault(); }
+    else if (k === 'ArrowRight') { selectImage(state.current + 1); e.preventDefault(); }
+    else if (k === 'Escape') { cancelActive(); e.preventDefault(); }
+    else if (k === 'Delete' || k === 'Backspace') { clearFace(); e.preventDefault(); }
+    else if (k === '0') { fitImageToView(); render(); }
+    else {
+      const letter = k.length === 1 ? k.toUpperCase() : '';
+      if (FACE_ORDER.includes(letter)) { selectFace(letter); e.preventDefault(); }
+    }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.code === 'Space') {
+      state.spaceDown = false;
+      if (!state.isPanning) canvas.style.cursor = 'crosshair';
+    }
+  });
+
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dropOverlay.classList.add('show'); });
+  window.addEventListener('dragleave', e => {
+    e.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dropOverlay.classList.remove('show');
+  });
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    dropOverlay.classList.remove('show');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
+  });
+
+  const ro = new ResizeObserver(() => { resizeCanvasToContainer(); render(); });
+  ro.observe(wrap);
+  window.addEventListener('resize', () => { resizeCanvasToContainer(); render(); });
+
+  // ---- init ------------------------------------------------------------
+  resizeCanvasToContainer();
+  updateFaceButtonsUI();
+  renderSidebar();
+  updateProgress();
+  render();
+})();
+</script>
