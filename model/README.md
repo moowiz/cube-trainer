@@ -67,6 +67,16 @@ faces in a frame, temporal tracking) — see keypoint_loss's DECISION note.
 val_px from runs before this change reads slightly high by comparison (the
 old metric punished rotation disagreements).
 
+**2026-09-11 experiment ladder** (each isolates one change; real-photo
+numbers are on the 22 hand-labeled training photos, rotation-invariant
+metric): old loss + old data, fine-tuned (ft1) 4.55 px; new loss + old
+data (long2) synthetic val 5.19 vs 8.90 old loss, fine-tuned (ft2) 3.06 px
+real; new loss + HDRI/rounded-cubie data_v2 (long3) zero-shot real 22.8 vs
+27.8 px, fine-tuned (ft3) **2.42 px real**, deployed. The rotation-hedge
+diamond on dead-on views is gone (see runs/realframes*/preds_ft3). Both
+fine-tunes still miss the darkest backlit webcam frames - that's a label
+gap, not a capacity gap.
+
 **Quantization finding:** dynamic int8 shifts corners ~33 px mean — useless
 (the FC regression head quantizes terribly). `export_onnx.py` now gates on
 measured shift (<1 px) and deploys fp32 (24.5 MB) until static QDQ
