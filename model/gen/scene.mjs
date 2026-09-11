@@ -13,12 +13,33 @@
 // touching sticker 1, 3, 9, 7 respectively). Faces are always reported; the
 // `visible` flag marks faces actually presented to the camera.
 import * as THREE from 'three';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { proceduralBackground, pick } from '/backgrounds.mjs';
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// DECISION: ACES filmic tone mapping - linear output clips highlights to
+// flat white and oversaturates primaries, the biggest "obviously rendered"
+// tell next to sterile lighting. Exposure is randomized per sample.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+// HDRI environments (model/backgrounds/hdri/*.hdr, served by generate.mjs):
+// image-based lighting gives real-world color gradients and reflections that
+// point lights can't. PMREM'd once per file, cached for the whole run.
+const pmrem = new THREE.PMREMGenerator(renderer);
+const rgbeLoader = new RGBELoader();
+const hdriCache = new Map();
+async function hdriEnv(url) {
+  if (!hdriCache.has(url)) {
+    const tex = await rgbeLoader.loadAsync(url);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    hdriCache.set(url, { env: pmrem.fromEquirectangular(tex).texture, bg: tex });
+  }
+  return hdriCache.get(url);
+}
 
 const SPACING = 1;          // cubie grid pitch
 const CUBIE = 0.96;         // cubie edge length
@@ -76,14 +97,25 @@ function buildCube(rnd, style) {
   const group = new THREE.Group();
   const colors = faceColors(rnd);
   const rough = 0.15 + rnd() * 0.5; // low roughness -> specular glare
-  const boxGeo = new THREE.BoxGeometry(CUBIE, CUBIE, CUBIE);
-  const stickerSize = CUBIE * (0.8 + rnd() * 0.09);
+  // Rounded cubies like real cubes. RoundedBoxGeometry subclasses
+  // BoxGeometry, so the 6 material groups (+x -x +y -y +z -z) survive and
+  // stickerless per-face coloring splits along the bevel like molded plastic.
+  const bevel = CUBIE * (0.045 + rnd() * 0.045);
+  const boxGeo = new RoundedBoxGeometry(CUBIE, CUBIE, CUBIE, 3, bevel);
+  const stickerSize = (CUBIE - 2 * bevel) * (0.88 + rnd() * 0.09);
   const stickerGeo = new THREE.PlaneGeometry(stickerSize, stickerSize);
   const plastic = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.35 + rnd() * 0.3 });
   const interior = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.6 });
+  // glossy cubes get a clearcoat layer (the lacquered look of a new cube);
+  // otherwise plain plastic reads matte/frosted
+  const coat = rnd() < 0.5 ? 0.3 + rnd() * 0.7 : 0;
+  const coatRough = 0.05 + rnd() * 0.3;
   const faceMats = {};
   for (const f of Object.keys(SCHEME)) {
-    faceMats[f] = new THREE.MeshStandardMaterial({ color: colors[f], roughness: rough, metalness: 0 });
+    faceMats[f] = new THREE.MeshPhysicalMaterial({
+      color: colors[f], roughness: rough, metalness: 0,
+      clearcoat: coat, clearcoatRoughness: coatRough,
+    });
   }
 
   const cubies = [];
@@ -130,7 +162,7 @@ function buildCube(rnd, style) {
       c.quaternion.premultiply(q);
     }
   }
-  return { group, nMoves };
+  return { group, nMoves, bevel };
 }
 
 const texLoader = new THREE.TextureLoader();
@@ -151,16 +183,41 @@ function canvasTexture(rnd) {
 }
 
 window.renderSample = async function renderSample(opts) {
-  const { seed, style, width = 640, height = 480, photoUrls = [] } = opts;
+  const { seed, style, width = 640, height = 480, photoUrls = [], hdriUrls = [] } = opts;
   const rnd = mulberry32(seed);
   if (canvas.width !== width || canvas.height !== height) renderer.setSize(width, height, false);
 
   const scene = new THREE.Scene();
   const disposables = [];
 
+  // occasional murky scenes: the real webcam fixtures are mostly lit by a
+  // monitor in a dark room, far dimmer than the average render
+  const dim = rnd() < 0.18 ? 0.2 + rnd() * 0.35 : 1;
+  renderer.toneMappingExposure = 0.75 + rnd() * 0.7;
+
+  // --- environment lighting (image-based; the point/hemi lights only add
+  // shadows and glare on top) ---
+  let envName = null;
+  let env = null;
+  if (hdriUrls.length) {
+    const url = pick(rnd, hdriUrls);
+    envName = decodeURIComponent(url.split('/').pop()).replace(/\.hdr$/i, '');
+    env = await hdriEnv(url);
+    scene.environment = env.env;
+    scene.environmentIntensity = dim * (0.5 + rnd() * 1.1);
+  }
+
   // --- background ---
   let bgKind;
-  if (photoUrls.length && rnd() < 0.4) {
+  const bgRoll = rnd();
+  if (env && bgRoll < 0.45) {
+    // the environment itself: a real room behind the cube, consistent with
+    // the light falling on it - the strongest anti-"rendered" cue we have
+    bgKind = 'hdri';
+    scene.background = env.bg;
+    scene.backgroundIntensity = dim * (0.7 + rnd() * 0.6);
+    scene.backgroundBlurriness = rnd() < 0.5 ? rnd() * 0.3 : 0; // webcam-ish defocus half the time
+  } else if (photoUrls.length && bgRoll < 0.7) {
     bgKind = 'photo';
     scene.background = await photoTexture(pick(rnd, photoUrls));
   } else {
@@ -171,7 +228,7 @@ window.renderSample = async function renderSample(opts) {
   }
 
   // --- cube ---
-  const { group, nMoves } = buildCube(rnd, style);
+  const { group, nMoves, bevel } = buildCube(rnd, style);
   scene.add(group);
 
   // --- camera ---
@@ -240,17 +297,18 @@ window.renderSample = async function renderSample(opts) {
   }
 
   // --- lights ---
-  // occasional murky scenes: the real webcam fixtures are mostly lit by a
-  // monitor in a dark room, far dimmer than the average render
-  const dim = rnd() < 0.18 ? 0.2 + rnd() * 0.35 : 1;
-  const hemi = new THREE.HemisphereLight(kelvinToColor(4500 + rnd() * 3500), 0x202025, dim * (0.25 + rnd() * 0.7));
+  // With an environment map the analytic lights are only there for cast
+  // shadows and glare; without one (no hdri files) they carry the scene.
+  const lightScale = env ? 0.35 : 1;
+  const hemi = new THREE.HemisphereLight(kelvinToColor(4500 + rnd() * 3500), 0x202025,
+    dim * lightScale * (0.25 + rnd() * 0.7));
   scene.add(hemi);
   const nDir = 1 + (rnd() < 0.6 ? 1 : 0);
   const kelvins = [];
   for (let i = 0; i < nDir; i++) {
     const k = 2500 + rnd() * 4500; // warm indoor light is the known hard case
     kelvins.push(Math.round(k));
-    const dl = new THREE.DirectionalLight(kelvinToColor(k), dim * (0.6 + rnd() * 2.2));
+    const dl = new THREE.DirectionalLight(kelvinToColor(k), dim * lightScale * (0.6 + rnd() * 2.2));
     dl.position.set((rnd() - 0.5) * 16, 2 + rnd() * 10, (rnd() - 0.5) * 16);
     if (i === 0 && hasTable) {
       dl.castShadow = true;
@@ -271,6 +329,11 @@ window.renderSample = async function renderSample(opts) {
   const dataUrl = renderer.domElement.toDataURL('image/png');
 
   // --- labels ---
+  // Rounded cubies pull the cube's corner silhouette in from the sharp-box
+  // vertex: the outermost point of a corner rounded with radius r sits at
+  // +/-(H - r(1 - 1/sqrt(3))) per axis. Matches the hand-labeling convention
+  // "outermost point of the plastic, never extrapolate past the edge".
+  const cornerH = H - bevel * (1 - 1 / Math.sqrt(3));
   const faces = {};
   const camPos = camera.position;
   for (const [f, fd] of Object.entries(FACE_DATA)) {
@@ -278,7 +341,7 @@ window.renderSample = async function renderSample(opts) {
     const center = normal.clone().multiplyScalar(H);
     const facing = normal.dot(camPos.clone().sub(center).normalize());
     const corners = fd.corners.map(([x, y, z]) => {
-      const v = new THREE.Vector3(x * H, y * H, z * H).project(camera);
+      const v = new THREE.Vector3(x * cornerH, y * cornerH, z * cornerH).project(camera);
       return [Number(((v.x * 0.5 + 0.5) * width).toFixed(2)), Number(((-v.y * 0.5 + 0.5) * height).toFixed(2))];
     });
     const pc = center.clone().project(camera);
@@ -299,7 +362,11 @@ window.renderSample = async function renderSample(opts) {
     dataUrl,
     label: {
       width, height, style, faces,
-      meta: { seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins, closeUp, dim: Number(dim.toFixed(2)) },
+      meta: {
+        seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins,
+        closeUp, dim: Number(dim.toFixed(2)), envName,
+        exposure: Number(renderer.toneMappingExposure.toFixed(2)), bevel: Number(bevel.toFixed(3)),
+      },
     },
   };
 };

@@ -7,6 +7,9 @@ web/public/models/*.onnx
 !web/public/models/facekp.onnx
 web/public/ort/
 model/data/
+model/data_v2/
+model/data_v2_gen.log
+model/preview_v2/
 # hand-labeled real photos: personal photos, kept out of the public repo
 # (back them up separately - the labels are hours of hand work)
 model/data_real/

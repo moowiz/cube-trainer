@@ -47,6 +47,15 @@ async function main() {
     const files = (await readdir(bgDir)).filter((f) => /\.(png|jpe?g|webp)$/i.test(f));
     photoUrls = files.map((f) => '/backgrounds/' + encodeURIComponent(f));
   }
+  // HDRI environments (model/backgrounds/hdri/*.hdr): image-based lighting +
+  // real-room backgrounds. Optional like the photos, but strongly recommended.
+  let hdriUrls = [];
+  const hdriDir = join(bgDir, 'hdri');
+  if (existsSync(hdriDir)) {
+    hdriUrls = (await readdir(hdriDir)).filter((f) => /\.hdr$/i.test(f))
+      .map((f) => '/backgrounds/hdri/' + encodeURIComponent(f));
+  }
+  if (!hdriUrls.length) console.warn('no HDRIs in model/backgrounds/hdri/ - falling back to analytic lights only');
 
   const server = createServer(async (req, res) => {
     const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -94,7 +103,7 @@ async function main() {
     const style = STYLE === 'mix' ? (styleHash < 7 ? 'stickered' : 'stickerless') : STYLE;
     const res = await page.evaluate(
       (opts) => window.renderSample(opts),
-      { seed, style, width: WIDTH, height: HEIGHT, photoUrls },
+      { seed, style, width: WIDTH, height: HEIGHT, photoUrls, hdriUrls },
     );
     const id = `img_${String(next).padStart(6, '0')}`;
     const png = Buffer.from(res.dataUrl.slice('data:image/png;base64,'.length), 'base64');
