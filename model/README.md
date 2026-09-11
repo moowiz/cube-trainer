@@ -29,6 +29,32 @@ logit, 4 corners])` at 320x240 input, faces in URFDLB order, corners in the
 cubejs sticker-layout order the labels use. `web/` must read `facekp.json`
 rather than hardcoding preprocessing.
 
+## Training performance (TODO before the next serious run)
+
+Measured on the first 20k run (RTX 4070 SUPER): ~116 s/epoch at ~164 img/s,
+GPU 3D utilization ~7% in a sawtooth — the run is **dataloader-bound**, not
+GPU-bound. The tax is decoding full 640x480 PNGs per epoch only to resize
+them to 320x240.
+
+Fix, in order of payoff:
+
+1. **Pre-decoded cache**: one-time pass that decodes + resizes every image to
+   the 320x240 input size and writes a single memory-mapped uint8 array
+   (`data/cache_320x240.npy`, ~4.4 GB for 20k) plus a copy of the label
+   tensors. `dataset.py` should build it lazily (if missing or stale by
+   count) and then read samples from the memmap. Augmentation then runs on
+   quarter-size images (scale the affine accordingly — corner labels are
+   already resolution-independent). Expected 3-5x epoch speedup.
+2. Only if still starved after (1): move photometric augmentation to the GPU
+   (batched torch ops) or raise `--workers`.
+
+**Resource etiquette:** this is the user's daily-driver PC — keep it usable
+while jobs run. Don't raise `--workers` beyond ~half the CPU threads (the
+first run used 8 at ~56% CPU: acceptable ceiling, don't exceed it), don't
+chase 100% utilization of anything, and prefer making each worker's unit of
+work cheaper (caching, smaller decodes) over adding workers. Same applies to
+the M3 generator: one headless-Chrome instance is plenty.
+
 ## Synthetic data generator (`gen/`)
 
 Renders a 3x3 cube — stickered (70%) or stickerless (30%) — with a real random
