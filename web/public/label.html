@@ -206,10 +206,27 @@
         <li><kbd>0</kbd> &mdash; reset zoom/pan to fit image</li>
       </ul>
       <div class="cornerOrder">
-        Corner order per face: 0 = top-left (touches sticker&nbsp;1),
-        1 = top-right (touches sticker&nbsp;3), 2 = bottom-right (touches sticker&nbsp;9),
-        3 = bottom-left (touches sticker&nbsp;7). Corner 0's marker is drawn biggest,
-        shrinking to corner 3.
+        Corner order is <b>physical, not what's upper-left in the photo</b>:
+        each corner is named by the neighboring faces it touches, so first
+        identify the face by its <b>center color</b> (white=U, red=R, green=F,
+        yellow=D, orange=L, blue=B), then mentally right the cube and go
+        clockwise from corner 0:
+        <ul>
+          <li><b>Side faces</b> (R F L B): imagine white up, that face toward
+            you &mdash; corner 0 is then the visual top-left. E.g. green's
+            corner 0 touches <b>white + orange</b>; red's touches
+            <b>white + green</b>; orange's touches <b>white + blue</b>;
+            blue's touches <b>white + red</b>.</li>
+          <li><b>White (U)</b>: look down with green toward you &mdash;
+            corner 0 touches <b>blue + orange</b> (back-left).</li>
+          <li><b>Yellow (D)</b>: look at it straight on with green at the top
+            of your view &mdash; corner 0 touches <b>green + orange</b>.</li>
+        </ul>
+        Then 1 = next corner clockwise (top-right), 2 = bottom-right,
+        3 = bottom-left, in that righted view. Corner 0's marker is drawn
+        biggest, shrinking to corner 3. If the photo shows the cube tilted,
+        click the physical corners wherever they appear &mdash; do NOT
+        re-orient to the image.
       </div>
     </details>
   </div>
