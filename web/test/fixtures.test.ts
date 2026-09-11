@@ -8,6 +8,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
+import Cube from 'cubejs';
 import { isFaceTooDark } from '../src/color';
 import { assembleState, type FaceCapture } from '../src/state';
 import type { Lab } from '../src/types';
@@ -62,6 +63,20 @@ describe('scan fixtures', () => {
       }
     });
   }
+});
+
+describe('cube-scan-1789102641416 (kitchen, evening — known scramble)', () => {
+  it('classifies all 54 stickers to the exact state the scramble produces', () => {
+    // The user scanned right after applying this scramble (white up, green
+    // front), so cubejs gives the exact ground truth. This scan classified
+    // 54/54 live with zero manual corrections — a full M1 exit case.
+    const SCRAMBLE = "F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D";
+    const truth = new Cube().move(SCRAMBLE).asString();
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789102641416.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    const res = assembleState(captures);
+    expect(res.facelets).toBe(truth);
+  });
 });
 
 describe('cube-scan-1789102120226 (kitchen, evening — a SOLVED cube)', () => {
