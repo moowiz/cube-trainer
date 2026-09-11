@@ -44,6 +44,14 @@ In `model/gen/`: render a stickered and a stickerless cube with random scrambles
 
 **Decision to make here:** Blender (better realism, slower iteration) vs Three.js headless (faster, easier to match the web renderer). Default to Three.js unless realism is clearly the bottleneck.
 
+**Status (2026-09-11):** generator built (Three.js in headless Chrome), 38k
+images rendered across framing/lighting regimes, labels verified two ways
+(overlay viz + center-sticker classification). The realism half of the "done
+when" is NOT met — the user's verdict: "fairly obviously rendered images."
+Proceeding anyway: geometric transfer to real frames already works partially,
+and M5 fine-tuning is the designed realism compensator. Revisit (Blender or
+better materials/noise) only if M5 can't close the gap.
+
 ---
 
 ## M4 — Face keypoint model
@@ -53,6 +61,18 @@ Small keypoint detector (MobileNetV3 or similar backbone, heatmap or direct-regr
 **Done when:** on a held-out synthetic set, mean corner error < 3 px at 320x240 input, and the ONNX model runs in the browser on a phone at ≥15 fps (measure, don't guess).
 
 **Watch for:** WebGPU availability. Benchmark both `webgpu` and `wasm` providers; if wasm is too slow, shrink the model before optimizing anything else.
+
+**Status (2026-09-11):** pipeline complete end-to-end — 38k-image training,
+ONNX export with parity gates, browser runtime (`detect.html`) verified in
+headless Chrome (webgpu 6.1 ms / wasm 10.9 ms per inference on desktop; phone
+fps still to be measured on the deployed page). Accuracy: median 3.4 px on
+held-out synthetic but mean 8.9 px — a tail of two characterized failure
+modes: near-face-on close-ups regress a ~45°-rotated "hedge" quad (corner-
+order ambiguity of a lone square face), and heavily foreshortened U/D faces.
+Known open items: beat the tail (candidates: rotation-canonical corner
+parameterization or heatmap head, more close-up data, M5 real-frame
+fine-tune) and int8 (dynamic quantization shifts corners ~33 px — the fp32
+model is deployed; static QDQ is the TODO).
 
 ---
 

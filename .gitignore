@@ -11,7 +11,6 @@ model/.venv/
 model/backgrounds/
 model/train/runs/
 model/export/out/
-web/public/models/facekp.json
 __pycache__/
 *.local
 .DS_Store
