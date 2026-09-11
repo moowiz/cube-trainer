@@ -55,6 +55,51 @@ function collectSamples(): Labeled[] {
   return out;
 }
 
+// Second batch: five uniform faces of a SOLVED cube in the same kitchen —
+// white, red, green, yellow, orange. Uses the cells the scanner itself
+// sampled (stored in the frame fixtures), labeled by the face's single color.
+const SOLVED_FRAMES: Array<{ file: string; label: string }> = [
+  { file: 'cube-frame-R-1789102058414.json', label: 'W' },
+  { file: 'cube-frame-F-1789102067515.json', label: 'R' },
+  { file: 'cube-frame-D-1789102075330.json', label: 'G' },
+  { file: 'cube-frame-L-1789102083847.json', label: 'Y' },
+  { file: 'cube-frame-B-1789102090329.json', label: 'O' },
+];
+
+describe('solved-cube uniform faces (low light)', () => {
+  const samples: Labeled[] = [];
+  for (const { file, label } of SOLVED_FRAMES) {
+    const fx = JSON.parse(readFileSync(join(dir, file), 'utf8')) as { cells: Array<{ lab: Lab }> };
+    const norm = normalizeFaceCells(fx.cells.map((c) => c.lab));
+    for (const n of norm) samples.push({ label, norm: n });
+  }
+
+  it('at least 44/45 uniform-face samples classify to their own face color', () => {
+    // One corner cell of the green face sampled the tile edge (a -11/6 read
+    // against green's -23/16) — a contamination outlier per-sticker voting
+    // and tap-to-fix exist for, not a classifier miss.
+    const labels = [...new Set(samples.map((s) => s.label))];
+    let correct = 0;
+    const errors: string[] = [];
+    for (const test of samples) {
+      let best = '';
+      let bestD = Infinity;
+      for (const label of labels) {
+        const rest = samples.filter((s) => s !== test && s.label === label);
+        const c = labMean(rest.map((s) => s.norm));
+        const d = labDistance(test.norm, c);
+        if (d < bestD) {
+          bestD = d;
+          best = label;
+        }
+      }
+      if (best === test.label) correct++;
+      else errors.push(`${test.label}->${best}`);
+    }
+    expect(correct, `errors: ${errors.join(', ')}`).toBeGreaterThanOrEqual(44);
+  });
+});
+
 describe('backlit kitchen frames (low light)', () => {
   const samples = collectSamples();
 

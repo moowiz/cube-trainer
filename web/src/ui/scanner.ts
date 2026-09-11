@@ -21,6 +21,7 @@ import { FACE_ORDER, DEFAULT_SCHEME_HEX } from '../types';
 import {
   FaceStabilizer,
   assembleState,
+  normalizeFaceCells,
   validateState,
   solveState,
   warmSolver,
@@ -54,10 +55,16 @@ const PROMPTS: Record<FaceId, string> = {
 };
 
 // DECISION: grid square is 55% of the smaller video dimension; sample patches
-// are 12px at 640x480 (per CLAUDE.md); duplicate-face guard threshold 14 Lab.
+// are 12px at 640x480 (per CLAUDE.md). The duplicate-face guard compares
+// centers in the SAME exposure-normalized space assembleState clusters in —
+// with a raw-Lab guard, two centers can pass here (absolute L differs) and
+// still collide at assembly, surfacing the error only after all six faces
+// (fixture cube-scan-1789101879130: white read dark-bluish, blue read
+// near-black; raw distance 16.5, normalized 6.3). Threshold 10: the solved
+// kitchen scan's closest legitimate pair (red/orange centers) sits at ~17.
 const GRID_FRACTION = 0.55;
 const PATCH_SIZE = 12;
-const DUPLICATE_CENTER_DIST = 14;
+const DUPLICATE_CENTER_DIST_NORM = 10;
 const LOW_CONFIDENCE = 0.35;
 // DECISION: background rejection. A capture whose 9 cells are near-uniform
 // (max pairwise Lab distance < 15) is only accepted when the surroundings of
@@ -286,7 +293,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   function onFaceStable(lastCells: CellSample[]): void {
     const face = FACE_ORDER[faceIdx]!;
     const cells = stabilizer.result();
-    const center = cells[4]!;
 
     // Darkness guard: an underexposed face is unclassifiable — refuse it now
     // rather than failing at assembly with all six faces garbage (see
@@ -316,9 +322,13 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     }
 
     // Duplicate guard: a new face's center color must differ from every face
-    // captured so far. Warn once; accept on the second consecutive stable read
-    // (so a genuinely close pair, e.g. red/orange in bad light, can't wedge).
-    const dup = captures.find((c) => labDistance(c.cells[4]!, center) < DUPLICATE_CENTER_DIST);
+    // captured so far, measured in the normalized space assembly will use.
+    // Warn once; accept on the second consecutive stable read (so a genuinely
+    // close pair, e.g. red/orange in bad light, can't wedge).
+    const normCenter = normalizeFaceCells(cells)[4]!;
+    const dup = captures.find(
+      (c) => labDistance(normalizeFaceCells(c.cells)[4]!, normCenter) < DUPLICATE_CENTER_DIST_NORM,
+    );
     if (dup && duplicateStrikes === 0) {
       duplicateStrikes = 1;
       needMotion = true;
