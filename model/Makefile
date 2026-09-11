@@ -14,10 +14,15 @@ preview: deps
 viz:
 	cd $(GEN) && node visualize.mjs --data ../data/preview --count 12
 
+PY = .venv/Scripts/python
+
+overfit:
+	cd train && ../$(PY) train.py --data ../data --overfit 50 --epochs 120 --out runs/overfit
+
 train:
-	@echo "M4: not implemented yet (see MILESTONES.md)"
+	cd train && ../$(PY) train.py --data ../data --epochs 30 --out runs/base
 
 export:
-	@echo "M4: not implemented yet (see MILESTONES.md)"
+	cd export && ../$(PY) export_onnx.py --ckpt ../train/runs/base/best.pt
 
-.PHONY: deps data preview viz train export
+.PHONY: deps data preview viz overfit train export

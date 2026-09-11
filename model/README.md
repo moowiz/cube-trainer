@@ -1,8 +1,33 @@
 # model/ — synthetic data + keypoint model
 
-Produces (eventually) `web/public/models/facekp.onnx`, the face keypoint
-detector. Currently at **M3: synthetic data generation**. Training and export
-land in M4.
+Produces `web/public/models/facekp.onnx`, the face keypoint detector.
+M3 (data generation) done; currently at **M4: training + ONNX export**.
+
+## Training (`train/`) and export (`export/`)
+
+One-time setup (Python 3.13 — torch has no 3.14 wheels yet):
+
+```
+cd model
+python -m venv .venv
+.venv\Scripts\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+```
+cd train
+..\.venv\Scripts\python train.py --data ../data --overfit 50 --epochs 600 --batch 16 --lr 1e-3
+    # pipeline correctness check: must reach ~2 px. Verified 2026-09: 2.07 px.
+..\.venv\Scripts\python train.py --data ../data --epochs 30 --out runs/base
+cd ..\export
+..\.venv\Scripts\python export_onnx.py --ckpt ../train/runs/base/best.pt
+    # -> web/public/models/facekp.onnx (int8) + facekp.json (pre/post-processing metadata)
+```
+
+The model is MobileNetV3-Small → direct regression of `(6 faces × [visibility
+logit, 4 corners])` at 320x240 input, faces in URFDLB order, corners in the
+cubejs sticker-layout order the labels use. `web/` must read `facekp.json`
+rather than hardcoding preprocessing.
 
 ## Synthetic data generator (`gen/`)
 
@@ -71,6 +96,7 @@ next) — this is the M3 "labels visualize correctly" check.
 ```
 gen/      generator (Node + three + puppeteer)   <- M3, done
 data/     generated images + labels              <- gitignored
-train/    keypoint model + training              <- M4
-export/   torch -> onnx -> int8 quantize         <- M4
+train/    keypoint model + training              <- M4 (dataset/augment/model/train)
+export/   torch -> onnx -> int8 quantize         <- M4 (export_onnx.py)
+.venv/    Python 3.13 venv                       <- gitignored
 ```
