@@ -89,7 +89,9 @@ cd model && make export      # writes web/public/models/facekp.onnx
 
 ## Known hard cases (don't be surprised)
 
-- Red vs orange and white vs yellow under warm indoor light.
+- Red vs orange and white vs yellow under warm indoor light. Planned fix:
+  relative classification (same-frame center exemplars + 9-per-color
+  assignment at lock) — see `web/src/color-notes.md`.
 - Specular glare on the face nearest the light — often wipes out one sticker.
 - Stickerless cubes: no black borders, so edge-based methods fail. This is why we use a learned detector.
 - Tiles/grids in the background (bathroom, keyboard) produce false face candidates.
