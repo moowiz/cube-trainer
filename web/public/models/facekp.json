@@ -33,6 +33,6 @@
     "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation"
   },
   "trainedEpoch": 15,
-  "valPx": 9.127407786124321,
+  "valPx": 5.247983732963988,
   "precision": "fp32"
 }
