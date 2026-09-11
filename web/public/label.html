@@ -198,7 +198,12 @@
         <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> &mdash; previous / next image</li>
         <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
         <li>click 4&times; on canvas &mdash; place that face's corners in order</li>
-        <li>click an existing marker &mdash; pick it up, next click re-places it</li>
+        <li>click a marker (no face selected) &mdash; pick it up, next click drops it</li>
+        <li>placing/dropping near another face's marker &mdash; snaps to it, so
+          shared corners coincide exactly</li>
+        <li>"Suggest (model)" &mdash; pre-fills unlabeled faces with the current
+          model's guess; verify corner order (dot sizes) and fix by picking
+          markers up. Needs the deployed site (not a local file).</li>
         <li><kbd>Esc</kbd> &mdash; cancel in-progress face</li>
         <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label</li>
         <li>mouse wheel &mdash; zoom toward cursor</li>
@@ -243,6 +248,7 @@
       <button class="face-btn" data-face="L" style="background:#f19f2c;color:#111">L</button>
       <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
       <button id="clearFaceBtn">Clear face</button>
+      <button id="suggestBtn" title="Run the current keypoint model on this photo and pre-fill unlabeled faces">Suggest (model)</button>
       <div id="statusLine">Load images to begin.</div>
     </div>
     <div id="canvasWrap">
@@ -477,13 +483,14 @@
     updateProgress();
   }
 
-  function hitTestCorner(mx, my) {
+  function hitTestCorner(mx, my, opts = {}) {
     const faces = getFaces();
     if (!faces) return null;
     for (const f of FACE_ORDER) {
       const face = faces[f];
       if (!face.visible) continue;
       for (let i = 0; i < 4; i++) {
+        if (opts.excludeOne && opts.excludeOne.face === f && opts.excludeOne.index === i) continue;
         const [sx, sy] = imageToScreen(face.corners[i][0], face.corners[i][1]);
         const dx = sx - mx, dy = sy - my;
         if (dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS) return { face: f, index: i };
@@ -492,17 +499,28 @@
     return null;
   }
 
+  // Adjacent faces physically share corners, so a click near an existing
+  // marker while PLACING (or dropping a picked-up corner) snaps to that
+  // marker's exact position instead of grabbing it - shared corners then
+  // coincide exactly. Picking a marker up requires no face to be mid-placement.
+  function clickPosition(mx, my, excludeOne) {
+    const hit = hitTestCorner(mx, my, { excludeOne });
+    if (hit) {
+      const c = getFaces()[hit.face].corners[hit.index];
+      showToast('Snapped to ' + hit.face + ' corner ' + hit.index);
+      return [c[0], c[1]];
+    }
+    return screenToImage(mx, my);
+  }
+
   function handleLeftClick(e) {
     const [mx, my] = canvasMouseXY(e);
 
-    // Finishing a pick-up: this click sets the picked-up corner's new
-    // location, unless it lands on a different marker (then re-target it).
+    // Finishing a pick-up: this click drops the corner (snapping to another
+    // face's marker if close, so shared corners can be made exact).
     if (state.repositioning) {
-      const hit = hitTestCorner(mx, my);
-      if (hit) { state.repositioning = hit; render(); return; }
-      const [ix, iy] = screenToImage(mx, my);
-      const faces = getFaces();
-      faces[state.repositioning.face].corners[state.repositioning.index] = [ix, iy];
+      const { face, index } = state.repositioning;
+      getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
       state.repositioning = null;
       saveCurrentToStorage();
       renderSidebar();
@@ -511,30 +529,22 @@
       return;
     }
 
-    // Only allow picking up an existing marker before any corner of the
-    // active placement has been placed, so a stray click can't wipe out
-    // in-progress work on the current face.
-    if (!state.activeFace || state.tempCorners.length === 0) {
-      const hit = hitTestCorner(mx, my);
-      if (hit) {
-        state.activeFace = null;
-        state.tempCorners = [];
-        state.repositioning = hit;
-        updateFaceButtonsUI();
-        render();
-        return;
-      }
-    }
-
     if (state.activeFace) {
-      const [ix, iy] = screenToImage(mx, my);
-      state.tempCorners.push([ix, iy]);
+      state.tempCorners.push(clickPosition(mx, my));
       if (state.tempCorners.length === 4) {
         commitFace(state.activeFace, state.tempCorners);
         state.activeFace = null;
         state.tempCorners = [];
         updateFaceButtonsUI();
       }
+      render();
+      return;
+    }
+
+    // No face selected: clicking a marker picks it up to move it.
+    const hit = hitTestCorner(mx, my);
+    if (hit) {
+      state.repositioning = hit;
       render();
     }
   }
@@ -716,6 +726,83 @@
   }
 
   // ---- event wiring --------------------------------------------------
+  // ---- model-assisted suggestions ---------------------------------------
+  // Runs the deployed keypoint model (onnxruntime-web, wasm EP) on the
+  // current photo and pre-fills faces the user hasn't labeled yet. Mirrors
+  // web/src/detect/facekp.ts: letterbox to model input, normalize per the
+  // facekp.json sidecar, map corners back to photo pixels.
+  let ortMod = null, ortSession = null, ortMeta = null;
+  async function ensureModel() {
+    if (ortSession) return true;
+    try {
+      showToast('Loading model…');
+      ortMod = await import('./ort/ort.min.mjs');
+      ortMod.env.wasm.wasmPaths = new URL('./ort/', location.href).href;
+      ortMod.env.wasm.numThreads = 1;
+      ortMeta = await (await fetch('./models/facekp.json')).json();
+      const buf = await (await fetch('./models/facekp.onnx')).arrayBuffer();
+      ortSession = await ortMod.InferenceSession.create(new Uint8Array(buf), { executionProviders: ['wasm'] });
+      return true;
+    } catch (err) {
+      showToast('Model unavailable: ' + (err && err.message ? err.message : err));
+      ortSession = null;
+      return false;
+    }
+  }
+
+  async function suggestFromModel() {
+    const entry = state.images[state.current];
+    const faces = getFaces();
+    if (!entry || !faces) { showToast('Load an image first'); return; }
+    if (!(await ensureModel())) return;
+    const [, , ih, iw] = ortMeta.input.shape;
+    const scale = Math.min(iw / entry.width, ih / entry.height);
+    const dx = (iw - entry.width * scale) / 2;
+    const dy = (ih - entry.height * scale) / 2;
+    const c = document.createElement('canvas');
+    c.width = iw; c.height = ih;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgb(114,114,114)';
+    g.fillRect(0, 0, iw, ih);
+    g.drawImage(entry.img, dx, dy, entry.width * scale, entry.height * scale);
+    const px = g.getImageData(0, 0, iw, ih).data;
+    const [mr, mg, mb] = ortMeta.input.mean;
+    const [sr, sg, sb] = ortMeta.input.std;
+    const plane = iw * ih;
+    const x = new Float32Array(3 * plane);
+    for (let i = 0; i < plane; i++) {
+      x[i] = (px[i * 4] / 255 - mr) / sr;
+      x[plane + i] = (px[i * 4 + 1] / 255 - mg) / sg;
+      x[2 * plane + i] = (px[i * 4 + 2] / 255 - mb) / sb;
+    }
+    const out = await ortSession.run({ image: new ortMod.Tensor('float32', x, [1, 3, ih, iw]) });
+    const y = out.faces.data;
+    let filled = 0, skipped = 0;
+    for (let f = 0; f < 6; f++) {
+      const conf = 1 / (1 + Math.exp(-y[f * 9]));
+      if (conf < 0.5) continue;
+      const id = FACE_ORDER[f];
+      if (faces[id].visible) { skipped++; continue; } // never overwrite the human
+      const corners = [];
+      for (let k = 0; k < 4; k++) {
+        corners.push([
+          (y[f * 9 + 1 + 2 * k] * iw - dx) / scale,
+          (y[f * 9 + 2 + 2 * k] * ih - dy) / scale,
+        ]);
+      }
+      faces[id] = { visible: true, corners };
+      filled++;
+    }
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+    render();
+    showToast(filled
+      ? 'Model suggested ' + filled + ' face(s)' + (skipped ? ' (' + skipped + ' already labeled, kept yours)' : '') + ' — verify corner order!'
+      : 'Model found no unlabeled faces above 50% confidence');
+  }
+  document.getElementById('suggestBtn').addEventListener('click', () => { void suggestFromModel(); });
+
   document.getElementById('loadBtn').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     if (fileInput.files.length) loadFiles(fileInput.files);
