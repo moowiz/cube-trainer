@@ -61,6 +61,7 @@ MILESTONES.md
 ## Working style
 
 - Read `MILESTONES.md` first. Work on the current milestone only; don't pull forward work from later ones.
+- Commit work to save it, and push to GitHub (`origin`, HTTPS remote). Pushing `main` also deploys the app to GitHub Pages via `.github/workflows/deploy.yml`.
 - Every milestone ends with something runnable on a phone. Prefer an ugly working step over a clean partial one.
 - When a step is ambiguous (thresholds, model size, frame rate), pick a sensible default, note it in a `// DECISION:` comment, and move on. Don't stop to ask.
 - Debug views are first-class. When adding a processing step, add a way to see its output in the debug panel.

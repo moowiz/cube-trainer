@@ -110,7 +110,7 @@ function swapChars(facelets: string, i: number, j: number): string {
 
 describe('FaceStabilizer', () => {
   it('becomes stable only after N consistent frames', () => {
-    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6 });
+    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6, minStableMs: 0 });
     const frame = new Array(9).fill(0).map(() => lab(50, 0, 0));
 
     let r = s.push(frame); // frame 1: no previous, counter stays 0
@@ -126,7 +126,7 @@ describe('FaceStabilizer', () => {
   });
 
   it('a jumpy frame resets progress', () => {
-    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6 });
+    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6, minStableMs: 0 });
     const frame = new Array(9).fill(0).map(() => lab(50, 0, 0));
     s.push(frame);
     let r = s.push(frame); // counter=1
@@ -140,6 +140,35 @@ describe('FaceStabilizer', () => {
     // jumpy frame becomes the new reference: a consistent frame afterwards increments again
     r = s.push(jumpy);
     expect(r.progress).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('holds back until minStableMs of wall-clock stability has passed', () => {
+    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6, minStableMs: 700 });
+    const frame = new Array(9).fill(0).map(() => lab(50, 0, 0));
+    // 60fps-style timestamps: frame gate satisfied long before the time gate
+    let t = 1000;
+    let r = s.push(frame, t);
+    for (let i = 0; i < 10; i++) r = s.push(frame, (t += 16));
+    expect(r.stable).toBe(false); // ~160ms elapsed, counter=10 >= 3
+    expect(r.progress).toBeLessThan(0.5);
+    while (t < 1000 + 700) r = s.push(frame, (t += 16));
+    expect(r.stable).toBe(true);
+    // ...and a drift resets the clock, not just the counter
+    const jumpy = frame.map((c, i) => (i === 0 ? lab(c.L + 50, c.a, c.b) : c));
+    r = s.push(jumpy, (t += 16));
+    expect(r.moved).toBe(true);
+    for (let i = 0; i < 10; i++) r = s.push(jumpy, (t += 16));
+    expect(r.stable).toBe(false);
+  });
+
+  it('reports moved only when a frame breaks consistency', () => {
+    const s = new FaceStabilizer({ stableFrames: 3, maxCellDrift: 6, minStableMs: 0 });
+    const frame = new Array(9).fill(0).map(() => lab(50, 0, 0));
+    expect(s.push(frame).moved).toBe(false); // first frame: nothing to compare
+    expect(s.push(frame).moved).toBe(false);
+    const jumpy = frame.map((c, i) => (i === 0 ? lab(c.L + 50, c.a, c.b) : c));
+    expect(s.push(jumpy).moved).toBe(true);
+    expect(s.push(jumpy).moved).toBe(false); // consistent with the new reference
   });
 
   it('result() is a sensible median, robust to one outlier frame', () => {

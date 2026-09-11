@@ -19,41 +19,67 @@ export interface FaceCapture {
   cells: Lab[];
 }
 
-/** Detects when the 9 sampled cells of a face have been stable for N frames. */
+/** Detects when the 9 sampled cells of a face have been stable long enough. */
 export class FaceStabilizer {
   private readonly stableFrames: number;
+  private readonly minStableMs: number;
   private readonly maxCellDrift: number;
   private buffer: Lab[][] = [];
   private counter = 0;
+  private windowStart = 0;
 
-  constructor(opts?: { stableFrames?: number; maxCellDrift?: number }) {
-    // DECISION: 8 consecutive consistent frames to call a face "stable",
-    // and 6.0 Lab-distance as the per-cell drift budget between frames —
-    // loose enough to absorb sensor noise/small camera shake, tight enough
-    // to reject a face that's still sliding into place.
+  constructor(opts?: { stableFrames?: number; minStableMs?: number; maxCellDrift?: number }) {
+    // DECISION: a face is "stable" only when BOTH hold: >= 8 consecutive
+    // consistent frames AND >= 700ms of wall-clock stability. The frame gate
+    // alone is far too quick on a 60fps phone (8 frames ≈ 0.13s — a face
+    // would lock before the user has even settled); the time gate alone would
+    // let a 15fps low-end phone lock off just 2-3 noisy frames. 6.0
+    // Lab-distance is the per-cell drift budget between frames — loose enough
+    // to absorb sensor noise/small camera shake, tight enough to reject a
+    // face that's still sliding into place.
     this.stableFrames = opts?.stableFrames ?? 8;
+    this.minStableMs = opts?.minStableMs ?? 700;
     this.maxCellDrift = opts?.maxCellDrift ?? 6.0;
   }
 
-  /** Call once per frame with the 9 Lab samples. */
-  push(cells: readonly Lab[]): { stable: boolean; progress: number } {
+  /**
+   * Call once per frame with the 9 Lab samples.
+   * `moved` is true when this frame broke a run of consistent frames — the
+   * scanner uses it to require real scene motion between two face captures.
+   */
+  push(cells: readonly Lab[], now: number = Date.now()): { stable: boolean; progress: number; moved: boolean } {
     const frame = cells.map((c) => ({ ...c }));
     const prev = this.buffer[this.buffer.length - 1];
+    let moved = false;
     if (prev === undefined) {
       this.counter = 0;
+      this.windowStart = now;
     } else {
       let consistent = frame.length === prev.length;
       for (let i = 0; consistent && i < frame.length; i++) {
         if (labDistance(frame[i]!, prev[i]!) >= this.maxCellDrift) consistent = false;
       }
-      this.counter = consistent ? this.counter + 1 : 0;
+      if (consistent) {
+        this.counter++;
+      } else {
+        moved = true;
+        this.counter = 0;
+        this.windowStart = now;
+      }
     }
     this.buffer.push(frame);
     if (this.buffer.length > this.stableFrames) this.buffer.shift();
 
-    const stable = this.counter >= this.stableFrames;
-    const progress = Math.min(1, this.counter / this.stableFrames);
-    return { stable, progress };
+    const elapsed = now - this.windowStart;
+    const stable = this.counter >= this.stableFrames && elapsed >= this.minStableMs;
+    const progress = Math.min(
+      1,
+      Math.min(
+        this.counter / this.stableFrames,
+        this.minStableMs === 0 ? 1 : elapsed / this.minStableMs,
+      ),
+    );
+    return { stable, progress, moved };
   }
 
   /** Per-cell median over the stable window. Throws if never pushed. */
