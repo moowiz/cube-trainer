@@ -71,6 +71,9 @@ MILESTONES.md
 - Every milestone ends with something runnable on a phone. Prefer an ugly working step over a clean partial one.
 - When a step is ambiguous (thresholds, model size, frame rate), pick a sensible default, note it in a `// DECISION:` comment, and move on. Don't stop to ask.
 - Debug views are first-class. When adding a processing step, add a way to see its output in the debug panel.
+- When launching a training/fine-tuning run (or any long background job that
+  logs progress), immediately give the user a copy-pasteable command to watch
+  it, e.g. `Get-Content <log path> -Wait -Tail 10`.
 - Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it.
 - Keep `model/` and `web/` independent: `web/` must run (with the grid-overlay fallback) even if no model file is present.
 
