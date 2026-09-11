@@ -64,8 +64,9 @@ Small keypoint detector (MobileNetV3 or similar backbone, heatmap or direct-regr
 
 **Status (2026-09-11):** pipeline complete end-to-end — 38k-image training,
 ONNX export with parity gates, browser runtime (`detect.html`) verified in
-headless Chrome (webgpu 6.1 ms / wasm 10.9 ms per inference on desktop; phone
-fps still to be measured on the deployed page). Accuracy: median 3.4 px on
+headless Chrome (webgpu 6.1 ms / wasm 10.9 ms per inference on desktop).
+**Speed bar met:** measured on the user's phone 2026-09-11 — 60 fps on the
+wasm EP, 4x the >=15 fps bar. Accuracy: median 3.4 px on
 held-out synthetic but mean 8.9 px — a tail of two characterized failure
 modes: near-face-on close-ups regress a ~45°-rotated "hedge" quad (corner-
 order ambiguity of a lone square face), and heavily foreshortened U/D faces.
