@@ -175,14 +175,36 @@ window.renderSample = async function renderSample(opts) {
   scene.add(group);
 
   // --- camera ---
+  // seeded random direction (THREE's randomDirection uses Math.random and
+  // would break per-sample determinism)
+  const randDir = () => {
+    const z = 2 * rnd() - 1;
+    const p = 2 * Math.PI * rnd();
+    const r = Math.sqrt(1 - z * z);
+    return new THREE.Vector3(r * Math.cos(p), r * Math.sin(p), z);
+  };
   const fov = 30 + rnd() * 32;
   const camera = new THREE.PerspectiveCamera(fov, width / height, 0.1, 200);
   const R = H * Math.sqrt(3);
-  const fill = 0.22 + rnd() * 0.42; // cube radius as a fraction of frame half-height
+  // DECISION: two framing regimes. The grid-scanner use case holds one face
+  // near-frontal filling most of the frame; the first 20k renders almost
+  // never did (real webcam frames sat far outside the trained scale range,
+  // see model/README sim-to-real notes). 40% close-ups now.
+  const closeUp = rnd() < 0.4;
+  const fill = closeUp ? 0.55 + rnd() * 0.5 : 0.22 + rnd() * 0.42;
   const dist = R / (fill * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
-  const dirV = new THREE.Vector3().randomDirection();
+  let dirV;
+  if (rnd() < 0.35) {
+    // near-face-on view of a random face, like a cube held up to a webcam
+    const a = pick(rnd, [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]);
+    dirV = new THREE.Vector3(a[0], a[1], a[2])
+      .add(randDir().multiplyScalar(0.15 + rnd() * 0.45))
+      .normalize();
+  } else {
+    dirV = randDir();
+  }
   camera.position.copy(dirV).multiplyScalar(dist);
-  const target = new THREE.Vector3().randomDirection().multiplyScalar(rnd() * H * 1.1);
+  const target = randDir().multiplyScalar(rnd() * H * 1.1);
   camera.lookAt(target);
   camera.rotateZ((rnd() - 0.5) * 0.9 + (rnd() < 0.1 ? Math.PI * rnd() : 0));
   camera.updateMatrixWorld();
@@ -218,14 +240,17 @@ window.renderSample = async function renderSample(opts) {
   }
 
   // --- lights ---
-  const hemi = new THREE.HemisphereLight(kelvinToColor(4500 + rnd() * 3500), 0x202025, 0.25 + rnd() * 0.7);
+  // occasional murky scenes: the real webcam fixtures are mostly lit by a
+  // monitor in a dark room, far dimmer than the average render
+  const dim = rnd() < 0.18 ? 0.2 + rnd() * 0.35 : 1;
+  const hemi = new THREE.HemisphereLight(kelvinToColor(4500 + rnd() * 3500), 0x202025, dim * (0.25 + rnd() * 0.7));
   scene.add(hemi);
   const nDir = 1 + (rnd() < 0.6 ? 1 : 0);
   const kelvins = [];
   for (let i = 0; i < nDir; i++) {
     const k = 2500 + rnd() * 4500; // warm indoor light is the known hard case
     kelvins.push(Math.round(k));
-    const dl = new THREE.DirectionalLight(kelvinToColor(k), 0.6 + rnd() * 2.2);
+    const dl = new THREE.DirectionalLight(kelvinToColor(k), dim * (0.6 + rnd() * 2.2));
     dl.position.set((rnd() - 0.5) * 16, 2 + rnd() * 10, (rnd() - 0.5) * 16);
     if (i === 0 && hasTable) {
       dl.castShadow = true;
@@ -274,7 +299,7 @@ window.renderSample = async function renderSample(opts) {
     dataUrl,
     label: {
       width, height, style, faces,
-      meta: { seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins },
+      meta: { seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins, closeUp, dim: Number(dim.toFixed(2)) },
     },
   };
 };

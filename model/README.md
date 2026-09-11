@@ -29,6 +29,20 @@ logit, 4 corners])` at 320x240 input, faces in URFDLB order, corners in the
 cubejs sticker-layout order the labels use. `web/` must read `facekp.json`
 rather than hardcoding preprocessing.
 
+## Sim-to-real notes (first 20k run, 2026-09)
+
+30 epochs: 8.74 px mean / 4.7 px median val corner error, 95.8% visibility
+accuracy — mean dragged by a tail (p90 20 px) of heavily foreshortened and
+far-away faces. On the real M2 webcam fixtures (`train/predict.py`) the model
+finds the cube confidently but underestimates its extent: real frames hold
+the cube far closer than the original render distribution ever did (only 6 of
+2,221 val faces were >100 px). Generator fixes that followed: 40% close-up
+framing regime, 35% near-face-on poses, 18% dim scenes, seeded camera
+directions, and style chosen by hashed seed (plain `seed % 10` cycled with
+period 10 and aliased with the old every-20th val split so badly that val was
+100% stickered — the loader now splits by filename hash instead).
+`train/diagnose.py` prints the error breakdown that caught all of this.
+
 ## Training performance (TODO before the next serious run)
 
 Measured on the first 20k run (RTX 4070 SUPER): ~116 s/epoch at ~164 img/s,
@@ -38,13 +52,10 @@ them to 320x240.
 
 Fix, in order of payoff:
 
-1. **Pre-decoded cache**: one-time pass that decodes + resizes every image to
-   the 320x240 input size and writes a single memory-mapped uint8 array
-   (`data/cache_320x240.npy`, ~4.4 GB for 20k) plus a copy of the label
-   tensors. `dataset.py` should build it lazily (if missing or stale by
-   count) and then read samples from the memmap. Augmentation then runs on
-   quarter-size images (scale the affine accordingly — corner labels are
-   already resolution-independent). Expected 3-5x epoch speedup.
+1. **Pre-decoded cache** — DONE: `dataset.py` lazily builds
+   `data/cache_320x240/` (memory-mapped uint8 images + label tensors,
+   rebuilt when the label count changes) and reads samples from it;
+   augmentation runs on the cached input-size images.
 2. Only if still starved after (1): move photometric augmentation to the GPU
    (batched torch ops) or raise `--workers`.
 

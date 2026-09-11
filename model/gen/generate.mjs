@@ -88,7 +88,10 @@ async function main() {
   const t0 = Date.now();
   for (let i = 0; i < COUNT; i++, next++) {
     const seed = BASE_SEED * 1_000_003 + next;
-    const style = STYLE === 'mix' ? (seed % 10 < 7 ? 'stickered' : 'stickerless') : STYLE;
+    // hash, not modulo: seed increments by 1, so `seed % 10` cycles with
+    // period 10 and can alias with any periodic train/val split
+    const styleHash = (Math.imul(seed ^ 0x9e3779b9, 2654435761) >>> 0) % 10;
+    const style = STYLE === 'mix' ? (styleHash < 7 ? 'stickered' : 'stickerless') : STYLE;
     const res = await page.evaluate(
       (opts) => window.renderSample(opts),
       { seed, style, width: WIDTH, height: HEIGHT, photoUrls },
