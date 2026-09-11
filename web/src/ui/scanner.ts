@@ -202,11 +202,12 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     const rect = gridRect();
     const img = ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
     const cells = sampleGridCells(img, { x: 0, y: 0, w: rect.w, h: rect.h }, PATCH_SIZE);
-    const { stable, progress } = stabilizer.push(cells.map((c) => c.lab));
+    const { stable, progress, moved } = stabilizer.push(cells.map((c) => c.lab), now);
 
     if (needMotion) {
-      // Wait until the reading breaks (user turned the cube) before rearming.
-      if (progress < 0.3) needMotion = false;
+      // Rearm only once the scene actually changes (the user turned the cube);
+      // otherwise a face left in view would immediately lock into the next slot.
+      if (moved) needMotion = false;
       drawOverlay(rect, cells, needMotion ? 0 : progress);
       return;
     }
