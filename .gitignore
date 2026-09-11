@@ -1,0 +1,6 @@
+node_modules/
+dist/
+web/public/models/*.onnx
+model/data/
+*.local
+.DS_Store

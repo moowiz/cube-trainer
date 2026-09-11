@@ -1,0 +1,261 @@
+/* Scanner UI. Self-contained under .cscan so it can live inside the trainer
+   page or standalone without style bleed. Palette matches the trainer. */
+
+.cscan {
+  --bg: #eceef2;
+  --panel: #f7f8fa;
+  --ink: #1b222c;
+  --ink-2: #5a6472;
+  --line: #d3d8e0;
+  --good: #1e7a46;
+  --bad: #b3261e;
+  max-width: 560px;
+  margin: 0 auto;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.cscan h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.cscan .cs-sub {
+  color: var(--ink-2);
+  font-size: 14px;
+  margin: 0 0 12px;
+  line-height: 1.45;
+}
+
+/* stage */
+.cscan .cs-stage {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #14181f;
+  min-height: 120px;
+}
+
+.cscan .cs-stage canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cscan .cs-stage.flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 4px solid var(--good);
+  border-radius: 12px;
+  animation: cs-flash 0.45s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes cs-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.cscan .cs-fps {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cscan .cs-start {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #fff;
+  padding: 16px;
+  text-align: center;
+}
+
+.cscan .cs-start p { margin: 0; font-size: 14px; color: #cfd5dd; max-width: 40ch; }
+
+/* prompt */
+.cscan .cs-prompt {
+  margin: 12px 0 4px;
+  font-size: 16px;
+  line-height: 1.4;
+  min-height: 44px;
+}
+
+.cscan .cs-prompt b { font-weight: 600; }
+
+.cscan .cs-hint {
+  color: var(--ink-2);
+  font-size: 13px;
+  margin: 2px 0 10px;
+  min-height: 18px;
+}
+
+.cscan .cs-hint.warn { color: var(--bad); }
+
+/* face progress strip */
+.cscan .cs-faces {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0 12px;
+}
+
+.cscan .cs-facechip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.cscan .cs-facechip.cur { color: var(--ink); font-weight: 600; }
+
+.cscan .cs-mini {
+  display: grid;
+  grid-template-columns: repeat(3, 13px);
+  gap: 1px;
+  padding: 2px;
+  border-radius: 4px;
+  border: 1.5px solid var(--line);
+  background: var(--panel);
+}
+
+.cscan .cs-facechip.cur .cs-mini { border-color: var(--ink); }
+
+.cscan .cs-mini i {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  background: #dde1e7;
+}
+
+/* buttons */
+.cscan .cs-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.cscan button.cs-btn {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 13px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.cscan button.cs-btn:hover { border-color: var(--ink-2); }
+.cscan button.cs-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.cscan button.cs-primary {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cscan button.cs-primary:hover { background: #2c3644; }
+
+/* review net */
+.cscan .cs-review { margin-top: 4px; }
+
+.cscan .cs-net {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  grid-template-rows: repeat(3, auto);
+  gap: 8px;
+  justify-content: start;
+  user-select: none;
+  margin: 10px 0;
+}
+
+.cscan .cs-face {
+  display: grid;
+  grid-template-columns: repeat(3, var(--cs-s, 26px));
+  gap: 2px;
+}
+
+.cscan .cs-face[data-f='U'] { grid-column: 2; grid-row: 1; }
+.cscan .cs-face[data-f='L'] { grid-column: 1; grid-row: 2; }
+.cscan .cs-face[data-f='F'] { grid-column: 2; grid-row: 2; }
+.cscan .cs-face[data-f='R'] { grid-column: 3; grid-row: 2; }
+.cscan .cs-face[data-f='B'] { grid-column: 4; grid-row: 2; }
+.cscan .cs-face[data-f='D'] { grid-column: 2; grid-row: 3; }
+
+.cscan .cs-st {
+  width: var(--cs-s, 26px);
+  height: var(--cs-s, 26px);
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.08s;
+}
+
+.cscan .cs-st:hover { transform: scale(1.1); z-index: 1; position: relative; }
+.cscan .cs-st:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 1; position: relative; }
+.cscan .cs-st.center { cursor: default; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25); }
+.cscan .cs-st.lowconf { box-shadow: 0 0 0 2px var(--bad); }
+.cscan .cs-st.bad { box-shadow: 0 0 0 2px var(--bad); animation: cs-pulse 1s infinite; }
+
+@keyframes cs-pulse {
+  50% { box-shadow: 0 0 0 4px rgba(179, 38, 30, 0.45); }
+}
+
+@media (max-width: 420px) {
+  .cscan { --cs-s: 22px; }
+  .cscan .cs-face { grid-template-columns: repeat(3, 22px); }
+  .cscan .cs-st { width: 22px; height: 22px; }
+}
+
+.cscan .cs-valid {
+  font-size: 14px;
+  margin: 8px 0;
+  min-height: 20px;
+}
+
+.cscan .cs-valid.ok { color: var(--good); font-weight: 600; }
+.cscan .cs-valid.err { color: var(--bad); }
+
+.cscan .cs-solution {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+
+.cscan .cs-solution h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+
+.cscan .cs-moves {
+  font-size: 17px;
+  line-height: 1.7;
+  word-spacing: 0.25em;
+  font-variant-numeric: tabular-nums;
+}
+
+.cscan .cs-solution p { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+
+.cscan .cs-error {
+  color: var(--bad);
+  font-size: 14px;
+  margin: 8px 0;
+}
