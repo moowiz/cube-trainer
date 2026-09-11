@@ -38,16 +38,28 @@ NORM_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+CACHE_VERSION = 2  # bump when the cached schema changes; triggers rebuild
+
+
 def load_label(path: Path):
+    """Returns (image_rel, (w,h), conf, corners, valid).
+
+    Synthetic labels carry corners for all six faces. Hand labels (M5, the
+    label.html tool) have corners: null for unlabeled faces — those get
+    valid=0 so the loss never supervises unknown geometry.
+    """
     lbl = json.loads(path.read_text())
     w, h = lbl["width"], lbl["height"]
     conf = np.zeros(6, dtype=np.float32)
     corners = np.zeros((6, 4, 2), dtype=np.float32)
+    valid = np.zeros(6, dtype=np.float32)
     for i, f in enumerate(FACE_ORDER):
         fd = lbl["faces"][f]
         conf[i] = 1.0 if fd["visible"] else 0.0
-        corners[i] = np.asarray(fd["corners"], dtype=np.float32)
-    return lbl["image"], (w, h), conf, corners
+        if fd.get("corners") is not None:
+            corners[i] = np.asarray(fd["corners"], dtype=np.float32)
+            valid[i] = 1.0
+    return lbl["image"], (w, h), conf, corners, valid
 
 
 def is_val(path: Path) -> bool:
@@ -82,19 +94,21 @@ def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
     imgs = np.lib.format.open_memmap(cdir / "imgs.npy", mode="w+", dtype=np.uint8, shape=(n, ih, iw, 3))
     confs = np.zeros((n, 6), dtype=np.float32)
     corns = np.zeros((n, 6, 4, 2), dtype=np.float32)
+    valids = np.zeros((n, 6), dtype=np.float32)
     for i, f in enumerate(files):
-        img_rel, (w, h), conf, corners = load_label(f)
+        img_rel, (w, h), conf, corners, valid = load_label(f)
         img = Image.open(root / img_rel).convert("RGB")
         scale, dx, dy = letterbox_params(w, h, iw, ih)
         imgs[i] = np.asarray(letterbox_image(img, iw, ih))
         confs[i] = conf
         corns[i] = (corners * scale + [dx, dy]) / np.array([iw, ih], dtype=np.float32)
+        valids[i] = valid
         if (i + 1) % 2500 == 0:
             print(f"  cache {i + 1}/{n}", flush=True)
     imgs.flush()
     del imgs
-    np.savez(cdir / "targets.npz", conf=confs, corners=corns)
-    (cdir / "meta.json").write_text(json.dumps({"count": n}))
+    np.savez(cdir / "targets.npz", conf=confs, corners=corns, valid=valids)
+    (cdir / "meta.json").write_text(json.dumps({"count": n, "version": CACHE_VERSION}))
 
 
 class CubeKeypointDataset(Dataset):
@@ -110,12 +124,16 @@ class CubeKeypointDataset(Dataset):
 
         cdir = self.root / f"cache_{iw}x{ih}"
         meta = cdir / "meta.json"
-        if not meta.exists() or json.loads(meta.read_text())["count"] != len(all_files):
+        stale = True
+        if meta.exists():
+            m = json.loads(meta.read_text())
+            stale = m["count"] != len(all_files) or m.get("version") != CACHE_VERSION
+        if stale:
             _build_cache(self.root, all_files, iw, ih, cdir)
         self._imgs_path = cdir / "imgs.npy"
         self._imgs = None  # opened lazily per process (a pickled memmap would ship the whole array)
         targets = np.load(cdir / "targets.npz")
-        conf_all, corners_all = targets["conf"], targets["corners"]
+        conf_all, corners_all, valid_all = targets["conf"], targets["corners"], targets["valid"]
 
         if split == "train":
             idx = [i for i, f in enumerate(all_files) if not is_val(f)]
@@ -127,6 +145,7 @@ class CubeKeypointDataset(Dataset):
         self.files = [all_files[i] for i in idx]
         self.conf = conf_all[self.indices]
         self.corners = corners_all[self.indices]
+        self.valid = valid_all[self.indices]
 
     def __len__(self):
         return len(self.indices)
@@ -150,4 +169,5 @@ class CubeKeypointDataset(Dataset):
             torch.from_numpy(x.transpose(2, 0, 1).copy()),
             torch.from_numpy(conf),
             torch.from_numpy(norm),
+            torch.from_numpy(self.valid[idx].copy()),
         )
