@@ -48,30 +48,35 @@ class FaceKP(nn.Module):
 
 
 def keypoint_loss(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
-                  hidden_weight: float = 0.2):
-    """pred (B,6,9); conf_t (B,6); corners_t (B,6,4,2) normalized.
+                  valid_t: torch.Tensor | None = None, hidden_weight: float = 0.2):
+    """pred (B,6,9); conf_t (B,6); corners_t (B,6,4,2) normalized; valid_t (B,6).
 
-    BCE on visibility + SmoothL1 on corners. Hidden faces' corners are still
-    deterministic geometry (shared cube vertices), so they get a small weight
-    instead of none - it stabilizes the shared trunk without letting unseen
-    geometry dominate.
+    BCE on visibility + SmoothL1 on corners. Hidden faces' corners on
+    synthetic data are still deterministic geometry (shared cube vertices),
+    so they get a small weight instead of none. Hand-labeled real frames
+    (M5) have valid=0 for unlabeled faces - unknown geometry, weight zero.
     """
     conf_logit = pred[:, :, 0]
     corners_p = pred[:, :, 1:].view(-1, 6, 4, 2)
     conf_loss = nn.functional.binary_cross_entropy_with_logits(conf_logit, conf_t)
     per = nn.functional.smooth_l1_loss(corners_p, corners_t, beta=0.02, reduction="none").mean(dim=(2, 3))
     w = conf_t + hidden_weight * (1 - conf_t)
+    if valid_t is not None:
+        w = w * valid_t
     corner_loss = (per * w).sum() / w.sum().clamp(min=1e-6)
     return conf_loss + 5.0 * corner_loss, conf_loss, corner_loss
 
 
 @torch.no_grad()
-def pixel_error(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor, wh=(320, 240)):
+def pixel_error(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
+                wh=(320, 240), valid_t: torch.Tensor | None = None):
     """Mean corner error in pixels at `wh`, over ground-truth-visible faces."""
     corners_p = pred[:, :, 1:].view(-1, 6, 4, 2)
     scale = torch.tensor(wh, dtype=pred.dtype, device=pred.device)
     d = ((corners_p - corners_t) * scale).norm(dim=-1).mean(dim=-1)  # (B,6)
     mask = conf_t > 0.5
+    if valid_t is not None:
+        mask = mask & (valid_t > 0.5)
     return d[mask].mean().item() if mask.any() else float("nan")
 
 

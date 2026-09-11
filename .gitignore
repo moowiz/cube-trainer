@@ -1,6 +1,11 @@
 node_modules/
 dist/
+# fp32 model stays out of git; the small int8 one IS committed so the Pages
+# deploy can serve it (DECISION: overrides the original "models gitignored"
+# note in CLAUDE.md - the phone test needs the deployed model).
 web/public/models/*.onnx
+!web/public/models/facekp.onnx
+web/public/ort/
 model/data/
 model/.venv/
 model/backgrounds/

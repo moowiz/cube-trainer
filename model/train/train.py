@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from augment import augment_sample
 from dataset import CubeKeypointDataset
@@ -29,13 +29,13 @@ def evaluate(model, loader, device):
     model.eval()
     tot = {"loss": 0.0, "px": 0.0, "acc": 0.0, "n": 0}
     with torch.no_grad():
-        for x, conf, corners in loader:
-            x, conf, corners = x.to(device), conf.to(device), corners.to(device)
+        for x, conf, corners, valid in loader:
+            x, conf, corners, valid = x.to(device), conf.to(device), corners.to(device), valid.to(device)
             pred = model(x)
-            loss, _, _ = keypoint_loss(pred, conf, corners)
+            loss, _, _ = keypoint_loss(pred, conf, corners, valid)
             b = x.size(0)
             tot["loss"] += loss.item() * b
-            tot["px"] += pixel_error(pred, conf, corners, INPUT_WH) * b
+            tot["px"] += pixel_error(pred, conf, corners, INPUT_WH, valid) * b
             tot["acc"] += conf_accuracy(pred, conf) * b
             tot["n"] += b
     n = tot["n"]
@@ -44,7 +44,8 @@ def evaluate(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="../data")
+    ap.add_argument("--data", default="../data", help="dataset root(s), comma-separated (e.g. ../data,../data_real)")
+    ap.add_argument("--init", default=None, help="checkpoint to initialize from (M5 fine-tune)")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
@@ -57,18 +58,23 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
+    roots = [r for r in args.data.split(",") if r]
     if args.overfit:
-        ds = CubeKeypointDataset(args.data, split="all", input_size=INPUT_WH, augment=None)
+        ds = ConcatDataset([CubeKeypointDataset(r, split="all", input_size=INPUT_WH, augment=None) for r in roots])
         train_ds = val_ds = Subset(ds, range(min(args.overfit, len(ds))))
     else:
-        train_ds = CubeKeypointDataset(args.data, split="train", input_size=INPUT_WH, augment=augment_sample)
-        val_ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH, augment=None)
+        train_ds = ConcatDataset([CubeKeypointDataset(r, split="train", input_size=INPUT_WH, augment=augment_sample) for r in roots])
+        val_ds = ConcatDataset([CubeKeypointDataset(r, split="val", input_size=INPUT_WH, augment=None) for r in roots])
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                           pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
     val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=0)
     print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}")
 
     model = FaceKP(pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    if args.init:
+        ckpt = torch.load(args.init, map_location=device, weights_only=True)
+        model.load_state_dict(ckpt["model"])
+        print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')})")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.epochs * max(1, len(train_dl)))
     scaler = torch.amp.GradScaler(enabled=device == "cuda")
@@ -80,12 +86,12 @@ def main():
         t0 = time.time()
         run_loss = 0.0
         n = 0
-        for x, conf, corners in train_dl:
-            x, conf, corners = x.to(device, non_blocking=True), conf.to(device), corners.to(device)
+        for x, conf, corners, valid in train_dl:
+            x, conf, corners, valid = x.to(device, non_blocking=True), conf.to(device), corners.to(device), valid.to(device)
             opt.zero_grad(set_to_none=True)
             with torch.amp.autocast(device_type="cuda", enabled=device == "cuda"):
                 pred = model(x)
-                loss, _, _ = keypoint_loss(pred, conf, corners)
+                loss, _, _ = keypoint_loss(pred, conf, corners, valid)
             scaler.scale(loss).backward()
             scaler.step(opt)
             scaler.update()

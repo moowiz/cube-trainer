@@ -49,10 +49,10 @@ def main():
             x = torch.stack([b[0] for b in batch]).to(device)
             pred = model(x).cpu().numpy()
             for j, i in enumerate(idxs):
-                _, conf, corners = batch[j]
-                style = json.loads(ds.files[i].read_text())["style"]
+                _, conf, corners, valid = batch[j]
+                style = json.loads(ds.files[i].read_text()).get("style", "?")
                 for f in range(6):
-                    if conf[f] < 0.5:
+                    if conf[f] < 0.5 or valid[f] < 0.5:
                         continue
                     gt = corners[f].numpy() * wh
                     pd = pred[j, f, 1:].reshape(4, 2) * wh
