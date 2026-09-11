@@ -64,6 +64,34 @@ describe('scan fixtures', () => {
   }
 });
 
+describe('cube-scan-1789102120226 (kitchen, evening — a SOLVED cube)', () => {
+  it('classifies at least 53/54 stickers of the solved cube correctly', () => {
+    // The physical cube was solved, so ground truth is each capture's own
+    // face letter across all its 9 cells. Live this scan got 53/54 (one F
+    // sticker read as white — glare or a corner cell clipping off-cube);
+    // pin that floor so the classifier never regresses below it, and tighten
+    // to 54 when sampling improves.
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789102120226.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    const res = assembleState(captures);
+    const truth = fx.captures.map((c) => c.face.repeat(9)).join('');
+    let matches = 0;
+    for (let i = 0; i < 54; i++) if (res.facelets[i] === truth[i]) matches++;
+    expect(matches).toBeGreaterThanOrEqual(53);
+  });
+});
+
+describe('cube-scan-1789101879130 (kitchen, evening — white face vs near-black blue face)', () => {
+  it('centers collide in the normalized space, as the live scan reported', () => {
+    // White read dark-bluish and blue read near-black: their normalized
+    // centers are ~6 apart. The scanner's duplicate guard now uses this
+    // same metric, so this is caught at capture time instead of assembly.
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789101879130.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    expect(() => assembleState(captures)).toThrow(/apart/);
+  });
+});
+
 describe('cube-scan-1789100830100 (kitchen, evening — same face captured twice)', () => {
   it('duplicated centers are refused at assembly instead of producing a garbage state', () => {
     // Live (before exposure-normalized clustering) this scan "succeeded"
