@@ -128,6 +128,20 @@ export function maxPairwiseLabDistance(samples: readonly Lab[]): number {
   return max;
 }
 
+// DECISION: below a median L of 22 the chroma signal drowns in sensor noise
+// and faces become unclassifiable. Derived from fixture
+// cube-scan-1789100642010.json (kitchen, evening, desktop webcam): every face
+// read L 4-30, "white" came back rgb(74,68,65), near-black cells picked up a
+// green tint, and the U and L centers collided. All six of that scan's faces
+// have median L < 22; a normally lit face (even a blue-heavy one) sits well
+// above it. Tune against future fixtures rather than by feel.
+export const MIN_FACE_LIGHTNESS = 22;
+
+/** True when a face reading is too dark to classify reliably. */
+export function isFaceTooDark(cells: readonly Lab[]): boolean {
+  return labMedian(cells).L < MIN_FACE_LIGHTNESS;
+}
+
 /**
  * Sample up to 8 patches in the region surrounding `rect` (edge midpoints and
  * corners, halfway between the rect and the image border). Used to tell a

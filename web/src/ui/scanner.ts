@@ -10,6 +10,7 @@ import {
   rgbCss,
   sampleGridCells,
   sampleSurroundPatches,
+  isFaceTooDark,
   labDistance,
   labMean,
   maxPairwiseLabDistance,
@@ -286,6 +287,16 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     const face = FACE_ORDER[faceIdx]!;
     const cells = stabilizer.result();
     const center = cells[4]!;
+
+    // Darkness guard: an underexposed face is unclassifiable — refuse it now
+    // rather than failing at assembly with all six faces garbage (see
+    // fixture cube-scan-1789100642010.json).
+    if (isFaceTooDark(cells)) {
+      needMotion = true;
+      stabilizer.reset();
+      setHint('Too dark to read the colors — add light or move toward a lamp, then show the face again.', true);
+      return;
+    }
 
     // Background guard: a near-uniform reading that blends into the grid's
     // surroundings is not a cube face. Reject and wait for the scene to move.
