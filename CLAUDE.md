@@ -61,6 +61,12 @@ MILESTONES.md
 ## Working style
 
 - Read `MILESTONES.md` first. Work on the current milestone only; don't pull forward work from later ones.
+- Delegate to subagents where appropriate: a self-contained module with a
+  clear contract (one file, defined inputs/outputs, no architectural
+  decisions) goes to a cheaper model (sonnet) while the main thread keeps
+  working. Keep architecture, cross-module interfaces, and anything
+  judgment-heavy in the main thread. Fix the contract (data shapes, file
+  paths, conventions) in the prompt before spawning.
 - Commit work to save it, and push to GitHub (`origin`, HTTPS remote). Pushing `main` also deploys the app to GitHub Pages via `.github/workflows/deploy.yml`.
 - Every milestone ends with something runnable on a phone. Prefer an ugly working step over a clean partial one.
 - When a step is ambiguous (thresholds, model size, frame rate), pick a sensible default, note it in a `// DECISION:` comment, and move on. Don't stop to ask.
