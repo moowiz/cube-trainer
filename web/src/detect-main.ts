@@ -134,3 +134,28 @@ startBtn.addEventListener('click', () => {
 epSel.addEventListener('change', () => void loadDetector());
 
 void loadDetector();
+
+// Headless self-test hook (web/scripts/check-detect.mjs drives this in CI-ish
+// checks): runs the detector N times on a synthetic frame, no camera needed.
+(window as unknown as Record<string, unknown>).__detectSelfTest = async (iters = 30, ep?: string) => {
+  if (ep) {
+    epSel.value = ep;
+    await loadDetector();
+  }
+  if (!detector) await loadDetector();
+  if (!detector) return { ok: false, reason: 'no model deployed' };
+  const c = document.createElement('canvas');
+  c.width = 640;
+  c.height = 480;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#555';
+  g.fillRect(0, 0, 640, 480);
+  g.fillStyle = '#c41e3a';
+  g.fillRect(220, 140, 200, 200); // face-ish red square, content irrelevant
+  await detector.detect(c); // warmup
+  const t0 = performance.now();
+  let last = null;
+  for (let i = 0; i < iters; i++) last = await detector.detect(c);
+  const ms = (performance.now() - t0) / iters;
+  return { ok: true, ep: detector.ep, avgMs: ms, fps: 1000 / ms, faces: last!.faces.length };
+};

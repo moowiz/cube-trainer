@@ -43,6 +43,36 @@ period 10 and aliased with the old every-20th val split so badly that val was
 100% stickered — the loader now splits by filename hash instead).
 `train/diagnose.py` prints the error breakdown that caught all of this.
 
+## Long run + sim-to-real round 2 (2026-09-11, runs/long)
+
+120 epochs on 38k (landscape + portrait, close-up + far, dim scenes),
+cached loader: **8.90 px mean / 3.4 px median** val corner error, 97.4%
+visibility accuracy, converged flat (a real plateau, not a schedule
+artifact). The mean's tail is two characterized failure modes
+(`diagnose.py`): >100 px close-up faces average 27 px — on near-face-on
+views the head regresses a ~45°-rotated "hedge" quad, averaging over the
+4-fold corner-order ambiguity of a lone square face — and foreshortened U/D
+faces run ~2x the error of the others. On real phone frames the model now
+gets face identity right (center color), position and scale right, and
+hedges rotation on dead-on views. Attack order for the tail: M5 real-frame
+fine-tune, more close-up synthetic, then a rotation-canonical corner
+parameterization or heatmap head if still stuck.
+
+**Quantization finding:** dynamic int8 shifts corners ~33 px mean — useless
+(the FC regression head quantizes terribly). `export_onnx.py` now gates on
+measured shift (<1 px) and deploys fp32 (24.5 MB) until static QDQ
+calibration is implemented. Browser (headless Chrome, RTX 4070): webgpu
+6.1 ms, wasm 10.9 ms per inference; `web/scripts/check-detect.mjs` runs both.
+
+## M5 labeling workflow
+
+1. Open `<deploy>/label.html` (also in `web/public/`), load photos, label
+   visible faces' corners (TL,TR,BR,BL in sticker order), export
+   `labels-all.json`.
+2. `python train/import_labels.py --labels labels-all.json --images <photo dir> --out data_real`
+3. `python train/train.py --data ../data,../data_real --init runs/long/best.pt --epochs 30 --lr 5e-5 --out runs/ft`
+4. `python export/export_onnx.py --ckpt ../train/runs/ft/best.pt`
+
 ## Training performance (TODO before the next serious run)
 
 Measured on the first 20k run (RTX 4070 SUPER): ~116 s/epoch at ~164 img/s,

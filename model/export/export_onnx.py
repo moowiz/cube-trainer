@@ -85,8 +85,17 @@ def main():
     sizes = (fp32_path.stat().st_size // 1024, int8_path.stat().st_size // 1024)
     print(f"sizes: fp32 {sizes[0]} KB -> int8 {sizes[1]} KB")
 
+    # A quantization that moves corners is worse than a bigger download.
+    # Measured 2026-09: dynamic int8 shifted corners by ~33 px mean on this
+    # architecture (the big FC regression head quantizes terribly) - so the
+    # deployable model is whichever passes this gate. TODO for real int8:
+    # static QDQ with calibration, or exclude the head Gemms.
+    QUANT_GATE_PX = 1.0
+    deploy, kind = (int8_path, "int8") if px.mean() < QUANT_GATE_PX else (fp32_path, "fp32")
+    print(f"deploying {kind} (quantization gate: mean shift < {QUANT_GATE_PX} px)")
+
     WEB_MODELS.mkdir(parents=True, exist_ok=True)
-    (WEB_MODELS / "facekp.onnx").write_bytes(int8_path.read_bytes())
+    (WEB_MODELS / "facekp.onnx").write_bytes(deploy.read_bytes())
     meta = {
         "input": {"name": "image", "shape": [1, 3, INPUT_WH[1], INPUT_WH[0]], "layout": "NCHW rgb",
                   "mean": NORM_MEAN.tolist(), "std": NORM_STD.tolist(), "scale": "pixel/255 then (x-mean)/std",
@@ -95,7 +104,7 @@ def main():
         "output": {"name": "faces", "shape": [1, 6, 9], "faces": "URFDLB",
                    "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
                    "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation"},
-        "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"),
+        "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"), "precision": kind,
     }
     (WEB_MODELS / "facekp.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {WEB_MODELS / 'facekp.onnx'} and facekp.json")
