@@ -66,6 +66,14 @@ calibration is implemented. Browser (headless Chrome, RTX 4070): webgpu
 
 ## M5 labeling workflow
 
+Conventions (settled with the user on the first labeled photo, 2026-09-11):
+corners go at the **outermost point of the visible plastic** — never
+extrapolated past a rounded stickerless edge (systematic ~corner-radius
+offset vs the sharp-box synthetic labels is accepted; fix the generator, not
+the labels, if it ever matters). Occluded corners are estimated and clicked.
+Every face whose center is identifiable gets labeled — an unlabeled visible
+face trains the visibility head wrong.
+
 1. Open `<deploy>/label.html` (also in `web/public/`), load photos, label
    visible faces' corners (TL,TR,BR,BL in sticker order), export
    `labels-all.json`.
