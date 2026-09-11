@@ -7,7 +7,7 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
-import { labDistance, labMedian, kmeans, nearestCentroid } from './color';
+import { labDistance, labMean, labMedian, kmeans, nearestCentroid } from './color';
 import { FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 
@@ -101,6 +101,24 @@ export class FaceStabilizer {
 
 // ---------- assembleState ----------
 
+// DECISION: cluster in an exposure-normalized space — subtract each face's
+// median L (cancels the camera's auto-exposure drift between captures) and
+// weight the residual L by 0.15 (color identity lives mostly in a/b; after
+// per-face centering, L residual depends on what else shares the face — it is
+// more noise dimension than signal, and keeping it heavy lets k-means split
+// clusters along it or drown a small a/b separation). On the backlit-kitchen
+// frame fixtures normalization fixes a red→orange miss that plain Lab makes,
+// and accuracy holds at 44/45 for any L weight from 1 down to 0.15 (see
+// test/lowlight.test.ts); well-lit colors stay separated because they differ
+// strongly in a/b anyway.
+export const CLUSTER_L_WEIGHT = 0.15;
+
+/** Map one face's 9 cells into the space assembleState clusters in. */
+export function normalizeFaceCells(cells: readonly Lab[]): Lab[] {
+  const medL = labMedian(cells).L;
+  return cells.map((c) => ({ L: (c.L - medL) * CLUSTER_L_WEIGHT, a: c.a, b: c.b }));
+}
+
 export interface AssembledState {
   facelets: string; // 54 chars, faces in U R F D L B order, cubejs facelet convention
   stickerFaces: FaceId[]; // length 54, classification of each sticker
@@ -149,8 +167,13 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     for (let c = 0; c < 9; c++) samples.push(cells[c]!);
   }
 
-  const seeds = FACE_ORDER.map((face) => samples[centerIndex[face]]!);
-  const { centroids, labels } = kmeans(samples, 6, seeds);
+  const normalized: Lab[] = [];
+  for (let f = 0; f < FACE_ORDER.length; f++) {
+    normalized.push(...normalizeFaceCells(samples.slice(f * 9, f * 9 + 9)));
+  }
+
+  const seeds = FACE_ORDER.map((face) => normalized[centerIndex[face]]!);
+  const { centroids, labels } = kmeans(normalized, 6, seeds);
 
   const clusterToFace = new Map<number, FaceId>();
   for (const face of FACE_ORDER) {
@@ -167,15 +190,18 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     stickerFaces[centerIndex[face]] = face; // force centers to their face id
   }
 
-  const confidences: number[] = samples.map((s) => {
+  const confidences: number[] = normalized.map((s) => {
     const { dist, secondDist } = nearestCentroid(s, centroids);
     if (secondDist <= 0) return dist === 0 ? 1 : 0;
     return Math.min(1, Math.max(0, 1 - dist / secondDist));
   });
 
+  // Report centroids in the original (un-normalized) Lab space — they are the
+  // measured face colors, meant for display and debugging.
   const centroidsByFace = {} as Record<FaceId, Lab>;
   for (const [label, face] of clusterToFace) {
-    centroidsByFace[face] = centroids[label]!;
+    const members = samples.filter((_, i) => labels[i] === label);
+    centroidsByFace[face] = labMean(members);
   }
 
   return {

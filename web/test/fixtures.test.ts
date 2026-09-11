@@ -34,27 +34,57 @@ describe('scan fixtures', () => {
     const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
 
     describe(file, () => {
-      if (fx.lettersAfterFixes) {
+      // lettersAfterFixes is ground truth only when the user actually tapped
+      // corrections — when it equals autoLetters it is just the classifier's
+      // own output echoed back, and asserting on it would be circular.
+      if (fx.lettersAfterFixes && fx.lettersAfterFixes !== fx.autoLetters) {
         it('classifies every sticker to the user-corrected ground truth', () => {
           const res = assembleState(captures);
           expect(res.facelets).toBe(fx.lettersAfterFixes);
         });
-      }
-      if (fx.assembleError) {
+      } else if (fx.assembleError) {
         it('assembly fails for this scan (as it did live)', () => {
           expect(() => assembleState(captures)).toThrow();
+        });
+      } else {
+        // No ground truth to hold the classifier to — just require that
+        // assembly of these real captures either produces a full 54-sticker
+        // state or refuses with a human-readable error (never crashes).
+        it('assembles or fails gracefully', () => {
+          try {
+            const res = assembleState(captures);
+            expect(res.facelets).toHaveLength(54);
+          } catch (e) {
+            expect(e).toBeInstanceOf(Error);
+            expect((e as Error).message.length).toBeGreaterThan(10);
+          }
         });
       }
     });
   }
 });
 
+describe('cube-scan-1789100830100 (kitchen, evening — same face captured twice)', () => {
+  it('duplicated centers are refused at assembly instead of producing a garbage state', () => {
+    // Live (before exposure-normalized clustering) this scan "succeeded"
+    // with U appearing 17 times. Two of its captures have the same blue
+    // center — the same physical face locked into two slots — and no
+    // classifier can undo that; refusing is the correct behavior.
+    const fx = JSON.parse(readFileSync(join(dir, 'cube-scan-1789100830100.json'), 'utf8')) as ScanFixture;
+    const captures: FaceCapture[] = fx.captures.map((c) => ({ face: c.face, cells: c.cells }));
+    expect(() => assembleState(captures)).toThrow(/apart/);
+  });
+});
+
 describe('cube-scan-1789100642010 (kitchen, evening — underexposed webcam)', () => {
   const file = 'cube-scan-1789100642010.json';
-  it('every face is flagged by the darkness gate, so the scanner now refuses these captures', () => {
+  it('the near-black R capture is refused by the darkness gate; merely dim faces are not', () => {
     const fx = JSON.parse(readFileSync(join(dir, file), 'utf8')) as ScanFixture;
-    for (const cap of fx.captures) {
-      expect(isFaceTooDark(cap.cells), `face ${cap.face} should be too dark`).toBe(true);
-    }
+    const byFace = Object.fromEntries(fx.captures.map((c) => [c.face, c.cells]));
+    // R read almost pure black (median L ~6, median chroma ~7): hopeless.
+    expect(isFaceTooDark(byFace['R']!)).toBe(true);
+    // U is dark (median L ~22) but carries chroma — the low-light pipeline
+    // can work with faces like this, so the gate must let them through.
+    expect(isFaceTooDark(byFace['U']!)).toBe(false);
   });
 });

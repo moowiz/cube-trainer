@@ -96,9 +96,40 @@ export function gridCellCenters(rect: Rect): Array<[number, number]> {
   return out;
 }
 
+/**
+ * Robust cell sample: five patches (center + four diagonals at ±25% of the
+ * cell size), component-median of their Lab and rgb. The median rejects a
+ * contaminated minority — a center-cap logo, a glare speck, a tile edge
+ * clipping one corner. Derived from fixture cube-frame-D-1789100811627,
+ * where the GAN logo covers the entire center of the white tile and any
+ * single center patch reads solid blue; the tile's corners are honest.
+ */
+export function sampleCellRobust(img: ImageData, cx: number, cy: number, cellSize: number, patchSize = 12): CellSample {
+  // DECISION: 25% offset — far enough that sub-patches escape a big center
+  // logo, close enough to stay inside the tile when alignment is imperfect.
+  const off = cellSize * 0.25;
+  const points: Array<[number, number]> = [
+    [cx, cy],
+    [cx - off, cy - off],
+    [cx + off, cy - off],
+    [cx - off, cy + off],
+    [cx + off, cy + off],
+  ];
+  const parts = points.map(([x, y]) => samplePatch(img, x, y, patchSize));
+  const med = (xs: number[]) => {
+    const s = [...xs].sort((a, b) => a - b);
+    return s[s.length >> 1]!;
+  };
+  return {
+    lab: labMedian(parts.map((p) => p.lab)),
+    rgb: [med(parts.map((p) => p.rgb[0])), med(parts.map((p) => p.rgb[1])), med(parts.map((p) => p.rgb[2]))],
+  };
+}
+
 /** Sample the 9 sticker cells of a face grid, row-major. */
 export function sampleGridCells(img: ImageData, rect: Rect, patchSize = 12): CellSample[] {
-  return gridCellCenters(rect).map(([cx, cy]) => samplePatch(img, cx, cy, patchSize));
+  const cellSize = Math.min(rect.w, rect.h) / 3;
+  return gridCellCenters(rect).map(([cx, cy]) => sampleCellRobust(img, cx, cy, cellSize, patchSize));
 }
 
 /** Component-wise mean. */
@@ -128,18 +159,22 @@ export function maxPairwiseLabDistance(samples: readonly Lab[]): number {
   return max;
 }
 
-// DECISION: below a median L of 22 the chroma signal drowns in sensor noise
-// and faces become unclassifiable. Derived from fixture
-// cube-scan-1789100642010.json (kitchen, evening, desktop webcam): every face
-// read L 4-30, "white" came back rgb(74,68,65), near-black cells picked up a
-// green tint, and the U and L centers collided. All six of that scan's faces
-// have median L < 22; a normally lit face (even a blue-heavy one) sits well
-// above it. Tune against future fixtures rather than by feel.
+// DECISION: a face is hopeless only when it is BOTH dark (median L < 22) and
+// chroma-dead (median chroma < 9) — then color identity has drowned in sensor
+// noise. Dark alone is fine: the backlit-kitchen frame fixtures sit at
+// median L 8-25 yet classify at 44/45 once exposure is normalized (see
+// test/lowlight.test.ts), so refusing on lightness alone would reject scans
+// that actually work. The chroma-dead case comes from fixture
+// cube-scan-1789100642010.json, whose R face read near-black (median L 6,
+// median chroma 7) with a noise-green tint. Tune against fixtures.
 export const MIN_FACE_LIGHTNESS = 22;
+export const MIN_FACE_CHROMA = 9;
 
-/** True when a face reading is too dark to classify reliably. */
+/** True when a face reading is too dark AND too colorless to classify. */
 export function isFaceTooDark(cells: readonly Lab[]): boolean {
-  return labMedian(cells).L < MIN_FACE_LIGHTNESS;
+  if (labMedian(cells).L >= MIN_FACE_LIGHTNESS) return false;
+  const chromas = cells.map((c) => Math.hypot(c.a, c.b)).sort((a, b) => a - b);
+  return chromas[chromas.length >> 1]! < MIN_FACE_CHROMA;
 }
 
 /**
