@@ -55,11 +55,24 @@ def keypoint_loss(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Ten
     synthetic data are still deterministic geometry (shared cube vertices),
     so they get a small weight instead of none. Hand-labeled real frames
     (M5) have valid=0 for unlabeled faces - unknown geometry, weight zero.
+
+    DECISION: the corner loss is rotation-invariant - the minimum over the
+    4 cyclic shifts of the target quad. On a dead-on view of a single face
+    the starting corner is genuinely unobservable, and demanding it anyway
+    made the model hedge by averaging the 4 rotations (shrunken diamonds).
+    The model's job is the quad; which corner is "first" is recovered
+    downstream from shared edges between faces and temporal tracking.
+    Cyclic shifts only, no reflections: a visible face always projects with
+    consistent winding, and labels are winding-normalized at import.
     """
     conf_logit = pred[:, :, 0]
     corners_p = pred[:, :, 1:].view(-1, 6, 4, 2)
     conf_loss = nn.functional.binary_cross_entropy_with_logits(conf_logit, conf_t)
-    per = nn.functional.smooth_l1_loss(corners_p, corners_t, beta=0.02, reduction="none").mean(dim=(2, 3))
+    per = torch.stack([
+        nn.functional.smooth_l1_loss(corners_p, corners_t.roll(k, dims=2), beta=0.02,
+                                     reduction="none").mean(dim=(2, 3))
+        for k in range(4)
+    ]).min(dim=0).values
     w = conf_t + hidden_weight * (1 - conf_t)
     if valid_t is not None:
         w = w * valid_t
@@ -70,10 +83,18 @@ def keypoint_loss(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Ten
 @torch.no_grad()
 def pixel_error(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
                 wh=(320, 240), valid_t: torch.Tensor | None = None):
-    """Mean corner error in pixels at `wh`, over ground-truth-visible faces."""
+    """Mean corner error in pixels at `wh`, over ground-truth-visible faces.
+
+    Rotation-invariant like the loss: per face, the best of the 4 cyclic
+    shifts of the target. Not directly comparable with runs before the
+    invariant loss (it can only be lower for the same predictions).
+    """
     corners_p = pred[:, :, 1:].view(-1, 6, 4, 2)
     scale = torch.tensor(wh, dtype=pred.dtype, device=pred.device)
-    d = ((corners_p - corners_t) * scale).norm(dim=-1).mean(dim=-1)  # (B,6)
+    d = torch.stack([
+        ((corners_p - corners_t.roll(k, dims=2)) * scale).norm(dim=-1).mean(dim=-1)
+        for k in range(4)
+    ]).min(dim=0).values  # (B,6)
     mask = conf_t > 0.5
     if valid_t is not None:
         mask = mask & (valid_t > 0.5)

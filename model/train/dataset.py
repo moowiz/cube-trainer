@@ -87,6 +87,17 @@ def letterbox_image(img: Image.Image, iw: int, ih: int) -> Image.Image:
     return out
 
 
+def _label_fingerprint(files: list[Path]) -> int:
+    """Detect edited-in-place labels (import_labels.py updates keep the file
+    count constant). Stats only - never reads content - so it stays cheap for
+    the 38k synthetic labels that never change."""
+    h = 0
+    for f in files:
+        st = f.stat()
+        h = zlib.crc32(f"{f.name}:{st.st_size}:{st.st_mtime_ns}".encode(), h)
+    return h
+
+
 def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
     cdir.mkdir(parents=True, exist_ok=True)
     n = len(files)
@@ -108,7 +119,8 @@ def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
     imgs.flush()
     del imgs
     np.savez(cdir / "targets.npz", conf=confs, corners=corns, valid=valids)
-    (cdir / "meta.json").write_text(json.dumps({"count": n, "version": CACHE_VERSION}))
+    (cdir / "meta.json").write_text(json.dumps(
+        {"count": n, "version": CACHE_VERSION, "fingerprint": _label_fingerprint(files)}))
 
 
 class CubeKeypointDataset(Dataset):
@@ -127,7 +139,8 @@ class CubeKeypointDataset(Dataset):
         stale = True
         if meta.exists():
             m = json.loads(meta.read_text())
-            stale = m["count"] != len(all_files) or m.get("version") != CACHE_VERSION
+            stale = (m["count"] != len(all_files) or m.get("version") != CACHE_VERSION
+                     or m.get("fingerprint") != _label_fingerprint(all_files))
         if stale:
             _build_cache(self.root, all_files, iw, ih, cdir)
         self._imgs_path = cdir / "imgs.npy"

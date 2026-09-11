@@ -58,6 +58,15 @@ hedges rotation on dead-on views. Attack order for the tail: M5 real-frame
 fine-tune, more close-up synthetic, then a rotation-canonical corner
 parameterization or heatmap head if still stuck.
 
+**Rotation-invariant loss (2026-09-11):** the corner loss (and
+`pixel_error`) now take the minimum over the 4 cyclic shifts of the target
+quad. On a dead-on lone face the starting corner is unobservable, and
+demanding it produced the rotation-hedge diamonds above; the model's job is
+the quad, and orientation is recovered downstream (shared edges between
+faces in a frame, temporal tracking) — see keypoint_loss's DECISION note.
+val_px from runs before this change reads slightly high by comparison (the
+old metric punished rotation disagreements).
+
 **Quantization finding:** dynamic int8 shifts corners ~33 px mean — useless
 (the FC regression head quantizes terribly). `export_onnx.py` now gates on
 measured shift (<1 px) and deploys fp32 (24.5 MB) until static QDQ
@@ -72,14 +81,21 @@ extrapolated past a rounded stickerless edge (systematic ~corner-radius
 offset vs the sharp-box synthetic labels is accepted; fix the generator, not
 the labels, if it ever matters). Occluded corners are estimated and clicked.
 Every face whose center is identifiable gets labeled — an unlabeled visible
-face trains the visibility head wrong.
+face trains the visibility head wrong. Corner *order* is free up to
+rotation: click around the face from any starting corner, either direction
+(never zigzag) — the loss is cyclic-shift-invariant and `import_labels.py`
+normalizes winding. `check_labels.py` catches zigzags (non-convex quads)
+and misplaced shared corners.
 
-1. Open `<deploy>/label.html` (also in `web/public/`), load photos, label
-   visible faces' corners (TL,TR,BR,BL in sticker order), export
+1. Open `<deploy>/label.html` (also in `web/public/`), load photos, click
+   each visible face's 4 corners going around the face, export
    `labels-all.json`.
-2. `python train/import_labels.py --labels labels-all.json --images <photo dir> --out data_real`
-3. `python train/train.py --data ../data,../data_real --init runs/long/best.pt --epochs 30 --lr 5e-5 --out runs/ft`
-4. `python export/export_onnx.py --ckpt ../train/runs/ft/best.pt`
+2. `python train/check_labels.py --labels labels-all.json` — fix anything it
+   flags (re-export; the importer updates edited labels in place and the
+   training cache detects the edit).
+3. `python train/import_labels.py --labels labels-all.json --images <photo dir> --out data_real`
+4. `python train/train.py --data ../data,../data_real --init runs/long/best.pt --epochs 30 --lr 5e-5 --out runs/ft`
+5. `python export/export_onnx.py --ckpt ../train/runs/ft/best.pt`
 
 ## Training performance (TODO before the next serious run)
 
