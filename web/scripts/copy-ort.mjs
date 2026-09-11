@@ -11,7 +11,9 @@ const dst = join(webDir, 'public', 'ort');
 mkdirSync(dst, { recursive: true });
 let n = 0;
 for (const f of readdirSync(src)) {
-  if (f.endsWith('.wasm') || f.endsWith('.jsep.mjs') || f === 'ort-wasm-simd-threaded.mjs') {
+  // ort.min.mjs is the full ESM library: public/label.html (a no-build page)
+  // imports it directly for its model-suggestion button.
+  if (f.endsWith('.wasm') || f.endsWith('.jsep.mjs') || f === 'ort-wasm-simd-threaded.mjs' || f === 'ort.min.mjs') {
     copyFileSync(join(src, f), join(dst, f));
     n++;
   }
