@@ -34,7 +34,7 @@ import torch
 
 from dataset import FACE_ORDER, CubeKeypointDataset
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps, f1_from_counts
-from targets import quad_centers
+from targets import MIN_FACE_EDGE_PX, quad_centers
 
 INPUT_WH = (320, 240)
 DIAMOND_DEG = 20.0  # a matched quad rotated more than this is a hedge/diamond
@@ -95,6 +95,9 @@ def main():
                     help="center head: detection score counted as a detection")
     ap.add_argument("--photos", default="../../stephens_photos",
                     help="root holding the original photo batches, for the per-batch split")
+    ap.add_argument("--min-edge", type=float, default=MIN_FACE_EDGE_PX,
+                    help="faces whose longest edge is below this (input px) are out of "
+                         "scanning range and are ignored entirely; 0 scores everything")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -148,8 +151,12 @@ def main():
                         used_g[f] = d
                     false_pos += len(dets) - len(used_d)
                     for f in gts:
+                        e = np.linalg.norm(gt_q[f] - np.roll(gt_q[f], -1, axis=0), axis=1)
                         base = {"size": float(np.sqrt(quad_area(gt_q[f]))), "style": style,
-                                "face": FACE_ORDER[f], "batch": batch_name}
+                                "face": FACE_ORDER[f], "batch": batch_name,
+                                "maxEdge": float(e.max()),
+                                "squash": float(e.min() / max(e.max(), 1e-9)),
+                                "far": bool(e.max() < args.min_edge)}
                         if f not in used_g:
                             rows.append({**base, "err": None, "rot": None, "score": None})
                             continue
@@ -165,10 +172,21 @@ def main():
                         pd = p[j, f, 1:].reshape(4, 2) * wh
                         errs = [float(np.linalg.norm(pd - np.roll(gt_q[f], r, axis=0), axis=1).mean())
                                 for r in range(4)]
+                        e = np.linalg.norm(gt_q[f] - np.roll(gt_q[f], -1, axis=0), axis=1)
                         rows.append({"err": min(errs), "rot": None, "score": None,
                                      "size": float(np.sqrt(quad_area(gt_q[f]))), "style": style,
-                                     "face": FACE_ORDER[f], "batch": batch_name})
+                                     "face": FACE_ORDER[f], "batch": batch_name,
+                                     "maxEdge": float(e.max()),
+                                     "squash": float(e.min() / max(e.max(), 1e-9)),
+                                     "far": bool(e.max() < args.min_edge)})
 
+    out_of_range = [r for r in rows if r["far"]]
+    if out_of_range:
+        seen = len([r for r in out_of_range if r["err"] is not None])
+        print(f"\nignored {len(out_of_range)} of {len(rows)} ground-truth faces as out of "
+              f"scanning range (longest edge < {args.min_edge:.0f} px at 320x240 - further "
+              f"than a person can hold a cube); the model happened to find {seen} of them")
+    rows = [r for r in rows if not r["far"]]
     hit = [r for r in rows if r["err"] is not None]
     errs = np.array([r["err"] for r in hit])
     sizes = np.array([r["size"] for r in hit])
@@ -207,6 +225,19 @@ def main():
         rot_all = np.array([r["rot"] for r in hit])
         print(f"\nrotation vs ground truth: median {np.median(rot_all):.1f}deg   "
               f"over {DIAMOND_DEG:.0f}deg: {100 * np.mean(rot_all > DIAMOND_DEG):.1f}% of matched faces")
+
+    if head == "center":
+        print("\nerror by foreshortening (shortest edge / longest edge; low = glancing angle):")
+        for lo, hi in [(0, 0.25), (0.25, 0.40), (0.40, 0.60), (0.60, 1.01)]:
+            sel = [r for r in rows if lo <= r["squash"] < hi]
+            h = [r for r in sel if r["err"] is not None]
+            if not sel:
+                continue
+            e = np.array([r["err"] for r in h]) if h else np.array([np.nan])
+            print(f"  {lo:.2f}-{hi:.2f}: n={len(sel):5d}  mean {np.nanmean(e):6.2f} px  "
+                  f"missed {len(sel) - len(h):4d} ({100 * (len(sel) - len(h)) / len(sel):4.1f}%)")
+        print("  (the third face of a corner-on view lands in the lowest bin - the pose")
+        print("   the generator's --cornerBias exists to supply, and now the weakest class)")
 
     print("\nerror by style:")
     group_table(rows, "style", "a face with no match is 'missed', not a large error")

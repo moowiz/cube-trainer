@@ -219,21 +219,78 @@ The >100 px close-up class — the one where the legacy head averaged 27 px by
 regressing 45°-rotated hedge quads — is now **4.68 px with 0.0% of faces
 rotated more than 20°, and nothing missed**.
 
-**What is left is small-face recall, not corners.** Detection F1 is 0.945,
-just under the 0.95 bar, and the deficit is almost entirely one bin: 705 of
-the 744 misses are faces under 40 px, where a face spans barely 2.5 cells of
-the stride-16 grid. Everything ≥40 px misses 39 faces total. Lowering the
-score threshold does not fix it (at 0.25, F1 drops to 0.937 — 79 more
-matches, 211 more false positives), so these are genuine non-detections, not
-a threshold artifact. Expect it to improve on its own: this is epoch 20 of
-150 with F1 still climbing, on the OLD `data` root rather than the
-close-up-rebalanced `data_v4`. If it survives the full run, stride 8 is the
-lever — note the stride-16 grid was cleared on cell COLLISIONS (0%), which
-says nothing about resolving small faces.
+**Detection F1 is 0.953**, over the 0.95 bar, once out-of-scanning-range
+faces are excluded (see "Scanning range" below; before that exclusion it read
+0.945). Lowering the score threshold does not help - at 0.25 F1 drops, buying
+79 matches for 211 false positives - so the remaining misses are genuine
+non-detections.
+
+**What is left is FORESHORTENING, not distance and not corners.** Grouping
+the same val faces by how squashed they are (shortest edge / longest edge):
+
+```
+  squash        n     mean px   missed
+  0.00-0.25   480       5.35    28.5%
+  0.25-0.40   940       4.86    13.1%
+  0.40-0.60  1354       4.91     9.6%
+  0.60-1.01  4794       4.15     4.6%
+```
+
+A clean monotonic gradient: a face seen almost edge-on is missed six times as
+often as a face-on one. That lowest bin is the third face of a corner-on
+view - exactly the pose `--cornerBias 0.4` was added to supply more of, and
+`data_v4` is the first root generated with it. So the biggest expected win
+from the full run is already in the plan; re-read this table after it rather
+than reaching for stride 8.
+
+This CORRECTS an earlier reading of the same run. Binning by sqrt(area) made
+it look like a *small-face* problem (705 of 744 misses under 40 px), which
+pointed at the stride-16 grid. That was measurement error: area conflates far
+away with steeply angled, and 79% of the faces in that bin are close cubes at
+a glancing angle.
 
 Zero-shot on `data_real_val` (no fine-tune, 20 epochs): 8.96 px, 13 of 76
 faces missed. Not yet comparable with the deployed `ft7` — the deploy gate
 is per batch AFTER the real-photo fine-tune.
+
+## Scanning range: how far away we care about (DECISION 2026-09-12, user)
+
+The app only ever has to work as far away as a person can hold a cube. The
+user photographed one at full arm's reach - the furthest they can hold it -
+and that frame is the definition:
+
+- the face's **longest edge is 36.8 px** at the 320x240 model input
+  (sqrt(area) 30.5 px, 1.9 cells of the stride-16 grid);
+- equivalently the cube's bounding sphere is **0.266 of the frame height**,
+  which is the generator's `fill` parameter.
+
+Two floors follow, deliberately a little apart so nothing we generate lands
+in the ignored band:
+
+| where | value | effect |
+|---|---|---|
+| `gen/scene.mjs` `fill` (far regime) | 0.22 -> **0.27** | stop rendering what nobody will scan |
+| `train/targets.py` `MIN_FACE_EDGE_PX` | **32 px** (= fill 0.23) | ignore: don't train, don't score |
+
+"Ignore" means exactly that: an out-of-range face is masked out of the
+heatmap loss rather than marked as background. Calling it background would
+teach the detector to actively SUPPRESS small faces, which is a different and
+worse thing than not caring about them. In the metrics such faces are matched
+(so a detection on one is not punished as a false positive) but counted in
+neither the pixel mean nor the F1; `diagnose.py` prints how many it set
+aside, and `--min-edge 0` scores everything again.
+
+**Use the longest EDGE, never sqrt(area) - this matters more than the
+threshold does.** Area conflates "far away" with "steeply angled": a face
+seen at a glancing angle on a cube held right against the lens has a small
+area but a full-length long edge. Measured on the real photos, **79% of the
+faces an area-based rule would have discarded are close-up foreshortened
+faces** - the third face of a corner-on view, the most valuable pose in the
+set and the one `--cornerBias` exists to produce. An area floor would have
+silently deleted the data we went out of our way to generate.
+
+The trim is small, because the generator was already nearly right: 2.4% of
+`data` faces and 3.9% of `data_real_val` faces fall below the floor.
 
 ## M5 labeling workflow
 

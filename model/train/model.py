@@ -224,8 +224,14 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     p = torch.sigmoid(heat_p.float()).clamp(1e-4, 1 - 1e-4)
     heat_t = targets.heat.float()
     is_pos = heat_t >= 1.0
+    # Cells covered by an out-of-range face are neither positive nor
+    # background: the model is told nothing about them (see
+    # targets.MIN_FACE_EDGE_PX). Without this they would be trained as hard
+    # negatives, which teaches the detector to actively suppress small faces
+    # rather than merely not care about them.
+    keep_neg = ~is_pos & ~targets.ignore
     pos_loss = -((1 - p) ** 2) * torch.log(p) * is_pos
-    neg_loss = -((1 - heat_t) ** 4) * (p ** 2) * torch.log(1 - p) * ~is_pos
+    neg_loss = -((1 - heat_t) ** 4) * (p ** 2) * torch.log(1 - p) * keep_neg
     npos = targets.npos.clamp(min=1).to(p.dtype)
     heat_loss = (pos_loss.sum() + neg_loss.sum()) / npos
 
@@ -298,6 +304,11 @@ def _mean_edge(quad) -> float:
     return float(np.linalg.norm(quad - np.roll(quad, -1, axis=0), axis=1).mean())
 
 
+def _max_edge(quad) -> float:
+    import numpy as np
+    return float(np.linalg.norm(quad - np.roll(quad, -1, axis=0), axis=1).max())
+
+
 @torch.no_grad()
 def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
                    valid_t: torch.Tensor, wh=(320, 240), thresh: float = METRIC_SCORE_THRESH):
@@ -309,7 +320,7 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
     """
     import numpy as np
 
-    from targets import quad_centers
+    from targets import MIN_FACE_EDGE_PX, quad_centers
 
     scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
     scale_t = torch.tensor(wh, dtype=torch.float32)
@@ -327,9 +338,14 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
     matched = tp = fp = fn = 0
     for b in range(dets_s.shape[0]):
         dets = [i for i in range(dets_s.shape[1]) if dets_s[b, i] > 0]
-        gts = [f for f in range(6) if gt_ok[b, f]]
+        # Faces further away than a person can hold a cube are IGNORED, not
+        # scored: they are matched (so a detection on one is not a false
+        # positive) but contribute to neither the pixel mean nor the F1.
+        all_gt = [f for f in range(6) if gt_ok[b, f]]
+        in_range = {f: _max_edge(gt_q[b, f]) >= MIN_FACE_EDGE_PX for f in all_gt}
+        gts = [f for f in all_gt if in_range[f]]
         pairs = sorted(((float(np.linalg.norm(det_c[b, i] - gt_c[b, f])), i, f)
-                        for i in dets for f in gts), key=lambda t: t[0])
+                        for i in dets for f in all_gt), key=lambda t: t[0])
         used_d: set[int] = set()
         used_g: set[int] = set()
         for dist, i, f in pairs:
@@ -339,13 +355,15 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
                 continue
             used_d.add(i)
             used_g.add(f)
+            if not in_range[f]:
+                continue        # matched only to absorb the detection
             err_sum += min(
                 float(np.linalg.norm(dets_q[b, i] - np.roll(gt_q[b, f], r, axis=0), axis=1).mean())
                 for r in range(4))
             matched += 1
-        tp += len(used_d)
+        tp += len([f for f in used_g if in_range[f]])
         fp += len(dets) - len(used_d)
-        fn += len(gts) - len(used_g)
+        fn += len(gts) - len([f for f in used_g if in_range[f]])
     return err_sum, matched, tp, fp, fn
 
 
