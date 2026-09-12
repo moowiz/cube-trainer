@@ -74,7 +74,11 @@ MILESTONES.md
 - Debug views are first-class. When adding a processing step, add a way to see its output in the debug panel.
 - When launching a training/fine-tuning run (or any long background job that
   logs progress), immediately give the user a copy-pasteable command to watch
-  it, e.g. `Get-Content <log path> -Wait -Tail 10`.
+  it, e.g. `Get-Content <log path> -Wait -Tail 10`. For training runs, ALSO
+  start the live dashboard unless it's already up (`model/train/watch.py`,
+  serves http://localhost:8123; probe the port first — a second launch just
+  fails to bind) and hand the user that URL. Redirect training output to
+  `runs/<name>-console.log` so the dashboard picks the run up.
 - Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it.
 - Keep `model/` and `web/` independent: `web/` must run (with the grid-overlay fallback) even if no model file is present.
 
