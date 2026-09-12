@@ -211,6 +211,36 @@
   #toast.show { opacity: 1; transform: translateY(0); }
 
   #fileInput { display: none; }
+
+  #ctxMenu {
+    position: fixed;
+    display: none;
+    z-index: 70;
+    background: #202020;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 4px;
+    min-width: 170px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5);
+  }
+  #ctxMenu .mi {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #ctxMenu .mi:hover { background: #333; }
+  #ctxMenu .sw {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(0,0,0,.6);
+    flex: 0 0 auto;
+  }
+  #ctxMenu .sep { border-top: 1px solid #3a3a3a; margin: 4px 2px; }
 </style>
 
 <header>
@@ -275,6 +305,7 @@
       <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
       <button id="clearFaceBtn">Clear face</button>
       <button id="suggestBtn" title="Run the current keypoint model on this photo and pre-fill unlabeled faces">Suggest (model)</button>
+      <button id="suggestAllBtn" title="Run the model on every loaded image, pre-filling unlabeled faces — verify each before exporting">Suggest all</button>
       <div id="statusLine">Load images to begin.</div>
     </div>
     <div id="canvasWrap">
@@ -817,11 +848,9 @@
     }
   }
 
-  async function suggestFromModel() {
-    const entry = state.images[state.current];
-    const faces = getFaces();
-    if (!entry || !faces) { showToast('Load an image first'); return; }
-    if (!(await ensureModel())) return;
+  // Run the model on one image's pixels, filling only unlabeled faces.
+  // Returns {filled, skipped}; caller handles UI.
+  async function suggestFor(entry, faces) {
     const [, , ih, iw] = ortMeta.input.shape;
     const scale = Math.min(iw / entry.width, ih / entry.height);
     const dx = (iw - entry.width * scale) / 2;
@@ -860,6 +889,15 @@
       faces[id] = { visible: true, corners };
       filled++;
     }
+    return { filled, skipped };
+  }
+
+  async function suggestFromModel() {
+    const entry = state.images[state.current];
+    const faces = getFaces();
+    if (!entry || !faces) { showToast('Load an image first'); return; }
+    if (!(await ensureModel())) return;
+    const { filled, skipped } = await suggestFor(entry, faces);
     saveCurrentToStorage();
     renderSidebar();
     updateProgress();
@@ -868,7 +906,40 @@
       ? 'Model suggested ' + filled + ' face(s)' + (skipped ? ' (' + skipped + ' already labeled, kept yours)' : '') + ' — verify positions!'
       : 'Model found no unlabeled faces above 50% confidence');
   }
+
+  let suggestingAll = false;
+  async function suggestAll() {
+    if (suggestingAll) return;
+    if (!state.images.length) { showToast('Load images first'); return; }
+    if (!(await ensureModel())) return;
+    suggestingAll = true;
+    const btn = document.getElementById('suggestAllBtn');
+    btn.disabled = true;
+    let filled = 0, done = 0;
+    try {
+      for (const entry of state.images) {
+        const faces = state.labels.get(entry.name);
+        const r = await suggestFor(entry, faces);
+        filled += r.filled;
+        saveToStorage(entry.name, faces);
+        done++;
+        statusEl.textContent = `Suggesting… ${done}/${state.images.length}`;
+        btn.textContent = `Suggesting ${done}/${state.images.length}`;
+        // let the UI breathe between inferences
+        await new Promise((r2) => setTimeout(r2, 0));
+      }
+    } finally {
+      suggestingAll = false;
+      btn.disabled = false;
+      btn.textContent = 'Suggest all';
+    }
+    renderSidebar();
+    updateProgress();
+    render();
+    showToast(`Suggested ${filled} face(s) across ${done} images — verify every one before exporting!`);
+  }
   document.getElementById('suggestBtn').addEventListener('click', () => { void suggestFromModel(); });
+  document.getElementById('suggestAllBtn').addEventListener('click', () => { void suggestAll(); });
 
   document.getElementById('loadBtn').addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
@@ -1063,6 +1134,86 @@
     render();
   }
 
+  // ---- right-click context menu -----------------------------------------
+  const menuEl = document.createElement('div');
+  menuEl.id = 'ctxMenu';
+  document.body.appendChild(menuEl);
+  function hideMenu() { menuEl.style.display = 'none'; }
+
+  function faceAtPoint(mx, my) {
+    const faces = getFaces();
+    if (!faces) return null;
+    for (const f of FACE_ORDER) {
+      const fc = faces[f];
+      if (!fc.visible) continue;
+      const pts = fc.corners.map(c => imageToScreen(c[0], c[1]));
+      let inside = false; // ray cast
+      for (let i = 0, j = 3; i < 4; j = i++) {
+        const [xi, yi] = pts[i], [xj, yj] = pts[j];
+        if ((yi > my) !== (yj > my) && mx < ((xj - xi) * (my - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      if (inside) return f;
+    }
+    return null;
+  }
+
+  function menuItem(label, color, onClick, swatch) {
+    const d = document.createElement('div');
+    d.className = 'mi';
+    if (swatch) {
+      const s = document.createElement('span');
+      s.className = 'sw';
+      s.style.background = swatch;
+      d.appendChild(s);
+    }
+    const t = document.createElement('span');
+    t.textContent = label;
+    if (color) { t.style.color = color; t.style.fontWeight = '600'; }
+    d.appendChild(t);
+    d.addEventListener('click', () => { hideMenu(); onClick(); });
+    return d;
+  }
+
+  function clearFaceById(id) {
+    const faces = getFaces();
+    if (!faces) return;
+    faces[id] = { visible: false, corners: null };
+    if (state.activeFace === id) { state.activeFace = null; state.tempCorners = []; updateFaceButtonsUI(); }
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+    render();
+  }
+
+  canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (!state.images[state.current]) return;
+    const [mx, my] = canvasMouseXY(e);
+    const under = faceAtPoint(mx, my);
+    menuEl.innerHTML = '';
+    const faces = getFaces();
+    for (const f of FACE_ORDER) {
+      const done = faces[f].visible;
+      menuEl.appendChild(menuItem(
+        (done ? 'Redo ' : 'Place ') + f, FACE_COLORS[f],
+        () => selectFace(f), FACE_COLORS[f]));
+    }
+    menuEl.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+    if (under) {
+      menuEl.appendChild(menuItem('Clear ' + under, FACE_COLORS[under], () => clearFaceById(under), FACE_COLORS[under]));
+    }
+    menuEl.appendChild(menuItem('Suggest (model)', null, () => { void suggestFromModel(); }));
+    menuEl.appendChild(menuItem('Suggest all', null, () => { void suggestAll(); }));
+    menuEl.style.display = 'block';
+    // clamp to viewport
+    menuEl.style.left = '0px'; menuEl.style.top = '0px';
+    const r = menuEl.getBoundingClientRect();
+    menuEl.style.left = Math.min(e.clientX, window.innerWidth - r.width - 6) + 'px';
+    menuEl.style.top = Math.min(e.clientY, window.innerHeight - r.height - 6) + 'px';
+  });
+  window.addEventListener('pointerdown', e => { if (!menuEl.contains(e.target)) hideMenu(); }, true);
+  window.addEventListener('blur', hideMenu);
+
   canvas.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse') onMouseDown(e);
     else onTouchDown(e);
@@ -1072,7 +1223,6 @@
   canvas.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') onTouchEnd(e); });
   canvas.addEventListener('pointercancel', e => { if (e.pointerType !== 'mouse') onTouchEnd(e); });
   window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') onMouseUp(e); });
-  canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   canvas.addEventListener('wheel', e => {
     e.preventDefault();
@@ -1100,7 +1250,7 @@
     const k = e.key;
     if (k === 'ArrowLeft') { selectImage(state.current - 1); e.preventDefault(); }
     else if (k === 'ArrowRight') { selectImage(state.current + 1); e.preventDefault(); }
-    else if (k === 'Escape') { cancelActive(); e.preventDefault(); }
+    else if (k === 'Escape') { hideMenu(); cancelActive(); e.preventDefault(); }
     else if (k === 'Delete' || k === 'Backspace') { clearFace(); e.preventDefault(); }
     else if (k === '0') { fitImageToView(); render(); }
     else {
