@@ -96,7 +96,7 @@ let vetoedCount = 0; // faces skipped by the seam veto (debug stat)
 
 void FaceDetector.load('auto').then((d) => {
   detector = d;
-  statusEl.textContent = d ? `model ready (${d.ep})` : 'no model deployed — use the grid scanner';
+  statusEl.textContent = d ? `model ready (${d.modelId}, ${d.ep})` : 'no model deployed — use the grid scanner';
   if (!d) fallbackEl.style.display = 'block';
 });
 
