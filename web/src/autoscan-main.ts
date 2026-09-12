@@ -17,7 +17,7 @@ import { sampleGridCells } from './color';
 import { FaceDetector } from './detect/facekp';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
 import { resolveOrientations, orientQuad } from './detect/orient';
-import { refineQuad } from './detect/gridfit';
+import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
 import { solveState } from './state';
 import { DEFAULT_SCHEME_HEX, FACE_ORDER } from './types';
@@ -26,6 +26,14 @@ import type { FaceId } from './types';
 const DETECT_EVERY = 2;      // frames between inferences (CLAUDE.md: 2-3)
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute color samples
 const REFINE = true;         // grid-prior corner refinement before sampling
+// Seam-score veto: a face whose PRE-refinement warp shows no 3x3 seam
+// structure does not vote, no matter how confident the model is (the conf
+// head predicts visibility, not quad quality - batch4 produced garbage
+// quads at conf 1.00). Calibrated on 87 hand-labeled real faces vs 30
+// known-garbage quads: score>=1.15 keeps 97% of good faces, rejects 83%
+// of garbage. Must run BEFORE refineQuad - refinement optimizes this very
+// metric and lifts garbage from ~0.63 to ~1.4 (would pass 70-80%).
+const SEAM_VETO_SCORE = 1.15;
 const FALLBACK_AFTER_MS = 6000;
 
 const app = document.getElementById('app')!;
@@ -84,6 +92,7 @@ let lastTs = 0;
 let rotations: Partial<Record<FaceId, number>> = {};
 let lastGoodDetectionTs = 0;
 let solved = false;
+let vetoedCount = 0; // faces skipped by the seam veto (debug stat)
 
 void FaceDetector.load('auto').then((d) => {
   detector = d;
@@ -183,6 +192,7 @@ async function loop(ts: number): Promise<void> {
         const k = rotations[t.face];
         if (k === undefined) continue; // can't index stickers without orientation
         let quad = orientQuad(t.corners, k);
+        if (seamScore(frame, quad).score < SEAM_VETO_SCORE) { vetoedCount++; continue; }
         if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
         const warped = warpQuad(frame, quad, 90);
         const cells = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 });
@@ -195,7 +205,7 @@ async function loop(ts: number): Promise<void> {
     updateFillUI();
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
-    statsEl.textContent = `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}`;
+    statsEl.textContent = `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}   vetoed ${vetoedCount}`;
   }
   requestAnimationFrame((t) => void loop(t));
 }
