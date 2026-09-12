@@ -85,7 +85,7 @@ Hand-label 200–400 real frames (your two GANs, several rooms, both scheme orie
 
 ---
 
-## M6 — Tracking + rectification in the app
+## M6 — Tracking + rectification in the app  🔶 (code complete 2026-09-12, awaiting phone verification via /autoscan.html)
 
 Wire the detector into `web/`. Kalman filter on corners. Run detection every 2–3 frames, interpolate. Homography warp each face to 90x90. Feed rectified faces into the M1 sampling/classification path.
 
@@ -93,7 +93,7 @@ Wire the detector into `web/`. Kalman filter on corners. Run detection every 2�
 
 ---
 
-## M7 — Any-order state assembly
+## M7 — Any-order state assembly  🔶 (code complete 2026-09-12: orient.ts + assembly.ts + autoscan page; awaiting phone verification)
 
 Center-sticker face identification. Use adjacency of co-visible faces to orient each face's 9 stickers correctly in the global frame. Per-sticker voting across frames. Lock on convergence + cubejs validation. Highlight low-confidence stickers for tap-to-fix.
 
@@ -101,7 +101,7 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
 
 ---
 
-## M8 — Hardening
+## M8 — Hardening  🔶 (glare rejection, cube-less hard negatives in generator, grid-mode fallback done 2026-09-12; real-room checklist + low-end perf pass pending)
 
 - Glare handling: drop samples where L is saturated, weight votes by confidence.
 - Hard-negative retraining with background grids.
