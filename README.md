@@ -8,6 +8,7 @@ A browser app for Rubik's cube practice and scanning — everything runs client-
 
 - **EO trainer / ZZF2L tabs** — drill EO recognition and ZZ-style F2L cases.
 - **Scan cube tab** — read a scrambled cube's state through your phone camera: hold each face in the 3x3 grid, colors are classified in CIE Lab, the state is validated, and you get a solution you can hand straight to the trainer. There's also a standalone test page at [`/scanner.html`](https://moowiz.github.io/cube-trainer/scanner.html).
+- **[`/autoscan.html`](https://moowiz.github.io/cube-trainer/autoscan.html)** — any-order scanner (M6/M7, experimental): turn the cube in view, faces are detected/tracked/sampled automatically, state locks on cubejs validation.
 - **[`/detect.html`](https://moowiz.github.io/cube-trainer/detect.html)** — live debug view of the learned face-keypoint detector (quads + confidence + fps, WebGPU/wasm selectable).
 - **[`/label.html`](https://moowiz.github.io/cube-trainer/label.html)** — hand-labeling tool for fine-tuning photos; the Suggest button runs the currently deployed model in-page.
 
