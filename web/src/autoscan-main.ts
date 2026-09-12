@@ -15,6 +15,7 @@ import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation } from './assembly';
 import { sampleGridCells } from './color';
 import { FaceDetector } from './detect/facekp';
+import { CubeLocalizer, padBox } from './detect/cubebox';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
 import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
@@ -84,6 +85,8 @@ const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
 let detector: FaceDetector | null = null;
+let localizer: CubeLocalizer | null = null;
+let lastTracks: TrackedFace[] = [];
 let running = false;
 let frameNo = 0;
 let inferBusy = false;
@@ -94,9 +97,13 @@ let lastGoodDetectionTs = 0;
 let solved = false;
 let vetoedCount = 0; // faces skipped by the seam veto (debug stat)
 
-void FaceDetector.load('auto').then((d) => {
+void FaceDetector.load('auto').then(async (d) => {
   detector = d;
-  statusEl.textContent = d ? `model ready (${d.modelId}, ${d.ep})` : 'no model deployed — use the grid scanner';
+  // two-stage path only with a crop-trained stage 2: the base model
+  // measurably degrades on crops (batch4 median 6% -> 11.7%)
+  if (d?.cropTrained) localizer = await CubeLocalizer.load();
+  const mode = d?.cropTrained ? (localizer ? ' · 2-stage' : ' · 2-stage, localizer missing') : '';
+  statusEl.textContent = d ? `model ready (${d.modelId}, ${d.ep}${mode})` : 'no model deployed — use the grid scanner';
   if (!d) fallbackEl.style.display = 'block';
 });
 
@@ -159,18 +166,42 @@ async function loop(ts: number): Promise<void> {
     const dt = lastTs ? ts - lastTs : 33;
     lastTs = ts;
 
-    // detector on a cadence, never overlapping inferences
+    // detector on a cadence, never overlapping inferences. Two-stage when
+    // the deployed model is crop-trained: tracked cube -> crop from the
+    // previous tracks (stage 1 idle); acquisition -> stage-1 localizer;
+    // localizer miss or absent -> full frame (the floor is today's path).
     if (detector && !inferBusy && frameNo % DETECT_EVERY === 0) {
       inferBusy = true;
-      void detector.detect(v).then((res) => {
-        pendingDetections = res.faces;
+      void (async () => {
+        try {
+          let roi: [number, number, number, number] | undefined;
+          if (detector!.cropTrained) {
+            const strong = lastTracks.filter((t2) => t2.conf >= SAMPLE_CONF);
+            if (strong.length) {
+              let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+              for (const t2 of strong) {
+                for (const c of t2.corners) {
+                  x0 = Math.min(x0, c[0]); y0 = Math.min(y0, c[1]);
+                  x1 = Math.max(x1, c[0]); y1 = Math.max(y1, c[1]);
+                }
+              }
+              roi = padBox([x0, y0, x1, y1], 0.4, v.videoWidth, v.videoHeight);
+            } else if (localizer) {
+              const hit = await localizer.locate(v, v.videoWidth, v.videoHeight);
+              if (hit) roi = padBox(hit.box, 0.45, v.videoWidth, v.videoHeight);
+            }
+          }
+          const res = await detector!.detect(v, roi);
+          pendingDetections = res.faces;
+        } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
-      }).catch(() => { inferBusy = false; });
+      })();
     }
 
     const dets = pendingDetections;
     pendingDetections = null;
     const tracks = tracker.update(dets, dt);
+    lastTracks = tracks;
     if (tracks.some((t) => t.conf >= SAMPLE_CONF)) lastGoodDetectionTs = ts;
 
     // orientation: shared edges when 2+ confident faces are co-visible;

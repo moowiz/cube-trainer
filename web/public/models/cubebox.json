@@ -1,0 +1,38 @@
+{
+  "input": {
+    "name": "image",
+    "shape": [
+      1,
+      3,
+      120,
+      160
+    ],
+    "layout": "NCHW rgb",
+    "mean": [
+      0.48500001430511475,
+      0.4560000002384186,
+      0.4059999883174896
+    ],
+    "std": [
+      0.2290000021457672,
+      0.2240000069141388,
+      0.22499999403953552
+    ],
+    "scale": "pixel/255 then (x-mean)/std",
+    "letterbox": "aspect-preserving fit, centered, pad rgb(114,114,114)"
+  },
+  "output": {
+    "name": "box",
+    "shape": [
+      1,
+      5
+    ],
+    "channels": "0: objectness logit (sigmoid me); 1..4: cx,cy,w,h raw - sigmoid each, then multiply by input w/h; map back through the letterbox like facekp corners"
+  },
+  "task": "stage-1 cube localizer (two-stage detector): single bbox + objectness",
+  "valIou": 0.822336069928876,
+  "trainedEpoch": 38,
+  "run": "box3",
+  "checkpoint": "best.pt",
+  "exported": "2026-09-12 11:02"
+}
