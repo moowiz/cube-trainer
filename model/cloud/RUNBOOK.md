@@ -47,14 +47,24 @@ node fetch-backgrounds.mjs   # free photo backgrounds the scenes composite
 
 ## 3. Generate the synthetic set
 
-data_v4 recipe (frozen 2026-09-12): `--cornerBias 0.4`; hands/clutter/hard
-shadows are always-on generator features at their built-in rates (~50/20/25%,
-see scene.mjs DECISION comments). Target ~54k images.
+data_v4 recipe (frozen 2026-09-12, generator at commit ae1976f or later):
+`--cornerBias 0.4`; everything else is a built-in generator feature at its
+own rate — hands with palm/forearm/fat fingers (~50%), clutter (~20%), hard
+cast shadows (~25%), center logo on the white face (~80%, wide glyph
+family), GAN-style tile profile (35% of stickered), one misaligned layer
+(22%), and an auto-exposure floor that re-renders any frame whose cube
+meters under 0.15 mean luminance (see scene.mjs DECISION comments). Target
+~54k images ≈ 10 GB (measured 190 KB/image). The generator is reviewed and
+signed off on previews (2026-09-12): do not change it between parts.
 
 Parallelize by running N instances into separate roots (the generator
 numbers images per-root; don't point two instances at one root), and give
 **each part a distinct `--seed`** — the per-image seed derives from it, so
-two parts with the same seed render identical images:
+two parts with the same seed render identical images. Note the local
+machine already holds a 3200-image `model/data_v4` rendered with seed 1;
+the cloud set REPLACES it (same seed 1 in part 1 reproduces those same
+scenes first, which is fine — never merge the local root into the cloud
+parts or you get duplicates).
 
 ```bash
 cd cube_stuff/model/gen
@@ -62,7 +72,7 @@ for i in 1 2 3 4 5 6; do
   node generate.mjs --count 9000 --out ../data_v4_part$i --seed $i \
     --cornerBias 0.4 > gen$i.log 2>&1 &
 done
-wait   # ~1-2 h for ~54k on a 32-core box
+wait   # one instance renders 7-9 img/s locally; 6 in parallel on a 32-core box ≈ 20-30 min for 54k
 ```
 
 Merge parts into one root (labels reference images by relative path, so a
@@ -89,8 +99,14 @@ print("merged", n)
 EOF
 ```
 
-Sanity-check before burning GPU time: eyeball ~30 images, then
-`python train/check_labels.py --data data_v4` (geometry checks).
+Sanity-check before burning GPU time: eyeball ~30 images (a contact sheet
+pulled back with scp is enough), `python train/check_labels.py --data
+data_v4` (geometry checks), and audit the exposure floor from the label
+meta — `exposureBoost` > 1 should be ~5% of samples and `cubeLum` < 0.15
+essentially zero (locally: 173 boosted / 1 below floor out of 3200). If a
+non-trivial fraction sits below the floor, the box's Chrome is rendering
+differently (missing HDRIs or GPU-less swiftshader path) — fix before
+training.
 
 ## 4. Train
 

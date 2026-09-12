@@ -52,6 +52,13 @@ Proceeding anyway: geometric transfer to real frames already works partially,
 and M5 fine-tuning is the designed realism compensator. Revisit (Blender or
 better materials/noise) only if M5 can't close the gap.
 
+**Status (2026-09-12):** generator v4/v5 pass reviewed against real phone
+photos and signed off: real-scale hands (palm + forearm + fat fingers),
+clutter, hard cast shadows, corner-on pose knob, varied center logos,
+GAN tile profile, misaligned layers, auto-exposure floor. Details and
+measured rates in `model/README.md`; the full ~54k `data_v4` root is
+generated on a rented box per `model/cloud/RUNBOOK.md`.
+
 ---
 
 ## M4 — Face keypoint model
