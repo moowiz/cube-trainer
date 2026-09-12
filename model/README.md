@@ -163,24 +163,29 @@ to want int8 in the first place. The shift is measured by taking the fp32
 model's heatmap peaks and reading BOTH models' offsets at those same cells,
 so NMS tie-breaking noise cannot contaminate it.
 
-**Inference cost, center head: webgpu 9.4 ms, wasm 18.1 ms** (headless
-Chrome, RTX 4070), against the legacy ft7 model re-measured back to back in
-the same session at 6.2 / 16.4 ms. So 1.5x on webgpu and **1.10x on wasm** —
-and wasm is the provider the phone actually chose, so the fps bar is
-essentially untouched.**
+**Inference cost, center head: ~10-15% over the legacy head**, i.e. close to
+free. Two alternating rounds, idle box, headless Chrome on an RTX 4070:
 
-(Measure with the GPU IDLE. A first pass taken while a training run held the
-GPU read webgpu 15.3 / wasm 24.1 ms and looked like a 2.2x regression — but
-re-running the LEGACY ft7 model under the same load gave 15.9 / 21.5 ms
-against its 6.1 / 10.9 ms on record, i.e. the slowdown was the machine, not
-the head. `check-detect.mjs` numbers are only comparable between models
-measured back to back on an otherwise quiet box.)
+| | webgpu | wasm |
+|---|---|---|
+| legacy ft7 | 5.8, 6.0 ms | 16.1, 13.1 ms |
+| center20 | 6.7, 6.5 ms | 17.0, 16.9 ms |
 
-Arithmetic, for reference when the measurement is ambiguous: the neck is two
-3x3 convs at 15x20 (144→96→96, ~62 MMACs) where the old squeeze+FC was
-~11 MMACs, against a backbone of roughly 90 MMACs at this input size. If the
-phone ever misses the fps bar, the first lever is depthwise-separable fuse
-convs (~4 MMACs for the same output shape), not the backbone.
+**Do not trust a single `check-detect.mjs` reading - this measurement misled
+us twice.** A pass taken while a training run held the GPU read 15.3 / 24.1
+ms and looked like a 2.2x regression; the legacy model under that same load
+read 15.9 / 21.5 ms against its own 6.1 / 10.9 ms on record. A second pass,
+on a box that had only just gone idle, read 9.4 vs 6.2 ms and looked like
+1.5x. Only alternating both models over several rounds on a quiet machine
+gave a stable answer - and legacy wasm still swung 13.1-16.1 ms between
+rounds. Always alternate, always repeat.
+
+Arithmetic, for when the measurement is ambiguous anyway: the neck is two
+3x3 convs at 15x20 (144->96->96, ~62 MMACs) where the old squeeze+FC was
+~11 MMACs, against a backbone of roughly 90 MMACs at this input size - so
+~10-15% is about what theory predicts. If the phone ever misses the fps bar,
+the first lever is depthwise-separable fuse convs (~4 MMACs for the same
+output shape), not the backbone.
 
 ## Center vs legacy head, measured (2026-09-12)
 

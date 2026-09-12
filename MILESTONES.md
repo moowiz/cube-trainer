@@ -108,10 +108,10 @@ items above are now settled, one fixed and one closed as "won't fix":
   from **24.5 MB to 4.66 MB** (6.27M → 1.19M params), which was the whole
   point of wanting int8.
 
-Cost: inference is 1.5x the legacy head on webgpu (9.4 vs 6.2 ms) but
-only 1.10x on wasm (18.1 vs 16.4 ms), measured back to back on an idle box —
-and wasm is the provider the phone picked, so the 60 fps should hold. Re-verify the phone fps bar via `/autoscan.html`;
-depthwise-separable fuse convs in the neck are the lever if it ever misses.
+Cost: inference is only ~10-15% slower than the legacy head (alternating
+rounds on an idle box: webgpu 6.6 vs 5.9 ms, wasm 17.0 vs 14.6 ms), so the
+60 fps should hold - re-verify on the phone via `/autoscan.html`.
+Depthwise-separable fuse convs in the neck are the lever if it ever misses.
 
 ---
 
