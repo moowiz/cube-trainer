@@ -12,7 +12,7 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
-  const kind = pick(rnd, ['grid', 'grid', 'tiles', 'tiles', 'checker', 'stripes', 'gradient', 'solid', 'speckle']);
+  const kind = pick(rnd, ['grid', 'grid', 'tiles', 'tiles', 'checker', 'stripes', 'gradient', 'solid', 'speckle', 'fabric', 'fabric', 'fabric']);
   const baseHue = rnd() * 360;
   const baseL = 0.15 + rnd() * 0.65;
   ctx.fillStyle = hsl(baseHue, 0.05 + rnd() * 0.4, baseL);
@@ -81,6 +81,39 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
         ctx.arc(rnd() * w, rnd() * h, r, 0, Math.PI * 2);
         ctx.fill();
       }
+      break;
+    }
+    case 'fabric': {
+      // Crumpled cloth (duvet, blanket, couch throw): bright, low-contrast,
+      // soft folds. The detector collapsed on real bed scenes because every
+      // procedural background here had hard edges - cloth has none.
+      const l0 = 0.45 + rnd() * 0.45; // usually bright, like bedding
+      const sat = rnd() * 0.18;
+      ctx.fillStyle = hsl(baseHue, sat, l0);
+      ctx.fillRect(0, 0, w, h);
+      // smooth tonal blotches
+      for (let i = 0; i < 35; i++) {
+        const x = rnd() * w, y = rnd() * h, r = (0.06 + rnd() * 0.3) * w;
+        const dl = (rnd() - 0.5) * 0.16;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        const c = hsl(baseHue + (rnd() - 0.5) * 20, sat, Math.min(0.97, Math.max(0.05, l0 + dl)));
+        g.addColorStop(0, c.replace('hsl', 'hsla').replace(')', `, ${0.25 + rnd() * 0.45})`));
+        g.addColorStop(1, c.replace('hsl', 'hsla').replace(')', ', 0)'));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, w, h);
+      }
+      // soft dark fold creases: wide blurred curved strokes
+      ctx.filter = `blur(${4 + rnd() * 8}px)`;
+      for (let i = 0; i < 4 + rnd() * 8; i++) {
+        ctx.strokeStyle = `rgba(0,0,0,${0.08 + rnd() * 0.22})`;
+        ctx.lineWidth = 3 + rnd() * 14;
+        ctx.beginPath();
+        const x0 = rnd() * w, y0 = rnd() * h;
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(x0 + (rnd() - 0.5) * w, y0 + (rnd() - 0.5) * h, rnd() * w, rnd() * h);
+        ctx.stroke();
+      }
+      ctx.filter = 'none';
       break;
     }
     case 'solid':
