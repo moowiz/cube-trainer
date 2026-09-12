@@ -65,6 +65,38 @@ def _motion_blur(img: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(acc / length, 0, 255).astype(np.uint8))
 
 
+def _zoom_crop(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
+    """Two-stage training distribution: crop a padded box around the cube and
+    letterbox it back to full size - what stage 2 will see when a localizer
+    (or the tracker's previous quads) crops the camera frame around the cube.
+    The naive two-pass experiment failed precisely because the model never
+    trained on this distribution (batch4: median 6% -> 11.7% on crops)."""
+    vis = [i for i in range(6) if conf[i] > 0]
+    if not vis:
+        return img, corners, conf
+    w, h = img.size
+    pts = np.concatenate([corners[i] for i in vis])
+    x0, y0 = pts.min(0)
+    x1, y1 = pts.max(0)
+    bw, bh = x1 - x0, y1 - y0
+    if bw < 20 or bh < 20:
+        return img, corners, conf
+    # independent padding per side: the localizer's box won't be centered
+    x0 = max(0.0, x0 - random.uniform(0.05, 0.45) * bw)
+    x1 = min(float(w), x1 + random.uniform(0.05, 0.45) * bw)
+    y0 = max(0.0, y0 - random.uniform(0.05, 0.45) * bh)
+    y1 = min(float(h), y1 + random.uniform(0.05, 0.45) * bh)
+    cw, ch = x1 - x0, y1 - y0
+    scale = min(w / cw, h / ch)
+    nw, nh = int(cw * scale), int(ch * scale)
+    crop = img.crop((int(x0), int(y0), int(x1), int(y1))).resize((nw, nh), Image.BILINEAR)
+    out = Image.new("RGB", (w, h), (114, 114, 114))
+    dx, dy = (w - nw) // 2, (h - nh) // 2
+    out.paste(crop, (dx, dy))
+    new = (corners - [x0, y0]) * scale + [dx, dy]
+    return out, new.astype(corners.dtype), conf
+
+
 def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
     """Simulate a portrait phone frame. The deployed model letterboxes
     480x640 video to 180x240 content between gray pillars; the synthetic set
@@ -92,6 +124,8 @@ def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
 
 def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
     w, h = img.size
+    if random.random() < 0.3:
+        img, corners, conf = _zoom_crop(img, corners, conf)
     if random.random() < 0.9:
         img, corners = _affine(
             img,

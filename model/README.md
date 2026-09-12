@@ -157,6 +157,16 @@ augment.py adds portrait pillarbox simulation, JPEG round-trips, directional
 motion blur, and white-balance channel gains at train time (those four cover
 the video-pipeline look and retrofit every existing tranche for free).
 
+**Two-stage architecture (decided 2026-09-12, in progress):** stage 1
+localizes the cube (bbox; tiny NN at low res - classical edge/chroma first
+passes were measured and rejected: white-on-white faces have no edges, the
+user's couch blanket defeats chroma blobs), stage 2 runs corner regression
+on the crop. Stage 2's crop distribution ships first as augment.py's
+_zoom_crop (0.3); the next from-scratch run trains it in. Stage 1's bbox
+labels are free (hull of corner labels, synthetic + real); public Roboflow
+cube-bbox sets (~540 imgs) can supplement. At runtime stage 1 only runs at
+acquisition - a tracked cube's previous quads define the next crop.
+
 **Queued for the next render pass (not yet implemented):** hands — skin-tone
 capsule fingers gripping the cube for geometry-consistent occlusion (every
 real usage frame has them; random-rectangle erasing is a weak proxy) — and
