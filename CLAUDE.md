@@ -24,15 +24,16 @@ Two halves:
 4. Rectify: homography-warp each face quad to a 90x90 canvas.
 5. Sample: average a ~12px patch at each of the 9 cell centers. Convert to CIE Lab.
 6. Classify: rolling k-means over all samples, k=6, Lab distance. Seeded once ≥6 distinct clusters seen.
-7. Identify: center sticker → face id. Two adjacent faces in one frame → relative orientation.
+7. Identify: center sticker → face id. Per-face in-plane rotation is resolved here, not by the detector (its corners are rotation-free): shared edges between two faces in one frame pin it, the tracker carries it across dead-on single-face frames.
 8. Assemble: per-sticker vote counts into a 54-entry state. Lock when converged and `cubejs` accepts it.
 
 ## Conventions
 
 - Face order and notation follow the standard: U R F D L B. Sticker indexing follows cubejs's facelet string order (U1..U9, R1..R9, F1..F9, D1..D9, L1..L9, B1..B9).
+- Detector corner labels are order-free up to cyclic rotation: the training loss takes the min over the 4 cyclic shifts of the target quad, because on a dead-on lone face the starting corner is unobservable — demanding it made the model average the 4 rotations into shrunken diamonds. Labels are clicked going around the face (any start/direction; winding normalized at import); orientation is recovered downstream (pipeline step 7).
 - Color scheme is NOT hardcoded. Centers define it. Default assumption for UI only: white U, green F (standard scheme, white opposite yellow, green opposite blue, red opposite orange).
 - Colors are compared in Lab, never RGB or raw HSV. HSV is allowed only as a debug view.
-- Models are exported to ONNX with static input shape and int8 quantization. Runtime is `onnxruntime-web` with the `webgpu` execution provider and `wasm` fallback. Never assume WebGPU exists.
+- Models are exported to ONNX with static input shape. int8 is aspirational: dynamic quantization shifts corners ~24 px (the FC regression head quantizes terribly), so `export_onnx.py` gates on measured shift and ships fp32 until static QDQ calibration is implemented. Runtime is `onnxruntime-web` with the `webgpu` execution provider and `wasm` fallback. Never assume WebGPU exists.
 - All image-processing steps are pure functions on `ImageData` or typed arrays so they can be unit-tested without a camera.
 
 ## Repo layout
@@ -47,7 +48,7 @@ web/
     state.ts         54-sticker vote model, convergence, cubejs validation
     ui/              overlay canvas, sticker grid, tap-to-fix
     debug/           HSV/Lab views, frame dump, fps counter
-  public/models/     facekp.onnx (gitignored; built by model/)
+  public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
 model/
   gen/               Blender or Three.js synthetic scene, scramble + pose randomizer
@@ -86,6 +87,14 @@ cd model && make data        # generate synthetic set
 cd model && make train
 cd model && make export      # writes web/public/models/facekp.onnx
 ```
+
+## Hard-won facts (don't relearn these)
+
+- Real labeled data beats render realism, by a lot: 22 hand-labeled photos took real-photo error 58 → 4.6 px; the HDRI/rounded-cubie generator realism pass was worth a further ~20% on top. Full experiment ladder and current best numbers live in `model/README.md`. A Blender port was evaluated and rejected as not the bottleneck.
+- During fine-tunes, deploy `last.pt`, not `best.pt`: val is synthetic-dominated, so "best" favors the least-adapted epoch. Fix properly with a real val split once there's enough real data to hold some out.
+- `model/data_real/` and `stephens_photos/` are gitignored **on purpose** — personal photos, public repo. Never commit them. The hand labels exist only on this machine; occasionally remind the user to back up `stephens_photos/labels-all.json`.
+- The real-data loop is: `check_labels.py` (geometry checks, run before importing) → `import_labels.py` (re-imports update edited labels in place; the dataset cache fingerprints label files so edits trigger a rebuild) → fine-tune ~15 epochs at lr 5e-5 with `--data <synthetic>,../data_real*150 --init <base>` → export → deploy. Labeling conventions are in `model/README.md`.
+- The training cache (`cache_320x240/`) and `--data root*N` oversampling make fine-tunes ~10 min; a 120-epoch from-scratch run is ~70 min at 8 workers (~56% CPU, the agreed ceiling — never saturate the machine).
 
 ## Known hard cases (don't be surprised)
 
