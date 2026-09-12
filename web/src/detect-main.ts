@@ -56,8 +56,18 @@ const fps = new FpsCounter();
 let detector: FaceDetector | null = null;
 let running = false;
 let inferEma = 0;
+let lastLoadError = '';
 
-async function loadDetector(): Promise<void> {
+// Loads are serialized: ort-web's wasm module is not reentrant across
+// sessions, so a second load (EP switch, self-test) must wait for any
+// in-flight load — including the ~1s 'auto' benchmark — to finish.
+let loadChain: Promise<void> = Promise.resolve();
+function loadDetector(): Promise<void> {
+  loadChain = loadChain.then(() => doLoadDetector());
+  return loadChain;
+}
+
+async function doLoadDetector(): Promise<void> {
   detector?.dispose();
   detector = null;
   epUsed.textContent = '';
@@ -70,11 +80,18 @@ async function loadDetector(): Promise<void> {
       msg.textContent = 'No model file — this build only has the grid scanner.';
       return;
     }
-    epUsed.textContent = `using ${detector.ep}`;
+    const b = detector.benchMs;
+    epUsed.textContent = b
+      ? `using ${detector.ep} (bench: ${(['webgpu', 'wasm'] as const)
+          .filter((e) => b[e] !== undefined)
+          .map((e) => `${e} ${b[e]!.toFixed(1)}ms`)
+          .join(', ')})`
+      : `using ${detector.ep}`;
     stats.textContent = `model: ready in ${(performance.now() - t0).toFixed(0)} ms (${detector.ep})`;
   } catch (err) {
     stats.textContent = 'model: failed to load';
-    msg.textContent = String(err instanceof Error ? err.message : err);
+    lastLoadError = String(err instanceof Error ? err.message : err);
+    msg.textContent = lastLoadError;
   }
 }
 
@@ -168,7 +185,7 @@ void loadDetector();
     await loadDetector();
   }
   if (!detector) await loadDetector();
-  if (!detector) return { ok: false, reason: 'no model deployed' };
+  if (!detector) return { ok: false, reason: lastLoadError || 'no model deployed' };
   const c = document.createElement('canvas');
   c.width = 640;
   c.height = 480;
