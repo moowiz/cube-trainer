@@ -18,6 +18,7 @@ export default defineConfig({
         main: p('index.html'),
         scanner: p('scanner.html'),
         detect: p('detect.html'),
+        autoscan: p('autoscan.html'),
       },
     },
   },
