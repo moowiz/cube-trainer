@@ -1,20 +1,32 @@
-# cube-trainer
+# Cube trainer + scanner
 
-Reads the state of a 3x3 Rubik's cube from a live camera feed, entirely in
-the browser — no server, no APIs. Detection is a learned face-keypoint model
-(ONNX, running on-device via onnxruntime-web); output is a validated
-54-sticker cube state and a solution.
+> **Work in progress.** Expect rough edges, missing features, and breaking changes. The camera scanner works grid-first; the learned face detector is training up alongside it (M4/M5).
 
-**Live pages** (GitHub Pages, deployed from `main`):
+**Live app: https://moowiz.github.io/cube-trainer/**
 
-- **App / scanner:** https://moowiz.github.io/cube-trainer/
-- **Detector debug view:** https://moowiz.github.io/cube-trainer/detect.html
-- **Labeling tool:** https://moowiz.github.io/cube-trainer/label.html —
-  hand-label cube photos for fine-tuning; the Suggest button runs the
-  currently deployed model in-page.
+A browser app for Rubik's cube practice and scanning — everything runs client-side, nothing leaves your device.
 
-Repo halves: [`web/`](web/) is the TypeScript app, [`model/`](model/) is the
-Python side (synthetic data generation, training, ONNX export — see
-[`model/README.md`](model/README.md)). Roadmap and status live in
-[`MILESTONES.md`](MILESTONES.md); working conventions in
-[`CLAUDE.md`](CLAUDE.md).
+- **EO trainer / ZZF2L tabs** — drill EO recognition and ZZ-style F2L cases.
+- **Scan cube tab** — read a scrambled cube's state through your phone camera: hold each face in the 3x3 grid, colors are classified in CIE Lab, the state is validated, and you get a solution you can hand straight to the trainer. There's also a standalone test page at [`/scanner.html`](https://moowiz.github.io/cube-trainer/scanner.html).
+- **[`/detect.html`](https://moowiz.github.io/cube-trainer/detect.html)** — live debug view of the learned face-keypoint detector (quads + confidence + fps, WebGPU/wasm selectable).
+- **[`/label.html`](https://moowiz.github.io/cube-trainer/label.html)** — hand-labeling tool for fine-tuning photos; the Suggest button runs the currently deployed model in-page.
+
+The longer-term plan (see [MILESTONES.md](MILESTONES.md)) is the learned keypoint detector end-to-end, so you can just turn the cube in view — no grid alignment, no prompts. Design notes live in [CLAUDE.md](CLAUDE.md); the model side (synthetic data, training, ONNX export) is documented in [model/README.md](model/README.md).
+
+## Development
+
+```sh
+cd web
+npm install
+npm run dev    # HTTPS dev server (camera needs it) — open the https:// URL on your phone
+npm test       # vitest
+npm run build  # typecheck + production build
+```
+
+`web/index.html` is generated from the trainer HTML at the repo root — run `node tools/patch-trainer-into-web.js` after changing the trainer instead of editing it by hand.
+
+Pushing to `main` deploys to GitHub Pages via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
+
+## License
+
+[MIT](LICENSE)
