@@ -113,8 +113,33 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
 
 ---
 
-## Later / maybe
+## Later / maybe (post-M8 — everything above stays 3x3-only until then)
 
-- 2x2 and other puzzles (needs a new detector head and state model).
-- Scanning a cube mid-solve for a "where am I" trainer.
+- **Other cube sizes (2x2–5x5).** Assessed 2026-09-12: the detector output
+  (4 corners + visibility per face) is size-agnostic, and the grid checker
+  generalizes to seams at 1/N (it can even infer N by counting seams). Odd
+  cubes (5x5) keep fixed centers, so they're mostly "parameterize the
+  generator, render mixed-N data, fine-tune" — plus per-size solver/validator
+  libraries (cubejs is 3x3-only, and the facelet-string conventions with it).
+  Even cubes (2x2, 4x4) have no reliable centers — center-color face identity
+  (pipeline step 7, the model's six named output slots) is false there, so
+  identity must be inferred globally from corner-piece constraints in the
+  assembler: a real redesign of the identity/assembly layer, though not of
+  the NN. The rotation-agnostic corner convention already points this way.
+
+- **Solve coach (the long-term product).** Phone camera watches a full solve;
+  the app reconstructs the move sequence with timestamps, segments it into
+  method phases (ZZ: EO / F2L / LL), computes objective metrics (move count,
+  TPS, pause map, rotations), and hands that structured record — moves and
+  numbers, never video — to an LLM with a well-crafted prompt for nuanced
+  feedback. Move capture rides on M6–M8 tracking: read state between turns
+  and diff; short occlusion/blur gaps are recoverable by searching the move
+  graph between two cleanly-read states (few-move gaps have near-unique
+  reconstructions). Programmatic layer computes facts (incl. solver-computed
+  optimal-phase comparisons); LLM does interpretation — not the arithmetic.
+  Note: an LLM call is a deliberate exception to "everything client-side";
+  keep it opt-in and send only the abstract solve record.
+
+- Scanning a cube mid-solve for a "where am I" trainer (a stepping stone to
+  the solve coach).
 - Offline PWA install.
