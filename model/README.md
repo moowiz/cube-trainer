@@ -148,6 +148,21 @@ and random backgrounds. Procedural grids and tiles are over-represented in the
 backgrounds on purpose: they are the hard negatives (bathroom tiles, keyboards)
 from MILESTONES M3.
 
+Since 2026-09-12 (the batch4 duvet collapse, see git log for the diagnosis)
+the cube style also randomizes seam morphology — tile corner radius up to
+GAN-fat, tile depth, body color (black/white/oddball), circular and logo
+center caps — and the backdrop/table planes draw from a real-photo pool
+(`gen/fetch-backgrounds.mjs`) so photos actually reach the visible pixels.
+augment.py adds portrait pillarbox simulation, JPEG round-trips, directional
+motion blur, and white-balance channel gains at train time (those four cover
+the video-pipeline look and retrofit every existing tranche for free).
+
+**Queued for the next render pass (not yet implemented):** hands — skin-tone
+capsule fingers gripping the cube for geometry-consistent occlusion (every
+real usage frame has them; random-rectangle erasing is a weak proxy) — and
+foreground clutter objects partially occluding the cube's silhouette, plus
+hard cast shadows across faces.
+
 > **DECISION:** Three.js in headless Chrome (puppeteer), not Blender and not
 > the `gl` native module. It matches the web app's rendering stack exactly,
 > installs cleanly on Windows, and is fast enough (~20k images overnight at
