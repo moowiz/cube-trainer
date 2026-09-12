@@ -33,6 +33,7 @@ app.innerHTML = `
         <option value="webgpu">EP: webgpu</option>
         <option value="wasm">EP: wasm</option>
       </select>
+      <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
       <span id="epUsed"></span>
     </div>
     <div id="stage"><canvas id="view"></canvas></div>
@@ -46,6 +47,7 @@ const ctx = view.getContext('2d')!;
 const stats = document.getElementById('stats')!;
 const msg = document.getElementById('msg')!;
 const startBtn = document.getElementById('start') as HTMLButtonElement;
+const saveBtn = document.getElementById('save') as HTMLButtonElement;
 const epSel = document.getElementById('ep') as HTMLSelectElement;
 const epUsed = document.getElementById('epUsed')!;
 
@@ -117,6 +119,7 @@ startBtn.addEventListener('click', () => {
       running = false;
       camera.stop();
       startBtn.textContent = 'Start camera';
+      saveBtn.disabled = true;
       return;
     }
     msg.textContent = '';
@@ -124,11 +127,33 @@ startBtn.addEventListener('click', () => {
       await camera.start();
       running = true;
       startBtn.textContent = 'Stop camera';
+      saveBtn.disabled = false;
       void loop();
     } catch (err) {
       msg.textContent = String(err instanceof Error ? err.message : err);
     }
   })();
+});
+
+// Save the RAW camera frame (never the overlay canvas — painted quads would
+// poison training data) for the M5 labeling loop: download on the phone,
+// upload via the photo inbox, label, fine-tune.
+saveBtn.addEventListener('click', () => {
+  const video = camera.video;
+  if (!running || video.videoWidth === 0) return;
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d')!.drawImage(video, 0, 0);
+  c.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `detect-frame-${Date.now()}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    msg.textContent = `saved ${a.download}`;
+  }, 'image/png');
 });
 
 epSel.addEventListener('change', () => void loadDetector());
