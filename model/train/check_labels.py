@@ -57,14 +57,31 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--labels", required=True)
     ap.add_argument("--tol", type=float, default=0.06, help="shared-corner tolerance as fraction of face size")
+    ap.add_argument("--images", default=None,
+                    help="directory with the photos: also run the grid-prior check "
+                         "(seams at thirds + center color vs face letter) on every quad")
     args = ap.parse_args()
     entries = json.loads(Path(args.labels).read_text())
     if isinstance(entries, dict):
         entries = [entries]
 
-    checked = bad = 0
+    checked = bad = warned = 0
     for e in entries:
         vis = {f: fd["corners"] for f, fd in e["faces"].items() if fd["visible"] and fd.get("corners")}
+        if args.images and vis:
+            from PIL import Image
+            from grid_check import check_face
+            img_path = Path(args.images) / e["image"]
+            if img_path.exists():
+                img = Image.open(img_path).convert("RGB")
+                for f, c in vis.items():
+                    checked += 1
+                    ok, reason = check_face(img, f, c)
+                    if ok is False:
+                        bad += 1
+                        print(f"{e['image']}: {f} GRID: {reason}")
+                    elif ok is None:
+                        warned += 1
         for f, c in vis.items():
             checked += 1
             if not is_convex_simple(c):
@@ -95,7 +112,8 @@ def main():
                 print(f"{e['image']}: shared corners of {a} and {b} are diagonal "
                       f"within a quad ({a}[{i1},{i2}] / {b}[{j1},{j2}]) - a quad's "
                       f"corners are out of order")
-    print(f"\n{checked} checks, {bad} problems")
+    print(f"\n{checked} checks, {bad} problems"
+          + (f", {warned} grid-unverifiable (shadow/blur - not blocking)" if warned else ""))
     if bad:
         raise SystemExit(1)
 
