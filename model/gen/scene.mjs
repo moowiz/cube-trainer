@@ -878,7 +878,18 @@ window.renderSample = async function renderSample(opts) {
   // never did (real webcam frames sat far outside the trained scale range,
   // see model/README sim-to-real notes). 40% close-ups now.
   const closeUp = rnd() < 0.4;
-  const fill = closeUp ? 0.55 + rnd() * 0.5 : 0.22 + rnd() * 0.42;
+  // DECISION 2026-09-12 (user): never render the cube further away than a
+  // person can physically hold one. `fill` is the cube's bounding-sphere
+  // radius as a fraction of the half frame height, so a face's longest edge
+  // lands at ~138.5 * fill px at the 320x240 model input. Measured on a photo
+  // of the user holding a cube at full arm's reach, that edge is 36.8 px,
+  // i.e. fill 0.27 - and the old floor of 0.22 was rendering cubes ~20%
+  // further than anyone will ever scan from. Those frames cost capacity and
+  // dragged every recall number for a distance the app does not have to
+  // serve. The matching "don't score it either" floor is
+  // train/targets.py MIN_FACE_EDGE_PX (32 px = fill 0.23), deliberately a
+  // little lower so nothing we generate sits in the ignored band.
+  const fill = closeUp ? 0.55 + rnd() * 0.5 : 0.27 + rnd() * 0.37;
   const dist = R / (fill * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
   let dirV;
   // DECISION: near-corner-on poses (3rd-most-facing face >= 0.30 facing) are

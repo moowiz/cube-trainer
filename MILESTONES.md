@@ -99,9 +99,13 @@ items above are now settled, one fixed and one closed as "won't fix":
 - *Accuracy: **2.2x better at equal epochs.*** On the same data and recipe
   as the legacy baseline `runs/long4`, the center head reads 4.46 px val
   corner error at epoch 20 where long4 read 9.74 — and 4.46 is what long4
-  reached after all 150 epochs. Detection F1 is 0.945; the residual is
-  small-face recall (705 of 744 misses are faces under 40 px, ~2.5 cells of
-  the stride-16 grid), not corner accuracy.
+  reached after all 150 epochs. Detection F1 is 0.953 once faces further
+  away than a person can hold a cube are excluded (DECISION 2026-09-12, see
+  model/README "Scanning range"). The residual is FORESHORTENING, not corner
+  accuracy and not distance: faces squashed below 1/4 aspect are missed 28.5%
+  of the time against 4.6% for face-on ones. That is the third face of a
+  corner-on view - the pose `--cornerBias 0.4` and `data_v4` already exist to
+  supply, so the fix is the run that is already planned.
 - *int8: **closed, superseded.*** Dropping the dense layer did not rescue
   quantization — static QDQ on the fully convolutional graph still misses the
   1 px gate. It no longer matters: the same change took the fp32 download

@@ -28,6 +28,29 @@ import torch
 # from a cell that far off-center only adds noise.
 OFF_SUPERVISE_MIN = 0.5
 
+# DECISION 2026-09-12 (user): the app only has to work as far away as a person
+# can hold a cube. Measured on a photo of the user holding one at full arm's
+# reach, the face's LONGEST EDGE is 36.8 px at the 320x240 model input. Faces
+# smaller than that are further than anyone will ever scan from, so they are
+# neither trained nor scored - they become "ignore", not background: masked
+# out of the heatmap loss so the model is free to do whatever it likes there,
+# rather than being told there is nothing.
+#
+# The floor is set below the measurement (32 px = 2.0 cells, ~15% margin) so
+# nothing a user can actually reach gets thrown away.
+#
+# LONGEST EDGE, not sqrt(area), and this distinction matters more than the
+# threshold does. Area conflates "far away" with "steeply angled": a face seen
+# at a glancing angle on a cube held right up to the lens has a small area but
+# a full-length long edge. Measured on the real photos, 79% of the faces that
+# a sqrt(area) < 30 px rule would have discarded are close-up foreshortened
+# faces - which are the third face of a corner-on view, the single most
+# valuable pose we have (see --cornerBias in the generator). An area-based
+# floor would have quietly deleted exactly the data we went out of our way to
+# generate.
+MIN_FACE_EDGE_PX = 32.0
+MIN_FACE_EDGE_CELLS = MIN_FACE_EDGE_PX / 16.0
+
 
 @dataclass
 class CenterTargets:
@@ -35,9 +58,11 @@ class CenterTargets:
     heat: torch.Tensor    # (B,H,W) in [0,1], 1.0 exactly at each face's center cell
     off: torch.Tensor     # (B,4,2,H,W) target corner offsets from the cell center
     weight: torch.Tensor  # (B,H,W) Gaussian value where offsets are supervised, else 0
+    ignore: torch.Tensor  # (B,H,W) bool: out-of-range faces - not positive, not background
     npos: torch.Tensor    # 0-dim: positive faces in the batch (heat-loss normalizer)
     dropped: int          # positives whose center fell outside the grid (stats=True only)
     collisions: int       # positive center cells claimed by >1 face (stats=True only)
+    too_far: int          # positives below MIN_FACE_EDGE_PX (stats=True only)
 
 
 def quad_centers(corners: torch.Tensor) -> torch.Tensor:
@@ -62,6 +87,16 @@ def quad_centers(corners: torch.Tensor) -> torch.Tensor:
     return torch.where(ok.unsqueeze(-1), inter, corners.mean(dim=-2))
 
 
+def quad_max_edge(corners: torch.Tensor) -> torch.Tensor:
+    """Longest of the quad's 4 edges. corners (...,4,2) -> (...).
+
+    The scale measure that tracks DISTANCE rather than viewing angle: a
+    foreshortened face loses area and loses its short edges, but its long
+    edge is still the full width of the cube.
+    """
+    return (corners - corners.roll(-1, dims=-2)).norm(dim=-1).amax(dim=-1)
+
+
 def quad_areas(corners: torch.Tensor) -> torch.Tensor:
     """Shoelace area, always positive. corners (...,4,2) -> (...)."""
     x = corners[..., 0]
@@ -79,7 +114,8 @@ def gaussian_sigma(area_cells: torch.Tensor) -> torch.Tensor:
 
 
 def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch.Tensor,
-                         grid_hw: tuple[int, int], stats: bool = False) -> CenterTargets:
+                         grid_hw: tuple[int, int], stats: bool = False,
+                         min_edge_cells: float = MIN_FACE_EDGE_CELLS) -> CenterTargets:
     """conf (B,6), corners (B,6,4,2) normalized to [0,1], valid (B,6).
 
     A face is a positive iff conf == 1 and valid == 1. Hidden faces
@@ -104,12 +140,21 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     in_grid = (cx >= 0) & (cx < W) & (cy >= 0) & (cy < H)
     off_grid = pos & ~in_grid
     pos = pos & in_grid
+    # Out of range (further than a person can hold a cube): ignore, don't
+    # demote to background. See MIN_FACE_EDGE_PX.
+    out_of_range = pos & (quad_max_edge(cells) < min_edge_cells)
+    pos = pos & ~out_of_range
 
     gx = torch.arange(W, device=dev, dtype=corners.dtype) + 0.5
     gy = torch.arange(H, device=dev, dtype=corners.dtype) + 0.5
     d2 = ((gx.view(1, 1, 1, W) - cx.view(B, 6, 1, 1)) ** 2
           + (gy.view(1, 1, H, 1) - cy.view(B, 6, 1, 1)) ** 2)   # (B,6,H,W)
-    g = torch.exp(-d2 / (2 * sigma.view(B, 6, 1, 1) ** 2)) * pos.view(B, 6, 1, 1)
+    gauss = torch.exp(-d2 / (2 * sigma.view(B, 6, 1, 1) ** 2))
+    g = gauss * pos.view(B, 6, 1, 1)
+    # The ignore region: where an out-of-range face sits, the heatmap loss is
+    # simply not applied. Same OFF_SUPERVISE_MIN footprint as a positive, plus
+    # its own center cell, so a small face cannot leak in as a hard negative.
+    ignore = ((gauss >= OFF_SUPERVISE_MIN) & out_of_range.view(B, 6, 1, 1)).any(dim=1)
 
     # The focal loss's positive branch keys on target == 1, so the cell that
     # contains the center is pinned to exactly 1 (the continuous splat peaks
@@ -119,6 +164,7 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     bi = torch.arange(B, device=dev).view(B, 1).expand(B, 6)
     fi = torch.arange(6, device=dev).view(1, 6).expand(B, 6)
     g[bi, fi, ci, cj] = pos.to(g.dtype)
+    ignore[bi[out_of_range], ci[out_of_range], cj[out_of_range]] = True
 
     heat = g.amax(dim=1)                          # (B,H,W), max-merged
 
@@ -146,9 +192,10 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
 
     weight = torch.where(supervised, heat, torch.zeros_like(heat))
 
-    dropped = collisions = 0
+    dropped = collisions = far = 0
     if stats:
         dropped = int(off_grid.sum().item())
+        far = int(out_of_range.sum().item())
         # Two positive faces whose centers land in the same cell: only one of
         # them can be the peak there. The plan's tripwire for "stride 16 is
         # too coarse" is 2% of positives.
@@ -156,8 +203,9 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
         same = (flat.unsqueeze(2) == flat.unsqueeze(1)) & (flat.unsqueeze(2) >= 0)
         collisions = int(same.triu(diagonal=1).sum().item())
 
-    return CenterTargets(heat=heat, off=off, weight=weight,
-                         npos=pos.sum(), dropped=dropped, collisions=collisions)
+    return CenterTargets(heat=heat, off=off, weight=weight, ignore=ignore,
+                         npos=pos.sum(), dropped=dropped, collisions=collisions,
+                         too_far=far)
 
 
 def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") -> dict:
@@ -192,17 +240,20 @@ def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") 
     valid = torch.from_numpy(np.concatenate([r.valid for r in roots]))
     unlabeled = int(((conf > 0.5) & (valid < 0.5)).sum().item())
     # Chunked: the dense maps are (N,6,H,W), which is half a gigabyte at 76k.
-    npos = collisions = dropped = 0
+    npos = collisions = dropped = far = 0
     for s0 in range(0, conf.shape[0], 2048):
         sl = slice(s0, s0 + 2048)
         t = build_center_targets(conf[sl], corners[sl], valid[sl], grid_hw, stats=True)
         npos += int(t.npos.item())
         collisions += t.collisions
         dropped += t.dropped
+        far += t.too_far
     pct = 100 * collisions / max(1, npos)
     print(f"targets[{name}]: {conf.shape[0]} images, {npos} positive faces, "
           f"{collisions} colliding center cells ({pct:.2f}%), "
-          f"{dropped} centers off-grid, {unlabeled} visible-but-unlabeled faces", flush=True)
+          f"{dropped} centers off-grid, {unlabeled} visible-but-unlabeled faces, "
+          f"{far} ignored as out-of-range ({100 * far / max(1, npos + far):.1f}%, "
+          f"long edge < {MIN_FACE_EDGE_PX:.0f} px)", flush=True)
     if unlabeled:
         print("  WARNING: faces are visible with no corners - they train as background. "
               "Fix the labels (model/README.md 'M5 labeling workflow').", flush=True)
@@ -210,4 +261,5 @@ def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") 
         print("  WARNING: >2% center-cell collisions - raise the grid to stride 8 "
               "before trusting this run (PLAN section 1.2).", flush=True)
     return {"images": conf.shape[0], "positives": npos, "collisions": collisions,
-            "collision_pct": pct, "off_grid": dropped, "visible_unlabeled": unlabeled}
+            "collision_pct": pct, "off_grid": dropped, "visible_unlabeled": unlabeled,
+            "out_of_range": far}
