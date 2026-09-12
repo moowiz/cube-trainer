@@ -20,25 +20,51 @@ from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from augment import augment_sample
 from dataset import CubeKeypointDataset
-from model import FaceKP, conf_accuracy, keypoint_loss, pixel_error
+from model import (HEADS, build_model, center_loss, center_metrics, conf_accuracy, count_params,
+                   f1_from_counts, keypoint_loss, pixel_error)
+from targets import build_center_targets, dataset_target_stats
 
 INPUT_WH = (320, 240)
 
 
-def evaluate(model, loader, device):
+def evaluate(model, loader, device, head="legacy", grid_hw=None):
+    """-> (loss, px, acc). For the center head the last two are redefined:
+    `px` is the corner error over MATCHED detections only and `acc` is
+    detection F1 at score 0.5, not per-slot visibility accuracy. The log-line
+    keys stay val_px / val_conf_acc because watch.py parses those exact
+    names - do not compare the numbers across heads."""
     model.eval()
     tot = {"loss": 0.0, "px": 0.0, "acc": 0.0, "n": 0}
+    err_sum = 0.0
+    matched = tp = fp = fn = 0
     with torch.no_grad():
         for x, conf, corners, valid in loader:
             x, conf, corners, valid = x.to(device), conf.to(device), corners.to(device), valid.to(device)
             pred = model(x)
-            loss, _, _ = keypoint_loss(pred, conf, corners, valid)
             b = x.size(0)
+            if head == "center":
+                t = build_center_targets(conf, corners, valid, grid_hw)
+                loss, _, _ = center_loss(pred, t)
+                e, m, a, c, d = center_metrics(pred, conf, corners, valid, INPUT_WH)
+                err_sum += e
+                matched += m
+                tp += a
+                fp += c
+                fn += d
+            else:
+                loss, _, _ = keypoint_loss(pred, conf, corners, valid)
+                tot["px"] += pixel_error(pred, conf, corners, INPUT_WH, valid) * b
+                tot["acc"] += conf_accuracy(pred, conf) * b
             tot["loss"] += loss.item() * b
-            tot["px"] += pixel_error(pred, conf, corners, INPUT_WH, valid) * b
-            tot["acc"] += conf_accuracy(pred, conf) * b
             tot["n"] += b
     n = tot["n"]
+    if head == "center":
+        # DECISION: a finite sentinel, not nan, when nothing matched (typical
+        # for the first epoch or two, when no cell clears score 0.5).
+        # watch.py's line regex only accepts [\d.]+ for val_px, and dropping
+        # those rows would silently punch holes in the dashboard.
+        px = err_sum / matched if matched else 999.99
+        return tot["loss"] / n, px, f1_from_counts(tp, fp, fn)
     return tot["loss"] / n, tot["px"] / n, tot["acc"] / n
 
 
@@ -58,6 +84,10 @@ def main():
     ap.add_argument("--select", choices=["synth", "real"], default="synth",
                     help="which val picks best.pt: synthetic val_px (default) or held-out real_px "
                          "(use 'real' for fine-tunes - synthetic val favors the least-adapted epoch)")
+    ap.add_argument("--head", choices=list(HEADS), default="center",
+                    help="'center': anonymous-quad CenterNet head (default since 2026-09-12). "
+                         "'legacy': the named-slot FC regression head - kept so old checkpoints "
+                         "stay trainable/comparable, not for new runs")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
@@ -102,11 +132,21 @@ def main():
     print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}"
           + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
-    model = FaceKP(pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    grid_hw = getattr(model, "grid_hw", None)
+    print(f"head={args.head}  params={count_params(model) / 1e6:.2f}M"
+          + (f"  grid={grid_hw[0]}x{grid_hw[1]}" if grid_hw else ""))
+    if args.head == "center":
+        dataset_target_stats(val_ds, grid_hw, name="val")
+        if real_dl is not None:
+            dataset_target_stats(real_dl.dataset, grid_hw, name="real_val")
     if args.init and args.resume:
         raise SystemExit("--init and --resume are mutually exclusive")
     if args.init:
         ckpt = torch.load(args.init, map_location=device, weights_only=True)
+        if ckpt.get("head", "legacy") != args.head:
+            raise SystemExit(f"--init {args.init} has head {ckpt.get('head', 'legacy')!r}, "
+                             f"this run is {args.head!r} - the heads share no weights")
         model.load_state_dict(ckpt["model"])
         print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')})")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -127,6 +167,9 @@ def main():
         # The LR schedule is positional: if the dataset, epochs, or batch size
         # changed, the step count differs and resuming would train on a wrong
         # schedule. Refuse rather than silently degrade.
+        if ckpt.get("head", "legacy") != args.head:
+            raise SystemExit(f"resume mismatch: checkpoint head {ckpt.get('head', 'legacy')!r} "
+                             f"vs --head {args.head!r}")
         if ckpt.get("total_steps") != total_steps:
             raise SystemExit(f"resume mismatch: checkpoint expects total_steps={ckpt.get('total_steps')}, "
                              f"this invocation has {total_steps} (data/epochs/batch changed?) - start fresh")
@@ -143,30 +186,38 @@ def main():
         model.train()
         t0 = time.time()
         run_loss = 0.0
+        run_heat = 0.0
+        run_off = 0.0
         n = 0
         for x, conf, corners, valid in train_dl:
             x, conf, corners, valid = x.to(device, non_blocking=True), conf.to(device), corners.to(device), valid.to(device)
             opt.zero_grad(set_to_none=True)
+            targets = (build_center_targets(conf, corners, valid, grid_hw)
+                       if args.head == "center" else None)
             with torch.amp.autocast(device_type="cuda", enabled=device == "cuda"):
                 pred = model(x)
-                loss, _, _ = keypoint_loss(pred, conf, corners, valid)
+                loss, lh, lo = (center_loss(pred, targets) if args.head == "center"
+                                else keypoint_loss(pred, conf, corners, valid))
             scaler.scale(loss).backward()
             scaler.step(opt)
             scaler.update()
             sched.step()
             run_loss += loss.item() * x.size(0)
+            run_heat += float(lh) * x.size(0)
+            run_off += float(lo) * x.size(0)
             n += x.size(0)
-        vloss, vpx, vacc = evaluate(model, val_dl, device)
+        vloss, vpx, vacc = evaluate(model, val_dl, device, args.head, grid_hw)
         rpx = None
         if real_dl is not None:
-            _, rpx, _ = evaluate(model, real_dl, device)
+            _, rpx, _ = evaluate(model, real_dl, device, args.head, grid_hw)
         line = (f"epoch {epoch:3d}  train_loss {run_loss / n:.4f}  val_loss {vloss:.4f}  "
                 f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s"
-                + (f"  real_px {rpx:.2f}" if rpx is not None else ""))
+                + (f"  real_px {rpx:.2f}" if rpx is not None else "")
+                + (f"  heat {run_heat / n:.4f}  off {run_off / n:.4f}" if args.head == "center" else ""))
         print(line, flush=True)
         log.append(line)
         slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch,
-                "val_px": vpx, "real_px": rpx}
+                "val_px": vpx, "real_px": rpx, "head": args.head}
         select_px = rpx if (args.select == "real" and rpx is not None) else vpx
         if select_px < best_px:
             best_px = select_px

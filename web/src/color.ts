@@ -177,6 +177,21 @@ export function isFaceTooDark(cells: readonly Lab[]): boolean {
   return chromas[chromas.length >> 1]! < MIN_FACE_CHROMA;
 }
 
+// DECISION: the mirror image of isFaceTooDark, and the reason it has to exist
+// separately from isGlareSample. White IS a sticker color, so a single cell at
+// L>96 with no chroma is not evidence of anything - refusing on that alone
+// would refuse every U face in bright light, which is a sixth of all faces.
+// A whole face that reads that way carries no information either way, and
+// that is what a highlight blowing out a face actually looks like.
+export const MAX_FACE_LIGHTNESS = 96;
+
+/** True when a face reading is so blown out that nothing can be read from it. */
+export function isFaceBlownOut(cells: readonly Lab[]): boolean {
+  if (labMedian(cells).L <= MAX_FACE_LIGHTNESS) return false;
+  const chromas = cells.map((c) => Math.hypot(c.a, c.b)).sort((a, b) => a - b);
+  return chromas[chromas.length >> 1]! < MIN_FACE_CHROMA;
+}
+
 /**
  * Sample up to 8 patches in the region surrounding `rect` (edge midpoints and
  * corners, halfway between the rect and the image border). Used to tell a

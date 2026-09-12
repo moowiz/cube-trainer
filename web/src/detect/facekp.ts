@@ -7,30 +7,69 @@
 // the faster session; the verdict is cached in localStorage so the ~1s
 // measurement happens once per device per model. Never assumes WebGPU exists.
 //
+// Two model generations are supported, selected by `meta.head`:
+//   undefined | 'legacy'  (B,6,9) named face slots, U R F D L B, one
+//                         visibility logit + 4 corners each.
+//   'center-v1'           (B,9,15,20) CenterNet maps: an anonymous
+//                         face-center heatmap plus corner offsets. Quads
+//                         carry NO face identity; identify.ts names them
+//                         from the center sticker color.
+// Either way detect() returns DetectedFace[], so the tracker, orientation
+// and assembly code below it never learns which generation is deployed.
+//
 // The app must keep working when no model file is deployed: load() resolves
 // null on a missing model, and callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
-import type { FaceId } from '../types';
+import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
+import type { ImageDataLike } from '../rectify';
+import { CenterExemplars, nameQuads, type NamedQuad } from './identify';
 
 export interface DetectedFace {
   face: FaceId;
   conf: number;
   /** TL,TR,BR,BL in the face's cubejs sticker orientation, source-image px. */
   corners: [number, number][];
+  /** center-v1 only: how confidently the center color picked this face id. */
+  nameConf?: number;
+}
+
+/** A detection before it has a name. center-v1 produces these directly. */
+export interface DetectedQuad {
+  conf: number;
+  /** 4 corners, source-image px. Cyclic order, consistent winding, arbitrary start. */
+  corners: [number, number][];
+}
+
+/** The raw face-center heatmap, for the debug overlay. */
+export interface HeatMap {
+  /** w*h sigmoid probabilities, row-major. */
+  data: Float32Array;
+  w: number;
+  h: number;
+  /** Map a cell (j,i) to source-image px: see letterbox math in detect(). */
+  cellToSource: (j: number, i: number) => [number, number];
 }
 
 export interface DetectResult {
   faces: DetectedFace[];
+  /** Anonymous quads as the model produced them, before naming (debug view). */
+  quads: DetectedQuad[];
+  /** center-v1 only. */
+  heat?: HeatMap;
+  /** Quads that were dropped by naming, with the reason (debug view). */
+  unnamed: { quad: DetectedQuad; reason: string }[];
   /** Pure session.run time, ms. */
   inferMs: number;
-  /** Preprocess + run + decode, ms. */
+  /** Preprocess + run + decode (+ naming), ms. */
   totalMs: number;
 }
 
 interface FacekpMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
-  output: { faces: string };
+  output: { name?: string; faces?: string; shape?: number[]; stride?: number };
+  head?: string;         // 'legacy' (or absent) | 'center-v1'
+  anonymous?: boolean;
   precision?: string;
   run?: string;          // training run name (e.g. "ft7"), stamped at export
   trainedEpoch?: number;
@@ -42,6 +81,7 @@ export type Ep = 'webgpu' | 'wasm';
 
 const CONF_KEEP = 0.25; // hand everything plausible to the caller; it filters
 const BENCH_KEY = 'facekp:epBench:v1';
+const TOP_K = 6;        // max faces the center head decodes per frame (3 can be visible)
 
 export class FaceDetector {
   private constructor(
@@ -55,6 +95,9 @@ export class FaceDetector {
     this.modelId = [meta.run, meta.trainedEpoch != null ? `ep${meta.trainedEpoch}` : '', meta.precision]
       .filter(Boolean).join(' ') || 'unknown model';
     this.cropTrained = !!meta.cropTrained;
+    this.anonymous = (meta.head ?? 'legacy') === 'center-v1';
+    this.outputName = meta.output?.name ?? (this.anonymous ? 'maps' : 'faces');
+    this.stride = meta.output?.stride ?? 16;
     this.iw = w;
     this.ih = h;
     this.canvas = document.createElement('canvas');
@@ -67,6 +110,12 @@ export class FaceDetector {
   readonly modelId: string;
   /** True when the deployed model was trained on crop-normalized views. */
   readonly cropTrained: boolean;
+  /** True for center-v1: the model emits unnamed quads, identify.ts names them. */
+  readonly anonymous: boolean;
+  /** Center-color exemplars, grown from seam-verified faces. Debug panel reads it. */
+  readonly exemplars = new CenterExemplars();
+  private outputName: string;
+  private stride: number;
   private iw: number;
   private ih: number;
   private canvas: HTMLCanvasElement;
@@ -103,7 +152,7 @@ export class FaceDetector {
 
     // 'auto' with WebGPU present: use the cached verdict for this model if
     // there is one, otherwise benchmark both providers and keep the winner.
-    const cacheId = `${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
+    const cacheId = `${meta.head ?? 'legacy'}:${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
     interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
     let cached: BenchCache | null = null;
     try {
@@ -151,7 +200,14 @@ export class FaceDetector {
     return new FaceDetector(session, meta, winner, ms);
   }
 
-  /** Run one frame. Corner coords come back in the source's own pixel space. */
+  /**
+   * Run one frame. Corner coords come back in the source's own pixel space.
+   *
+   * For center-v1 the quads are decoded anonymously and then named from their
+   * center sticker color; quads that cannot be named (glare, too dark, two
+   * quads claiming one face, an impossible opposite pair) are dropped from
+   * `faces` but stay in `quads`/`unnamed` for the debug overlay.
+   */
   async detect(
     source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
     /** Optional source-space region: run the model on this crop only (the
@@ -160,6 +216,48 @@ export class FaceDetector {
      *  model (meta.cropTrained) - the fp32 base model degrades on crops. */
     roi?: [number, number, number, number],
   ): Promise<DetectResult> {
+    const run = await this.run(source, roi);
+    if (!this.anonymous) return run.result;
+
+    // Name the quads from the letterboxed frame the model itself saw. It is
+    // already in hand (no second getImageData, no full-res read on the
+    // detector's cadence) and a center sticker is ~10-25 px across there -
+    // ample for one averaged patch. Full-resolution sampling still happens
+    // downstream, where per-sticker color actually has to be right.
+    const named = nameQuads(run.lbFrame, run.lbQuads, this.exemplars,
+                            run.result.quads.map((q) => q.conf));
+    const faces: DetectedFace[] = [];
+    const unnamed: { quad: DetectedQuad; reason: string }[] = [];
+    named.forEach((n: NamedQuad, i: number) => {
+      const quad = run.result.quads[i]!;
+      if (n.face) faces.push({ face: n.face, conf: quad.conf, corners: quad.corners, nameConf: n.nameConf });
+      else unnamed.push({ quad, reason: n.reason });
+    });
+    return { ...run.result, faces, unnamed, totalMs: performance.now() - run.t0 };
+  }
+
+  /** Anonymous quads only - no color sampling, no naming. center-v1 only. */
+  async detectQuads(
+    source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+    roi?: [number, number, number, number],
+  ): Promise<DetectResult> {
+    return (await this.run(source, roi)).result;
+  }
+
+  /**
+   * Record a center observation so the scheme stops relying on the default
+   * prior. Callers pass the 9 Lab cells of a face they have already
+   * seam-verified and are confident about (see web/src/color-notes.md item 2:
+   * center stickers are free labeled exemplars).
+   */
+  observeCenter(face: FaceId, cells: readonly Lab[], rgb?: [number, number, number]): void {
+    this.exemplars.observe(face, cells, rgb);
+  }
+
+  private async run(
+    source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+    roi?: [number, number, number, number],
+  ) {
     const t0 = performance.now();
     const fullW = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
     const fullH = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
@@ -177,7 +275,8 @@ export class FaceDetector {
     this.ctx.fillStyle = 'rgb(114,114,114)';
     this.ctx.fillRect(0, 0, this.iw, this.ih);
     this.ctx.drawImage(source, r[0], r[1], sw, sh, dx, dy, sw * scale, sh * scale);
-    const { data } = this.ctx.getImageData(0, 0, this.iw, this.ih);
+    const lbFrame = this.ctx.getImageData(0, 0, this.iw, this.ih);
+    const { data } = lbFrame;
 
     const [mr, mg, mb] = this.meta.input.mean;
     const [dr, dg, db] = this.meta.input.std;
@@ -195,23 +294,121 @@ export class FaceDetector {
     });
     const t2 = performance.now();
 
-    const y = out.faces.data as Float32Array; // [1,6,9]
-    const faces: DetectedFace[] = [];
-    for (let f = 0; f < 6; f++) {
-      const conf = 1 / (1 + Math.exp(-y[f * 9]));
-      if (conf < CONF_KEEP) continue;
-      const corners: [number, number][] = [];
-      for (let k = 0; k < 4; k++) {
-        const u = y[f * 9 + 1 + 2 * k] * this.iw;
-        const v = y[f * 9 + 2 + 2 * k] * this.ih;
-        corners.push([(u - dx) / scale + r[0], (v - dy) / scale + r[1]]);
+    // Letterbox px -> source px. Corners come out of both heads in the
+    // model's own normalized frame, so this is the one place that inverts it.
+    const toSource = (u: number, v: number): [number, number] =>
+      [(u - dx) / scale + r[0], (v - dy) / scale + r[1]];
+
+    const tensor = out[this.outputName];
+    if (!tensor) throw new Error(`model output '${this.outputName}' missing (got ${Object.keys(out).join(', ')})`);
+    const y = tensor.data as Float32Array;
+
+    if (!this.anonymous) {
+      const faces: DetectedFace[] = [];
+      const quads: DetectedQuad[] = [];
+      for (let f = 0; f < 6; f++) {
+        const conf = 1 / (1 + Math.exp(-y[f * 9]));
+        if (conf < CONF_KEEP) continue;
+        const corners: [number, number][] = [];
+        for (let k = 0; k < 4; k++) {
+          corners.push(toSource(y[f * 9 + 1 + 2 * k] * this.iw, y[f * 9 + 2 + 2 * k] * this.ih));
+        }
+        faces.push({ face: FACE_ORDER[f], conf, corners });
+        quads.push({ conf, corners });
       }
-      faces.push({ face: FACE_ORDER[f], conf, corners });
+      return {
+        t0,
+        lbFrame: lbFrame as unknown as ImageDataLike,
+        lbQuads: [] as [number, number][][],
+        result: { faces, quads, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
+      };
     }
-    return { faces, inferMs: t2 - t1, totalMs: t2 - t0 };
+
+    const [, , gh, gw] = tensor.dims as number[];
+    const dets = decodeMaps(y, gh, gw, this.stride, this.iw, this.ih, TOP_K, CONF_KEEP);
+    const quads: DetectedQuad[] = [];
+    const lbQuads: [number, number][][] = [];
+    for (const d of dets) {
+      const lb = d.quad.map(([u, v]) => [u * this.iw, v * this.ih] as [number, number]);
+      quads.push({ conf: d.score, corners: lb.map(([u, v]) => toSource(u, v)) });
+      lbQuads.push(lb);
+    }
+    const heatData = new Float32Array(gh * gw);
+    for (let i = 0; i < gh * gw; i++) heatData[i] = 1 / (1 + Math.exp(-y[i]));
+    const heat: HeatMap = {
+      data: heatData, w: gw, h: gh,
+      cellToSource: (j, i) => toSource((j + 0.5) * this.stride, (i + 0.5) * this.stride),
+    };
+    return {
+      t0,
+      lbFrame: lbFrame as unknown as ImageDataLike,
+      lbQuads,
+      result: { faces: [], quads, heat, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
+    };
   }
 
   dispose(): void {
     void this.session.release();
   }
+}
+
+/**
+ * TypeScript mirror of model/train/model.py::decode_maps — 3x3 max-pool NMS,
+ * top-K by score, corner = ((j + 0.5 + offx) * stride, (i + 0.5 + offy) * stride).
+ *
+ * Corners come back NORMALIZED to the model's input frame, exactly as the
+ * Python version returns them, so web/test/facekp-decode.test.ts can compare
+ * the two numbers for number against a fixture dumped from the Python decode.
+ * If you change one, change the other.
+ *
+ * `maps` is the flat (1, 9, h, w) output tensor, row-major.
+ */
+export function decodeMaps(
+  maps: Float32Array,
+  gh: number,
+  gw: number,
+  stride: number,
+  iw: number,
+  ih: number,
+  k = TOP_K,
+  thresh = CONF_KEEP,
+): { score: number; quad: [number, number][] }[] {
+  const n = gh * gw;
+  const kept: { score: number; cell: number }[] = [];
+  for (let i = 0; i < gh; i++) {
+    for (let j = 0; j < gw; j++) {
+      const c = i * gw + j;
+      const s = 1 / (1 + Math.exp(-maps[c]!));
+      // 3x3 max-pool NMS with `>=`, exactly like torch's max_pool2d equality
+      // test: a flat plateau keeps every cell on it, which is why the fixture
+      // includes one.
+      let isPeak = true;
+      for (let di = -1; di <= 1 && isPeak; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          const ni = i + di;
+          const nj = j + dj;
+          if (ni < 0 || ni >= gh || nj < 0 || nj >= gw) continue;
+          if (1 / (1 + Math.exp(-maps[ni * gw + nj]!)) > s) { isPeak = false; break; }
+        }
+      }
+      if (isPeak) kept.push({ score: s, cell: c });
+    }
+  }
+  // topk: score descending, ties broken by cell index ascending (torch.topk
+  // on a 1-D view returns the lower index first for equal values).
+  kept.sort((a, b) => (b.score - a.score) || (a.cell - b.cell));
+  const out: { score: number; quad: [number, number][] }[] = [];
+  for (const { score, cell } of kept.slice(0, k)) {
+    if (score < thresh) continue;
+    const i = Math.floor(cell / gw);
+    const j = cell % gw;
+    const quad: [number, number][] = [];
+    for (let c = 0; c < 4; c++) {
+      const ox = maps[(1 + 2 * c) * n + cell]!;
+      const oy = maps[(2 + 2 * c) * n + cell]!;
+      quad.push([(j + 0.5 + ox) * stride / iw, (i + 0.5 + oy) * stride / ih]);
+    }
+    out.push({ score, quad });
+  }
+  return out;
 }
