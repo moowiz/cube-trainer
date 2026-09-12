@@ -66,31 +66,46 @@ memory-bandwidth bound, so adding instances past ~16 buys little), which is
 Why it falls back: Chrome renders WebGL through ANGLE, ANGLE's default
 backend is Vulkan, and the container had **no Vulkan ICD manifest at all**.
 Writing `/usr/share/vulkan/icd.d/nvidia_icd.json` pointing at
-`libGLX_nvidia.so.0` is necessary but was NOT sufficient on the pod we used:
-`vulkaninfo` then fails with `ERROR_INCOMPATIBLE_DRIVER`, because Runpod's
-container runtime injected the GLX half of the driver userspace and not the
-Vulkan half (no `libnvidia-vulkan*` anywhere on the box).
+`libGLX_nvidia.so.0` is necessary but was NOT sufficient on the pod we used.
 
-**The deciding factor is the driver version.** That pod ran 590.48.01, while
-Ubuntu ships `libnvidia-gl-550` … `libnvidia-gl-575` - no 590, so there is no
-matching userspace to install, and installing a mismatched one risks breaking
-the CUDA stack that training depends on. Runpod's own guidance cites 550.xx
-as their baseline, so a pod on a 550-era driver should be fixable with:
+**Do not go looking for a `libnvidia-vulkan.so`** - there is no such library
+on a Linux NVIDIA install, and chasing one is a dead end. `libGLX_nvidia.so.0`
+IS NVIDIA's Vulkan ICD despite the GLX name; verified on the pod:
 
-```bash
-apt-get install -y libnvidia-gl-550 vulkan-tools   # match the DRIVER version
-vulkaninfo --summary | grep deviceName             # must name the GPU, not SwiftShader
+```
+$ nm -D --defined-only /usr/lib/x86_64-linux-gnu/libGLX_nvidia.so.0 | grep vk_icd
+  T vk_icdGetInstanceProcAddr
+  T vk_icdGetPhysicalDeviceProcAddr
+  T vk_icdNegotiateLoaderICDInterfaceVersion
 ```
 
-So: before generating, run the 30-second check below. If it names the GPU,
-generation is ~7x faster and you can drop to 2-4 parallel instances. If it
-names SwiftShader, either accept the CPU rate or re-rent on a pod whose
-driver has a matching `libnvidia-gl-NNN` package.
+Everything the stack needs was in fact present and correct: the loader
+(`libvulkan.so.1`), the ICD symbols above, `ldd` clean with no missing
+dependencies, the Vulkan SPIR-V compiler (`libnvidia-glvkspirv.so.590.48.01`)
+alongside glcore/eglcore/rtcore, a DRM render node (`/dev/dri/renderD128`),
+`nvidia_drm` loaded, MIG disabled, compute mode Default, and injected
+userspace at exactly the driver's own 590.48.01. The loader still gets NULL
+back when it asks the ICD for `vkCreateInstance`:
+`ERROR_INCOMPATIBLE_DRIVER`. That is the NVIDIA driver itself declining to
+expose Vulkan in this container, not a missing package we can install.
+
+Conclusion: on a pod that behaves this way, **stop and budget for CPU
+rendering** rather than debugging further - the remaining paths all mean
+installing a mismatched driver userspace over the injected one, which risks
+the CUDA stack that training depends on. Ubuntu ships `libnvidia-gl-550` …
+`libnvidia-gl-575` and nothing for 590, so there is no matching package
+anyway.
+
+Before generating, spend 30 seconds finding out which case you are in:
 
 ```bash
-nvidia-smi --query-gpu=driver_version --format=csv,noheader   # then:
-apt-cache search 'libnvidia-gl-' | head                        # is there a match?
+apt-get install -y vulkan-tools
+vulkaninfo --summary | grep -i deviceName   # names the GPU => GPU path works
 ```
+
+If it names the GPU, generation is ~7x faster and 2-4 parallel instances are
+enough. If it errors or names SwiftShader, accept the CPU rate (~5.8 img/s at
+16 instances) or try a pod on a different driver version.
 
 Chrome flags are NOT the problem and tuning them is a dead end: `--use-gl=egl`,
 `--use-angle=gl` and the default all report
