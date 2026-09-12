@@ -38,6 +38,16 @@ independent per-sticker nearest-centroid votes break the tie wrong.
    red not because it's near absolute red but because it's nearer the red
    center's current appearance than the orange center's.
 
+   **Partly landed 2026-09-12** (`web/src/detect/identify.ts`, the
+   anonymous-quad head): face identity is no longer a model output, it is a
+   center-color lookup. `CenterExemplars` starts from the default scheme
+   and, once a face has been seam-verified, replaces that face's exemplar
+   with the running median of its observed centers — so naming compares a
+   center against what THIS cube's centers look like under THIS light, which
+   is item 2 for the *center* stickers. What is still missing is item 2 for
+   the other 48: `assembleState` still clusters globally rather than
+   classifying each sticker against same-frame center exemplars.
+
 3. **The 9-per-color constraint turns classification into assignment.** A
    finished cube has exactly 9 stickers of each color. Instead of 54
    independent argmins, the lock step should solve a constrained
