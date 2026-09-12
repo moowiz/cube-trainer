@@ -173,6 +173,17 @@ real usage frame has them; random-rectangle erasing is a weak proxy) — and
 foreground clutter objects partially occluding the cube's silhouette, plus
 hard cast shadows across faces.
 
+**Queued: corner-on pose tranche (data_v4).** Measured 2026-09-12 on 4k
+sampled labels per root: 3-face views are 21-27% of frames, but *dead-on
+corner views* (all three faces well presented, min facing >= 0.40) are only
+1.4-2.4% — uniform orientation sampling makes near-corner-on a tiny solid
+angle, while it's one of the most natural in-hand scanning poses and the
+model's weakest class (see the 45-degree-diamond / identity-averaging note).
+Fix per the append-only tranche philosophy: generate a new root with pose
+sampling biased toward corner-on (e.g. half drawn from min-facing >= 0.3
+orientations), weight it in via `--data ...,../data_v4*N`. Cheap, and stacks
+with the identity-free-head fix on the same pose class.
+
 > **DECISION:** Three.js in headless Chrome (puppeteer), not Blender and not
 > the `gl` native module. It matches the web app's rendering stack exactly,
 > installs cleanly on Windows, and is fast enough (~20k images overnight at
