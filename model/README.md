@@ -183,8 +183,26 @@ Motivation for the pose knob, measured 2026-09-12 on 4k sampled labels per
 root: 3-face views are 21-27% of frames but dead-on corner views (min
 facing >= 0.40) only 1.4-2.4% under uniform sampling — while corner-on is a
 natural in-hand scanning pose and the model's weakest class (see the
-45-degree-diamond / identity-averaging note). Refinement candidate: fingers
-occasionally render stick-thin.
+45-degree-diamond / identity-averaging note).
+
+**Render pass 2 DONE 2026-09-12 (review of the v4 previews against real
+photos):** fingers were ~1/10 of the cube width; real ones are ~1/3 (thumb
+~0.4), so hands are now a palm ellipsoid behind the cube + forearm capsule
+off-frame + 2-4 fat fingers built as root (beside the cube) → knuckle (at
+the near edge) → tip (on the near face), i.e. they wrap the edge instead of
+pointing at the lens. Hands force the first directional light to cast
+shadows, so finger shadows land on the stickers. Center logo is now on the
+white (U) center in ~80% of cubes, drawn from a wide family (monograms,
+wordmarks, oval/ring badges, cube glyphs, pictograms, CJK characters,
+stripes, dot grids, QR-ish blocks, inverted badges, two-tone) on either a
+white cap or the face's own tile. GAN-style tile profile (35% of stickered
+cubes): tile corners facing the center circle are heavily rounded, the
+perimeter corners stay near-square — measured on the GAN 356 close-ups.
+Layer misalignment (22%): one outer layer left rotated 2-9 deg (20% of
+those 10-20 deg); labels rotate the vertices in that layer with it, which is
+what a hand labeler clicking the plastic corner does. meta gains
+hasPalm/nFingers/logoOnCap/ganProfile/layerTwist. Preview renders:
+`model/preview_v5/` (gitignored).
 
 **DECISION 2026-09-12 — consolidate synthetic data (supersedes append-only
 for synthetic).** The next from-scratch set is ONE root, `data_v4`, ~50-60k
