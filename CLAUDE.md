@@ -106,6 +106,13 @@ cd model && make export      # writes web/public/models/facekp.onnx
 - `model/data_real/` and `stephens_photos/` are gitignored **on purpose** — personal photos, public repo. Never commit them. The hand labels exist only on this machine; occasionally remind the user to back up `stephens_photos/labels-all.json`.
 - The real-data loop is: `check_labels.py` (geometry checks, run before importing) → `import_labels.py` (re-imports update edited labels in place; the dataset cache fingerprints label files so edits trigger a rebuild) → fine-tune ~15 epochs at lr 5e-5 with `--data <synthetic>,../data_real*150 --init <base>` → export → deploy. Labeling conventions are in `model/README.md`.
 - The training cache (`cache_320x240/`) and `--data root*N` oversampling make fine-tunes ~10 min; a 120-epoch from-scratch run is ~70 min at 8 workers (~56% CPU, the agreed ceiling — never saturate the machine).
+- Killing a running train.py does NOT kill its DataLoader workers on Windows:
+  orphaned `spawn_main` python processes linger and hold the inherited
+  `runs/<name>-console.log` handle, so relaunches die with "file is being
+  used by another process" — hunt them down first. Detached launches of
+  train.py (Start-Process cmd/batch) silently fail on this machine anyway
+  (instant exit 0): run training as a normal session background task and use
+  `--resume` after interruptions.
 
 ## Known hard cases (don't be surprised)
 
