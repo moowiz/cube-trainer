@@ -93,6 +93,30 @@ function faceColors(rnd) {
   return out;
 }
 
+// Sticker/tile as a rounded-rect extrusion: radius 0 = classic vinyl sticker,
+// big radius + depth = the molded plastic tiles of modern cubes (GAN GES
+// style), whose fat rounded gaps look nothing like thin straight seam lines.
+// DECISION: real-cube seam morphology varies a lot (thin black lines, wide
+// rounded crosses, white-body light seams, stickerless shadow-only seams);
+// randomizing it here is the fix for the model overfitting any one seam look.
+function tileGeo(size, radius, depth) {
+  const h = size / 2, r = Math.min(Math.max(radius, 0.0001), h * 0.49);
+  const s = new THREE.Shape();
+  s.absarc(h - r, h - r, r, 0, Math.PI / 2);
+  s.absarc(r - h, h - r, r, Math.PI / 2, Math.PI);
+  s.absarc(r - h, r - h, r, Math.PI, Math.PI * 1.5);
+  s.absarc(h - r, r - h, r, Math.PI * 1.5, Math.PI * 2);
+  s.closePath();
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 5 });
+}
+
+function circleGeo(rad, depth) {
+  const s = new THREE.Shape();
+  s.absarc(0, 0, rad, 0, Math.PI * 2);
+  s.closePath();
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 14 });
+}
+
 function buildCube(rnd, style) {
   const group = new THREE.Group();
   const colors = faceColors(rnd);
@@ -102,9 +126,20 @@ function buildCube(rnd, style) {
   // stickerless per-face coloring splits along the bevel like molded plastic.
   const bevel = CUBIE * (0.045 + rnd() * 0.045);
   const boxGeo = new RoundedBoxGeometry(CUBIE, CUBIE, CUBIE, 3, bevel);
-  const stickerSize = (CUBIE - 2 * bevel) * (0.88 + rnd() * 0.09);
-  const stickerGeo = new THREE.PlaneGeometry(stickerSize, stickerSize);
-  const plastic = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.35 + rnd() * 0.3 });
+  const stickerSize = (CUBIE - 2 * bevel) * (0.82 + rnd() * 0.15);
+  // tile corner radius (fraction of tile size): sharp / medium / GAN-fat
+  const radRoll = rnd();
+  const tileRadius = radRoll < 0.3 ? rnd() * 0.08 : radRoll < 0.7 ? 0.08 + rnd() * 0.17 : 0.25 + rnd() * 0.23;
+  const tileDepth = CUBIE * (0.006 + rnd() * 0.035);
+  const stickerGeo = tileGeo(stickerSize, stickerSize * tileRadius, tileDepth);
+  // circular center caps (GAN RS look); logo cap hides one center's color
+  const circleCaps = rnd() < 0.3;
+  const centerGeo = circleCaps ? circleGeo(stickerSize * 0.5, tileDepth) : stickerGeo;
+  const logoFace = rnd() < 0.22 ? (rnd() < 0.5 ? 'U' : pick(rnd, Object.keys(SCHEME))) : null;
+  // body color: black classic, white/light (light seams!), or oddball
+  const bodyRoll = rnd();
+  const bodyHex = bodyRoll < 0.68 ? 0x0a0a0a : bodyRoll < 0.85 ? 0xefefef : pick(rnd, [0xd5d5d5, 0x22224a, 0x4a1515]);
+  const plastic = new THREE.MeshStandardMaterial({ color: bodyHex, roughness: 0.35 + rnd() * 0.3 });
   const interior = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.6 });
   // glossy cubes get a clearcoat layer (the lacquered look of a new cube);
   // otherwise plain plastic reads matte/frosted
@@ -117,25 +152,52 @@ function buildCube(rnd, style) {
       clearcoat: coat, clearcoatRoughness: coatRough,
     });
   }
+  const capMat = new THREE.MeshPhysicalMaterial({
+    color: 0xf5f5f5, roughness: rough, metalness: 0, clearcoat: coat, clearcoatRoughness: coatRough,
+  });
+  const logoMat = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color().setHSL(rnd(), 0.6 + rnd() * 0.4, 0.3 + rnd() * 0.25), roughness: rough, metalness: 0,
+  });
 
   const cubies = [];
   for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
     if (x === 0 && y === 0 && z === 0) continue;
     const g = { x, y, z };
     let mesh;
+    const orient = (m, d) => {
+      if (d.axis === 'x') m.rotateY((Math.PI / 2) * d.sign);
+      else if (d.axis === 'y') m.rotateX((-Math.PI / 2) * d.sign);
+      else if (d.sign < 0) m.rotateY(Math.PI);
+      m.position[d.axis] = d.sign * (CUBIE / 2 + 0.002);
+      m.castShadow = true;
+    };
+    const addLogoCap = (parent, d) => {
+      // white disc + colored smudge: the GAN-style center cap, which hides
+      // the center color so the model must not depend on always seeing it
+      const cap = new THREE.Mesh(circleGeo(stickerSize * 0.49, tileDepth), capMat);
+      orient(cap, d);
+      parent.add(cap);
+      const smudge = new THREE.Mesh(tileGeo(stickerSize * 0.42, stickerSize * 0.1, tileDepth * 0.6), logoMat);
+      orient(smudge, d);
+      smudge.position[d.axis] = d.sign * (CUBIE / 2 + 0.002 + tileDepth);
+      smudge.rotateZ(rnd() * Math.PI);
+      parent.add(smudge);
+    };
     if (style === 'stickerless') {
       const mats = DIRS.map((d) => (g[d.axis] === d.sign ? faceMats[d.face] : interior));
       mesh = new THREE.Mesh(boxGeo, mats);
+      for (const d of DIRS) {
+        const isCenter = g[d.axis] === d.sign && ['x', 'y', 'z'].every((a) => a === d.axis || g[a] === 0);
+        if (isCenter && d.face === logoFace) addLogoCap(mesh, d);
+      }
     } else {
       mesh = new THREE.Mesh(boxGeo, plastic);
       for (const d of DIRS) {
         if (g[d.axis] !== d.sign) continue;
-        const sticker = new THREE.Mesh(stickerGeo, faceMats[d.face]);
-        if (d.axis === 'x') sticker.rotateY((Math.PI / 2) * d.sign);
-        else if (d.axis === 'y') sticker.rotateX((-Math.PI / 2) * d.sign);
-        else if (d.sign < 0) sticker.rotateY(Math.PI);
-        sticker.position[d.axis] = d.sign * (CUBIE / 2 + 0.004);
-        sticker.castShadow = true;
+        const isCenter = ['x', 'y', 'z'].every((a) => a === d.axis || g[a] === 0);
+        if (isCenter && d.face === logoFace) { addLogoCap(mesh, d); continue; }
+        const sticker = new THREE.Mesh(isCenter ? centerGeo : stickerGeo, faceMats[d.face]);
+        orient(sticker, d);
         mesh.add(sticker);
       }
     }
@@ -162,7 +224,14 @@ function buildCube(rnd, style) {
       c.quaternion.premultiply(q);
     }
   }
-  return { group, nMoves, bevel };
+  return {
+    group, nMoves, bevel,
+    styleMeta: {
+      bodyColor: '#' + bodyHex.toString(16).padStart(6, '0'),
+      tileRadius: Number(tileRadius.toFixed(3)), tileDepth: Number(tileDepth.toFixed(3)),
+      circleCaps, logoFace,
+    },
+  };
 }
 
 const texLoader = new THREE.TextureLoader();
@@ -235,7 +304,7 @@ window.renderSample = async function renderSample(opts) {
   // visible:false, corners:null - the training loader maps null corners to
   // valid=0, so no corner gradient flows from these.
   const negative = rnd() < 0.07;
-  const { group, nMoves, bevel } = buildCube(rnd, style);
+  const { group, nMoves, bevel, styleMeta } = buildCube(rnd, style);
   if (!negative) scene.add(group);
 
   // --- camera ---
@@ -274,12 +343,27 @@ window.renderSample = async function renderSample(opts) {
   camera.updateMatrixWorld();
 
   // --- surfaces behind/below (perspective hard negatives + shadow catcher) ---
+  // DECISION: these planes COVER scene.background whenever they're in view,
+  // so with procedural-only maps the visible-pixel background distribution
+  // was ~all hard-edged canvases no matter what bgKind claimed, and the
+  // detector collapsed on soft real scenes (crumpled duvet). They now draw
+  // from the photo pool too. Photo textures are cached in photoCache; clone
+  // per use and never dispose the cache's copy.
+  const surfaceTexture = async () => {
+    if (photoUrls.length && rnd() < 0.5) {
+      const t = (await photoTexture(pick(rnd, photoUrls))).clone();
+      t.wrapS = t.wrapT = THREE.MirroredRepeatWrapping;
+      return { tex: t, photo: true };
+    }
+    const t = canvasTexture(rnd);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return { tex: t, photo: false };
+  };
   const viewDir = target.clone().sub(camera.position).normalize();
   const hasTable = rnd() < 0.45;
   if (rnd() < 0.55) {
-    const t = canvasTexture(rnd);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    const rep = 2 + Math.floor(rnd() * 5);
+    const { tex: t, photo } = await surfaceTexture();
+    const rep = photo ? 1 + Math.floor(rnd() * 2) : 2 + Math.floor(rnd() * 5);
     t.repeat.set(rep, rep);
     const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), mat);
@@ -291,9 +375,8 @@ window.renderSample = async function renderSample(opts) {
     disposables.push(t, mat, plane.geometry);
   }
   if (hasTable) {
-    const t = canvasTexture(rnd);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(4, 4);
+    const { tex: t, photo } = await surfaceTexture();
+    t.repeat.set(photo ? 2 : 4, photo ? 2 : 4);
     const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.85 });
     const table = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), mat);
     table.rotateX(-Math.PI / 2);
@@ -376,6 +459,7 @@ window.renderSample = async function renderSample(opts) {
         seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins,
         closeUp, dim: Number(dim.toFixed(2)), envName, negative,
         exposure: Number(renderer.toneMappingExposure.toFixed(2)), bevel: Number(bevel.toFixed(3)),
+        ...styleMeta,
       },
     },
   };
