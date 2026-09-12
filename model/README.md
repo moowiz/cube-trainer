@@ -77,6 +77,16 @@ diamond on dead-on views is gone (see runs/realframes*/preds_ft3). Both
 fine-tunes still miss the darkest backlit webcam frames - that's a label
 gap, not a capacity gap.
 
+`data/` is now the single merged synthetic set (76k: img_000001-038000
+legacy sharp-box renders, img_038001-076000 HDRI/rounded-cubie renders,
+merged 2026-09-12 per user). Labels of both halves validated: 0 geometry
+failures over all 76k (winding/convexity), center-color identity clean
+(all mismatches in the check were photometric - warm-cast yellow-orange
+and desaturation-to-white under the realistic lighting; zero far-color
+swaps). The generator appends new-style renders to this set by
+numbering. Expect the first post-merge run to rebuild the cache (~17 GB)
+and epochs to run ~2x the 38k time.
+
 **Quantization finding:** dynamic int8 shifts corners ~33 px mean — useless
 (the FC regression head quantizes terribly). `export_onnx.py` now gates on
 measured shift (<1 px) and deploys fp32 (24.5 MB) until static QDQ
