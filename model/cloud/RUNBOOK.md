@@ -47,18 +47,20 @@ node fetch-backgrounds.mjs   # free photo backgrounds the scenes composite
 
 ## 3. Generate the synthetic set
 
-<!-- FINALIZE AFTER GENERATOR REVIEW: knob names/values below must match the
-     reviewed data_v4 generator invocation (corner-on bias, hands, clutter,
-     shadows). Update this block when data_v4's recipe is frozen. -->
+data_v4 recipe (frozen 2026-09-12): `--cornerBias 0.4`; hands/clutter/hard
+shadows are always-on generator features at their built-in rates (~50/20/25%,
+see scene.mjs DECISION comments). Target ~54k images.
 
 Parallelize by running N instances into separate roots (the generator
-numbers images per-root; don't point two instances at one root):
+numbers images per-root; don't point two instances at one root), and give
+**each part a distinct `--seed`** — the per-image seed derives from it, so
+two parts with the same seed render identical images:
 
 ```bash
 cd cube_stuff/model/gen
 for i in 1 2 3 4 5 6; do
-  OUT=../data_v4_part$i COUNT=9000 CORNER_BIAS=0.4 node generate.mjs \
-    > gen$i.log 2>&1 &
+  node generate.mjs --count 9000 --out ../data_v4_part$i --seed $i \
+    --cornerBias 0.4 > gen$i.log 2>&1 &
 done
 wait   # ~1-2 h for ~54k on a 32-core box
 ```

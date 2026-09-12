@@ -167,22 +167,40 @@ labels are free (hull of corner labels, synthetic + real); public Roboflow
 cube-bbox sets (~540 imgs) can supplement. At runtime stage 1 only runs at
 acquisition - a tracked cube's previous quads define the next crop.
 
-**Queued for the next render pass (not yet implemented):** hands — skin-tone
-capsule fingers gripping the cube for geometry-consistent occlusion (every
-real usage frame has them; random-rectangle erasing is a weak proxy) — and
-foreground clutter objects partially occluding the cube's silhouette, plus
-hard cast shadows across faces.
+**Render pass DONE 2026-09-12 (generator, not yet generated at scale):**
+hands (2-5 skin-tone capsule fingers gripping the cube in camera space, ~50%
+of scenes, 8 jittered skin tones), foreground clutter primitives (~20%),
+hard cast shadows from a real occluder between light and cube (~25%; fixed
+two latent shadow bugs: shadow-camera near/far depth starvation, and
+occluders placed on faces the camera can't see), and a **corner-on pose
+knob** — `--cornerBias F` / env `CORNER_BIAS` on generate.mjs: fraction F of
+scenes rejection-samples the camera until the 3rd-most-facing face has
+facing >= 0.30. Occlusion NEVER changes labels (corners/visible/facing stay
+pure projected geometry). Each label's `meta` records
+cornerOn/hasHands/hasClutter/hardShadow for auditing. Debug affordances:
+`window.DEBUG_*` flags in scene.mjs, plumbed via env vars in generate.mjs.
+Motivation for the pose knob, measured 2026-09-12 on 4k sampled labels per
+root: 3-face views are 21-27% of frames but dead-on corner views (min
+facing >= 0.40) only 1.4-2.4% under uniform sampling — while corner-on is a
+natural in-hand scanning pose and the model's weakest class (see the
+45-degree-diamond / identity-averaging note). Refinement candidate: fingers
+occasionally render stick-thin.
 
-**Queued: corner-on pose tranche (data_v4).** Measured 2026-09-12 on 4k
-sampled labels per root: 3-face views are 21-27% of frames, but *dead-on
-corner views* (all three faces well presented, min facing >= 0.40) are only
-1.4-2.4% — uniform orientation sampling makes near-corner-on a tiny solid
-angle, while it's one of the most natural in-hand scanning poses and the
-model's weakest class (see the 45-degree-diamond / identity-averaging note).
-Fix per the append-only tranche philosophy: generate a new root with pose
-sampling biased toward corner-on (e.g. half drawn from min-facing >= 0.3
-orientations), weight it in via `--data ...,../data_v4*N`. Cheap, and stacks
-with the identity-free-head fix on the same pose class.
+**DECISION 2026-09-12 — consolidate synthetic data (supersedes append-only
+for synthetic).** The next from-scratch set is ONE root, `data_v4`, ~50-60k
+generated with the full current feature set (`--cornerBias 0.4`), replacing
+`data` (76k: 38k legacy sharp-box + 38k HDRI/rounded — both strictly
+superseded by the current generator) and `data_v3` (28k) in `--data` for
+from-scratch runs. Rationale: epoch time is linear in dataset size (125k
+samples = 7.5 h runs); beyond distribution coverage, count has power-law
+diminishing returns; every measured failure was a starved *cell* (corner-on
+2%, solid faces 0%, hands 0%), not insufficient totals. Sizing math: ~80
+hard joint cells (pose class x occlusion x pattern regime x style family) x
+500-800 examples each = 40-65k; secondary axes vary freely within cells and
+train-time augmentation multiplies them. Old roots stay on disk for
+ablations; synthetic sets are a cache (the generator is the asset). REAL
+data (data_real, data_real_val) stays append-only forever. Synthetic val
+resets with the new root — real_px is the cross-run yardstick.
 
 > **DECISION:** Three.js in headless Chrome (puppeteer), not Blender and not
 > the `gl` native module. It matches the web app's rendering stack exactly,

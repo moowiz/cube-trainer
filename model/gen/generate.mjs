@@ -10,6 +10,7 @@
 // Windows, and 20k images at ~10-20/s is an overnight-at-worst job.
 //
 //   node generate.mjs --count 20000 --out ../data [--seed 1] [--style mix]
+//     [--cornerBias 0.3]   (or env var CORNER_BIAS=0.3; see scene.mjs)
 //
 // Resumes by default: existing images in the output dir are kept and numbering
 // continues after them. Use a fresh --out (or delete the dir) to start over.
@@ -30,6 +31,9 @@ const BASE_SEED = parseInt(args.seed ?? '1', 10);
 const STYLE = args.style ?? 'mix'; // mix | stickered | stickerless
 const WIDTH = parseInt(args.width ?? '640', 10);
 const HEIGHT = parseInt(args.height ?? '480', 10);
+// M4: fraction of scenes forced near-corner-on (see scene.mjs). CLI flag
+// wins over the env var; both default to 0 = current behavior unchanged.
+const CORNER_BIAS = Number(args.cornerBias ?? process.env.CORNER_BIAS ?? 0);
 
 const MIME = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const bgDir = resolve(genDir, '../backgrounds');
@@ -51,11 +55,12 @@ async function main() {
   // real-room backgrounds. Optional like the photos, but strongly recommended.
   let hdriUrls = [];
   const hdriDir = join(bgDir, 'hdri');
-  if (existsSync(hdriDir)) {
+  if (existsSync(hdriDir) && !process.env.DEBUG_NO_HDRI_URLS) {
     hdriUrls = (await readdir(hdriDir)).filter((f) => /\.hdr$/i.test(f))
       .map((f) => '/backgrounds/hdri/' + encodeURIComponent(f));
   }
   if (!hdriUrls.length) console.warn('no HDRIs in model/backgrounds/hdri/ - falling back to analytic lights only');
+  if (CORNER_BIAS > 0) console.log(`cornerBias=${CORNER_BIAS}: forcing that fraction of scenes near-corner-on`);
 
   const server = createServer(async (req, res) => {
     const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -81,10 +86,24 @@ async function main() {
   });
   const page = await browser.newPage();
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
-  page.on('console', (m) => { if (m.type() === 'error') console.error('[page]', m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error' || process.env.DEBUG_LOG_SHADOW) console.error('[page]', m.text()); });
+  if (process.env.DEBUG_SHADOW_TYPE) {
+    const t = Number(process.env.DEBUG_SHADOW_TYPE);
+    await page.evaluateOnNewDocument((v) => { window.DEBUG_SHADOW_TYPE = v; }, t);
+  }
   page.on('pageerror', (e) => console.error('[pageerror]', e.message));
   await page.goto(`http://127.0.0.1:${port}/`);
   await page.waitForFunction('window.ready === true', { timeout: 30000 });
+  if (process.env.DEBUG_FORCE_SHADOW) await page.evaluate(() => { window.DEBUG_FORCE_SHADOW = true; });
+  if (process.env.DEBUG_SHADOW_MAX) await page.evaluate(() => { window.DEBUG_SHADOW_MAX = true; });
+  if (process.env.DEBUG_NO_ENV) await page.evaluate(() => { window.DEBUG_NO_ENV = true; });
+  if (process.env.DEBUG_LOG_SHADOW) await page.evaluate(() => { window.DEBUG_LOG_SHADOW = true; });
+  if (process.env.DEBUG_SIMPLE_CUBE) await page.evaluate(() => { window.DEBUG_SIMPLE_CUBE = true; });
+  if (process.env.DEBUG_FORCE_TABLE) await page.evaluate(() => { window.DEBUG_FORCE_TABLE = true; });
+  if (process.env.DEBUG_MINIMAL) await page.evaluate(() => { window.DEBUG_MINIMAL = true; });
+  if (process.env.DEBUG_MINIMAL_TABLE) await page.evaluate(() => { window.DEBUG_MINIMAL_TABLE = true; });
+  if (process.env.DEBUG_MINIMAL_2LIGHT) await page.evaluate(() => { window.DEBUG_MINIMAL_2LIGHT = true; });
+  if (process.env.DEBUG_MINIMAL_RANDCAM) await page.evaluate(() => { window.DEBUG_MINIMAL_RANDCAM = true; });
 
   const imgDir = join(OUT, 'images');
   const lblDir = join(OUT, 'labels');
@@ -103,7 +122,7 @@ async function main() {
     const style = STYLE === 'mix' ? (styleHash < 7 ? 'stickered' : 'stickerless') : STYLE;
     const res = await page.evaluate(
       (opts) => window.renderSample(opts),
-      { seed, style, width: WIDTH, height: HEIGHT, photoUrls, hdriUrls },
+      { seed, style, width: WIDTH, height: HEIGHT, photoUrls, hdriUrls, cornerBias: CORNER_BIAS },
     );
     const id = `img_${String(next).padStart(6, '0')}`;
     const png = Buffer.from(res.dataUrl.slice('data:image/png;base64,'.length), 'base64');

@@ -5,7 +5,9 @@
   "scripts": {
     "data": "node generate.mjs --count 20000 --out ../data",
     "preview": "node generate.mjs --count 60 --out ../data/preview",
-    "viz": "node visualize.mjs --data ../data/preview --count 12"
+    "viz": "node visualize.mjs --data ../data/preview --count 12",
+    "preview-v4": "node generate.mjs --count 24 --out ../preview_v4",
+    "viz-v4": "node visualize.mjs --data ../preview_v4 --count 24"
   },
   "dependencies": {
     "pngjs": "^7.0.0",
