@@ -7,23 +7,36 @@ onnxruntime -> int8 quantization -> parity check again -> copy to
 web/public/models/facekp.onnx plus a facekp.json metadata sidecar describing
 preprocessing and the output layout, so web/ never hardcodes them.
 
-DECISION: dynamic int8 quantization (weights int8, activations fp32). For a
-conv net it shrinks the file ~4x with negligible accuracy cost and needs no
-calibration set. If wasm inference is too slow on a phone (M4 exit test),
-switch to static QDQ quantization with a calibration reader before shrinking
-the architecture.
+Quantization: static QDQ (quantize_static, QuantFormat.QDQ) calibrated on a
+handful of real val-split frames from ../data, per-channel int8 weights,
+uint8 activations. Dynamic int8 (weights only) was tried first and shifted
+corners ~24-33 px on this architecture - the big FC regression head
+quantizes terribly under a dynamic (no-calibration) range estimate. If
+full-graph static QDQ still misses the gate, a second attempt excludes the
+head's Gemm nodes from quantization (kept fp32) and requantizes just the
+backbone; the better of the two attempts is what the gate below judges.
+Either way the deployable model is whichever passes QUANT_GATE_PX - a
+quantization that moves corners is worse than a bigger download.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
+# Keep CPU usage low: this machine may be mid-training (GPU + 8 dataloader
+# workers). Must be set before onnxruntime is imported to have any effect.
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+
 import numpy as np
+import onnx
 import onnxruntime as ort
 import torch
+from onnxruntime.quantization import CalibrationDataReader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset  # noqa: E402
@@ -31,22 +44,97 @@ from model import FaceKP  # noqa: E402
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 INPUT_WH = (320, 240)
+CALIB_MAX_SAMPLES = 64  # small on purpose - a training run owns the rest of the CPU
+ORT_THREADS = 2  # applied to every session *we* construct; see note in main()
+
+
+def _cpu_light_session_options() -> ort.SessionOptions:
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = ORT_THREADS
+    so.inter_op_num_threads = 1
+    return so
 
 
 def ort_run(path, x):
-    sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(
+        str(path), sess_options=_cpu_light_session_options(), providers=["CPUExecutionProvider"]
+    )
     return sess.run(None, {"image": x.numpy()})[0]
+
+
+class ArrayCalibrationReader(CalibrationDataReader):
+    """Feeds pre-decoded float32 NCHW arrays to the static quantizer.
+
+    quantize_static consumes the reader exactly once per call, so callers
+    must construct a fresh instance (or call .rewind()) for each attempt.
+    """
+
+    def __init__(self, arrays: list[np.ndarray]):
+        self._arrays = arrays
+        self._it = iter(arrays)
+
+    def get_next(self):
+        arr = next(self._it, None)
+        return None if arr is None else {"image": arr}
+
+    def rewind(self):
+        self._it = iter(self._arrays)
+
+
+def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_MAX_SAMPLES):
+    """Up to `max_samples` real val-split frames as (1,3,H,W) float32 arrays.
+
+    Reuses the same CubeKeypointDataset pathway as the parity check below, so
+    it only reads the already-built cache under `data_root` - no writes.
+    Falls back to random noise (with a loud warning) if no dataset is found:
+    calibrating on random data gives meaningless int8 ranges, but keeps
+    `model/` and `web/` independently runnable per the repo convention.
+    """
+    try:
+        ds = CubeKeypointDataset(data_root, split="val", input_size=input_wh)
+        n = min(max_samples, len(ds))
+        arrays = [ds[i][0].unsqueeze(0).numpy() for i in range(n)]
+        print(f"calibration: {n} real val-split samples from {data_root}")
+        return arrays
+    except FileNotFoundError:
+        print(
+            f"WARNING: no dataset found under {data_root!r} - calibrating on random "
+            "data, this makes the resulting int8 activation ranges meaningless"
+        )
+        return [torch.randn(1, 3, input_wh[1], input_wh[0]).numpy() for _ in range(8)]
+
+
+def head_node_names(model_path) -> list[str]:
+    """Gemm/MatMul node names belonging to the FC regression head.
+
+    model.py's `self.head` is `Flatten -> Linear(...,512) -> Hardswish ->
+    Dropout -> Linear(512, 54)`; torch.onnx.export names its nodes with a
+    `/head/...` prefix (verified against the actual export - the backbone is
+    conv-only, so these are exactly the two head Gemms). These are the nodes
+    that quantize worst; excluding them is the fallback attempt below.
+    """
+    m = onnx.load(str(model_path))
+    return [n.name for n in m.graph.node if n.op_type in ("Gemm", "MatMul") and "/head/" in n.name]
+
+
+def measure_corner_shift(fp32_path, other_path, xs):
+    ref = np.concatenate([ort_run(fp32_path, xs[i : i + 1]) for i in range(len(xs))])
+    got = np.concatenate([ort_run(other_path, xs[i : i + 1]) for i in range(len(xs))])
+    px = np.abs(ref[:, :, 1:] - got[:, :, 1:]).reshape(-1, 4, 2) * np.array(INPUT_WH)
+    return float(px.mean()), float(px.max())
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default="../train/runs/base/best.pt")
-    ap.add_argument("--data", default="../data", help="real samples for the quantization parity check")
+    ap.add_argument("--data", default="../data", help="real samples for calibration + the quantization parity check")
     ap.add_argument("--out", default="out")
     ap.add_argument("--crop-trained", action="store_true",
                     help="stamp cropTrained: true in the sidecar - ONLY for stage-2 models "
                          "trained with the crop-heavy augment mix; the app enables the "
                          "two-stage (localizer -> crop) path when it sees this flag")
+    ap.add_argument("--no-deploy", action="store_true",
+                    help="skip writing web/public/models/facekp.{onnx,json} - use for test runs")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -72,32 +160,84 @@ def main():
     print(f"fp32 onnx vs torch: max abs diff {fp32_diff:.2e}")
     assert fp32_diff < 1e-3, "fp32 export does not match torch"
 
-    from onnxruntime.quantization import QuantType, quantize_dynamic
+    from onnxruntime.quantization import QuantFormat, QuantType, quantize_static
+    from onnxruntime.quantization.shape_inference import quant_pre_process
 
-    int8_path = out / "facekp.onnx"
-    quantize_dynamic(fp32_path, int8_path, weight_type=QuantType.QInt8)
+    # quantize_static wants a shape-inferred graph; run the quantizer's own
+    # recommended preprocessing pass and fall back to the raw export if it
+    # errors out (older opset/shape-inference edge cases).
+    preproc_path = out / "facekp.fp32.preproc.onnx"
+    try:
+        quant_pre_process(str(fp32_path), str(preproc_path))
+        quant_input_path = preproc_path
+        print(f"quant_pre_process ok -> {preproc_path.name}")
+    except Exception as e:  # pragma: no cover - depends on installed onnx/opset support
+        print(f"quant_pre_process failed ({e}); quantizing the raw export instead")
+        quant_input_path = fp32_path
 
-    # parity on real samples, reported in pixels (what actually matters)
+    # real val-split frames from ../data, reused for both calibration ranges
+    # and the measured-shift gate below (falls back to random data if
+    # ../data isn't present, same as before)
     try:
         ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH)
         xs = torch.stack([ds[i][0] for i in range(min(16, len(ds)))])
     except FileNotFoundError:
         xs = torch.randn(8, 3, INPUT_WH[1], INPUT_WH[0])
-    ref = np.concatenate([ort_run(fp32_path, xs[i : i + 1]) for i in range(len(xs))])
-    got = np.concatenate([ort_run(int8_path, xs[i : i + 1]) for i in range(len(xs))])
-    px = np.abs(ref[:, :, 1:] - got[:, :, 1:]).reshape(-1, 4, 2) * np.array(INPUT_WH)
-    print(f"int8 vs fp32 on {len(xs)} samples: mean corner shift {px.mean():.3f} px, max {px.max():.3f} px")
-    sizes = (fp32_path.stat().st_size // 1024, int8_path.stat().st_size // 1024)
-    print(f"sizes: fp32 {sizes[0]} KB -> int8 {sizes[1]} KB")
+    calib_arrays = build_calibration_arrays(args.data, INPUT_WH)
 
-    # A quantization that moves corners is worse than a bigger download.
-    # Measured 2026-09: dynamic int8 shifted corners by ~33 px mean on this
-    # architecture (the big FC regression head quantizes terribly) - so the
-    # deployable model is whichever passes this gate. TODO for real int8:
-    # static QDQ with calibration, or exclude the head Gemms.
+    def try_static_quant(label: str, dst_path: Path, nodes_to_exclude=None):
+        quantize_static(
+            str(quant_input_path), str(dst_path),
+            calibration_data_reader=ArrayCalibrationReader(calib_arrays),
+            quant_format=QuantFormat.QDQ,
+            per_channel=True,
+            weight_type=QuantType.QInt8,
+            activation_type=QuantType.QUInt8,
+            nodes_to_exclude=nodes_to_exclude,
+        )
+        mean_px, max_px = measure_corner_shift(fp32_path, dst_path, xs)
+        print(f"static QDQ [{label}] vs fp32 on {len(xs)} samples: "
+              f"mean corner shift {mean_px:.3f} px, max {max_px:.3f} px")
+        return mean_px, max_px
+
     QUANT_GATE_PX = 1.0
-    deploy, kind = (int8_path, "int8") if px.mean() < QUANT_GATE_PX else (fp32_path, "fp32")
+
+    full_path = out / "facekp.int8.qdq-full.onnx"
+    full_mean, full_max = try_static_quant("full graph", full_path)
+    candidates = [("static-qdq-full", full_path, full_mean, full_max)]
+
+    if full_mean >= QUANT_GATE_PX:
+        head_nodes = head_node_names(quant_input_path)
+        if head_nodes:
+            print(f"full QDQ missed the {QUANT_GATE_PX} px gate; retrying with "
+                  f"head nodes kept fp32: {head_nodes}")
+            head_excl_path = out / "facekp.int8.qdq-head-fp32.onnx"
+            excl_mean, excl_max = try_static_quant(
+                "head excluded", head_excl_path, nodes_to_exclude=head_nodes
+            )
+            candidates.append(("static-qdq-head-excluded", head_excl_path, excl_mean, excl_max))
+        else:
+            print("full QDQ missed the gate but no head Gemm/MatMul nodes were "
+                  "found by name - skipping the exclusion fallback")
+
+    # Keep whichever int8 attempt shifted corners least; the gate below still
+    # decides whether *that* is good enough to ship over fp32.
+    best_label, best_path, px_mean, px_max = min(candidates, key=lambda c: c[2])
+    print(f"best int8 candidate: {best_label} (mean {px_mean:.3f} px, max {px_max:.3f} px)")
+
+    int8_path = out / "facekp.onnx"
+    int8_path.write_bytes(best_path.read_bytes())
+    sizes = (fp32_path.stat().st_size // 1024, int8_path.stat().st_size // 1024)
+    print(f"sizes: fp32 {sizes[0]} KB -> int8 ({best_label}) {sizes[1]} KB")
+
+    # A quantization that moves corners is worse than a bigger download - the
+    # deployable model is whichever passes this gate, static QDQ or fp32.
+    deploy, kind = (int8_path, "int8") if px_mean < QUANT_GATE_PX else (fp32_path, "fp32")
     print(f"deploying {kind} (quantization gate: mean shift < {QUANT_GATE_PX} px)")
+
+    if args.no_deploy:
+        print("--no-deploy: skipping write to web/public/models/")
+        return
 
     WEB_MODELS.mkdir(parents=True, exist_ok=True)
     (WEB_MODELS / "facekp.onnx").write_bytes(deploy.read_bytes())
