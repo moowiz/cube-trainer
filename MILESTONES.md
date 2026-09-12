@@ -96,16 +96,22 @@ items above are now settled, one fixed and one closed as "won't fix":
   unlike the model, it can keep updating its idea of each color as the light
   changes. `diagnose.py` now reports `rot20%` so a regression is measurable
   rather than eyeballed.
+- *Accuracy: **2.2x better at equal epochs.*** On the same data and recipe
+  as the legacy baseline `runs/long4`, the center head reads 4.46 px val
+  corner error at epoch 20 where long4 read 9.74 — and 4.46 is what long4
+  reached after all 150 epochs. Detection F1 is 0.945; the residual is
+  small-face recall (705 of 744 misses are faces under 40 px, ~2.5 cells of
+  the stride-16 grid), not corner accuracy.
 - *int8: **closed, superseded.*** Dropping the dense layer did not rescue
   quantization — static QDQ on the fully convolutional graph still misses the
   1 px gate. It no longer matters: the same change took the fp32 download
   from **24.5 MB to 4.66 MB** (6.27M → 1.19M params), which was the whole
   point of wanting int8.
 
-Cost: inference is ~2.2x the legacy head (headless Chrome, RTX 4070: webgpu
-15.3 ms, wasm 24.1 ms) — the head got cheap but the stride-16 neck is not
-free. Re-verify the phone fps bar via `/autoscan.html`; depthwise-separable
-fuse convs are the lever if it misses.
+Cost: inference is 1.5x the legacy head on webgpu (9.4 vs 6.2 ms) but
+only 1.10x on wasm (18.1 vs 16.4 ms), measured back to back on an idle box —
+and wasm is the provider the phone picked, so the 60 fps should hold. Re-verify the phone fps bar via `/autoscan.html`;
+depthwise-separable fuse convs in the neck are the lever if it ever misses.
 
 ---
 
