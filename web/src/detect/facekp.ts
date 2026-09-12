@@ -374,21 +374,25 @@ export function decodeMaps(
   thresh = CONF_KEEP,
 ): { score: number; quad: [number, number][] }[] {
   const n = gh * gw;
+  const heat = new Float32Array(n);
+  for (let c = 0; c < n; c++) heat[c] = 1 / (1 + Math.exp(-maps[c]!));
   const kept: { score: number; cell: number }[] = [];
   for (let i = 0; i < gh; i++) {
     for (let j = 0; j < gw; j++) {
       const c = i * gw + j;
-      const s = 1 / (1 + Math.exp(-maps[c]!));
-      // 3x3 max-pool NMS with `>=`, exactly like torch's max_pool2d equality
-      // test: a flat plateau keeps every cell on it, which is why the fixture
-      // includes one.
+      const s = heat[c]!;
+      // 3x3 max-pool NMS, keeping cells that EQUAL their neighbourhood max -
+      // the same `heat == max_pool2d(heat)` test the Python side does. A flat
+      // plateau therefore keeps every cell on it, which is why the fixture
+      // contains one.
       let isPeak = true;
       for (let di = -1; di <= 1 && isPeak; di++) {
+        const ni = i + di;
+        if (ni < 0 || ni >= gh) continue;
         for (let dj = -1; dj <= 1; dj++) {
-          const ni = i + di;
           const nj = j + dj;
-          if (ni < 0 || ni >= gh || nj < 0 || nj >= gw) continue;
-          if (1 / (1 + Math.exp(-maps[ni * gw + nj]!)) > s) { isPeak = false; break; }
+          if (nj < 0 || nj >= gw) continue;
+          if (heat[ni * gw + nj]! > s) { isPeak = false; break; }
         }
       }
       if (isPeak) kept.push({ score: s, cell: c });
