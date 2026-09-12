@@ -2,8 +2,10 @@
 //
 // Loads web/public/models/facekp.onnx plus its facekp.json metadata sidecar
 // (written by model/export/export_onnx.py — preprocessing and output layout
-// live THERE, never hardcoded here). Tries the webgpu execution provider
-// first, falls back to wasm; never assumes WebGPU exists.
+// live THERE, never hardcoded here). 'auto' benchmarks webgpu vs wasm on
+// this device (some phones run wasm faster than their GPU driver) and keeps
+// the faster session; the verdict is cached in localStorage so the ~1s
+// measurement happens once per device per model. Never assumes WebGPU exists.
 //
 // The app must keep working when no model file is deployed: load() resolves
 // null on a missing model, and callers fall back to the grid scanner.
@@ -29,17 +31,21 @@ export interface DetectResult {
 interface FacekpMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
   output: { faces: string };
+  precision?: string;
 }
 
 export type Ep = 'webgpu' | 'wasm';
 
 const CONF_KEEP = 0.25; // hand everything plausible to the caller; it filters
+const BENCH_KEY = 'facekp:epBench:v1';
 
 export class FaceDetector {
   private constructor(
     private session: ort.InferenceSession,
     private meta: FacekpMeta,
     readonly ep: Ep,
+    /** Per-EP mean inference ms when 'auto' ran (or replayed) a benchmark. */
+    readonly benchMs?: Partial<Record<Ep, number>>,
   ) {
     const [, , h, w] = meta.input.shape;
     this.iw = w;
@@ -71,25 +77,67 @@ export class FaceDetector {
     if (!modelRes.ok) return null;
     const model = new Uint8Array(await modelRes.arrayBuffer());
 
-    const attempts: Ep[] =
-      preferred === 'auto'
-        ? 'gpu' in navigator
-          ? ['webgpu', 'wasm']
-          : ['wasm']
-        : [preferred];
-    let lastErr: unknown;
-    for (const ep of attempts) {
-      try {
-        const session = await ort.InferenceSession.create(model, {
-          executionProviders: [ep],
-          graphOptimizationLevel: 'all',
-        });
-        return new FaceDetector(session, meta, ep);
-      } catch (err) {
-        lastErr = err;
-      }
+    const create = (ep: Ep) =>
+      ort.InferenceSession.create(model, {
+        executionProviders: [ep],
+        graphOptimizationLevel: 'all',
+      });
+
+    if (preferred !== 'auto') {
+      return new FaceDetector(await create(preferred), meta, preferred);
     }
-    throw lastErr;
+    if (!('gpu' in navigator)) {
+      return new FaceDetector(await create('wasm'), meta, 'wasm');
+    }
+
+    // 'auto' with WebGPU present: use the cached verdict for this model if
+    // there is one, otherwise benchmark both providers and keep the winner.
+    const cacheId = `${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
+    interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
+    let cached: BenchCache | null = null;
+    try {
+      const raw = localStorage.getItem(BENCH_KEY);
+      if (raw) cached = JSON.parse(raw) as BenchCache;
+    } catch { /* storage unavailable: bench every load */ }
+    if (cached && cached.id === cacheId) {
+      try {
+        return new FaceDetector(await create(cached.ep), meta, cached.ep, cached.ms);
+      } catch { /* cached EP broke (driver change?): fall through to re-bench */ }
+    }
+
+    const [, , h, w] = meta.input.shape;
+    const bench = async (session: ort.InferenceSession): Promise<number> => {
+      const feed = { image: new ort.Tensor('float32', new Float32Array(3 * h * w), [1, 3, h, w]) };
+      for (let i = 0; i < 5; i++) await session.run(feed); // warmup: shader compile etc.
+      const t0 = performance.now();
+      for (let i = 0; i < 10; i++) await session.run(feed);
+      return (performance.now() - t0) / 10;
+    };
+
+    // webgpu session FIRST: ort-web's jsep build can init plain wasm
+    // afterwards, but initializing plain wasm first breaks a later webgpu
+    // init ("multiple calls to initWasm()").
+    const ms: Partial<Record<Ep, number>> = {};
+    let gpuSession: ort.InferenceSession | null = null;
+    try {
+      gpuSession = await create('webgpu');
+      ms.webgpu = await bench(gpuSession);
+    } catch { /* WebGPU advertised but unusable */ }
+    const wasmSession = await create('wasm');
+    ms.wasm = await bench(wasmSession);
+    let winner: Ep = 'wasm';
+    let session = wasmSession;
+    if (gpuSession && ms.webgpu !== undefined && ms.webgpu < ms.wasm) {
+      winner = 'webgpu';
+      session = gpuSession;
+      void wasmSession.release();
+    } else if (gpuSession) {
+      void gpuSession.release();
+    }
+    try {
+      localStorage.setItem(BENCH_KEY, JSON.stringify({ id: cacheId, ep: winner, ms }));
+    } catch { /* fine, re-bench next load */ }
+    return new FaceDetector(session, meta, winner, ms);
   }
 
   /** Run one frame. Corner coords come back in the source's own pixel space. */
