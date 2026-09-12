@@ -20,3 +20,4 @@ model/export/out/
 __pycache__/
 *.local
 .DS_Store
+model/roboflow/
