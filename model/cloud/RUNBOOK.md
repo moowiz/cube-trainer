@@ -112,13 +112,22 @@ training.
 
 ```bash
 cd cube_stuff/model/train
-python train.py --data ../data_v4 --epochs 150 --batch 64 --workers 24 \
+python train.py --head center --data ../data_v4 --epochs 150 --batch 64 --workers 24 \
   --real-val '' --out runs/v4base > runs/v4base-console.log 2>&1 &
 tail -f runs/v4base-console.log
 ```
 
 - `--real-val ''` is the privacy switch (see top). best.pt selection falls
   back to synthetic val_px, which is correct for a from-scratch base.
+- `--head center` is the anonymous-quad head. It is already the DEFAULT, so
+  the flag is belt-and-braces — spell it out anyway so a copy-pasted command
+  can never silently train the superseded head. Three things follow from it:
+  do NOT run a legacy twin for comparison (`runs/long4` already is that
+  baseline; the table is in `model/README.md`); `--init` from any existing
+  checkpoint is impossible and unwanted, since the two heads share no
+  weights, so this run is from scratch; and `val_conf_acc` in the log now
+  means detection F1, not visibility accuracy, so never read it against
+  long4's column.
 - Dashboard, optional: `python ../train/watch.py` on the box, then from the
   local machine `ssh -L 8123:localhost:8123 <box>` and open
   http://localhost:8123.
@@ -143,7 +152,7 @@ Local follow-up (the part that needs the personal photos, ~15 min):
 
 ```bash
 cd model/train
-python train.py --data ../data_v4,../data_real*150 --init runs/v4base-cloud/best.pt \
+python train.py --head center --data ../data_v4,../data_real*150 --init runs/v4base-cloud/best.pt \
   --epochs 15 --lr 5e-5 --select real --out runs/v4ft
 cd ../export && python export_onnx.py --ckpt ../train/runs/v4ft/best.pt --crop-trained
 ```
