@@ -1099,7 +1099,49 @@ window.renderSample = async function renderSample(opts) {
     scene.add(pl);
   }
 
-  renderer.render(scene, camera);
+  // DECISION: auto-exposure floor. ~3% of frames came out near-black (night
+  // HDRIs x low `dim` x low exposure: cube mean < 25/255, sticker colors
+  // unreadable even to a human - data_v4 img_000007). A phone camera
+  // auto-exposes and never delivers that frame, so do the same: measure the
+  // mean luminance over the cube's projected box (whole frame for no-cube
+  // negatives) and re-render with more exposure until it clears a floor.
+  // Murky-but-legible dark scenes (the monitor-lit webcam case) stay: the
+  // floor is low, and only frames below it are lifted.
+  const LUM_FLOOR = 0.15, LUM_TARGET = 0.23;
+  const meter = document.createElement('canvas');
+  meter.width = 64; meter.height = 48;
+  const mctx = meter.getContext('2d', { willReadFrequently: true });
+  const cubeBox = () => {
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+      const v = new THREE.Vector3(sx * H, sy * H, sz * H).project(camera);
+      x0 = Math.min(x0, v.x * 0.5 + 0.5); x1 = Math.max(x1, v.x * 0.5 + 0.5);
+      y0 = Math.min(y0, -v.y * 0.5 + 0.5); y1 = Math.max(y1, -v.y * 0.5 + 0.5);
+    }
+    return [Math.max(0, x0), Math.max(0, y0), Math.min(1, x1), Math.min(1, y1)];
+  };
+  const meanLuminance = () => {
+    mctx.drawImage(renderer.domElement, 0, 0, meter.width, meter.height);
+    const [bx0, by0, bx1, by1] = negative ? [0, 0, 1, 1] : cubeBox();
+    const cx0 = Math.floor(bx0 * meter.width), cx1 = Math.ceil(bx1 * meter.width);
+    const cy0 = Math.floor(by0 * meter.height), cy1 = Math.ceil(by1 * meter.height);
+    const w = cx1 - cx0, h = cy1 - cy0;
+    if (w < 2 || h < 2) return 1; // cube (nearly) out of frame: nothing to meter
+    const d = mctx.getImageData(cx0, cy0, w, h).data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    return sum / (255 * (d.length / 4));
+  };
+  let exposureBoost = 1;
+  let cubeLum = 0;
+  for (let attempt = 0; ; attempt++) {
+    renderer.render(scene, camera);
+    cubeLum = meanLuminance();
+    if (cubeLum >= LUM_FLOOR || attempt >= 3) break;
+    const f = Math.min(3, Math.max(1.4, LUM_TARGET / Math.max(cubeLum, 0.01)));
+    renderer.toneMappingExposure *= f;
+    exposureBoost *= f;
+  }
   if (window.DEBUG_LOG_SHADOW) {
     console.log('[shadowdbg2]', JSON.stringify({
       shadowMapEnabled: renderer.shadowMap.enabled,
@@ -1158,6 +1200,7 @@ window.renderSample = async function renderSample(opts) {
         seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins,
         closeUp, dim: Number(dim.toFixed(2)), envName, negative,
         exposure: Number(renderer.toneMappingExposure.toFixed(2)), bevel: Number(bevel.toFixed(3)),
+        exposureBoost: Number(exposureBoost.toFixed(2)), cubeLum: Number(cubeLum.toFixed(3)),
         cornerBias: Number(cornerBias) || 0, cornerOn: wantCornerOn, hasHands, hasClutter, hardShadow,
         hasPalm: handMeta ? handMeta.hasPalm : false, nFingers: handMeta ? handMeta.nFingers : 0,
         ...styleMeta,
