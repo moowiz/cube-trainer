@@ -95,7 +95,14 @@ cd model && make export      # writes web/public/models/facekp.onnx
 ## Hard-won facts (don't relearn these)
 
 - Real labeled data beats render realism, by a lot: 22 hand-labeled photos took real-photo error 58 → 4.6 px; the HDRI/rounded-cubie generator realism pass was worth a further ~20% on top. Full experiment ladder and current best numbers live in `model/README.md`. A Blender port was evaluated and rejected as not the bottleneck.
-- During fine-tunes, deploy `last.pt`, not `best.pt`: val is synthetic-dominated, so "best" favors the least-adapted epoch. Fix properly with a real val split once there's enough real data to hold some out.
+- A held-out real-photo val split exists: `model/data_real_val/` (~20 photos
+  stratified across batches, plus designated batch6 picks in
+  `stephens_photos/batch6/val-picks.json`). NEVER pass it to `--data`, never
+  "fix" its labels based on model behavior. train.py reports `real_px` on it
+  every epoch; fine-tunes should use `--select real` so `best.pt` is picked
+  on real photos (this replaces the old "deploy last.pt" workaround, which
+  existed because synthetic-dominated val favored the least-adapted epoch).
+  Only ~40 photos: trends are meaningful, 1-2% differences are noise.
 - `model/data_real/` and `stephens_photos/` are gitignored **on purpose** — personal photos, public repo. Never commit them. The hand labels exist only on this machine; occasionally remind the user to back up `stephens_photos/labels-all.json`.
 - The real-data loop is: `check_labels.py` (geometry checks, run before importing) → `import_labels.py` (re-imports update edited labels in place; the dataset cache fingerprints label files so edits trigger a rebuild) → fine-tune ~15 epochs at lr 5e-5 with `--data <synthetic>,../data_real*150 --init <base>` → export → deploy. Labeling conventions are in `model/README.md`.
 - The training cache (`cache_320x240/`) and `--data root*N` oversampling make fine-tunes ~10 min; a 120-epoch from-scratch run is ~70 min at 8 workers (~56% CPU, the agreed ceiling — never saturate the machine).
