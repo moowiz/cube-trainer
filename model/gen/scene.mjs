@@ -1,9 +1,10 @@
 // Browser-side synthetic scene (M3). Runs inside headless Chrome, driven by
 // generate.mjs over page.evaluate. Renders a stickered or stickerless 3x3 cube
 // with a real random scramble (cubies are rigid bodies rotated in 90° face
-// turns, so sticker geometry is always physically consistent), random camera
-// pose, random warm/cool lighting with occasional glare, and random
-// backgrounds including procedural grids/tiles as hard negatives.
+// turns, so sticker geometry is always physically consistent; one layer may
+// be left slightly misaligned), random camera pose, random warm/cool lighting
+// with occasional glare, hands (palm + forearm + fat fingers) and clutter,
+// and random backgrounds including procedural grids/tiles as hard negatives.
 //
 // window.renderSample(opts) -> { dataUrl, label }
 //   opts: { seed, style: 'stickered'|'stickerless', width, height, photoUrls }
@@ -103,15 +104,241 @@ function faceColors(rnd) {
 // DECISION: real-cube seam morphology varies a lot (thin black lines, wide
 // rounded crosses, white-body light seams, stickerless shadow-only seams);
 // randomizing it here is the fix for the model overfitting any one seam look.
+// `radius` is either one number or four, one per tile corner in the order
+// [+x+y, -x+y, -x-y, +x-y] of the tile's local frame (before orient()).
 function tileGeo(size, radius, depth) {
-  const h = size / 2, r = Math.min(Math.max(radius, 0.0001), h * 0.49);
+  const h = size / 2;
+  const rr = (Array.isArray(radius) ? radius : [radius, radius, radius, radius])
+    .map((r) => Math.min(Math.max(r, 0.0001), h * 0.49));
   const s = new THREE.Shape();
-  s.absarc(h - r, h - r, r, 0, Math.PI / 2);
-  s.absarc(r - h, h - r, r, Math.PI / 2, Math.PI);
-  s.absarc(r - h, r - h, r, Math.PI, Math.PI * 1.5);
-  s.absarc(h - r, r - h, r, Math.PI * 1.5, Math.PI * 2);
+  s.absarc(h - rr[0], h - rr[0], rr[0], 0, Math.PI / 2);
+  s.absarc(rr[1] - h, h - rr[1], rr[1], Math.PI / 2, Math.PI);
+  s.absarc(rr[2] - h, rr[2] - h, rr[2], Math.PI, Math.PI * 1.5);
+  s.absarc(h - rr[3], rr[3] - h, rr[3], Math.PI * 1.5, Math.PI * 2);
   s.closePath();
-  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 5 });
+  return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 7 });
+}
+
+// Rotation that orient() applies to a tile for face direction `d` (tile is
+// built in its local XY plane, extruded along +z). Used to work out which of
+// a tile's local corners point toward the face center (GAN tile profile).
+function faceQuat(d) {
+  const o = new THREE.Object3D();
+  if (d.axis === 'x') o.rotateY((Math.PI / 2) * d.sign);
+  else if (d.axis === 'y') o.rotateX((-Math.PI / 2) * d.sign);
+  else if (d.sign < 0) o.rotateY(Math.PI);
+  return o.quaternion;
+}
+const TILE_CORNER_SIGNS = [[1, 1], [-1, 1], [-1, -1], [1, -1]];
+// DECISION: the center logo is a drawn mark on a transparent canvas, not a
+// colored smudge. Almost every real cube carries a brand mark on the white
+// center and the model demonstrably struggled with the white face: a dense
+// high-contrast mark inside an otherwise featureless white tile is exactly
+// the "sticker with a pattern" texture it needs to have seen. The mark is
+// drawn from a wide family modelled on real brands - bold monograms (YJ,
+// QiYi's QY, MF), wordmarks (MoYu, Rubik's, DaYan, ShengShou's oval badge),
+// isometric cube glyphs (GAN), pictograms (Cyclone Boys' cyclone, Thunderclap
+// bolt, X-Man), CJK characters, ringed badges, stripes/dot grids and QR-ish
+// blocks - plus inverted (filled badge, cut-out glyph) and two-tone variants.
+// Family, color, weight, size and rotation are all randomized so the model
+// never learns one logo; the point is "a pattern lives here", not a brand.
+function logoTexture(rnd) {
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  // brand colors skew blue/black/red like real logos, with a random tail
+  const brandColor = () => {
+    const hueRoll = rnd();
+    const hue = hueRoll < 0.35 ? 0.55 + rnd() * 0.12 : hueRoll < 0.55 ? 0.97 + rnd() * 0.06 : rnd();
+    if (rnd() < 0.25) return `hsl(0,0%,${Math.round(rnd() * 22)}%)`;
+    return `hsl(${Math.round((hue % 1) * 360)},${65 + Math.round(rnd() * 35)}%,${28 + Math.round(rnd() * 24)}%)`;
+  };
+  const twoTone = rnd() < 0.3;
+  const colA = brandColor();
+  const colB = twoTone ? brandColor() : colA;
+  const fonts = ['sans-serif', 'serif', 'monospace', 'Arial Black, sans-serif', 'Impact, sans-serif', 'Verdana, sans-serif', 'Georgia, serif', 'cursive'];
+  const randWord = (n, mixedCase) => {
+    let s = '';
+    for (let i = 0; i < n; i++) s += String.fromCharCode(65 + Math.floor(rnd() * 26));
+    return mixedCase ? s[0] + s.slice(1).toLowerCase() : s;
+  };
+  const text = (txt, px, maxW, color) => {
+    ctx.fillStyle = color;
+    ctx.font = `${rnd() < 0.7 ? 'bold' : 'normal'} ${rnd() < 0.2 ? 'italic ' : ''}${px}px ${pick(rnd, fonts)}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(txt, 0, 0, maxW);
+  };
+  const polyline = (pts, close, stroke, width) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    if (close) ctx.closePath();
+    if (stroke) { ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.stroke(); } else ctx.fill();
+  };
+  const star = (n, rOut, rIn) => {
+    const pts = [];
+    for (let i = 0; i < n * 2; i++) {
+      const a = (i * Math.PI) / n - Math.PI / 2;
+      const r = i % 2 ? rIn : rOut;
+      pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    return pts;
+  };
+
+  ctx.translate(S / 2, S / 2);
+  ctx.rotate(rnd() * Math.PI * 2);
+  // inverted badge: a filled disc/rounded square, glyph cut out of it
+  const inverted = rnd() < 0.22;
+  if (inverted) {
+    ctx.fillStyle = colA;
+    const r = S * (0.36 + rnd() * 0.1);
+    ctx.beginPath();
+    if (rnd() < 0.5) ctx.arc(0, 0, r, 0, Math.PI * 2);
+    else ctx.roundRect(-r, -r * (0.6 + rnd() * 0.4), 2 * r, 2 * r * (0.6 + rnd() * 0.4), r * 0.3);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-out';
+  }
+  const scale = 0.55 + rnd() * 0.35;
+  const kind = pick(rnd, [
+    'monogram', 'monogram', 'monogram', 'wordmark', 'wordmark', 'wordmark', 'badge', 'badge',
+    'cubeGlyph', 'pictogram', 'pictogram', 'cjk', 'cjk', 'stripes', 'dots', 'qr', 'blob', 'arrows',
+  ]);
+  ctx.fillStyle = colA;
+  ctx.strokeStyle = colA;
+  if (kind === 'monogram') {
+    const n = 1 + Math.floor(rnd() * 3);
+    const px = S * (0.5 + rnd() * 0.4) * scale * (n === 1 ? 1.3 : 1);
+    if (twoTone && n > 1) {
+      // letters in two colors, e.g. a blue Q next to a red Y
+      const w = randWord(n);
+      ctx.font = `bold ${px}px ${pick(rnd, fonts)}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const total = ctx.measureText(w).width;
+      let x = -total / 2;
+      for (let i = 0; i < n; i++) {
+        ctx.fillStyle = i % 2 ? colB : colA;
+        ctx.fillText(w[i], x, 0);
+        x += ctx.measureText(w[i]).width;
+      }
+    } else text(randWord(n), px, S * 0.92, colA);
+  } else if (kind === 'wordmark') {
+    const n = 4 + Math.floor(rnd() * 5);
+    const px = S * (0.24 + rnd() * 0.12);
+    const word = randWord(n, rnd() < 0.5);
+    if (rnd() < 0.5) {
+      // two-line: word + smaller tagline or icon above
+      text(word, px, S * 0.9, colA);
+      ctx.save();
+      ctx.translate(0, -px * 0.9);
+      if (rnd() < 0.5) text(randWord(3 + Math.floor(rnd() * 5), true), px * 0.5, S * 0.7, colB);
+      else { ctx.fillStyle = colB; polyline(star(5, px * 0.45, px * 0.2), true, false); }
+      ctx.restore();
+    } else text(word, px, S * 0.92, colA);
+    if (rnd() < 0.4) { // underline / accent bar
+      ctx.fillStyle = colB;
+      ctx.fillRect(-S * 0.35, px * 0.55, S * 0.7, S * 0.03 + rnd() * S * 0.03);
+    }
+  } else if (kind === 'badge') {
+    // ring or oval outline with a short word inside (ShengShou / Rubik's style)
+    const r = S * 0.38 * (0.85 + rnd() * 0.2);
+    const oval = rnd() < 0.5;
+    ctx.lineWidth = S * (0.035 + rnd() * 0.05);
+    ctx.beginPath();
+    if (oval) ctx.ellipse(0, 0, r, r * (0.55 + rnd() * 0.25), 0, 0, Math.PI * 2);
+    else ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    if (rnd() < 0.8) text(randWord(2 + Math.floor(rnd() * 5), rnd() < 0.4), r * (oval ? 0.5 : 0.55), r * 1.6, colB);
+    else { ctx.fillStyle = colB; ctx.beginPath(); ctx.arc(0, 0, r * (0.25 + rnd() * 0.25), 0, Math.PI * 2); ctx.fill(); }
+  } else if (kind === 'cubeGlyph') {
+    // isometric cube outline built from a hexagon + Y
+    const r = S * 0.34 * scale;
+    ctx.lineWidth = S * (0.07 + rnd() * 0.06);
+    const hex = [];
+    for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; hex.push([Math.cos(a) * r, Math.sin(a) * r]); }
+    polyline(hex, true, true, ctx.lineWidth);
+    ctx.strokeStyle = colB;
+    for (let i = 0; i < 3; i++) {
+      const a = Math.PI / 6 + (i * 2 * Math.PI) / 3;
+      polyline([[0, 0], [Math.cos(a) * r, Math.sin(a) * r]], false, true, ctx.lineWidth);
+    }
+    if (rnd() < 0.5) { ctx.fillStyle = colB; ctx.beginPath(); ctx.arc(0, 0, r * (0.15 + rnd() * 0.15), 0, Math.PI * 2); ctx.fill(); }
+  } else if (kind === 'pictogram') {
+    const r = S * 0.36 * scale;
+    const p = pick(rnd, ['star', 'bolt', 'heart', 'cyclone', 'shield', 'diamond', 'x']);
+    if (p === 'star') polyline(star(4 + Math.floor(rnd() * 4), r, r * (0.4 + rnd() * 0.2)), true, false);
+    else if (p === 'bolt') polyline([[-r * 0.2, -r], [r * 0.35, -r * 0.1], [r * 0.05, -r * 0.1], [r * 0.25, r], [-r * 0.4, r * 0.05], [-r * 0.1, r * 0.05]], true, false);
+    else if (p === 'heart') {
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.9);
+      ctx.bezierCurveTo(-r * 1.4, -r * 0.1, -r * 0.5, -r * 1.1, 0, -r * 0.35);
+      ctx.bezierCurveTo(r * 0.5, -r * 1.1, r * 1.4, -r * 0.1, 0, r * 0.9);
+      ctx.fill();
+    } else if (p === 'cyclone') {
+      ctx.lineWidth = S * (0.05 + rnd() * 0.05);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < 80; i++) { const a = i * 0.16, rr = r * (i / 80); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+      ctx.stroke();
+    } else if (p === 'shield') {
+      polyline([[-r, -r * 0.8], [r, -r * 0.8], [r, r * 0.1], [0, r], [-r, r * 0.1]], true, false);
+      ctx.fillStyle = colB;
+      ctx.globalCompositeOperation = inverted ? 'source-over' : 'destination-out';
+      polyline([[-r * 0.5, -r * 0.4], [r * 0.5, -r * 0.4], [r * 0.5, 0], [0, r * 0.45], [-r * 0.5, 0]], true, false);
+    } else if (p === 'diamond') polyline([[0, -r], [r * 0.7, 0], [0, r], [-r * 0.7, 0]], true, false);
+    else { ctx.lineWidth = S * (0.08 + rnd() * 0.08); ctx.lineCap = 'round'; polyline([[-r, -r], [r, r]], false, true, ctx.lineWidth); ctx.strokeStyle = colB; polyline([[r, -r], [-r, r]], false, true, ctx.lineWidth); }
+  } else if (kind === 'cjk') {
+    // 1-3 CJK characters (many cubes are Chinese brands); falls back to
+    // tofu boxes where no CJK font is installed, which is still a pattern
+    const n = 1 + Math.floor(rnd() * 3);
+    let s = '';
+    for (let i = 0; i < n; i++) s += String.fromCharCode(0x4e00 + Math.floor(rnd() * 0x51a5));
+    text(s, S * (0.5 + rnd() * 0.3) * scale * (n === 1 ? 1.3 : 0.9), S * 0.92, colA);
+  } else if (kind === 'stripes') {
+    const n = 2 + Math.floor(rnd() * 4);
+    const w = S * 0.7 * scale, h = w / (n * 2 - 1);
+    for (let i = 0; i < n; i++) { ctx.fillStyle = i % 2 ? colB : colA; ctx.fillRect(-w / 2, -w / 2 + i * 2 * h, w * (0.6 + rnd() * 0.4), h); }
+  } else if (kind === 'dots') {
+    const n = 2 + Math.floor(rnd() * 3);
+    const w = S * 0.7 * scale, step = w / n;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      if (rnd() < 0.2) continue;
+      ctx.fillStyle = (i + j) % 2 ? colB : colA;
+      ctx.beginPath(); ctx.arc(-w / 2 + (i + 0.5) * step, -w / 2 + (j + 0.5) * step, step * (0.25 + rnd() * 0.15), 0, Math.PI * 2); ctx.fill();
+    }
+  } else if (kind === 'qr') {
+    const n = 5 + Math.floor(rnd() * 4);
+    const w = S * 0.66 * scale, cell = w / n;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (rnd() < 0.5) ctx.fillRect(-w / 2 + i * cell, -w / 2 + j * cell, cell + 0.5, cell + 0.5);
+  } else if (kind === 'arrows') {
+    const r = S * 0.34 * scale;
+    ctx.lineWidth = S * (0.06 + rnd() * 0.05);
+    ctx.lineCap = 'round';
+    const n = 2 + Math.floor(rnd() * 3);
+    for (let i = 0; i < n; i++) {
+      ctx.strokeStyle = i % 2 ? colB : colA;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, (i * 2 * Math.PI) / n, ((i + 0.75) * 2 * Math.PI) / n);
+      ctx.stroke();
+      const a = ((i + 0.75) * 2 * Math.PI) / n;
+      ctx.fillStyle = ctx.strokeStyle;
+      polyline([[Math.cos(a) * r * 1.3, Math.sin(a) * r * 1.3], [Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7], [Math.cos(a + 0.35) * r, Math.sin(a + 0.35) * r]], true, false);
+    }
+  } else {
+    // irregular filled polygon - the "some shape" fallback
+    const n = 3 + Math.floor(rnd() * 5);
+    const r = S * 0.32 * scale;
+    const pts = [];
+    for (let i = 0; i < n; i++) { const a = (i * 2 * Math.PI) / n, rr = r * (0.6 + rnd() * 0.4); pts.push([Math.cos(a) * rr, Math.sin(a) * rr]); }
+    polyline(pts, true, false);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
 }
 
 // Sorted (desc) camera-facing values for all 6 faces, for a trial camera
@@ -137,7 +364,7 @@ function capsuleBetween(a, b, radius, material) {
   const delta = new THREE.Vector3().subVectors(b, a);
   const span = Math.max(delta.length(), radius * 2.01);
   const cylLen = Math.max(0.001, span - 2 * radius);
-  const geo = new THREE.CapsuleGeometry(radius, cylLen, 4, 8);
+  const geo = new THREE.CapsuleGeometry(radius, cylLen, 6, 16);
   const mesh = new THREE.Mesh(geo, material);
   mesh.position.addVectors(a, b).multiplyScalar(0.5);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize());
@@ -160,6 +387,12 @@ const EDGE_BASIS = {
   right: (r, u) => ({ out: r, along: u }),
 };
 
+// Scale reference, measured on the real phone photos (batch4-6): a finger is
+// ~1/3 of the cube's width (~18 mm vs a 56 mm cube), the thumb closer to
+// 0.4, and the cube sits in a palm ~1.5 cube-widths across with the forearm
+// running out of frame. The first version rendered fingers at ~1/10 of the
+// cube width with no hand behind them - stick-thin rods, nothing like the
+// big skin mass every real usage photo has around the cube.
 function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
   const group = new THREE.Group();
   const baseHex = pick(rnd, SKIN_TONES);
@@ -167,6 +400,15 @@ function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
   // DECISION: matte skin - high roughness, zero metalness/clearcoat, so
   // fingers never pick up the specular glare tuned for plastic stickers.
   const material = new THREE.MeshStandardMaterial({ roughness: 0.75 + rnd() * 0.2, metalness: 0 });
+  const skinMat = () => {
+    const m = material.clone();
+    m.color = skin.clone().offsetHSL((rnd() - 0.5) * 0.02, (rnd() - 0.5) * 0.08, (rnd() - 0.5) * 0.08);
+    return m;
+  };
+  const at = (fdist, out, outAmt, along, alongAmt) => camPos.clone()
+    .add(camFwd.clone().multiplyScalar(fdist))
+    .add(out.clone().multiplyScalar(outAmt))
+    .add(along.clone().multiplyScalar(alongAmt));
 
   // DECISION: 40% "wrap" grips straddling two adjacent screen edges (a real
   // hand curling around a corner/edge), 60% single-edge entry. Bottom entry
@@ -174,37 +416,74 @@ function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
   const wrap = rnd() < 0.4;
   const edgePairs = [['bottom', 'left'], ['bottom', 'right'], ['top', 'left'], ['top', 'right']];
   const edges = wrap ? pick(rnd, edgePairs) : [pick(rnd, ['bottom', 'bottom', 'bottom', 'left', 'right', 'top'])];
+  const bases = edges.map((e) => EDGE_BASIS[e](camRight, camUp));
 
-  const nFingers = 2 + Math.floor(rnd() * 4); // 2-5
-  for (let i = 0; i < nFingers; i++) {
-    const edge = edges[i % edges.length];
-    const { out, along } = EDGE_BASIS[edge](camRight, camUp);
-    const tone = skin.clone().offsetHSL((rnd() - 0.5) * 0.02, (rnd() - 0.5) * 0.08, (rnd() - 0.5) * 0.08);
-    const mat = material.clone();
-    mat.color = tone;
+  // --- palm + forearm ---
+  // DECISION: palm is a flattened ellipsoid sitting just BEHIND the cube's
+  // center depth, offset toward the entry edge(s), so the cube hides it
+  // where they overlap and the skin mass shows around the cube's silhouette
+  // (cube-on-skin is the most common boundary in real frames). Forearm is a
+  // fat capsule from the palm off toward the frame edge.
+  const hasPalm = rnd() < 0.85;
+  // direction from cube toward the hand: the entry edge, or the diagonal for wraps
+  const handDir = bases.reduce((v, b) => v.add(b.out), new THREE.Vector3()).normalize();
+  const handAlong = bases[0].along.clone();
+  if (hasPalm) {
+    const palmMat = skinMat();
+    const pOut = H * (1.15 + rnd() * 0.45);
+    const pAlong = (rnd() - 0.5) * H * 0.8;
+    const pDepth = dist + H * (0.3 + rnd() * 0.4);
+    const palm = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), palmMat);
+    palm.position.copy(at(pDepth, handDir, pOut, handAlong, pAlong));
+    const basis = new THREE.Matrix4().makeBasis(handDir, handAlong, camFwd);
+    palm.quaternion.setFromRotationMatrix(basis);
+    palm.scale.set(H * (0.9 + rnd() * 0.4), H * (1.1 + rnd() * 0.5), H * (0.4 + rnd() * 0.15));
+    palm.castShadow = true;
+    palm.receiveShadow = true;
+    group.add(palm);
 
-    const alongBase = (rnd() - 0.5) * 2 * H * 0.9;
-    const alongTip = alongBase + (rnd() - 0.5) * H * 0.3; // slight lateral drift = non-parallel fingers
-    const outBase = H * (1.2 + rnd() * 0.6); // root, off toward the frame edge
-    const outTip = H * (-0.3 + rnd() * 0.5); // tip pokes in past the cube's centerline
-    const fdistBase = dist - H * (0.3 + rnd() * 1.0);
-    const fdistTip = dist - H * (0.05 + rnd() * 0.35); // always nearer camera than cube surface
-
-    const base = camPos.clone().add(camFwd.clone().multiplyScalar(fdistBase))
-      .add(out.clone().multiplyScalar(outBase)).add(along.clone().multiplyScalar(alongBase));
-    const tip = camPos.clone().add(camFwd.clone().multiplyScalar(fdistTip))
-      .add(out.clone().multiplyScalar(outTip)).add(along.clone().multiplyScalar(alongTip));
-    // slight curl: bend the finger at a knuckle offset perpendicular to its
-    // own axis, so it isn't a straight rod
-    const mid = base.clone().lerp(tip, 0.55 + (rnd() - 0.5) * 0.15);
-    const curl = out.clone().multiplyScalar((rnd() - 0.5) * H * 0.3).add(along.clone().multiplyScalar((rnd() - 0.5) * H * 0.2));
-    mid.add(curl);
-
-    const r1 = H * (0.09 + rnd() * 0.06);
-    const r2 = r1 * 0.78;
-    group.add(capsuleBetween(base, mid, r1, mat));
-    group.add(capsuleBetween(mid, tip, r2, mat));
+    const armMat = skinMat();
+    const a0 = palm.position.clone().add(handDir.clone().multiplyScalar(H * 0.5));
+    const a1 = at(pDepth + H * (rnd() * 1.5 - 0.3), handDir, pOut + H * 5, handAlong, pAlong + (rnd() - 0.5) * H * 3);
+    group.add(capsuleBetween(a0, a1, H * (0.55 + rnd() * 0.25), armMat));
   }
+
+  // --- fingers ---
+  // Rooted at the palm rim, running toward the camera and inward over the
+  // near edge of the cube; tips land on the outer row of stickers, sometimes
+  // reaching the center. Evenly spaced along the edge with jitter (random
+  // placement stacked fat fingers on top of each other).
+  const nFingers = 2 + Math.floor(rnd() * 3); // 2-4
+  const perEdge = edges.map(() => 0);
+  const slot = edges.map(() => 0);
+  for (let i = 0; i < nFingers; i++) perEdge[i % edges.length]++;
+  const thumbIdx = rnd() < 0.6 ? Math.floor(rnd() * nFingers) : -1;
+  for (let i = 0; i < nFingers; i++) {
+    const e = i % edges.length;
+    const { out, along } = bases[e];
+    const mat = skinMat();
+    const n = perEdge[e];
+    const k = slot[e]++;
+    const alongBase = -H * 0.85 + ((k + 0.5) * (H * 1.7)) / n + (rnd() - 0.5) * H * 0.25;
+    const alongTip = alongBase + (rnd() - 0.5) * H * 0.35; // slight lateral drift = non-parallel fingers
+    // DECISION: a finger is three points in camera space - root beside the
+    // cube at the cube's depth, knuckle at the cube's near edge, tip lying on
+    // the near face - so it wraps the edge the way a gripping finger does.
+    // Real fingers (~75 mm) are longer than the cube (~56 mm): tips reach
+    // the middle row and sometimes past it. Two earlier attempts rendered as
+    // clusters of balls: capsules that were shorter than ~2 diameters, with
+    // the bend in the middle of the face instead of at the edge.
+    const thumb = i === thumbIdx;
+    const r1 = H * (0.24 + rnd() * 0.12) * (thumb ? 1.25 : 1);
+    const r2 = r1 * (0.82 + rnd() * 0.12);
+    const root = at(dist - H * (rnd() * 0.4 - 0.1), out, H * (1.2 + rnd() * 0.35), along, alongBase);
+    const knuckle = at(dist - H * (1.0 + rnd() * 0.25), out, H * (0.95 + rnd() * 0.2), along, alongBase + (rnd() - 0.5) * H * 0.1);
+    const tip = at(dist - H * (1.0 + rnd() * 0.3) - r2 * 0.6, out, H * (-0.3 + rnd() * 0.85), along, alongTip);
+    group.add(capsuleBetween(root, knuckle, r1, mat));
+    group.add(capsuleBetween(knuckle, tip, r2, mat));
+  }
+  group.userData.hasPalm = hasPalm;
+  group.userData.nFingers = nFingers;
   return group;
 }
 
@@ -264,10 +543,27 @@ function buildCube(rnd, style) {
   const tileRadius = radRoll < 0.3 ? rnd() * 0.08 : radRoll < 0.7 ? 0.08 + rnd() * 0.17 : 0.25 + rnd() * 0.23;
   const tileDepth = CUBIE * (0.006 + rnd() * 0.035);
   const stickerGeo = tileGeo(stickerSize, stickerSize * tileRadius, tileDepth);
+  // DECISION: GAN-style tile profile in 35% of stickered cubes. Measured on
+  // the real GAN 356 photos: on edge and corner tiles the corners that face
+  // the center circle are heavily rounded (~0.4 of the tile) while the
+  // corners on the face perimeter stay nearly square, giving the "D"-shaped
+  // edge tiles and teardrop corner tiles. Which local corner is inner
+  // depends on the cubie's position and the tile's orientation, so those
+  // geometries are built per tile below.
+  const ganProfile = style === 'stickered' && rnd() < 0.35;
+  const ganInnerR = stickerSize * (0.32 + rnd() * 0.14);
+  const ganOuterR = stickerSize * (0.02 + rnd() * 0.06);
   // circular center caps (GAN RS look); logo cap hides one center's color
-  const circleCaps = rnd() < 0.3;
+  const circleCaps = ganProfile || rnd() < 0.3;
   const centerGeo = circleCaps ? circleGeo(stickerSize * 0.5, tileDepth) : stickerGeo;
-  const logoFace = rnd() < 0.22 ? (rnd() < 0.5 ? 'U' : pick(rnd, Object.keys(SCHEME))) : null;
+  // DECISION: a brand mark on the white (U) center in ~80% of cubes (real
+  // cubes almost all have one, and the white face was a measured weak spot);
+  // occasionally on a random other face instead, 15% no logo at all.
+  const logoRoll = rnd();
+  const logoFace = logoRoll < 0.8 ? 'U' : logoRoll < 0.85 ? pick(rnd, Object.keys(SCHEME)) : null;
+  // logo on a white cap (GAN style) vs printed straight on the face's own tile
+  const logoOnCap = rnd() < 0.7;
+  const logoTex = logoFace ? logoTexture(rnd) : null;
   // body color: black classic, white/light (light seams!), or oddball
   const bodyRoll = rnd();
   const bodyHex = bodyRoll < 0.68 ? 0x0a0a0a : bodyRoll < 0.85 ? 0xefefef : pick(rnd, [0xd5d5d5, 0x22224a, 0x4a1515]);
@@ -287,9 +583,22 @@ function buildCube(rnd, style) {
   const capMat = new THREE.MeshPhysicalMaterial({
     color: 0xf5f5f5, roughness: rough, metalness: 0, clearcoat: coat, clearcoatRoughness: coatRough,
   });
-  const logoMat = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color().setHSL(rnd(), 0.6 + rnd() * 0.4, 0.3 + rnd() * 0.25), roughness: rough, metalness: 0,
-  });
+  const logoMat = logoTex ? new THREE.MeshStandardMaterial({
+    map: logoTex, transparent: true, alphaTest: 0.2, roughness: 0.6, metalness: 0,
+  }) : null;
+
+  // per-tile geometry for the GAN profile: big radius on the tile corners
+  // that point toward the face center, small on the perimeter ones
+  const ganTileGeo = (g, d) => {
+    const q = faceQuat(d);
+    const axes = ['x', 'y', 'z'].filter((a) => a !== d.axis);
+    const radii = TILE_CORNER_SIGNS.map(([sx, sy]) => {
+      const dir = new THREE.Vector3(sx, sy, 0).applyQuaternion(q);
+      const onPerimeter = axes.some((a) => g[a] !== 0 && Math.sign(Math.round(dir[a])) === g[a]);
+      return onPerimeter ? ganOuterR : ganInnerR;
+    });
+    return tileGeo(stickerSize, radii, tileDepth);
+  };
 
   const cubies = [];
   for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
@@ -297,9 +606,7 @@ function buildCube(rnd, style) {
     const g = { x, y, z };
     let mesh;
     const orient = (m, d) => {
-      if (d.axis === 'x') m.rotateY((Math.PI / 2) * d.sign);
-      else if (d.axis === 'y') m.rotateX((-Math.PI / 2) * d.sign);
-      else if (d.sign < 0) m.rotateY(Math.PI);
+      m.quaternion.copy(faceQuat(d));
       m.position[d.axis] = d.sign * (CUBIE / 2 + 0.002);
       m.castShadow = true;
       // DECISION: stickers/caps now receive shadows too (previously nothing
@@ -307,36 +614,40 @@ function buildCube(rnd, style) {
       // bevel gaps were invisible even though castShadow was set everywhere).
       m.receiveShadow = true;
     };
-    const addLogoCap = (parent, d) => {
-      // white disc + colored smudge: the GAN-style center cap, which hides
-      // the center color so the model must not depend on always seeing it
-      const cap = new THREE.Mesh(circleGeo(stickerSize * 0.49, tileDepth), capMat);
-      orient(cap, d);
-      parent.add(cap);
-      const smudge = new THREE.Mesh(tileGeo(stickerSize * 0.42, stickerSize * 0.1, tileDepth * 0.6), logoMat);
-      orient(smudge, d);
-      smudge.position[d.axis] = d.sign * (CUBIE / 2 + 0.002 + tileDepth);
-      smudge.rotateZ(rnd() * Math.PI);
-      smudge.castShadow = true;
-      smudge.receiveShadow = true;
-      parent.add(smudge);
+    // The logo decal: a transparent glyph plane floating a hair above the
+    // center tile/cap. On a white cap it hides the center color (GAN style),
+    // so the model must not depend on always seeing it.
+    const addLogo = (parent, d, onCap) => {
+      if (onCap) {
+        const cap = new THREE.Mesh(circleGeo(stickerSize * 0.49, tileDepth), capMat);
+        orient(cap, d);
+        parent.add(cap);
+      }
+      const side = stickerSize * (onCap ? 0.7 : 0.62);
+      const decal = new THREE.Mesh(new THREE.PlaneGeometry(side, side), logoMat);
+      orient(decal, d);
+      decal.position[d.axis] = d.sign * (CUBIE / 2 + 0.002 + tileDepth + 0.003);
+      decal.castShadow = false;
+      parent.add(decal);
     };
     if (style === 'stickerless') {
       const mats = DIRS.map((d) => (g[d.axis] === d.sign ? faceMats[d.face] : interior));
       mesh = new THREE.Mesh(boxGeo, mats);
       for (const d of DIRS) {
         const isCenter = g[d.axis] === d.sign && ['x', 'y', 'z'].every((a) => a === d.axis || g[a] === 0);
-        if (isCenter && d.face === logoFace) addLogoCap(mesh, d);
+        if (isCenter && d.face === logoFace) addLogo(mesh, d, logoOnCap);
       }
     } else {
       mesh = new THREE.Mesh(boxGeo, plastic);
       for (const d of DIRS) {
         if (g[d.axis] !== d.sign) continue;
         const isCenter = ['x', 'y', 'z'].every((a) => a === d.axis || g[a] === 0);
-        if (isCenter && d.face === logoFace) { addLogoCap(mesh, d); continue; }
-        const sticker = new THREE.Mesh(isCenter ? centerGeo : stickerGeo, faceMats[d.face]);
+        if (isCenter && d.face === logoFace && logoOnCap) { addLogo(mesh, d, true); continue; }
+        const geo = isCenter ? centerGeo : ganProfile ? ganTileGeo(g, d) : stickerGeo;
+        const sticker = new THREE.Mesh(geo, faceMats[d.face]);
         orient(sticker, d);
         mesh.add(sticker);
+        if (isCenter && d.face === logoFace) addLogo(mesh, d, false);
       }
     }
     mesh.position.set(x * SPACING, y * SPACING, z * SPACING);
@@ -368,12 +679,37 @@ function buildCube(rnd, style) {
       c.quaternion.premultiply(q);
     }
   }
+
+  // DECISION: layer misalignment in ~22% of cubes. A held cube's last-turned
+  // layer often doesn't sit flush (several of the real bathroom photos show
+  // it): one outer layer is left rotated a few degrees, so that face's tiles
+  // and the adjacent faces' outer rows are visibly skewed. Mostly small
+  // (2-9 deg), occasionally a blatant 10-20 deg. One layer only, so the
+  // geometry stays physically possible and every cube vertex belongs to
+  // exactly one twisted/untwisted rigid body - the labels below rotate the
+  // vertices in the twisted layer by the same angle, which is exactly what
+  // a hand labeler clicking the plastic corner would do.
+  let twist = null;
+  if (rnd() < 0.22) {
+    const axis = pick(rnd, ['x', 'y', 'z']);
+    const layer = rnd() < 0.5 ? -1 : 1;
+    const deg = (rnd() < 0.5 ? 1 : -1) * (rnd() < 0.8 ? 2 + rnd() * 7 : 10 + rnd() * 10);
+    const angle = THREE.MathUtils.degToRad(deg);
+    const q = new THREE.Quaternion().setFromAxisAngle(axisVec[axis], angle);
+    for (const c of cubies) {
+      if (Math.round(c.position[axis] / SPACING) !== layer) continue;
+      c.position.applyAxisAngle(axisVec[axis], angle);
+      c.quaternion.premultiply(q);
+    }
+    twist = { axis, layer, deg: Number(deg.toFixed(2)), angle };
+  }
   return {
-    group, nMoves, bevel,
+    group, nMoves, bevel, twist,
     styleMeta: {
       bodyColor: '#' + bodyHex.toString(16).padStart(6, '0'),
       tileRadius: Number(tileRadius.toFixed(3)), tileDepth: Number(tileDepth.toFixed(3)),
-      circleCaps, logoFace,
+      circleCaps, logoFace, logoOnCap: logoFace ? logoOnCap : null, ganProfile,
+      layerTwist: twist ? { axis: twist.axis, layer: twist.layer, deg: twist.deg } : null,
     },
   };
 }
@@ -517,7 +853,7 @@ window.renderSample = async function renderSample(opts) {
   // visible:false, corners:null - the training loader maps null corners to
   // valid=0, so no corner gradient flows from these.
   const negative = rnd() < 0.07;
-  const { group, nMoves, bevel, styleMeta } = buildCube(rnd, style);
+  const { group, nMoves, bevel, twist, styleMeta } = buildCube(rnd, style);
   if (window.DEBUG_SIMPLE_CUBE) {
     const ref = new THREE.Mesh(new THREE.BoxGeometry(H * 2, H * 2, H * 2), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
     ref.castShadow = true;
@@ -585,7 +921,12 @@ window.renderSample = async function renderSample(opts) {
   // M3 data had none. Gated on a real cube being present (nothing to grip in
   // a negative/no-cube scene).
   const hasHands = !negative && rnd() < 0.5;
-  if (hasHands && !window.DEBUG_BARE) scene.add(buildHands(rnd, camera.position, camRight, camUp, camFwd, dist));
+  let handMeta = null;
+  if (hasHands && !window.DEBUG_BARE) {
+    const hands = buildHands(rnd, camera.position, camRight, camUp, camFwd, dist);
+    scene.add(hands);
+    handMeta = hands.userData;
+  }
   // DECISION: unrelated foreground junk in ~20% of scenes.
   const hasClutter = !negative && rnd() < 0.2;
   if (hasClutter && !window.DEBUG_BARE) scene.add(buildClutter(rnd, camera.position, camRight, camUp, camFwd, dist));
@@ -666,7 +1007,11 @@ window.renderSample = async function renderSample(opts) {
       // overpower ambient in a real photo too.
       dl.intensity = dim * (2.2 + rnd() * 2.0);
     }
-    if (i === 0 && (hasTable || hardShadow)) {
+    // DECISION: hands also turn shadow casting on - fingers gripping the cube
+    // always shade it a little in real photos (soft finger shadows across the
+    // outer stickers), and without a shadow-mapped light those never rendered
+    // even though the finger meshes had castShadow set.
+    if (i === 0 && (hasTable || hardShadow || hasHands)) {
       dl.castShadow = true;
       dl.shadow.camera.left = dl.shadow.camera.bottom = -6;
       dl.shadow.camera.right = dl.shadow.camera.top = 6;
@@ -774,6 +1119,7 @@ window.renderSample = async function renderSample(opts) {
   // +/-(H - r(1 - 1/sqrt(3))) per axis. Matches the hand-labeling convention
   // "outermost point of the plastic, never extrapolate past the edge".
   const cornerH = H - bevel * (1 - 1 / Math.sqrt(3));
+  const twistAxisVec = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
   const faces = {};
   const camPos = camera.position;
   if (negative) {
@@ -784,7 +1130,10 @@ window.renderSample = async function renderSample(opts) {
     const center = normal.clone().multiplyScalar(H);
     const facing = normal.dot(camPos.clone().sub(center).normalize());
     const corners = fd.corners.map(([x, y, z]) => {
-      const v = new THREE.Vector3(x * cornerH, y * cornerH, z * cornerH).project(camera);
+      const v = new THREE.Vector3(x * cornerH, y * cornerH, z * cornerH);
+      // vertices on a misaligned layer move with it (see buildCube)
+      if (twist && { x, y, z }[twist.axis] === twist.layer) v.applyAxisAngle(twistAxisVec[twist.axis], twist.angle);
+      v.project(camera);
       return [Number(((v.x * 0.5 + 0.5) * width).toFixed(2)), Number(((-v.y * 0.5 + 0.5) * height).toFixed(2))];
     });
     const pc = center.clone().project(camera);
@@ -810,10 +1159,12 @@ window.renderSample = async function renderSample(opts) {
         closeUp, dim: Number(dim.toFixed(2)), envName, negative,
         exposure: Number(renderer.toneMappingExposure.toFixed(2)), bevel: Number(bevel.toFixed(3)),
         cornerBias: Number(cornerBias) || 0, cornerOn: wantCornerOn, hasHands, hasClutter, hardShadow,
+        hasPalm: handMeta ? handMeta.hasPalm : false, nFingers: handMeta ? handMeta.nFingers : 0,
         ...styleMeta,
       },
     },
   };
 };
 
+window.logoTexture = logoTexture; // debug: tools can sheet the logo family
 window.ready = true;
