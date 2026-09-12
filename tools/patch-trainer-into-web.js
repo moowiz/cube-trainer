@@ -29,8 +29,9 @@ const patches = [
     "ZZ.showTab(tab==='eo'?'eo':'f2l');",
     "ZZ.showTab(['eo','f2l','scan'].includes(tab)?tab:'f2l');",
   ],
-  // 5. scanner module (deferred; runs after all inline scripts)
-  ['</body>', '<script type="module" src="/src/trainer-main.ts"></script>\n</body>'],
+  // 5. scanner module (deferred; runs after all inline scripts) + shared
+  //    floating page switcher (public/nav.js, same on every page)
+  ['</body>', '<script type="module" src="/src/trainer-main.ts"></script>\n<script src="nav.js" defer></script>\n</body>'],
 ];
 
 for (const [from, to] of patches) {
