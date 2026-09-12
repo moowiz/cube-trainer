@@ -32,6 +32,9 @@ interface FacekpMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
   output: { faces: string };
   precision?: string;
+  run?: string;          // training run name (e.g. "ft7"), stamped at export
+  trainedEpoch?: number;
+  exported?: string;
 }
 
 export type Ep = 'webgpu' | 'wasm';
@@ -48,6 +51,8 @@ export class FaceDetector {
     readonly benchMs?: Partial<Record<Ep, number>>,
   ) {
     const [, , h, w] = meta.input.shape;
+    this.modelId = [meta.run, meta.trainedEpoch != null ? `ep${meta.trainedEpoch}` : '', meta.precision]
+      .filter(Boolean).join(' ') || 'unknown model';
     this.iw = w;
     this.ih = h;
     this.canvas = document.createElement('canvas');
@@ -56,6 +61,8 @@ export class FaceDetector {
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
   }
 
+  /** Human-readable model identity, e.g. "ft7 ep12 fp32" - shown in page status lines. */
+  readonly modelId: string;
   private iw: number;
   private ih: number;
   private canvas: HTMLCanvasElement;

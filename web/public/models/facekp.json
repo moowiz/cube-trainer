@@ -34,5 +34,8 @@
   },
   "trainedEpoch": 12,
   "valPx": 4.496539938563487,
-  "precision": "fp32"
+  "precision": "fp32",
+  "run": "ft7",
+  "checkpoint": "last.pt",
+  "exported": "2026-09-12 09:11"
 }

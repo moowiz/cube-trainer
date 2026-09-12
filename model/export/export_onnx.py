@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -105,6 +106,11 @@ def main():
                    "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
                    "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation"},
         "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"), "precision": kind,
+        # run name from the checkpoint path (runs/<name>/last.pt), shown in
+        # the pages' status lines so a phone user knows which model is live
+        "run": Path(args.ckpt).resolve().parent.name,
+        "checkpoint": Path(args.ckpt).name,
+        "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
     (WEB_MODELS / "facekp.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {WEB_MODELS / 'facekp.onnx'} and facekp.json")

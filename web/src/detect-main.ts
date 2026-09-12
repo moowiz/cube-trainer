@@ -82,12 +82,12 @@ async function doLoadDetector(): Promise<void> {
     }
     const b = detector.benchMs;
     epUsed.textContent = b
-      ? `using ${detector.ep} (bench: ${(['webgpu', 'wasm'] as const)
+      ? `${detector.modelId} · using ${detector.ep} (bench: ${(['webgpu', 'wasm'] as const)
           .filter((e) => b[e] !== undefined)
           .map((e) => `${e} ${b[e]!.toFixed(1)}ms`)
           .join(', ')})`
-      : `using ${detector.ep}`;
-    stats.textContent = `model: ready in ${(performance.now() - t0).toFixed(0)} ms (${detector.ep})`;
+      : `${detector.modelId} · using ${detector.ep}`;
+    stats.textContent = `model: ${detector.modelId}, ready in ${(performance.now() - t0).toFixed(0)} ms (${detector.ep})`;
   } catch (err) {
     stats.textContent = 'model: failed to load';
     lastLoadError = String(err instanceof Error ? err.message : err);
