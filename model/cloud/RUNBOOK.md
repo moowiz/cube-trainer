@@ -54,6 +54,49 @@ from the one signed off on the previews, and the README credits the HDRI pass
 with a real chunk of the sim-to-real gain. `fetch-hdris.mjs` exits non-zero if
 it cannot get all 16, so run it before generating and read its last line.
 
+## 2b. Rendering speed: check the GPU before you commit (2026-09-12)
+
+Headless Chrome on a rented box will almost certainly render in SOFTWARE,
+and it is roughly 7x slower than the local machine: measured 1.1 img/s per
+instance on an A100 pod against 7-9 img/s locally. 16 parallel instances on
+64 vCPU gave 5.8 img/s aggregate (only 33% parallel efficiency - it is
+memory-bandwidth bound, so adding instances past ~16 buys little), which is
+~2.5 h for 54k. Budget for that, or fix the GPU path below.
+
+Why it falls back: Chrome renders WebGL through ANGLE, ANGLE's default
+backend is Vulkan, and the container had **no Vulkan ICD manifest at all**.
+Writing `/usr/share/vulkan/icd.d/nvidia_icd.json` pointing at
+`libGLX_nvidia.so.0` is necessary but was NOT sufficient on the pod we used:
+`vulkaninfo` then fails with `ERROR_INCOMPATIBLE_DRIVER`, because Runpod's
+container runtime injected the GLX half of the driver userspace and not the
+Vulkan half (no `libnvidia-vulkan*` anywhere on the box).
+
+**The deciding factor is the driver version.** That pod ran 590.48.01, while
+Ubuntu ships `libnvidia-gl-550` … `libnvidia-gl-575` - no 590, so there is no
+matching userspace to install, and installing a mismatched one risks breaking
+the CUDA stack that training depends on. Runpod's own guidance cites 550.xx
+as their baseline, so a pod on a 550-era driver should be fixable with:
+
+```bash
+apt-get install -y libnvidia-gl-550 vulkan-tools   # match the DRIVER version
+vulkaninfo --summary | grep deviceName             # must name the GPU, not SwiftShader
+```
+
+So: before generating, run the 30-second check below. If it names the GPU,
+generation is ~7x faster and you can drop to 2-4 parallel instances. If it
+names SwiftShader, either accept the CPU rate or re-rent on a pod whose
+driver has a matching `libnvidia-gl-NNN` package.
+
+```bash
+nvidia-smi --query-gpu=driver_version --format=csv,noheader   # then:
+apt-cache search 'libnvidia-gl-' | head                        # is there a match?
+```
+
+Chrome flags are NOT the problem and tuning them is a dead end: `--use-gl=egl`,
+`--use-angle=gl` and the default all report
+`ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device ...))`. /dev/shm is also not
+the problem on Runpod (58 GB on the pod we used).
+
 ## 3. Generate the synthetic set
 
 data_v4 recipe (frozen 2026-09-12, generator at commit ae1976f or later):
