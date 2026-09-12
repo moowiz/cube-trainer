@@ -5,8 +5,8 @@
 
 Parses every runs/*-console.log (and runs/<name>/log.txt) into per-epoch
 numbers and serves a single page with small-multiple charts per run
-(val_px, val_loss, train_loss, conf accuracy), newest run first,
-refreshing about once a minute. Local only by default.
+(val_px, val_loss, train_loss, conf accuracy), newest run first, ~1 min
+refresh, synced hover readout across a run's charts. Local only by default.
 """
 from __future__ import annotations
 
@@ -46,9 +46,10 @@ body { background:#14161a; color:#e8eaf0; font:14px system-ui,sans-serif; margin
 main { max-width:64rem; margin:0 auto; padding:1rem; }
 h1 { font-size:1.1rem; } h2 { font-size:0.95rem; margin:1.6rem 0 0.4rem; }
 h2 small { color:#68707e; font-weight:normal; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:0.6rem; }
-canvas { width:100%; height:170px; background:#1b1e24; border-radius:8px; }
-table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-top:0.5rem; font-size:0.85rem; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:0.7rem; }
+canvas { width:100%; height:170px; background:#1b1e24; border-radius:8px; cursor:crosshair; }
+.cap { font-size:0.76rem; color:#8891a0; margin:0.25rem 0 0; line-height:1.4; }
+table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-top:0.6rem; font-size:0.85rem; }
 td,th { padding:0.15rem 0.8rem 0.15rem 0; text-align:right; color:#aab2c0; }
 th { color:#e8eaf0; }
 .now { color:#7ce38b; }
@@ -56,18 +57,23 @@ th { color:#e8eaf0; }
 <main><h1>Training runs <span id="ts" style="color:#68707e;font-weight:normal"></span></h1><div id="root"></div></main>
 <script>
 const METRICS = [
-  { key:'val_px',     label:'val_px (lower=better)', color:'#7aa2ff', fmt:v=>v.toFixed(2) },
-  { key:'val_loss',   label:'val_loss',              color:'#e0a458', fmt:v=>v.toFixed(4) },
-  { key:'train_loss', label:'train_loss',            color:'#c792ea', fmt:v=>v.toFixed(4) },
-  { key:'conf_acc',   label:'val conf accuracy',     color:'#7ce38b', fmt:v=>v.toFixed(3) },
+  { key:'val_px', label:'val_px', color:'#7aa2ff', fmt:v=>v.toFixed(2),
+    desc:'Mean corner error (px at 320x240) on held-out frames — the number that matters. Healthy: falls steeply early, then flattens to a plateau. Rising after a low = overfitting; never falling = data/LR problem.' },
+  { key:'val_loss', label:'val_loss', color:'#e0a458', fmt:v=>v.toFixed(4),
+    desc:'Combined corner+visibility loss on held-out frames. Healthy: tracks train_loss downward. A widening gap above train_loss = memorizing, not learning.' },
+  { key:'train_loss', label:'train_loss', color:'#c792ea', fmt:v=>v.toFixed(4),
+    desc:'Loss on the training batches themselves (with augmentation, so it sits above what you might expect). Healthy: smooth decline; small wiggles are batch noise, a sustained rise = learning rate too hot.' },
+  { key:'conf_acc', label:'val conf accuracy', color:'#7ce38b', fmt:v=>v.toFixed(3),
+    desc:'How often the model correctly says which faces are visible. Healthy: climbs to ~0.97+ and sticks. Drops here usually mean something structural broke, not noise.' },
 ];
+const PADL = 52, PADR = 14, PADT = 24, PADB = 20;
 
-function drawChart(cv, rows, m) {
+function drawChart(cv, rows, m, hoverI) {
   const ctx = cv.getContext('2d'), dpr = devicePixelRatio;
   const W = cv.width = cv.clientWidth * dpr, H = cv.height = 170 * dpr;
+  const padL = PADL*dpr, padR = PADR*dpr, padT = PADT*dpr, padB = PADB*dpr;
   const vals = rows.map(r => r[m.key]), n = rows.length;
   const lo = Math.min(...vals), hi = Math.max(...vals, lo + 1e-6);
-  const padL = 52*dpr, padR = 14*dpr, padT = 24*dpr, padB = 20*dpr;
   const X = i => padL + (W - padL - padR) * (n < 2 ? 0 : i / (n - 1));
   const Y = v => H - padB - (H - padT - padB) * (v - lo) / (hi - lo);
   ctx.font = `${10.5*dpr}px system-ui`;
@@ -76,15 +82,26 @@ function drawChart(cv, rows, m) {
     ctx.beginPath(); ctx.moveTo(padL, Y(v)); ctx.lineTo(W - padR, Y(v)); ctx.stroke();
     ctx.fillText(m.fmt(v), 4*dpr, Y(v) + 4*dpr);
   }
-  // epoch ticks: first and last
   ctx.fillText('ep ' + rows[0].epoch, padL, H - 6*dpr);
   const lastLbl = 'ep ' + rows[n-1].epoch;
   ctx.fillText(lastLbl, W - padR - ctx.measureText(lastLbl).width, H - 6*dpr);
   ctx.strokeStyle = m.color; ctx.lineWidth = 1.8*dpr; ctx.beginPath();
   rows.forEach((r, i) => i ? ctx.lineTo(X(i), Y(r[m.key])) : ctx.moveTo(X(i), Y(r[m.key])));
   ctx.stroke();
-  ctx.fillStyle = m.color;
-  ctx.fillText(m.label + ' · ' + m.fmt(vals[n-1]), padL, 14*dpr);
+  if (hoverI != null) {
+    const i = hoverI, v = vals[i];
+    ctx.strokeStyle = '#525a68'; ctx.lineWidth = dpr;
+    ctx.beginPath(); ctx.moveTo(X(i), padT); ctx.lineTo(X(i), H - padB); ctx.stroke();
+    ctx.beginPath(); ctx.arc(X(i), Y(v), 3.2*dpr, 0, 7); ctx.fillStyle = m.color; ctx.fill();
+    const txt = `ep ${rows[i].epoch} · ${m.fmt(v)}`;
+    const tw = ctx.measureText(txt).width;
+    const tx = Math.min(Math.max(X(i) - tw/2, padL), W - padR - tw);
+    ctx.fillStyle = '#e8eaf0';
+    ctx.fillText(txt, tx, 14*dpr);
+  } else {
+    ctx.fillStyle = m.color;
+    ctx.fillText(m.label + ' · ' + m.fmt(vals[n-1]), padL, 14*dpr);
+  }
 }
 
 async function tick() {
@@ -95,18 +112,29 @@ async function tick() {
   const names = Object.keys(runs).sort((a, b) => runs[b].mtime - runs[a].mtime);
   for (const name of names) {
     const { mtime, rows } = runs[name];
-    const last = rows[rows.length - 1];
+    const n = rows.length, last = rows[n - 1];
     const h = document.createElement('h2');
-    const when = new Date(mtime * 1000).toLocaleString();
-    h.innerHTML = `${name} — epoch ${last.epoch} (${last.sec}s/epoch) <small>last log write ${when}</small>`;
+    h.innerHTML = `${name} — epoch ${last.epoch} (${last.sec}s/epoch) <small>last log write ${new Date(mtime * 1000).toLocaleString()}</small>`;
     const grid = document.createElement('div');
     grid.className = 'grid';
     root.append(h, grid);
+    const charts = [];
+    const redraw = (hoverI) => { for (const c of charts) drawChart(c.cv, rows, c.m, hoverI); };
     for (const m of METRICS) {
+      const cell = document.createElement('div');
       const cv = document.createElement('canvas');
-      grid.append(cv);
-      drawChart(cv, rows, m);
+      const cap = document.createElement('p');
+      cap.className = 'cap'; cap.textContent = m.desc;
+      cell.append(cv, cap); grid.append(cell);
+      charts.push({ cv, m });
+      // hover is synced across the run's four charts
+      cv.addEventListener('mousemove', (ev) => {
+        const frac = (ev.offsetX - PADL) / (cv.clientWidth - PADL - PADR);
+        redraw(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))));
+      });
+      cv.addEventListener('mouseleave', () => redraw(null));
     }
+    redraw(null);
     const t = document.createElement('table');
     t.innerHTML = '<tr><th>epoch</th><th>train_loss</th><th>val_loss</th><th>val_px</th><th>conf</th><th>s</th></tr>' +
       rows.slice(-5).map(r => `<tr class="${r === last ? 'now' : ''}"><td>${r.epoch}</td><td>${r.train_loss.toFixed(4)}</td><td>${r.val_loss.toFixed(4)}</td><td>${r.val_px.toFixed(2)}</td><td>${r.conf_acc.toFixed(3)}</td><td>${r.sec}</td></tr>`).join('');
