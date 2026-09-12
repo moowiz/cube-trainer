@@ -49,6 +49,9 @@ def main():
                          "(e.g. ../data,../data_real*150 - a handful of real frames must not "
                          "drown in tens of thousands of synthetic ones)")
     ap.add_argument("--init", default=None, help="checkpoint to initialize from (M5 fine-tune)")
+    ap.add_argument("--resume", default=None,
+                    help="resume an interrupted run: its last.pt (or run dir). Requires identical "
+                         "--data/--epochs/--batch - if the schedule length changed, start fresh instead")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
@@ -88,17 +91,43 @@ def main():
     print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}")
 
     model = FaceKP(pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    if args.init and args.resume:
+        raise SystemExit("--init and --resume are mutually exclusive")
     if args.init:
         ckpt = torch.load(args.init, map_location=device, weights_only=True)
         model.load_state_dict(ckpt["model"])
         print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')})")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.epochs * max(1, len(train_dl)))
+    total_steps = args.epochs * max(1, len(train_dl))
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=total_steps)
     scaler = torch.amp.GradScaler(enabled=device == "cuda")
 
     best_px = float("inf")
     log = []
-    for epoch in range(1, args.epochs + 1):
+    start_epoch = 1
+    if args.resume:
+        rp = Path(args.resume)
+        if rp.is_dir():
+            rp = rp / "last.pt"
+        ckpt = torch.load(rp, map_location=device, weights_only=True)
+        if "opt" not in ckpt:
+            raise SystemExit(f"{rp} predates resumable checkpoints (no optimizer state) - start fresh")
+        # The LR schedule is positional: if the dataset, epochs, or batch size
+        # changed, the step count differs and resuming would train on a wrong
+        # schedule. Refuse rather than silently degrade.
+        if ckpt.get("total_steps") != total_steps:
+            raise SystemExit(f"resume mismatch: checkpoint expects total_steps={ckpt.get('total_steps')}, "
+                             f"this invocation has {total_steps} (data/epochs/batch changed?) - start fresh")
+        model.load_state_dict(ckpt["model"])
+        opt.load_state_dict(ckpt["opt"])
+        sched.load_state_dict(ckpt["sched"])
+        scaler.load_state_dict(ckpt["scaler"])
+        best_px = ckpt.get("best_px", float("inf"))
+        log = list(ckpt.get("log", []))
+        start_epoch = ckpt["epoch"] + 1
+        print(f"resumed {rp} at epoch {start_epoch}/{args.epochs} (best val_px so far {best_px:.2f})")
+
+    for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         t0 = time.time()
         run_loss = 0.0
@@ -120,11 +149,15 @@ def main():
                 f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s")
         print(line, flush=True)
         log.append(line)
-        ckpt = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch, "val_px": vpx}
-        torch.save(ckpt, out / "last.pt")
+        slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch, "val_px": vpx}
         if vpx < best_px:
             best_px = vpx
-            torch.save(ckpt, out / "best.pt")
+            torch.save(slim, out / "best.pt")
+        # last.pt carries full training state so an interrupted run can
+        # --resume; best.pt stays slim (it's what export/fine-tune consume)
+        torch.save({**slim, "opt": opt.state_dict(), "sched": sched.state_dict(),
+                    "scaler": scaler.state_dict(), "best_px": best_px,
+                    "total_steps": total_steps, "log": log}, out / "last.pt")
     (out / "log.txt").write_text("\n".join(log) + f"\nbest val_px {best_px:.2f}\n")
     print(f"best val_px {best_px:.2f}  ->  {out / 'best.pt'}")
 
