@@ -68,6 +68,14 @@ Measured on all 76k of `data/`: **0 colliding center cells** and 9 of 150,922
 positive faces with an off-grid center, so stride 16 is not too coarse (the
 tripwire for going to stride 8 was 2%).
 
+`train/check_targets.py` round-trips the whole chain offline in a second —
+labels → dense targets → the maps a perfect model would emit → decode →
+metrics — and requires the quads back exactly. Run it after touching
+`targets.py`, `decode_maps` or `center_metrics`; it catches the grid,
+half-cell, channel-order and corner-convention mistakes that otherwise only
+show up as "training stalls at 4 px" with no other symptom. Verified against
+1,144 real label quads at 7e-9 px.
+
 **`val_conf_acc` means something different for this head.** It is detection
 **F1** at score 0.5 under greedy centroid matching (a match must sit within
 50% of the ground-truth face's mean edge length), not per-slot visibility
