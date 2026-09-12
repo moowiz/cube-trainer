@@ -267,6 +267,10 @@
           still picks it up for click-to-drop</li>
         <li>placing/dropping near another face's marker &mdash; snaps to it, so
           shared corners coincide exactly</li>
+        <li>auto-complete: with 1 face labeled, click a new face's 2 outer
+          corners &mdash; the shared edge fills in; with 2 faces labeled, click
+          the third face's 1 outer corner &mdash; the other 3 fill in. Drag
+          markers to fix; it only fires when the result is a valid quad</li>
         <li>"Suggest (model)" &mdash; pre-fills unlabeled faces with the current
           model's guess; verify positions and fix by picking markers up.
           Needs the deployed site (not a local file).</li>
@@ -561,6 +565,112 @@
     handleTapAt(mx, my);
   }
 
+  // ---- geometric auto-completion from already-labeled neighbors ----------
+  // Adjacent cube faces physically share corners, so their image positions
+  // are already known once a neighbor is labeled. Pure geometry - face
+  // colors are irrelevant (the user picks the letter; we only supply
+  // coordinates). Two flows:
+  //   1 labeled neighbor:  click the 2 NEW corners -> the shared edge (2
+  //     corners) is taken from the neighbor's nearest valid edge.
+  //   2 labeled neighbors: click 1 corner -> the central vertex + one
+  //     corner from each shared edge are already determined (3 of 4).
+  // Every candidate must be a simple convex quad whose centroid lies
+  // outside all labeled faces; otherwise we silently fall back to manual.
+  function quadArea(q) {
+    let a = 0;
+    for (let i = 0; i < 4; i++) a += q[i][0] * q[(i + 1) % 4][1] - q[(i + 1) % 4][0] * q[i][1];
+    return Math.abs(a / 2);
+  }
+  function isSimpleConvex(q) {
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = q[i], b = q[(i + 1) % 4], c = q[(i + 2) % 4];
+      const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+      if (Math.abs(cr) < 1e-9) return false;
+      const s = Math.sign(cr);
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false;
+    }
+    return true;
+  }
+  function pointInQuadPts(q, x, y) {
+    let inside = false;
+    for (let i = 0, j = 3; i < 4; j = i++) {
+      const [xi, yi] = q[i], [xj, yj] = q[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function quadCentroid(q) {
+    return [q.reduce((s, p) => s + p[0], 0) / 4, q.reduce((s, p) => s + p[1], 0) / 4];
+  }
+  function candidateOk(cand, labeledQuads) {
+    if (!isSimpleConvex(cand)) return false;
+    const [cx2, cy2] = quadCentroid(cand);
+    return !labeledQuads.some(q => pointInQuadPts(q, cx2, cy2));
+  }
+
+  function autoCompleteFromNeighbors() {
+    const faces = getFaces();
+    if (!faces) return;
+    const labeled = FACE_ORDER
+      .filter(f => f !== state.activeFace && faces[f].visible)
+      .map(f => faces[f].corners.map(c => [c[0], c[1]]));
+    if (!labeled.length) return;
+    const temp = state.tempCorners;
+
+    if (temp.length === 1 && labeled.length >= 2) {
+      // three-face case: find a pair of labeled faces sharing 2 corners
+      const click = temp[0];
+      for (let ai = 0; ai < labeled.length; ai++) {
+        for (let bi = ai + 1; bi < labeled.length; bi++) {
+          const A = labeled[ai], B = labeled[bi];
+          const tol = 0.06 * Math.sqrt(Math.min(quadArea(A), quadArea(B)));
+          const shared = [];
+          for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+            if (Math.hypot(A[i][0] - B[j][0], A[i][1] - B[j][1]) <= tol) shared.push([i, j]);
+          }
+          if (shared.length !== 2) continue;
+          // try each shared corner as the central vertex
+          for (const [center, other] of [[shared[0], shared[1]], [shared[1], shared[0]]]) {
+            const [ia, ja] = center;
+            const near = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]) <= tol;
+            const nbrsA = [A[(ia + 1) % 4], A[(ia + 3) % 4]].filter(p => !near(p, A[other[0]]));
+            const nbrsB = [B[(ja + 1) % 4], B[(ja + 3) % 4]].filter(p => !near(p, B[other[1]]));
+            if (nbrsA.length !== 1 || nbrsB.length !== 1) continue;
+            const cand = [A[ia], nbrsA[0], click, nbrsB[0]];
+            if (candidateOk(cand, labeled)) {
+              state.tempCorners = cand.map(p => [p[0], p[1]]);
+              showToast('Auto-completed 3 corners from the two labeled faces — drag any marker to fix');
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    if (temp.length === 2 && labeled.length >= 1) {
+      // two-face case: borrow the nearest valid edge of a labeled face
+      const [c1, c2] = temp;
+      const mid = [(c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2];
+      let best = null;
+      for (const Q of labeled) {
+        for (let i = 0; i < 4; i++) {
+          const e1 = Q[i], e2 = Q[(i + 1) % 4];
+          const emid = [(e1[0] + e2[0]) / 2, (e1[1] + e2[1]) / 2];
+          const d = Math.hypot(mid[0] - emid[0], mid[1] - emid[1]);
+          for (const cand of [[c1, c2, e2, e1], [c1, c2, e1, e2]]) {
+            if (candidateOk(cand, labeled) && (!best || d < best.d)) best = { d, cand };
+          }
+        }
+      }
+      if (best) {
+        state.tempCorners = best.cand.map(p => [p[0], p[1]]);
+        showToast('Auto-completed the shared edge from the labeled face — drag any marker to fix');
+      }
+    }
+  }
+
   function handleTapAt(mx, my) {
     // Finishing a pick-up: this click drops the corner (snapping to another
     // face's marker if close, so shared corners can be made exact).
@@ -577,6 +687,7 @@
 
     if (state.activeFace) {
       state.tempCorners.push(clickPosition(mx, my));
+      autoCompleteFromNeighbors();
       if (state.tempCorners.length === 4) {
         commitFace(state.activeFace, state.tempCorners);
         state.activeFace = null;
