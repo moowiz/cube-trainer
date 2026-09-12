@@ -124,7 +124,10 @@ def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
 
 def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
     w, h = img.size
-    if random.random() < 0.3:
+    # Stage-2 (two-stage detector) mix: mostly crop-normalized views (what a
+    # localizer or the tracker's previous quads will feed it), but keep a
+    # full-frame minority so the app's no-stage-1 fallback path stays trained.
+    if random.random() < 0.7:
         img, corners, conf = _zoom_crop(img, corners, conf)
     if random.random() < 0.9:
         img, corners = _affine(
