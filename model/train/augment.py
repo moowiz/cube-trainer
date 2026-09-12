@@ -8,6 +8,7 @@ fingers over the cube - the single most common real-world occluder.
 """
 from __future__ import annotations
 
+import io
 import math
 import random
 
@@ -52,6 +53,43 @@ def _center_in_frame(quad: np.ndarray, w, h, margin=8):
     return -margin < cx < w + margin and -margin < cy < h + margin
 
 
+def _motion_blur(img: Image.Image) -> Image.Image:
+    """Directional smear: a turning cube in a video frame, not lens defocus."""
+    arr = np.asarray(img, dtype=np.float32)
+    length = random.randint(2, 7)
+    ang = random.uniform(0, math.pi)
+    dx, dy = math.cos(ang), math.sin(ang)
+    acc = np.zeros_like(arr)
+    for t in range(length):
+        acc += np.roll(np.roll(arr, int(round(dy * t)), axis=0), int(round(dx * t)), axis=1)
+    return Image.fromarray(np.clip(acc / length, 0, 255).astype(np.uint8))
+
+
+def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
+    """Simulate a portrait phone frame. The deployed model letterboxes
+    480x640 video to 180x240 content between gray pillars; the synthetic set
+    is all landscape, so without this no training image ever has bars.
+    Crop a narrow full-height window (biased to keep the cube) and re-center
+    it between (114,114,114) bars - the exact runtime geometry. Runs last so
+    the bars stay pristine, as they do live (added after camera processing).
+    """
+    w, h = img.size
+    new_w = int(w * random.uniform(0.5, 0.8))
+    vis = [i for i in range(6) if conf[i] > 0]
+    cx = float(np.mean([corners[i][:, 0].mean() for i in vis])) if vis else w / 2
+    x0 = int(min(max(cx - new_w / 2 + random.uniform(-0.15, 0.15) * new_w, 0), w - new_w))
+    crop = img.crop((x0, 0, x0 + new_w, h))
+    out = Image.new("RGB", (w, h), (114, 114, 114))
+    pad = (w - new_w) // 2
+    out.paste(crop, (pad, 0))
+    rel = corners - np.array([x0, 0], dtype=corners.dtype)
+    conf = conf.copy()
+    for i in range(6):
+        if conf[i] > 0 and not _center_in_frame(rel[i], new_w, h):
+            conf[i] = 0.0  # face center fell outside the simulated frame
+    return out, rel + np.array([pad, 0], dtype=corners.dtype), conf
+
+
 def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
     w, h = img.size
     if random.random() < 0.9:
@@ -60,8 +98,8 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
             corners,
             angle_deg=random.uniform(-15, 15),
             scale=random.uniform(0.75, 1.25),
-            tx=random.uniform(-0.08, 0.08) * w,
-            ty=random.uniform(-0.08, 0.08) * h,
+            tx=random.uniform(-0.12, 0.12) * w,
+            ty=random.uniform(-0.12, 0.12) * h,
         )
         # a face shifted out of frame is no longer a detection target
         conf = conf.copy()
@@ -73,12 +111,27 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
         img = ImageEnhance.Brightness(img).enhance(random.uniform(0.6, 1.4))
         img = ImageEnhance.Contrast(img).enhance(random.uniform(0.7, 1.3))
         img = ImageEnhance.Color(img).enhance(random.uniform(0.6, 1.5))
+    if random.random() < 0.4:
+        # white-balance error: a global per-channel gain on the final image,
+        # distinct from light color (the renders vary that already). This is
+        # the red/orange and monitor-cast failure axis.
+        arr = np.asarray(img, dtype=np.float32)
+        arr *= np.array([random.uniform(0.8, 1.2) for _ in range(3)], dtype=np.float32)
+        img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
     if random.random() < 0.25:
         img = img.filter(ImageFilter.GaussianBlur(random.uniform(0.5, 2.0)))
+    if random.random() < 0.18:
+        img = _motion_blur(img)
     if random.random() < 0.5:
         arr = np.asarray(img, dtype=np.float32)
         arr += np.random.normal(0, random.uniform(2, 10), arr.shape)
         img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    if random.random() < 0.35:
+        # video/JPEG compression: blocky chroma like a phone camera stream
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=random.randint(30, 85))
+        buf.seek(0)
+        img = Image.open(buf).convert("RGB")
     if random.random() < 0.4:  # fingers / partial occlusion
         arr = np.asarray(img).copy()
         for _ in range(random.randint(1, 3)):
@@ -86,4 +139,6 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
             ex, ey = random.randint(0, w - ew), random.randint(0, h - eh)
             arr[ey : ey + eh, ex : ex + ew] = [random.randint(0, 255) for _ in range(3)]
         img = Image.fromarray(arr)
+    if random.random() < 0.3:
+        img, corners, conf = _portrait_sim(img, corners, conf)
     return img, corners, conf
