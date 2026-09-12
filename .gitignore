@@ -25,3 +25,4 @@ __pycache__/
 *.local
 .DS_Store
 model/roboflow/
+model/preview_v4*/
