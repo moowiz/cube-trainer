@@ -1,0 +1,129 @@
+// Face orientation resolution (M6/M7, pipeline step 7).
+//
+// The detector outputs each face's 4 corners only up to CYCLIC rotation
+// (rotation-invariant training: on a dead-on lone face the starting corner
+// is unobservable). Sticker assignment needs each quad in the face's cubejs
+// sticker-layout order (TL,TR,BR,BL). This module recovers that rotation
+// from geometry: two adjacent faces visible in the same frame share a
+// physical edge, and WHICH of each quad's four edges coincides pins both
+// faces' rotations absolutely via the cube's corner tables.
+//
+// Single-face frames carry no constraint - callers keep the last resolved
+// rotation per track (the tracker maintains stable corner indexing over
+// time, so a rotation, once known, stays valid until the track drops).
+//
+// Assumes quads wind consistently on screen (a visible face always projects
+// with the same winding; the detector is trained that way and the tracker
+// preserves it).
+
+import type { FaceId } from '../types';
+import { FACE_ORDER } from '../types';
+
+export type Corner = readonly [number, number];
+export interface OrientableFace {
+  face: FaceId;
+  corners: ReadonlyArray<Corner>;
+}
+export interface OrientationResult {
+  /** face -> k such that corners[(t + k) % 4] is sticker-layout corner t
+   *  (TL,TR,BR,BL). Only faces that got at least one constraint appear. */
+  rotations: Partial<Record<FaceId, number>>;
+  pairsUsed: number;
+  conflicts: number;
+}
+
+// Cube-space corner ids per face in sticker-layout order (TL,TR,BR,BL) -
+// same tables as model/gen/scene.mjs FACE_DATA, the single source of truth.
+const LAYOUT: Record<FaceId, string[]> = {
+  U: ['-1,1,-1', '1,1,-1', '1,1,1', '-1,1,1'],
+  R: ['1,1,1', '1,1,-1', '1,-1,-1', '1,-1,1'],
+  F: ['-1,1,1', '1,1,1', '1,-1,1', '-1,-1,1'],
+  D: ['-1,-1,1', '1,-1,1', '1,-1,-1', '-1,-1,-1'],
+  L: ['-1,1,-1', '-1,1,1', '-1,-1,1', '-1,-1,-1'],
+  B: ['1,1,-1', '-1,1,-1', '-1,-1,-1', '1,-1,-1'],
+};
+
+function faceSize(c: ReadonlyArray<Corner>): number {
+  // sqrt of the shoelace area - a scale for distance tolerances
+  let s = 0;
+  for (let i = 0; i < 4; i++) {
+    const [x0, y0] = c[i];
+    const [x1, y1] = c[(i + 1) % 4];
+    s += x0 * y1 - x1 * y0;
+  }
+  return Math.sqrt(Math.abs(s / 2));
+}
+
+function dist(a: Corner, b: Corner): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
+/** For adjacent faces a,b: their shared cube edge as (indexInA, indexInB)
+ *  where LAYOUT[a] traverses the edge at (ia, ia+1) and LAYOUT[b] traverses
+ *  it reversed at (jb, jb+1). Returns null for non-adjacent (opposite). */
+function sharedEdge(a: FaceId, b: FaceId): { ia: number; jb: number } | null {
+  const la = LAYOUT[a], lb = LAYOUT[b];
+  for (let ia = 0; ia < 4; ia++) {
+    const p = la[ia], q = la[(ia + 1) % 4];
+    for (let jb = 0; jb < 4; jb++) {
+      if (lb[jb] === q && lb[(jb + 1) % 4] === p) return { ia, jb };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve absolute rotations for co-visible faces. Faces with no adjacent
+ * partner in the list stay unresolved (caller falls back to the track's
+ * remembered rotation). Conflicting constraints are counted, majority wins.
+ */
+export function resolveOrientations(
+  faces: ReadonlyArray<OrientableFace>,
+  tolFrac = 0.22,
+): OrientationResult {
+  const votes: Partial<Record<FaceId, number[]>> = {};
+  let pairsUsed = 0;
+
+  for (let x = 0; x < faces.length; x++) {
+    for (let y = x + 1; y < faces.length; y++) {
+      const A = faces[x], B = faces[y];
+      const edge = sharedEdge(A.face, B.face);
+      if (!edge) continue; // opposite faces: no shared edge (and co-visibility is itself dubious)
+      const tol = tolFrac * ((faceSize(A.corners) + faceSize(B.corners)) / 2);
+
+      // find the image-space edge match: A's edge (i,i+1) coincides with
+      // B's edge (j,j+1) traversed the opposite way
+      let best: { i: number; j: number; cost: number } | null = null;
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          const cost = dist(A.corners[i], B.corners[(j + 1) % 4]) + dist(A.corners[(i + 1) % 4], B.corners[j]);
+          if (!best || cost < best.cost) best = { i, j, cost };
+        }
+      }
+      if (!best || best.cost > 2 * tol) continue;
+
+      pairsUsed++;
+      (votes[A.face] ??= []).push(((best.i - edge.ia) % 4 + 4) % 4);
+      (votes[B.face] ??= []).push(((best.j - edge.jb) % 4 + 4) % 4);
+    }
+  }
+
+  const rotations: Partial<Record<FaceId, number>> = {};
+  let conflicts = 0;
+  for (const f of FACE_ORDER) {
+    const v = votes[f];
+    if (!v) continue;
+    const counts = [0, 0, 0, 0];
+    for (const k of v) counts[k]++;
+    const k = counts.indexOf(Math.max(...counts));
+    conflicts += v.length - counts[k];
+    rotations[f] = k;
+  }
+  return { rotations, pairsUsed, conflicts };
+}
+
+/** Apply a resolved rotation: result[t] is sticker-layout corner t. */
+export function orientQuad<T>(corners: ReadonlyArray<T>, k: number): T[] {
+  const n = ((k % 4) + 4) % 4;
+  return corners.map((_, t) => corners[(t + n) % 4]);
+}

@@ -228,8 +228,15 @@ window.renderSample = async function renderSample(opts) {
   }
 
   // --- cube ---
+  // Hard negatives (M8): a slice of samples has NO cube at all - just the
+  // background/table/lights. Without them the conf head never learns what
+  // "no cube anywhere" looks like and can hallucinate faces on empty scenes
+  // (tiles and keyboards are the known false-candidate case). All faces get
+  // visible:false, corners:null - the training loader maps null corners to
+  // valid=0, so no corner gradient flows from these.
+  const negative = rnd() < 0.07;
   const { group, nMoves, bevel } = buildCube(rnd, style);
-  scene.add(group);
+  if (!negative) scene.add(group);
 
   // --- camera ---
   // seeded random direction (THREE's randomDirection uses Math.random and
@@ -336,6 +343,9 @@ window.renderSample = async function renderSample(opts) {
   const cornerH = H - bevel * (1 - 1 / Math.sqrt(3));
   const faces = {};
   const camPos = camera.position;
+  if (negative) {
+    for (const f of Object.keys(FACE_DATA)) faces[f] = { visible: false, facing: 0, corners: null };
+  } else
   for (const [f, fd] of Object.entries(FACE_DATA)) {
     const normal = new THREE.Vector3(...fd.n);
     const center = normal.clone().multiplyScalar(H);
@@ -364,7 +374,7 @@ window.renderSample = async function renderSample(opts) {
       width, height, style, faces,
       meta: {
         seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins,
-        closeUp, dim: Number(dim.toFixed(2)), envName,
+        closeUp, dim: Number(dim.toFixed(2)), envName, negative,
         exposure: Number(renderer.toneMappingExposure.toFixed(2)), bevel: Number(bevel.toFixed(3)),
       },
     },
