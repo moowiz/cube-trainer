@@ -4,8 +4,9 @@
     python watch.py --port N
 
 Parses every runs/*-console.log (and runs/<name>/log.txt) into per-epoch
-numbers and serves a single auto-refreshing page charting val_px, losses and
-conf accuracy. Local only by default; nothing leaves the machine.
+numbers and serves a single page with small-multiple charts per run
+(val_px, val_loss, train_loss, conf accuracy), newest run first,
+refreshing about once a minute. Local only by default.
 """
 from __future__ import annotations
 
@@ -31,8 +32,8 @@ def parse_runs():
              "val_px": float(m[4]), "conf_acc": float(m[5]), "sec": int(m[6])}
             for m in LINE.finditer(lf.read_text(errors="ignore"))
         ]
-        if rows and (name not in out or len(rows) > len(out[name])):
-            out[name] = rows
+        if rows and (name not in out or len(rows) > len(out[name]["rows"])):
+            out[name] = {"mtime": lf.stat().st_mtime, "rows": rows}
     return out
 
 
@@ -42,53 +43,77 @@ PAGE = """<!doctype html><meta charset="utf-8">
 <style>
 :root { color-scheme: dark; }
 body { background:#14161a; color:#e8eaf0; font:14px system-ui,sans-serif; margin:0; }
-main { max-width:60rem; margin:0 auto; padding:1rem; }
-h1 { font-size:1.1rem; } h2 { font-size:0.95rem; margin:1.4rem 0 0.3rem; }
-canvas { width:100%; height:220px; background:#1b1e24; border-radius:8px; }
-table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-top:0.4rem; font-size:0.85rem; }
+main { max-width:64rem; margin:0 auto; padding:1rem; }
+h1 { font-size:1.1rem; } h2 { font-size:0.95rem; margin:1.6rem 0 0.4rem; }
+h2 small { color:#68707e; font-weight:normal; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:0.6rem; }
+canvas { width:100%; height:170px; background:#1b1e24; border-radius:8px; }
+table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-top:0.5rem; font-size:0.85rem; }
 td,th { padding:0.15rem 0.8rem 0.15rem 0; text-align:right; color:#aab2c0; }
 th { color:#e8eaf0; }
 .now { color:#7ce38b; }
 </style>
 <main><h1>Training runs <span id="ts" style="color:#68707e;font-weight:normal"></span></h1><div id="root"></div></main>
 <script>
+const METRICS = [
+  { key:'val_px',     label:'val_px (lower=better)', color:'#7aa2ff', fmt:v=>v.toFixed(2) },
+  { key:'val_loss',   label:'val_loss',              color:'#e0a458', fmt:v=>v.toFixed(4) },
+  { key:'train_loss', label:'train_loss',            color:'#c792ea', fmt:v=>v.toFixed(4) },
+  { key:'conf_acc',   label:'val conf accuracy',     color:'#7ce38b', fmt:v=>v.toFixed(3) },
+];
+
+function drawChart(cv, rows, m) {
+  const ctx = cv.getContext('2d'), dpr = devicePixelRatio;
+  const W = cv.width = cv.clientWidth * dpr, H = cv.height = 170 * dpr;
+  const vals = rows.map(r => r[m.key]), n = rows.length;
+  const lo = Math.min(...vals), hi = Math.max(...vals, lo + 1e-6);
+  const padL = 52*dpr, padR = 14*dpr, padT = 24*dpr, padB = 20*dpr;
+  const X = i => padL + (W - padL - padR) * (n < 2 ? 0 : i / (n - 1));
+  const Y = v => H - padB - (H - padT - padB) * (v - lo) / (hi - lo);
+  ctx.font = `${10.5*dpr}px system-ui`;
+  ctx.strokeStyle = '#2c313a'; ctx.fillStyle = '#8891a0';
+  for (const v of [lo, (lo + hi) / 2, hi]) {
+    ctx.beginPath(); ctx.moveTo(padL, Y(v)); ctx.lineTo(W - padR, Y(v)); ctx.stroke();
+    ctx.fillText(m.fmt(v), 4*dpr, Y(v) + 4*dpr);
+  }
+  // epoch ticks: first and last
+  ctx.fillText('ep ' + rows[0].epoch, padL, H - 6*dpr);
+  const lastLbl = 'ep ' + rows[n-1].epoch;
+  ctx.fillText(lastLbl, W - padR - ctx.measureText(lastLbl).width, H - 6*dpr);
+  ctx.strokeStyle = m.color; ctx.lineWidth = 1.8*dpr; ctx.beginPath();
+  rows.forEach((r, i) => i ? ctx.lineTo(X(i), Y(r[m.key])) : ctx.moveTo(X(i), Y(r[m.key])));
+  ctx.stroke();
+  ctx.fillStyle = m.color;
+  ctx.fillText(m.label + ' · ' + m.fmt(vals[n-1]), padL, 14*dpr);
+}
+
 async function tick() {
   const runs = await (await fetch('/data')).json();
-  document.getElementById('ts').textContent = '· ' + new Date().toLocaleTimeString();
+  document.getElementById('ts').textContent = '· updated ' + new Date().toLocaleTimeString();
   const root = document.getElementById('root');
   root.textContent = '';
-  const names = Object.keys(runs).sort().reverse();
+  const names = Object.keys(runs).sort((a, b) => runs[b].mtime - runs[a].mtime);
   for (const name of names) {
-    const rows = runs[name];
+    const { mtime, rows } = runs[name];
+    const last = rows[rows.length - 1];
     const h = document.createElement('h2');
-    const last = rows[rows.length-1];
-    h.textContent = `${name} — epoch ${last.epoch}, val_px ${last.val_px.toFixed(2)}, conf ${last.conf_acc.toFixed(3)} (${last.sec}s/epoch)`;
-    const cv = document.createElement('canvas');
-    root.append(h, cv);
-    const ctx = cv.getContext('2d');
-    const W = cv.width = cv.clientWidth * devicePixelRatio, H = cv.height = 220 * devicePixelRatio;
-    const px = rows.map(r => r.val_px), n = rows.length;
-    const lo = Math.min(...px), hi = Math.max(...px, lo + 0.1);
-    const X = i => 40*devicePixelRatio + (W - 60*devicePixelRatio) * (n<2 ? 0 : i/(n-1));
-    const Y = v => H - 24*devicePixelRatio - (H - 44*devicePixelRatio) * (v - lo) / (hi - lo);
-    ctx.strokeStyle = '#333a45'; ctx.fillStyle = '#8891a0';
-    ctx.font = `${11*devicePixelRatio}px system-ui`;
-    for (const v of [lo, (lo+hi)/2, hi]) {
-      ctx.beginPath(); ctx.moveTo(X(0), Y(v)); ctx.lineTo(W-18*devicePixelRatio, Y(v)); ctx.stroke();
-      ctx.fillText(v.toFixed(2), 4*devicePixelRatio, Y(v)+4*devicePixelRatio);
+    const when = new Date(mtime * 1000).toLocaleString();
+    h.innerHTML = `${name} — epoch ${last.epoch} (${last.sec}s/epoch) <small>last log write ${when}</small>`;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    root.append(h, grid);
+    for (const m of METRICS) {
+      const cv = document.createElement('canvas');
+      grid.append(cv);
+      drawChart(cv, rows, m);
     }
-    ctx.strokeStyle = '#7aa2ff'; ctx.lineWidth = 2*devicePixelRatio; ctx.beginPath();
-    rows.forEach((r,i) => i ? ctx.lineTo(X(i), Y(r.val_px)) : ctx.moveTo(X(i), Y(r.val_px)));
-    ctx.stroke();
-    ctx.fillStyle = '#7aa2ff';
-    ctx.fillText('val_px', W-70*devicePixelRatio, 16*devicePixelRatio);
     const t = document.createElement('table');
-    t.innerHTML = '<tr><th>epoch</th><th>train_loss</th><th>val_loss</th><th>val_px</th><th>conf</th></tr>' +
-      rows.slice(-5).map(r => `<tr class="${r===last?'now':''}"><td>${r.epoch}</td><td>${r.train_loss.toFixed(4)}</td><td>${r.val_loss.toFixed(4)}</td><td>${r.val_px.toFixed(2)}</td><td>${r.conf_acc.toFixed(3)}</td></tr>`).join('');
+    t.innerHTML = '<tr><th>epoch</th><th>train_loss</th><th>val_loss</th><th>val_px</th><th>conf</th><th>s</th></tr>' +
+      rows.slice(-5).map(r => `<tr class="${r === last ? 'now' : ''}"><td>${r.epoch}</td><td>${r.train_loss.toFixed(4)}</td><td>${r.val_loss.toFixed(4)}</td><td>${r.val_px.toFixed(2)}</td><td>${r.conf_acc.toFixed(3)}</td><td>${r.sec}</td></tr>`).join('');
     root.append(t);
   }
 }
-tick(); setInterval(tick, 5000);
+tick(); setInterval(tick, 60000);
 </script>"""
 
 
