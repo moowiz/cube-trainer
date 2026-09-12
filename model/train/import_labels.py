@@ -57,6 +57,9 @@ def main():
     ap.add_argument("--labels", required=True)
     ap.add_argument("--images", required=True, help="directory holding the original photos")
     ap.add_argument("--out", default="../data_real")
+    ap.add_argument("--keep-negatives", action="store_true",
+                    help="import entries with NO visible faces as real hard negatives "
+                         "(all-invisible labels train the conf head on cube-less scenes)")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -65,7 +68,16 @@ def main():
     existing = {}
     for f in (out / "labels").glob("*.json"):
         existing[json.loads(f.read_text())["source"]] = f
-    n_have = len(existing)
+    # next index must clear every existing stem, not just the count: files
+    # moved between roots (e.g. into data_real_val) keep their original
+    # numbering, so count+1 can collide and silently overwrite (it did).
+    max_idx = 0
+    for f in (out / "labels").glob("img_real*.json"):
+        try:
+            max_idx = max(max_idx, int(f.stem.replace("img_real", "")))
+        except ValueError:
+            pass
+    n_have = max_idx
     imported = updated = skipped = missing = 0
     for entry in load_entries(Path(args.labels)):
         src_name = entry["image"]
@@ -88,7 +100,7 @@ def main():
             print(f"  missing image, skipped: {src_name}")
             missing += 1
             continue
-        if not any(f["visible"] for f in entry["faces"].values()):
+        if not any(f["visible"] for f in entry["faces"].values()) and not args.keep_negatives:
             skipped += 1
             continue
         idx = n_have + imported + 1
