@@ -308,6 +308,7 @@
       <button class="face-btn" data-face="L" style="background:#f19f2c;color:#111">L</button>
       <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
       <button id="clearFaceBtn">Clear face</button>
+      <button id="clearAllBtn" title="Remove all face labels on this image">Clear all</button>
       <button id="suggestBtn" title="Run the current keypoint model on this photo and pre-fill unlabeled faces">Suggest (model)</button>
       <button id="suggestAllBtn" title="Run the model on every loaded image, pre-filling unlabeled faces — verify each before exporting">Suggest all</button>
       <div id="statusLine">Load images to begin.</div>
@@ -677,6 +678,7 @@
     if (state.repositioning) {
       const { face, index } = state.repositioning;
       getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
+      delete getFaces()[face].suggested; // human touched it -> verified
       state.repositioning = null;
       saveCurrentToStorage();
       renderSidebar();
@@ -709,7 +711,7 @@
   // ---- rendering ---------------------------------------------------------
   // All drawing goes through a passed-in context in SCREEN coordinates, so
   // the loupe can replay the same scene through a magnifying transform.
-  function drawFace(c2, faceId, corners, partial) {
+  function drawFace(c2, faceId, corners, partial, suggested) {
     const color = FACE_COLORS[faceId];
     const pts = corners.map(c => imageToScreen(c[0], c[1]));
 
@@ -720,7 +722,9 @@
       if (pts.length === 4 && !partial) c2.closePath();
       c2.strokeStyle = color;
       c2.lineWidth = 2;
+      if (suggested) c2.setLineDash([7, 5]); // unverified model suggestion
       c2.stroke();
+      c2.setLineDash([]);
       if (pts.length === 4) {
         c2.globalAlpha = 0.15;
         c2.fillStyle = color;
@@ -732,24 +736,33 @@
     pts.forEach((p, i) => {
       c2.beginPath();
       c2.arc(p[0], p[1], MARKER_RADII[i], 0, Math.PI * 2);
-      c2.fillStyle = color;
-      c2.fill();
-      c2.strokeStyle = '#000';
-      c2.lineWidth = 1;
+      if (suggested) {
+        // hollow markers: visibly "not confirmed by a human hand"
+        c2.fillStyle = 'rgba(0,0,0,0.35)';
+        c2.fill();
+        c2.strokeStyle = color;
+        c2.lineWidth = 2;
+      } else {
+        c2.fillStyle = color;
+        c2.fill();
+        c2.strokeStyle = '#000';
+        c2.lineWidth = 1;
+      }
       c2.stroke();
     });
 
     if (pts.length === 4) {
       const cx = pts.reduce((a, p) => a + p[0], 0) / 4;
       const cy = pts.reduce((a, p) => a + p[1], 0) / 4;
+      const label = suggested ? faceId + '?' : faceId;
       c2.font = 'bold 18px -apple-system, sans-serif';
       c2.textAlign = 'center';
       c2.textBaseline = 'middle';
       c2.lineWidth = 3;
       c2.strokeStyle = 'rgba(0,0,0,0.85)';
-      c2.strokeText(faceId, cx, cy);
+      c2.strokeText(label, cx, cy);
       c2.fillStyle = color;
-      c2.fillText(faceId, cx, cy);
+      c2.fillText(label, cx, cy);
     }
   }
 
@@ -762,7 +775,7 @@
     for (const f of FACE_ORDER) {
       if (state.activeFace === f) continue; // drawn as in-progress below instead
       const face = faces[f];
-      if (face.visible) drawFace(c2, f, face.corners, false);
+      if (face.visible) drawFace(c2, f, face.corners, false, !!face.suggested);
     }
 
     if (state.activeFace && state.tempCorners.length > 0) {
@@ -870,8 +883,9 @@
     if (cur) {
       const faces = state.labels.get(cur.name);
       const labeled = !!faces && FACE_ORDER.some(f => faces[f].visible);
+      const pending = !!faces && FACE_ORDER.some(f => faces[f].visible && faces[f].suggested);
       imgNameEl.textContent = (state.current + 1) + '/' + state.images.length +
-        ' · ' + cur.name + (labeled ? ' ✓' : '');
+        ' · ' + cur.name + (pending ? ' ?' : (labeled ? ' ✓' : ''));
     } else {
       imgNameEl.textContent = 'no images';
     }
@@ -879,12 +893,14 @@
     state.images.forEach((entry, i) => {
       const faces = state.labels.get(entry.name);
       const labeled = !!faces && FACE_ORDER.some(f => faces[f].visible);
+      const pending = !!faces && FACE_ORDER.some(f => faces[f].visible && faces[f].suggested);
       const li = document.createElement('div');
       li.className = 'img-item' + (i === state.current ? ' current' : '');
-      li.title = entry.name;
+      li.title = entry.name + (pending ? ' (has unverified suggestions)' : '');
       const chk = document.createElement('span');
       chk.className = 'chk';
-      chk.textContent = labeled ? '✓' : '';
+      chk.textContent = pending ? '?' : (labeled ? '✓' : '');
+      if (pending) chk.style.color = '#f4a83c';
       const name = document.createElement('span');
       name.className = 'name';
       name.textContent = entry.name;
@@ -896,15 +912,18 @@
   }
 
   function updateProgress() {
-    let labeledImgs = 0, totalFaces = 0;
+    let labeledImgs = 0, totalFaces = 0, unverified = 0;
     state.images.forEach(entry => {
       const faces = state.labels.get(entry.name);
       if (!faces) return;
       let has = false;
-      FACE_ORDER.forEach(f => { if (faces[f].visible) { has = true; totalFaces++; } });
+      FACE_ORDER.forEach(f => {
+        if (faces[f].visible) { has = true; totalFaces++; if (faces[f].suggested) unverified++; }
+      });
       if (has) labeledImgs++;
     });
-    progressEl.textContent = state.images.length + ' images, ' + labeledImgs + ' labeled, ' + totalFaces + ' faces total';
+    progressEl.textContent = state.images.length + ' images, ' + labeledImgs + ' labeled, ' + totalFaces + ' faces'
+      + (unverified ? ' (' + unverified + ' suggested, unverified)' : '');
   }
 
   // ---- export ------------------------------------------------------------
@@ -923,14 +942,26 @@
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
+  function countUnverified(entries) {
+    let n = 0;
+    for (const entry of entries) {
+      const faces = state.labels.get(entry.name);
+      if (faces) FACE_ORDER.forEach(f => { if (faces[f].visible && faces[f].suggested) n++; });
+    }
+    return n;
+  }
   function exportCurrent() {
     const entry = state.images[state.current];
     if (!entry) return;
+    const u = countUnverified([entry]);
+    if (u) showToast('Warning: ' + u + ' suggested face(s) exported UNVERIFIED');
     const base = entry.name.replace(/\.[^./\\]+$/, '');
     downloadJSON(buildImageLabelObject(entry), base + '.json');
   }
   function exportAll() {
     if (!state.images.length) return;
+    const u = countUnverified(state.images);
+    if (u) showToast('Warning: ' + u + ' suggested face(s) exported UNVERIFIED — dashed outlines still need review');
     downloadJSON(state.images.map(buildImageLabelObject), 'labels-all.json');
   }
 
@@ -997,7 +1028,10 @@
           (y[f * 9 + 2 + 2 * k] * ih - dy) / scale,
         ]);
       }
-      faces[id] = { visible: true, corners };
+      // suggested: model-filled, not yet human-verified. The flag clears
+      // when the user drags/re-places a corner or confirms via the context
+      // menu; it is stripped from exports (a warning counts the leftovers).
+      faces[id] = { visible: true, corners, suggested: true };
       filled++;
     }
     return { filled, skipped };
@@ -1060,6 +1094,7 @@
   document.getElementById('saveCurrentBtn').addEventListener('click', exportCurrent);
   document.getElementById('exportAllBtn').addEventListener('click', exportAll);
   document.getElementById('clearFaceBtn').addEventListener('click', clearFace);
+  document.getElementById('clearAllBtn').addEventListener('click', clearAllFaces);
   document.getElementById('prevBtn').addEventListener('click', () => selectImage(state.current - 1));
   document.getElementById('nextBtn').addEventListener('click', () => selectImage(state.current + 1));
   document.querySelectorAll('.face-btn').forEach(btn => {
@@ -1128,6 +1163,7 @@
         // final placement snaps to another face's marker if released nearby
         const [mx, my] = canvasMouseXY(e);
         getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
+        delete getFaces()[face].suggested; // human touched it -> verified
         saveCurrentToStorage();
         renderSidebar();
         updateProgress();
@@ -1238,6 +1274,7 @@
       const cur = getFaces()[g.face].corners[g.index];
       const [sx, sy] = imageToScreen(cur[0], cur[1]);
       getFaces()[g.face].corners[g.index] = clickPosition(sx, sy, { face: g.face, index: g.index });
+      delete getFaces()[g.face].suggested; // human touched it -> verified
       saveCurrentToStorage();
       renderSidebar();
       updateProgress();
@@ -1285,6 +1322,21 @@
     return d;
   }
 
+  function clearAllFaces() {
+    const faces = getFaces();
+    if (!faces) return;
+    let n = 0;
+    for (const f of FACE_ORDER) {
+      if (faces[f].visible) { faces[f] = { visible: false, corners: null }; n++; }
+    }
+    cancelActive();
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+    render();
+    showToast(n ? 'Cleared ' + n + ' face(s)' : 'Nothing to clear');
+  }
+
   function clearFaceById(id) {
     const faces = getFaces();
     if (!faces) return;
@@ -1311,8 +1363,16 @@
     }
     menuEl.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
     if (under) {
+      if (faces[under].suggested) {
+        menuEl.appendChild(menuItem('Confirm ' + under + ' (verified)', FACE_COLORS[under], () => {
+          delete getFaces()[under].suggested;
+          saveCurrentToStorage(); renderSidebar(); updateProgress(); render();
+          showToast(under + ' marked verified');
+        }, FACE_COLORS[under]));
+      }
       menuEl.appendChild(menuItem('Clear ' + under, FACE_COLORS[under], () => clearFaceById(under), FACE_COLORS[under]));
     }
+    menuEl.appendChild(menuItem('Clear all faces', null, clearAllFaces));
     menuEl.appendChild(menuItem('Suggest (model)', null, () => { void suggestFromModel(); }));
     menuEl.appendChild(menuItem('Suggest all', null, () => { void suggestAll(); }));
     menuEl.style.display = 'block';
