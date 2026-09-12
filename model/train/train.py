@@ -52,6 +52,12 @@ def main():
     ap.add_argument("--resume", default=None,
                     help="resume an interrupted run: its last.pt (or run dir). Requires identical "
                          "--data/--epochs/--batch - if the schedule length changed, start fresh instead")
+    ap.add_argument("--real-val", default="../data_real_val",
+                    help="held-out real-photo root; every image in it is evaluated each epoch "
+                         "(real_px in the log). '' disables. NEVER pass this root to --data.")
+    ap.add_argument("--select", choices=["synth", "real"], default="synth",
+                    help="which val picks best.pt: synthetic val_px (default) or held-out real_px "
+                         "(use 'real' for fine-tunes - synthetic val favors the least-adapted epoch)")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
@@ -88,7 +94,13 @@ def main():
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                           pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
     val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=0)
-    print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}")
+    real_dl = None
+    if args.real_val:
+        rv = CubeKeypointDataset(args.real_val, split="all", input_size=INPUT_WH, augment=None)
+        if len(rv):
+            real_dl = DataLoader(rv, batch_size=args.batch, shuffle=False, num_workers=0)
+    print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}"
+          + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
     model = FaceKP(pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     if args.init and args.resume:
@@ -145,21 +157,28 @@ def main():
             run_loss += loss.item() * x.size(0)
             n += x.size(0)
         vloss, vpx, vacc = evaluate(model, val_dl, device)
+        rpx = None
+        if real_dl is not None:
+            _, rpx, _ = evaluate(model, real_dl, device)
         line = (f"epoch {epoch:3d}  train_loss {run_loss / n:.4f}  val_loss {vloss:.4f}  "
-                f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s")
+                f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s"
+                + (f"  real_px {rpx:.2f}" if rpx is not None else ""))
         print(line, flush=True)
         log.append(line)
-        slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch, "val_px": vpx}
-        if vpx < best_px:
-            best_px = vpx
+        slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch,
+                "val_px": vpx, "real_px": rpx}
+        select_px = rpx if (args.select == "real" and rpx is not None) else vpx
+        if select_px < best_px:
+            best_px = select_px
             torch.save(slim, out / "best.pt")
         # last.pt carries full training state so an interrupted run can
         # --resume; best.pt stays slim (it's what export/fine-tune consume)
         torch.save({**slim, "opt": opt.state_dict(), "sched": sched.state_dict(),
                     "scaler": scaler.state_dict(), "best_px": best_px,
                     "total_steps": total_steps, "log": log}, out / "last.pt")
-    (out / "log.txt").write_text("\n".join(log) + f"\nbest val_px {best_px:.2f}\n")
-    print(f"best val_px {best_px:.2f}  ->  {out / 'best.pt'}")
+    which = "real_px" if args.select == "real" and real_dl is not None else "val_px"
+    (out / "log.txt").write_text("\n".join(log) + f"\nbest {which} {best_px:.2f}\n")
+    print(f"best {which} {best_px:.2f}  ->  {out / 'best.pt'}")
 
 
 if __name__ == "__main__":
