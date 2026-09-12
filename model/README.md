@@ -202,7 +202,24 @@ Layer misalignment (22%): one outer layer left rotated 2-9 deg (20% of
 those 10-20 deg); labels rotate the vertices in that layer with it, which is
 what a hand labeler clicking the plastic corner does. meta gains
 hasPalm/nFingers/logoOnCap/ganProfile/layerTwist. Preview renders:
-`model/preview_v5/` (gitignored).
+`model/preview_v5/` (gitignored). User reviewed the previews and signed
+off: fingers are "not super realistic" but good enough to teach that
+occluders exist — don't iterate on finger realism; composite real hand
+cutouts if hands ever measure weak on data_real_val.
+
+**Auto-exposure floor (2026-09-12, ae1976f):** ~3% of frames rendered
+near-black (night HDRIs × low `dim` × low exposure; cube mean < 25/255,
+colors unreadable). After each render the scene meters the mean luminance
+over the cube's projected box (whole frame for negatives) and re-renders
+with more exposure, up to 3×, until it clears 0.15 — what a phone's
+auto-exposure would do. Murky-but-legible scenes stay. Measured on the
+3200-image local `data_v4`: 173 boosted (5.4%), 1 still below the floor.
+meta gains `exposureBoost`/`cubeLum`.
+
+**Local `model/data_v4` (3200 images, seed 1, cornerBias 0.4)** is a
+sample rendered 2026-09-12 with the final generator; the full ~54k root is
+generated on the cloud box (cloud/RUNBOOK.md) and replaces it. All
+`data_v4*` roots are gitignored.
 
 **DECISION 2026-09-12 — consolidate synthetic data (supersedes append-only
 for synthetic).** The next from-scratch set is ONE root, `data_v4`, ~50-60k
