@@ -207,9 +207,14 @@ function buildCube(rnd, style) {
     cubies.push(mesh);
   }
 
-  // Scramble with real face turns.
+  // Scramble with real face turns. Solved (0 moves) and barely-scrambled
+  // cubes are deliberately common: they show whole solid-color faces in
+  // every scheme color, which real cubes do all the time - and the stage-1
+  // localizer under-boxed featureless solid faces because the training mix
+  // almost never contained them (its boxes anchored on the dense regions).
   const axisVec = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
-  const nMoves = 14 + Math.floor(rnd() * 16);
+  const moveRoll = rnd();
+  const nMoves = moveRoll < 0.08 ? 0 : moveRoll < 0.22 ? 1 + Math.floor(rnd() * 3) : 14 + Math.floor(rnd() * 16);
   for (let i = 0; i < nMoves; i++) {
     const axis = pick(rnd, ['x', 'y', 'z']);
     // Outer layers only: slice moves would relocate center cubies, breaking
