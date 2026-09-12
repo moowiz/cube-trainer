@@ -157,19 +157,78 @@ runs both.
 
 **Quantization, center head (2026-09-12):** removing the dense layer did NOT
 rescue int8. Static QDQ on the fully convolutional graph still moves corners
-__QUANT__ px mean (gate: 1 px), with and without the head's 1x1 Conv
+5.4 px mean (gate: 1 px), with and without the head's 1x1 Conv
 excluded, so fp32 ships — now only **4.66 MB**, which was most of the reason
 to want int8 in the first place. The shift is measured by taking the fp32
 model's heatmap peaks and reading BOTH models' offsets at those same cells,
 so NMS tie-breaking noise cannot contaminate it.
 
-**Inference cost, center head (headless Chrome, RTX 4070):** webgpu
-15.3 ms, wasm 24.1 ms — about 2.2x the legacy head, not the
-break-even the plan assumed. The head got much cheaper but the neck runs two
+**Inference cost, center head: webgpu 9.4 ms, wasm 18.1 ms** (headless
+Chrome, RTX 4070), against the legacy ft7 model re-measured back to back in
+the same session at 6.2 / 16.4 ms. So 1.5x on webgpu and **1.10x on wasm** —
+and wasm is the provider the phone actually chose, so the fps bar is
+essentially untouched.**
+
+(Measure with the GPU IDLE. A first pass taken while a training run held the
+GPU read webgpu 15.3 / wasm 24.1 ms and looked like a 2.2x regression — but
+re-running the LEGACY ft7 model under the same load gave 15.9 / 21.5 ms
+against its 6.1 / 10.9 ms on record, i.e. the slowdown was the machine, not
+the head. `check-detect.mjs` numbers are only comparable between models
+measured back to back on an otherwise quiet box.)
+
+Arithmetic, for reference when the measurement is ambiguous: the neck is two
 3x3 convs at 15x20 (144→96→96, ~62 MMACs) where the old squeeze+FC was
-~11 MMACs. If the phone check misses the fps bar, the first lever is
-depthwise-separable fuse convs (~4 MMACs for the same shape), not the
-backbone.
+~11 MMACs, against a backbone of roughly 90 MMACs at this input size. If the
+phone ever misses the fps bar, the first lever is depthwise-separable fuse
+convs (~4 MMACs for the same output shape), not the backbone.
+
+## Center vs legacy head, measured (2026-09-12)
+
+Same data (`../data`), same recipe as `runs/long4` (AdamW, OneCycle over 150
+epochs, lr 3e-4, batch 64), so `long4` IS the legacy baseline — no legacy
+twin was rerun. `runs/center20` is the center head stopped at epoch 20 to
+keep the schedule identical.
+
+| epoch | long4 `val_px` (legacy) | center20 `val_px` |
+|---|---|---|
+| 5 | 20.22 | **10.66** |
+| 10 | 14.40 | **6.57** |
+| 20 | 9.74 | **4.46** |
+
+The center head at epoch 20 is where the legacy head got after **150**
+epochs (long4 finished at 4.22). Overfit sanity: 0.50 px vs the legacy
+head's 2.07 px on the identical check.
+
+**The diamond is gone — this was the point of the exercise.** `diagnose.py`
+on `runs/center20/best.pt`, synthetic val, score ≥ 0.5:
+
+```
+  size bin      n     mean px   rot med   rot>20%   missed
+    0- 40 px  2569      5.72      3.9deg     8.3%      705
+   40- 70 px  2860      4.03      1.7deg     0.9%       38
+   70-100 px  1453      3.52      1.1deg     0.6%        1
+  100-inf px   892      4.68      1.1deg     0.0%        0
+```
+
+The >100 px close-up class — the one where the legacy head averaged 27 px by
+regressing 45°-rotated hedge quads — is now **4.68 px with 0.0% of faces
+rotated more than 20°, and nothing missed**.
+
+**What is left is small-face recall, not corners.** Detection F1 is 0.945,
+just under the 0.95 bar, and the deficit is almost entirely one bin: 705 of
+the 744 misses are faces under 40 px, where a face spans barely 2.5 cells of
+the stride-16 grid. Everything ≥40 px misses 39 faces total. Lowering the
+score threshold does not fix it (at 0.25, F1 drops to 0.937 — 79 more
+matches, 211 more false positives), so these are genuine non-detections, not
+a threshold artifact. Expect it to improve on its own: this is epoch 20 of
+150 with F1 still climbing, on the OLD `data` root rather than the
+close-up-rebalanced `data_v4`. If it survives the full run, stride 8 is the
+lever — note the stride-16 grid was cleared on cell COLLISIONS (0%), which
+says nothing about resolving small faces.
+
+Zero-shot on `data_real_val` (no fine-tune, 20 epochs): 8.96 px, 13 of 76
+faces missed. Not yet comparable with the deployed `ft7` — the deploy gate
+is per batch AFTER the real-photo fine-tune.
 
 ## M5 labeling workflow
 
