@@ -13,7 +13,10 @@ model/preview_v2/
 # hand-labeled real photos: personal photos, kept out of the public repo
 # (back them up separately - the labels are hours of hand work)
 model/data_real/
+model/data_real_val/
 stephens_photos/
+# stray labeler downloads land in the root before being archived
+labels-all*.json
 model/.venv/
 model/backgrounds/
 model/train/runs/
