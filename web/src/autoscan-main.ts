@@ -16,7 +16,7 @@ import { StickerVoter, type FaceObservation } from './assembly';
 import { sampleGridCells } from './color';
 import { FaceDetector } from './detect/facekp';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
-import { resolveOrientations, orientQuad } from './detect/orient';
+import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
 import { solveState } from './state';
@@ -188,10 +188,14 @@ async function loop(ts: number): Promise<void> {
     if (confident.length && !solved) {
       const frame = frameImageData();
       const observations: FaceObservation[] = [];
-      for (const t of confident) {
-        const k = rotations[t.face];
-        if (k === undefined) continue; // can't index stickers without orientation
-        let quad = orientQuad(t.corners, k);
+      // tier-1 geometry constraint: adjacent faces share physical vertices,
+      // so fuse near-agreeing shared-corner estimates before sampling
+      const oriented = confident
+        .filter((t) => rotations[t.face] !== undefined)
+        .map((t) => ({ face: t.face, corners: orientQuad(t.corners, rotations[t.face]!), conf: t.conf }));
+      const { fused } = fuseSharedCorners(oriented);
+      for (const t of oriented) {
+        let quad = fused.get(t.face)!.map((c) => [c[0], c[1]]) as [number, number][];
         if (seamScore(frame, quad).score < SEAM_VETO_SCORE) { vetoedCount++; continue; }
         if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
         const warped = warpQuad(frame, quad, 90);

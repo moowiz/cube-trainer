@@ -115,6 +115,16 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
 
 ## Later / maybe (post-M8 — everything above stays 3x3-only until then)
 
+- **Cube-pose fit (geometry tier 2 — DO after the two-stage detector lands,
+  per user 2026-09-12).** Fit a full rigid cube (rotation + translation +
+  rough focal, ~6-7 DOF) to all tracked corners by Gauss-Newton on
+  reprojection error, then read idealized corners off the fitted cube.
+  Gives: perfect shared-vertex consistency (supersedes the tier-1 fusion in
+  orient.ts fuseSharedCorners), occluded-corner prediction, pose-level
+  tracking instead of 12 independent corners, and the mid-turn machinery
+  the solve coach needs (mid-turn = pose fit + one rotated layer). Gate it
+  with the seam veto like faces are gated today.
+
 - **Other cube sizes (2x2–5x5).** Assessed 2026-09-12: the detector output
   (4 corners + visibility per face) is size-agnostic, and the grid checker
   generalizes to seams at 1/N (it can even infer N by counting seams). Odd

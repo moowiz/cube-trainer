@@ -123,6 +123,78 @@ export function resolveOrientations(
 }
 
 /** Apply a resolved rotation: result[t] is sticker-layout corner t. */
+/**
+ * Geometry constraint (tier 1): up to 3 visible faces yield 12 corner
+ * estimates but only ~7 physical cube vertices - adjacent faces share
+ * corners. Given ORIENTED quads (layout order, i.e. after orientQuad),
+ * cluster the estimates that are the same physical vertex via the LAYOUT
+ * shared-edge tables and snap each cluster to its mean. A pair is only
+ * fused when the two estimates agree within tolFrac of the smaller face's
+ * size - a huge gap means the orientation (or a quad) is wrong, and fusing
+ * would smear the error across faces.
+ */
+export function fuseSharedCorners(
+  faces: ReadonlyArray<{ face: FaceId; corners: ReadonlyArray<Corner> }>,
+  tolFrac = 0.25,
+): { fused: Map<FaceId, Corner[]>; fusedPairs: number } {
+  const out = new Map<FaceId, Corner[]>();
+  for (const f of faces) out.set(f.face, f.corners.map((c) => [c[0], c[1]] as Corner));
+
+  // union-find over (face, cornerIndex) nodes
+  const key = (f: FaceId, i: number) => `${f}:${i}`;
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(x, r);
+    return r;
+  };
+  const union = (a: string, b: string) => { parent.set(find(a), find(b)); };
+  for (const f of faces) for (let i = 0; i < 4; i++) parent.set(key(f.face, i), key(f.face, i));
+
+  let fusedPairs = 0;
+  for (let x = 0; x < faces.length; x++) {
+    for (let y = x + 1; y < faces.length; y++) {
+      const A = faces[x], B = faces[y];
+      const se = sharedEdge(A.face, B.face);
+      if (!se) continue;
+      const tol = tolFrac * Math.min(faceSize(A.corners), faceSize(B.corners));
+      const pairs: Array<[number, number]> = [
+        [se.ia, (se.jb + 1) % 4],
+        [(se.ia + 1) % 4, se.jb],
+      ];
+      for (const [ia, jb] of pairs) {
+        if (dist(A.corners[ia], B.corners[jb]) <= tol) {
+          union(key(A.face, ia), key(B.face, jb));
+          fusedPairs++;
+        }
+      }
+    }
+  }
+
+  // average each cluster, write back
+  const groups = new Map<string, Array<[FaceId, number]>>();
+  for (const f of faces) {
+    for (let i = 0; i < 4; i++) {
+      const r = find(key(f.face, i));
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r)!.push([f.face, i]);
+    }
+  }
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    let sx = 0, sy = 0;
+    for (const [f, i] of members) {
+      const c = out.get(f)![i];
+      sx += c[0];
+      sy += c[1];
+    }
+    const m: Corner = [sx / members.length, sy / members.length];
+    for (const [f, i] of members) out.get(f)![i] = [m[0], m[1]];
+  }
+  return { fused: out, fusedPairs };
+}
+
 export function orientQuad<T>(corners: ReadonlyArray<T>, k: number): T[] {
   const n = ((k % 4) + 4) % 4;
   return corners.map((_, t) => corners[(t + n) % 4]);
