@@ -199,7 +199,8 @@
         <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
         <li>click 4&times; on canvas &mdash; place that face's corners going
           around the face</li>
-        <li>click a marker (no face selected) &mdash; pick it up, next click drops it</li>
+        <li>drag a marker (no face selected) &mdash; move it; a plain click
+          still picks it up for click-to-drop</li>
         <li>placing/dropping near another face's marker &mdash; snaps to it, so
           shared corners coincide exactly</li>
         <li>"Suggest (model)" &mdash; pre-fills unlabeled faces with the current
@@ -792,19 +793,67 @@
       canvas.style.cursor = 'grabbing';
       return;
     }
-    if (e.button === 0) handleLeftClick(e);
+    if (e.button === 0) {
+      // Dragging an existing marker beats the click flows, but only when
+      // nothing else is mid-gesture (placing a face, or a click-move).
+      if (!state.activeFace && !state.repositioning) {
+        const [mx, my] = canvasMouseXY(e);
+        const hit = hitTestCorner(mx, my);
+        if (hit) {
+          e.preventDefault();
+          state.dragging = { ...hit, moved: false, startMouse: [mx, my] };
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+      }
+      handleLeftClick(e);
+    }
   });
   window.addEventListener('mousemove', e => {
     if (state.isPanning) {
       state.panX = state.panStartOffset[0] + (e.clientX - state.panStartMouse[0]);
       state.panY = state.panStartOffset[1] + (e.clientY - state.panStartMouse[1]);
       render();
+      return;
+    }
+    if (state.dragging) {
+      const [mx, my] = canvasMouseXY(e);
+      const [sx, sy] = state.dragging.startMouse;
+      if (!state.dragging.moved && Math.hypot(mx - sx, my - sy) < 3) return;
+      state.dragging.moved = true;
+      // live position under the cursor; snapping happens on release
+      getFaces()[state.dragging.face].corners[state.dragging.index] = screenToImage(mx, my);
+      render();
+      return;
+    }
+    // hover affordance: markers are grabbable
+    if (state.images[state.current] && !state.activeFace && !state.repositioning && !state.spaceDown) {
+      const [mx, my] = canvasMouseXY(e);
+      canvas.style.cursor = hitTestCorner(mx, my) ? 'grab' : 'crosshair';
     }
   });
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('mouseup', e => {
     if (state.isPanning) {
       state.isPanning = false;
       canvas.style.cursor = state.spaceDown ? 'grab' : 'crosshair';
+      return;
+    }
+    if (state.dragging) {
+      const { face, index, moved } = state.dragging;
+      state.dragging = null;
+      canvas.style.cursor = 'crosshair';
+      if (moved) {
+        // final placement snaps to another face's marker if released nearby
+        const [mx, my] = canvasMouseXY(e);
+        getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
+        saveCurrentToStorage();
+        renderSidebar();
+        updateProgress();
+      } else {
+        // a motionless click keeps the old pick-up / click-to-drop flow
+        state.repositioning = { face, index };
+      }
+      render();
     }
   });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
