@@ -142,7 +142,41 @@
     overflow: hidden;
     background: #0a0a0a;
   }
-  #canvas { position: absolute; inset: 0; cursor: crosshair; }
+  #canvas { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+
+  #loupe {
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    display: none;
+    pointer-events: none;
+    z-index: 40;
+    background: #000;
+    box-shadow: 0 2px 12px rgba(0,0,0,.6);
+  }
+
+  #mobileNav { display: none; align-items: center; gap: 8px; }
+  #mobileNav button { min-width: 46px; height: 40px; font-size: 16px; }
+  #mobileNav #imgName {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  @media (max-width: 700px) {
+    body { height: 100dvh; }
+    #sidebar { display: none; }
+    #mobileNav { display: flex; flex: 1 1 100%; }
+    .face-btn { width: 44px; height: 44px; font-size: 16px; }
+    #toolbar { gap: 8px; padding: 8px; }
+    #statusLine { flex: 1 1 100%; min-width: 0; margin-left: 0; }
+    header { padding: 6px 8px; gap: 6px; }
+    header h1 { display: none; }
+  }
 
   #dropOverlay {
     position: fixed;
@@ -228,6 +262,11 @@
 
   <div id="canvasArea">
     <div id="toolbar">
+      <div id="mobileNav">
+        <button id="prevBtn" aria-label="Previous image">&#9664;</button>
+        <button id="nextBtn" aria-label="Next image">&#9654;</button>
+        <span id="imgName">no images</span>
+      </div>
       <button class="face-btn" data-face="U" style="background:#f2f2f2;color:#111">U</button>
       <button class="face-btn" data-face="R" style="background:#e6483c;color:#fff">R</button>
       <button class="face-btn" data-face="F" style="background:#3fae49;color:#fff">F</button>
@@ -240,6 +279,7 @@
     </div>
     <div id="canvasWrap">
       <canvas id="canvas"></canvas>
+      <canvas id="loupe"></canvas>
     </div>
   </div>
 </main>
@@ -305,6 +345,7 @@
   const ctx = canvas.getContext('2d');
   const wrap = document.getElementById('canvasWrap');
   const listEl = document.getElementById('imgList');
+  const imgNameEl = document.getElementById('imgName');
   const progressEl = document.getElementById('progress');
   const statusEl = document.getElementById('statusLine');
   const toastEl = document.getElementById('toast');
@@ -454,7 +495,7 @@
     updateProgress();
   }
 
-  function hitTestCorner(mx, my, opts = {}) {
+  function hitTestCorner(mx, my, opts = {}, radius = HIT_RADIUS) {
     const faces = getFaces();
     if (!faces) return null;
     for (const f of FACE_ORDER) {
@@ -464,7 +505,7 @@
         if (opts.excludeOne && opts.excludeOne.face === f && opts.excludeOne.index === i) continue;
         const [sx, sy] = imageToScreen(face.corners[i][0], face.corners[i][1]);
         const dx = sx - mx, dy = sy - my;
-        if (dx * dx + dy * dy <= HIT_RADIUS * HIT_RADIUS) return { face: f, index: i };
+        if (dx * dx + dy * dy <= radius * radius) return { face: f, index: i };
       }
     }
     return null;
@@ -486,7 +527,10 @@
 
   function handleLeftClick(e) {
     const [mx, my] = canvasMouseXY(e);
+    handleTapAt(mx, my);
+  }
 
+  function handleTapAt(mx, my) {
     // Finishing a pick-up: this click drops the corner (snapping to another
     // face's marker if close, so shared corners can be made exact).
     if (state.repositioning) {
@@ -521,47 +565,79 @@
   }
 
   // ---- rendering ---------------------------------------------------------
-  function drawFace(faceId, corners, partial) {
+  // All drawing goes through a passed-in context in SCREEN coordinates, so
+  // the loupe can replay the same scene through a magnifying transform.
+  function drawFace(c2, faceId, corners, partial) {
     const color = FACE_COLORS[faceId];
     const pts = corners.map(c => imageToScreen(c[0], c[1]));
 
     if (pts.length >= 2) {
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0], pts[0][1]);
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-      if (pts.length === 4 && !partial) ctx.closePath();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.stroke();
+      c2.beginPath();
+      c2.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) c2.lineTo(pts[i][0], pts[i][1]);
+      if (pts.length === 4 && !partial) c2.closePath();
+      c2.strokeStyle = color;
+      c2.lineWidth = 2;
+      c2.stroke();
       if (pts.length === 4) {
-        ctx.globalAlpha = 0.15;
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.globalAlpha = 1;
+        c2.globalAlpha = 0.15;
+        c2.fillStyle = color;
+        c2.fill();
+        c2.globalAlpha = 1;
       }
     }
 
     pts.forEach((p, i) => {
-      ctx.beginPath();
-      ctx.arc(p[0], p[1], MARKER_RADII[i], 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      c2.beginPath();
+      c2.arc(p[0], p[1], MARKER_RADII[i], 0, Math.PI * 2);
+      c2.fillStyle = color;
+      c2.fill();
+      c2.strokeStyle = '#000';
+      c2.lineWidth = 1;
+      c2.stroke();
     });
 
     if (pts.length === 4) {
       const cx = pts.reduce((a, p) => a + p[0], 0) / 4;
       const cy = pts.reduce((a, p) => a + p[1], 0) / 4;
-      ctx.font = 'bold 18px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-      ctx.strokeText(faceId, cx, cy);
-      ctx.fillStyle = color;
-      ctx.fillText(faceId, cx, cy);
+      c2.font = 'bold 18px -apple-system, sans-serif';
+      c2.textAlign = 'center';
+      c2.textBaseline = 'middle';
+      c2.lineWidth = 3;
+      c2.strokeStyle = 'rgba(0,0,0,0.85)';
+      c2.strokeText(faceId, cx, cy);
+      c2.fillStyle = color;
+      c2.fillText(faceId, cx, cy);
+    }
+  }
+
+  function drawScene(c2) {
+    const entry = state.images[state.current];
+    const s = getScale();
+    c2.drawImage(entry.img, state.panX, state.panY, entry.width * s, entry.height * s);
+
+    const faces = state.labels.get(entry.name);
+    for (const f of FACE_ORDER) {
+      if (state.activeFace === f) continue; // drawn as in-progress below instead
+      const face = faces[f];
+      if (face.visible) drawFace(c2, f, face.corners, false);
+    }
+
+    if (state.activeFace && state.tempCorners.length > 0) {
+      drawFace(c2, state.activeFace, state.tempCorners, true);
+    }
+
+    if (state.repositioning) {
+      const face = faces[state.repositioning.face];
+      const c = face.corners[state.repositioning.index];
+      const [sx, sy] = imageToScreen(c[0], c[1]);
+      c2.beginPath();
+      c2.arc(sx, sy, 13, 0, Math.PI * 2);
+      c2.strokeStyle = '#fff';
+      c2.lineWidth = 2;
+      c2.setLineDash([4, 3]);
+      c2.stroke();
+      c2.setLineDash([]);
     }
   }
 
@@ -583,35 +659,48 @@
       return;
     }
 
-    const s = getScale();
-    ctx.drawImage(entry.img, state.panX, state.panY, entry.width * s, entry.height * s);
-
-    const faces = state.labels.get(entry.name);
-    for (const f of FACE_ORDER) {
-      if (state.activeFace === f) continue; // drawn as in-progress below instead
-      const face = faces[f];
-      if (face.visible) drawFace(f, face.corners, false);
-    }
-
-    if (state.activeFace && state.tempCorners.length > 0) {
-      drawFace(state.activeFace, state.tempCorners, true);
-    }
-
-    if (state.repositioning) {
-      const face = faces[state.repositioning.face];
-      const c = face.corners[state.repositioning.index];
-      const [sx, sy] = imageToScreen(c[0], c[1]);
-      ctx.beginPath();
-      ctx.arc(sx, sy, 13, 0, Math.PI * 2);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
+    drawScene(ctx);
     updateStatusLine();
   }
+
+  // ---- touch loupe -------------------------------------------------------
+  // A finger hides exactly the pixels being aimed at, so touch gestures get
+  // a magnified inset showing the area under the aim point with a crosshair.
+  const loupeEl = document.getElementById('loupe');
+  const loupeCtx = loupeEl.getContext('2d');
+  const LOUPE_S = 140, LOUPE_Z = 2.5;
+  function showLoupe(mx, my) {
+    if (!state.images[state.current]) return;
+    const dpr = window.devicePixelRatio || 1;
+    if (loupeEl.width !== Math.round(LOUPE_S * dpr)) {
+      loupeEl.width = loupeEl.height = Math.round(LOUPE_S * dpr);
+    }
+    loupeEl.style.display = 'block';
+    loupeEl.style.left = clamp(mx - LOUPE_S / 2, 4, Math.max(4, state.cw - LOUPE_S - 4)) + 'px';
+    loupeEl.style.top = (my - LOUPE_S - 40 >= 4 ? my - LOUPE_S - 40 : my + 40) + 'px';
+    loupeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    loupeCtx.clearRect(0, 0, LOUPE_S, LOUPE_S);
+    loupeCtx.fillStyle = '#0a0a0a';
+    loupeCtx.fillRect(0, 0, LOUPE_S, LOUPE_S);
+    // magnify screen space around (mx,my): loupe_px = Z*(screen - m) + S/2
+    loupeCtx.setTransform(dpr * LOUPE_Z, 0, 0, dpr * LOUPE_Z,
+      dpr * (LOUPE_S / 2 - LOUPE_Z * mx), dpr * (LOUPE_S / 2 - LOUPE_Z * my));
+    drawScene(loupeCtx);
+    // crosshair at the aim point
+    loupeCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const c = LOUPE_S / 2;
+    for (const [col, w] of [['rgba(0,0,0,0.8)', 3], ['#fff', 1]]) {
+      loupeCtx.strokeStyle = col;
+      loupeCtx.lineWidth = w;
+      loupeCtx.beginPath();
+      loupeCtx.moveTo(c - 12, c); loupeCtx.lineTo(c - 3, c);
+      loupeCtx.moveTo(c + 3, c); loupeCtx.lineTo(c + 12, c);
+      loupeCtx.moveTo(c, c - 12); loupeCtx.lineTo(c, c - 3);
+      loupeCtx.moveTo(c, c + 3); loupeCtx.lineTo(c, c + 12);
+      loupeCtx.stroke();
+    }
+  }
+  function hideLoupe() { loupeEl.style.display = 'none'; }
 
   function updateStatusLine() {
     if (!state.images[state.current]) {
@@ -635,6 +724,15 @@
   }
 
   function renderSidebar() {
+    const cur = state.images[state.current];
+    if (cur) {
+      const faces = state.labels.get(cur.name);
+      const labeled = !!faces && FACE_ORDER.some(f => faces[f].visible);
+      imgNameEl.textContent = (state.current + 1) + '/' + state.images.length +
+        ' · ' + cur.name + (labeled ? ' ✓' : '');
+    } else {
+      imgNameEl.textContent = 'no images';
+    }
     listEl.innerHTML = '';
     state.images.forEach((entry, i) => {
       const faces = state.labels.get(entry.name);
@@ -780,11 +878,13 @@
   document.getElementById('saveCurrentBtn').addEventListener('click', exportCurrent);
   document.getElementById('exportAllBtn').addEventListener('click', exportAll);
   document.getElementById('clearFaceBtn').addEventListener('click', clearFace);
+  document.getElementById('prevBtn').addEventListener('click', () => selectImage(state.current - 1));
+  document.getElementById('nextBtn').addEventListener('click', () => selectImage(state.current + 1));
   document.querySelectorAll('.face-btn').forEach(btn => {
     btn.addEventListener('click', () => selectFace(btn.dataset.face));
   });
 
-  canvas.addEventListener('mousedown', e => {
+  function onMouseDown(e) {
     if (e.button === 1 || (e.button === 0 && state.spaceDown)) {
       e.preventDefault();
       state.isPanning = true;
@@ -808,8 +908,8 @@
       }
       handleLeftClick(e);
     }
-  });
-  window.addEventListener('mousemove', e => {
+  }
+  function onMouseMove(e) {
     if (state.isPanning) {
       state.panX = state.panStartOffset[0] + (e.clientX - state.panStartMouse[0]);
       state.panY = state.panStartOffset[1] + (e.clientY - state.panStartMouse[1]);
@@ -831,8 +931,8 @@
       const [mx, my] = canvasMouseXY(e);
       canvas.style.cursor = hitTestCorner(mx, my) ? 'grab' : 'crosshair';
     }
-  });
-  window.addEventListener('mouseup', e => {
+  }
+  function onMouseUp(e) {
     if (state.isPanning) {
       state.isPanning = false;
       canvas.style.cursor = state.spaceDown ? 'grab' : 'crosshair';
@@ -855,7 +955,123 @@
       }
       render();
     }
+  }
+
+  // ---- touch gestures ----------------------------------------------------
+  // One unified model for fingers (mouse routes to the handlers above):
+  //   finger on a marker           -> drag it (with loupe; grab offset kept
+  //                                   so the marker isn't under the finger)
+  //   finger while placing/moving  -> aim with loupe, commit on lift
+  //   finger on empty image        -> pan
+  //   two fingers                  -> pinch zoom
+  const TOUCH_HIT = 22;
+  const touches = new Map(); // pointerId -> {x, y} in canvas coords
+  let touchGesture = null;
+
+  function onTouchDown(e) {
+    e.preventDefault();
+    const [mx, my] = canvasMouseXY(e);
+    touches.set(e.pointerId, { x: mx, y: my });
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    if (touches.size === 2) {
+      hideLoupe(); // whatever was happening becomes a pinch
+      const pts = [...touches.values()];
+      touchGesture = {
+        kind: 'pinch',
+        d0: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+        c0: [(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2],
+        zoom0: state.zoom,
+        pan0: [state.panX, state.panY],
+      };
+      return;
+    }
+    if (touches.size > 2 || !state.images[state.current]) return;
+    if (state.activeFace || state.repositioning) {
+      touchGesture = { kind: 'aim', x: mx, y: my };
+      showLoupe(mx, my);
+      return;
+    }
+    const hit = hitTestCorner(mx, my, {}, TOUCH_HIT);
+    if (hit) {
+      const c = getFaces()[hit.face].corners[hit.index];
+      const [sx, sy] = imageToScreen(c[0], c[1]);
+      touchGesture = { kind: 'drag', face: hit.face, index: hit.index, offX: sx - mx, offY: sy - my };
+      showLoupe(sx, sy);
+      return;
+    }
+    touchGesture = { kind: 'pan', start: [mx, my], pan0: [state.panX, state.panY] };
+  }
+
+  function onTouchMove(e) {
+    if (!touches.has(e.pointerId)) return;
+    const [mx, my] = canvasMouseXY(e);
+    touches.set(e.pointerId, { x: mx, y: my });
+    if (!touchGesture) return;
+    if (touchGesture.kind === 'pinch') {
+      if (touches.size < 2) return;
+      const pts = [...touches.values()];
+      const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const c = [(pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2];
+      const newZoom = clamp(touchGesture.zoom0 * (d / Math.max(20, touchGesture.d0)), 0.05, 40);
+      const applied = newZoom / touchGesture.zoom0;
+      // keep the image point that was under the start centroid under the
+      // current centroid (pinch simultaneously zooms and pans)
+      state.zoom = newZoom;
+      state.panX = c[0] - (touchGesture.c0[0] - touchGesture.pan0[0]) * applied;
+      state.panY = c[1] - (touchGesture.c0[1] - touchGesture.pan0[1]) * applied;
+      render();
+    } else if (touchGesture.kind === 'pan') {
+      state.panX = touchGesture.pan0[0] + (mx - touchGesture.start[0]);
+      state.panY = touchGesture.pan0[1] + (my - touchGesture.start[1]);
+      render();
+    } else if (touchGesture.kind === 'aim') {
+      touchGesture.x = mx;
+      touchGesture.y = my;
+      showLoupe(mx, my);
+    } else if (touchGesture.kind === 'drag') {
+      const px = mx + touchGesture.offX, py = my + touchGesture.offY;
+      getFaces()[touchGesture.face].corners[touchGesture.index] = screenToImage(px, py);
+      render();
+      showLoupe(px, py);
+    }
+  }
+
+  function onTouchEnd(e) {
+    const cancelled = e.type === 'pointercancel';
+    touches.delete(e.pointerId);
+    if (!touchGesture) return;
+    if (touchGesture.kind === 'pinch') {
+      // stay inert until the last finger lifts (no jump when one lifts first)
+      if (touches.size === 0) touchGesture = null;
+      return;
+    }
+    const g = touchGesture;
+    touchGesture = null;
+    hideLoupe();
+    if (g.kind === 'aim' && !cancelled) {
+      handleTapAt(g.x, g.y); // commits a placement or drops a picked-up corner
+      return;
+    }
+    if (g.kind === 'drag' && !cancelled) {
+      const cur = getFaces()[g.face].corners[g.index];
+      const [sx, sy] = imageToScreen(cur[0], cur[1]);
+      getFaces()[g.face].corners[g.index] = clickPosition(sx, sy, { face: g.face, index: g.index });
+      saveCurrentToStorage();
+      renderSidebar();
+      updateProgress();
+    }
+    render();
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') onMouseDown(e);
+    else onTouchDown(e);
   });
+  canvas.addEventListener('pointermove', e => { if (e.pointerType !== 'mouse') onTouchMove(e); });
+  window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') onMouseMove(e); });
+  canvas.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') onTouchEnd(e); });
+  canvas.addEventListener('pointercancel', e => { if (e.pointerType !== 'mouse') onTouchEnd(e); });
+  window.addEventListener('pointerup', e => { if (e.pointerType === 'mouse') onMouseUp(e); });
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
   canvas.addEventListener('wheel', e => {
