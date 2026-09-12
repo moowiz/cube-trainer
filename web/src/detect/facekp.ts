@@ -35,6 +35,7 @@ interface FacekpMeta {
   run?: string;          // training run name (e.g. "ft7"), stamped at export
   trainedEpoch?: number;
   exported?: string;
+  cropTrained?: boolean; // stage-2 of the two-stage detector: safe to feed crops
 }
 
 export type Ep = 'webgpu' | 'wasm';
@@ -53,6 +54,7 @@ export class FaceDetector {
     const [, , h, w] = meta.input.shape;
     this.modelId = [meta.run, meta.trainedEpoch != null ? `ep${meta.trainedEpoch}` : '', meta.precision]
       .filter(Boolean).join(' ') || 'unknown model';
+    this.cropTrained = !!meta.cropTrained;
     this.iw = w;
     this.ih = h;
     this.canvas = document.createElement('canvas');
@@ -63,6 +65,8 @@ export class FaceDetector {
 
   /** Human-readable model identity, e.g. "ft7 ep12 fp32" - shown in page status lines. */
   readonly modelId: string;
+  /** True when the deployed model was trained on crop-normalized views. */
+  readonly cropTrained: boolean;
   private iw: number;
   private ih: number;
   private canvas: HTMLCanvasElement;
@@ -148,10 +152,22 @@ export class FaceDetector {
   }
 
   /** Run one frame. Corner coords come back in the source's own pixel space. */
-  async detect(source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap): Promise<DetectResult> {
+  async detect(
+    source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+    /** Optional source-space region: run the model on this crop only (the
+     *  two-stage path: stage 1 or the tracker supplies it). Corners are
+     *  mapped back to full-source coordinates. Only use with a crop-trained
+     *  model (meta.cropTrained) - the fp32 base model degrades on crops. */
+    roi?: [number, number, number, number],
+  ): Promise<DetectResult> {
     const t0 = performance.now();
-    const sw = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
-    const sh = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+    const fullW = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+    const fullH = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+    const r: [number, number, number, number] = roi
+      ? [Math.max(0, roi[0]), Math.max(0, roi[1]), Math.min(fullW, roi[2]), Math.min(fullH, roi[3])]
+      : [0, 0, fullW, fullH];
+    const sw = r[2] - r[0];
+    const sh = r[3] - r[1];
 
     // Letterbox (must mirror model/train/dataset.py letterbox_params):
     // aspect-preserving fit, centered, rgb(114) padding.
@@ -160,7 +176,7 @@ export class FaceDetector {
     const dy = (this.ih - sh * scale) / 2;
     this.ctx.fillStyle = 'rgb(114,114,114)';
     this.ctx.fillRect(0, 0, this.iw, this.ih);
-    this.ctx.drawImage(source, dx, dy, sw * scale, sh * scale);
+    this.ctx.drawImage(source, r[0], r[1], sw, sh, dx, dy, sw * scale, sh * scale);
     const { data } = this.ctx.getImageData(0, 0, this.iw, this.ih);
 
     const [mr, mg, mb] = this.meta.input.mean;
@@ -188,7 +204,7 @@ export class FaceDetector {
       for (let k = 0; k < 4; k++) {
         const u = y[f * 9 + 1 + 2 * k] * this.iw;
         const v = y[f * 9 + 2 + 2 * k] * this.ih;
-        corners.push([(u - dx) / scale, (v - dy) / scale]);
+        corners.push([(u - dx) / scale + r[0], (v - dy) / scale + r[1]]);
       }
       faces.push({ face: FACE_ORDER[f], conf, corners });
     }

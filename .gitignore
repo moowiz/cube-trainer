@@ -5,6 +5,7 @@ dist/
 # note in CLAUDE.md - the phone test needs the deployed model).
 web/public/models/*.onnx
 !web/public/models/facekp.onnx
+!web/public/models/cubebox.onnx
 web/public/ort/
 model/data/
 model/data_v3/

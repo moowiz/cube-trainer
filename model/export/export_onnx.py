@@ -43,6 +43,10 @@ def main():
     ap.add_argument("--ckpt", default="../train/runs/base/best.pt")
     ap.add_argument("--data", default="../data", help="real samples for the quantization parity check")
     ap.add_argument("--out", default="out")
+    ap.add_argument("--crop-trained", action="store_true",
+                    help="stamp cropTrained: true in the sidecar - ONLY for stage-2 models "
+                         "trained with the crop-heavy augment mix; the app enables the "
+                         "two-stage (localizer -> crop) path when it sees this flag")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -111,6 +115,7 @@ def main():
         "run": Path(args.ckpt).resolve().parent.name,
         "checkpoint": Path(args.ckpt).name,
         "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "cropTrained": bool(args.crop_trained),
     }
     (WEB_MODELS / "facekp.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {WEB_MODELS / 'facekp.onnx'} and facekp.json")
