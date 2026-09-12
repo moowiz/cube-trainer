@@ -1,17 +1,25 @@
-"""Face keypoint model (M4).
+"""Face keypoint models (M4). Two heads live here; `build_model` picks one.
 
-MobileNetV3-Small backbone (ImageNet init) -> 1x1 conv squeeze -> flatten ->
-small MLP -> per-face [conf_logit, 4 corners as normalized (u,v)].
+FaceKPCenter ("center", the default since 2026-09-12) is the current model:
+MobileNetV3-Small -> stride-16 neck -> a CenterNet-style map of
+(face-center heatmap, 4 corner offsets). Faces are peaks, quads are
+ANONYMOUS, and the web app names each one by its center sticker color. See
+the long comment above the class and model/PLAN-anonymous-conv-head.md.
 
-Output: (B, 6, 9), faces in URFDLB order, channel 0 the visibility logit
-(apply sigmoid at inference), channels 1..8 = x0,y0,...,x3,y3 in [~0..1]
-image-normalized coordinates (linear output - corners of partially visible
-faces legitimately fall outside the frame).
+FaceKP ("legacy") is the original: MobileNetV3-Small -> 1x1 conv squeeze ->
+flatten -> small MLP -> per-face [conf_logit, 4 corners as normalized (u,v)],
+output (B, 6, 9) with faces in URFDLB order. It is kept so every checkpoint
+up to ft7 still loads, exports and diagnoses; nothing new should train on it.
 
-DECISION: direct regression, not heatmaps. The cube is a single rigid object
-filling much of the frame, so global regression is well-posed, exports to a
-tiny static-shape ONNX graph, and avoids heatmap decoding in the browser.
-Revisit if real-frame corner error (M5) stalls above the 3 px bar.
+DECISION (superseded 2026-09-12): the legacy head chose direct regression
+over heatmaps because the cube is a single rigid object filling much of the
+frame, making global regression well-posed and browser-side decoding
+unnecessary. What that argument missed is that a flatten+FC head is
+position-specific, is 5.27M of 6.27M params, is the layer that makes int8
+quantization fail, and - because its six output slots are NAMED - forces the
+loss to pick a face identity on views where identity is genuinely ambiguous,
+which it resolves by averaging rotations into a diamond. The heatmap head
+fixes all four at once and costs one small decode in TypeScript.
 """
 from __future__ import annotations
 
@@ -104,3 +112,247 @@ def pixel_error(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tenso
 @torch.no_grad()
 def conf_accuracy(pred: torch.Tensor, conf_t: torch.Tensor):
     return ((pred[:, :, 0] > 0) == (conf_t > 0.5)).float().mean().item()
+
+
+# ---------------------------------------------------------------------------
+# Anonymous-quad head (2026-09-12). See model/PLAN-anonymous-conv-head.md.
+# ---------------------------------------------------------------------------
+#
+# The FC head above is 5.27M of FaceKP's 6.27M params, it is position-specific
+# (every feature cell has private weights, so position and scale generalization
+# must be learned from data), it is the layer that makes int8 quantization
+# useless, and its six NAMED output slots force the loss to commit to a face
+# identity - which on a symmetric corner-on view means averaging competing
+# hypotheses into a diamond. FaceKPCenter replaces it with a fully
+# convolutional CenterNet-style head ("Objects as Points", Zhou et al. 2019,
+# arXiv 1904.07850): faces are peaks in a single face-center heatmap and the
+# four corners are regressed as offsets from the peak cell. No face names in
+# the model at all; the web app names each quad by its center sticker color,
+# which - the generator rendering every cube in the fixed standard scheme - is
+# what the identity slots were really learning anyway.
+
+HEADS = ("legacy", "center")
+CENTER_STRIDE = 16
+CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)
+# CenterNet's prior-probability bias: start the heatmap at p=0.1 so the first
+# epochs are not dominated by the ~299 negative cells per positive.
+HEAT_PRIOR_BIAS = -2.19
+
+
+def _conv_bn_act(cin: int, cout: int, k: int) -> nn.Sequential:
+    return nn.Sequential(nn.Conv2d(cin, cout, k, padding=k // 2, bias=False),
+                         nn.BatchNorm2d(cout), nn.Hardswish())
+
+
+class FaceKPCenter(nn.Module):
+    """MobileNetV3-Small -> stride-16 neck with global context -> 9 maps.
+
+    Output (B, 9, H/16, W/16), i.e. (B,9,15,20) at the 320x240 input:
+      channel 0    face-center heatmap LOGIT (sigmoid at decode)
+      channels 1-8 corner offsets x0,y0,..,x3,y3 in CELL units (1 cell = 16
+                   input px), relative to the center of the cell they sit in.
+                   Linear and unbounded: corners of a partially visible face
+                   legitimately fall outside the frame.
+
+    The neck exists because a stride-32 map is too coarse to place a corner
+    and a raw stride-16 tap has no global context (48 channels of mid-level
+    texture cannot tell a cube face from a bathroom tile); upsampling the
+    stride-32 trunk into it is the cheapest way to have both.
+    """
+
+    def __init__(self, pretrained: bool = True, input_hw=(240, 320), split: int = 9):
+        super().__init__()
+        weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
+        feats = mobilenet_v3_small(weights=weights).features
+        self.stem = feats[:split]    # stride 16
+        self.deep = feats[split:]    # stride 32
+        with torch.no_grad():
+            probe16 = self.stem(torch.zeros(1, 3, *input_hw))
+            probe32 = self.deep(probe16)
+        c16, c32 = probe16.shape[1], probe32.shape[1]
+        self.grid_hw = (probe16.shape[2], probe16.shape[3])
+        self.lateral = _conv_bn_act(c32, 96, 1)
+        self.fuse = nn.Sequential(_conv_bn_act(c16 + 96, 96, 3), _conv_bn_act(96, 96, 3))
+        self.head = nn.Conv2d(96, CENTER_OUT_CH, 1)
+        nn.init.normal_(self.head.weight, std=0.01)
+        nn.init.zeros_(self.head.bias)
+        with torch.no_grad():
+            self.head.bias[0] = HEAT_PRIOR_BIAS
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        s16 = self.stem(x)
+        s32 = self.deep(s16)
+        up = nn.functional.interpolate(self.lateral(s32), size=s16.shape[-2:],
+                                       mode="bilinear", align_corners=False)
+        return self.head(self.fuse(torch.cat([s16, up], dim=1)))
+
+
+def build_model(head: str = "center", pretrained: bool = True, input_hw=(240, 320)) -> nn.Module:
+    """The single place that turns a checkpoint's `head` key into a module.
+
+    Checkpoints written before 2026-09-12 have no `head` key, so every caller
+    passes `ckpt.get("head", "legacy")` - which is why "legacy" must keep
+    loading, exporting and diagnosing forever.
+    """
+    if head == "legacy":
+        return FaceKP(pretrained=pretrained, input_hw=input_hw)
+    if head == "center":
+        return FaceKPCenter(pretrained=pretrained, input_hw=input_hw)
+    raise ValueError(f"unknown head {head!r} (expected one of {HEADS})")
+
+
+def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
+    """CenterNet losses over the dense targets from targets.build_center_targets.
+
+    heat: penalty-reduced focal loss (alpha=2, beta=4), summed over cells and
+    divided by the number of positive faces - so a frame showing one face and
+    a frame showing three weigh per face, not per frame.
+
+    off: SmoothL1 in cell units over the supervised cells, taking the MINIMUM
+    over the 4 cyclic shifts of the target quad, weighted by the Gaussian.
+    The cyclic minimum is the same DECISION as keypoint_loss's: on a dead-on
+    lone face the starting corner is unobservable, and demanding it anyway
+    made the old head hedge by averaging the four rotations. Cyclic shifts
+    only, never reflections - a visible face always projects with consistent
+    winding and labels are winding-normalized at import.
+
+    Returns (loss, heat_loss, off_loss). Retune `off_weight` only if one term
+    is more than 5x the other after epoch 3.
+    """
+    B, _, H, W = maps.shape
+    heat_p = maps[:, 0]
+    p = torch.sigmoid(heat_p.float()).clamp(1e-4, 1 - 1e-4)
+    heat_t = targets.heat.float()
+    is_pos = heat_t >= 1.0
+    pos_loss = -((1 - p) ** 2) * torch.log(p) * is_pos
+    neg_loss = -((1 - heat_t) ** 4) * (p ** 2) * torch.log(1 - p) * ~is_pos
+    npos = targets.npos.clamp(min=1).to(p.dtype)
+    heat_loss = (pos_loss.sum() + neg_loss.sum()) / npos
+
+    off_p = maps[:, 1:].float().view(B, 4, 2, H, W)
+    off_t = targets.off.float()
+    per = torch.stack([
+        nn.functional.smooth_l1_loss(off_p, off_t.roll(k, dims=1), beta=0.3,
+                                     reduction="none").mean(dim=(1, 2))
+        for k in range(4)
+    ]).min(dim=0).values                                    # (B,H,W)
+    w = targets.weight.float()
+    off_loss = (per * w).sum() / w.sum().clamp(min=1e-6)
+    return heat_loss + off_weight * off_loss, heat_loss, off_loss
+
+
+@torch.no_grad()
+def decode_maps(maps: torch.Tensor, input_wh=(320, 240), k: int = 6, thresh: float = 0.3,
+                stride: int = CENTER_STRIDE):
+    """(B,9,H,W) raw maps -> (scores (B,k), quads (B,k,4,2) normalized).
+
+    THE SINGLE SOURCE OF TRUTH for decoding. web/src/detect/facekp.ts mirrors
+    this function line for line and web/test/facekp-decode.test.ts compares the
+    two against a dumped fixture - change one, change the other.
+
+    Quads are ANONYMOUS: corner order is cyclic with consistent winding, the
+    starting corner is arbitrary, and nothing here says which face it is.
+    Entries below `thresh` come back with score 0 and are to be ignored.
+    """
+    B, _, H, W = maps.shape
+    heat = torch.sigmoid(maps[:, 0])
+    # 3x3 max-pool NMS: keep only cells that are their own neighbourhood max.
+    peak = nn.functional.max_pool2d(heat.unsqueeze(1), 3, stride=1, padding=1).squeeze(1)
+    scores = torch.where(heat >= peak, heat, torch.zeros_like(heat))
+    top_v, top_i = scores.view(B, -1).topk(min(k, H * W), dim=1)
+    ci = torch.div(top_i, W, rounding_mode="floor")
+    cj = top_i % W
+    off = maps[:, 1:].reshape(B, 4, 2, H * W)
+    gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, 4, 2, top_i.shape[1]))
+    gx = (cj.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 0]) * stride / input_wh[0]
+    gy = (ci.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 1]) * stride / input_wh[1]
+    quads = torch.stack([gx, gy], dim=-1).permute(0, 2, 1, 3)   # (B,k,4,2)
+    top_v = torch.where(top_v >= thresh, top_v, torch.zeros_like(top_v))
+    return top_v, quads
+
+
+def decode_to_list(maps: torch.Tensor, **kw) -> list[list[dict]]:
+    """decode_maps as the per-image list of {score, quad} the plan describes."""
+    scores, quads = decode_maps(maps, **kw)
+    return [[{"score": float(scores[b, i]), "quad": quads[b, i].cpu().numpy()}
+             for i in range(scores.shape[1]) if scores[b, i] > 0]
+            for b in range(maps.shape[0])]
+
+
+# --- anonymous-aware metrics -------------------------------------------------
+#
+# train.py's log line keys (val_px, val_conf_acc) are kept because watch.py
+# parses them, but both are REDEFINED for this head:
+#   val_px / real_px  mean corner error over detections MATCHED to a ground
+#                     truth face; unmatched GT faces are misses and stay out
+#                     of the mean (they show up in the F1 instead).
+#   val_conf_acc      detection F1 at score 0.5, NOT the old per-slot
+#                     visibility accuracy. Do not compare it across heads.
+
+MATCH_CENTROID_FRAC = 0.5   # accept a match within 50% of the GT mean edge length
+METRIC_SCORE_THRESH = 0.5
+
+
+def _mean_edge(quad) -> float:
+    import numpy as np
+    return float(np.linalg.norm(quad - np.roll(quad, -1, axis=0), axis=1).mean())
+
+
+@torch.no_grad()
+def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
+                   valid_t: torch.Tensor, wh=(320, 240), thresh: float = METRIC_SCORE_THRESH):
+    """Greedy centroid matching of decoded quads to visible+valid GT faces.
+
+    Returns (sum_corner_err_px, n_matched, tp, fp, fn) so the caller can
+    accumulate over batches. There are at most 3 of each per image, so greedy
+    by ascending centroid distance is optimal enough and easy to read.
+    """
+    import numpy as np
+
+    from targets import quad_centers
+
+    scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
+    scale_t = torch.tensor(wh, dtype=torch.float32)
+    scale = scale_t.numpy()
+    dets_s = scores.detach().float().cpu().numpy()
+    quads_px = quads.detach().float().cpu() * scale_t
+    gt_px = corners_t.detach().float().cpu() * scale_t
+    dets_q = quads_px.numpy()
+    gt_q = gt_px.numpy()
+    gt_ok = ((conf_t > 0.5) & (valid_t > 0.5)).cpu().numpy()
+    gt_c = quad_centers(gt_px).numpy()
+    det_c = quad_centers(quads_px).numpy()
+
+    err_sum = 0.0
+    matched = tp = fp = fn = 0
+    for b in range(dets_s.shape[0]):
+        dets = [i for i in range(dets_s.shape[1]) if dets_s[b, i] > 0]
+        gts = [f for f in range(6) if gt_ok[b, f]]
+        pairs = sorted(((float(np.linalg.norm(det_c[b, i] - gt_c[b, f])), i, f)
+                        for i in dets for f in gts), key=lambda t: t[0])
+        used_d: set[int] = set()
+        used_g: set[int] = set()
+        for dist, i, f in pairs:
+            if i in used_d or f in used_g:
+                continue
+            if dist > MATCH_CENTROID_FRAC * _mean_edge(gt_q[b, f]):
+                continue
+            used_d.add(i)
+            used_g.add(f)
+            err_sum += min(
+                float(np.linalg.norm(dets_q[b, i] - np.roll(gt_q[b, f], r, axis=0), axis=1).mean())
+                for r in range(4))
+            matched += 1
+        tp += len(used_d)
+        fp += len(dets) - len(used_d)
+        fn += len(gts) - len(used_g)
+    return err_sum, matched, tp, fp, fn
+
+
+def f1_from_counts(tp: int, fp: int, fn: int) -> float:
+    denom = 2 * tp + fp + fn
+    return (2 * tp / denom) if denom else 1.0
+
+
+def count_params(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters())

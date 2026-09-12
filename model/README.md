@@ -16,18 +16,72 @@ python -m venv .venv
 
 ```
 cd train
-..\.venv\Scripts\python train.py --data ../data --overfit 50 --epochs 600 --batch 16 --lr 1e-3
-    # pipeline correctness check: must reach ~2 px. Verified 2026-09: 2.07 px.
-..\.venv\Scripts\python train.py --data ../data --epochs 30 --out runs/base
+..\.venv\Scripts\python train.py --head center --data ../data --overfit 50 --epochs 600 --batch 16 --lr 1e-3
+    # pipeline correctness check. Center head verified 2026-09-12: 0.50 px
+    # (the legacy head reached 2.07 px on the same check).
+..\.venv\Scripts\python train.py --head center --data ../data --epochs 30 --out runs/base
 cd ..\export
 ..\.venv\Scripts\python export_onnx.py --ckpt ../train/runs/base/best.pt
-    # -> web/public/models/facekp.onnx (int8) + facekp.json (pre/post-processing metadata)
+    # -> web/public/models/facekp.onnx + facekp.json (pre/post-processing metadata)
 ```
 
-The model is MobileNetV3-Small → direct regression of `(6 faces × [visibility
-logit, 4 corners])` at 320x240 input, faces in URFDLB order, corners in the
-cubejs sticker-layout order the labels use. `web/` must read `facekp.json`
-rather than hardcoding preprocessing.
+## Architecture: anonymous-quad head (center-v1, 2026-09-12)
+
+`train/model.py` holds two heads; `--head` picks one and every checkpoint
+records which, so `predict.py` / `diagnose.py` / `export_onnx.py` rebuild the
+right class from `ckpt["head"]` (absent ⇒ `legacy`).
+
+**`center` (default).** MobileNetV3-Small split at `features[9]` →
+stride-16 tap (48 ch, 15x20) and stride-32 trunk (576 ch, 8x10); the trunk is
+1x1'd to 96 ch, bilinearly upsampled to 15x20, concatenated with the tap, and
+passed through two 3x3 convs (144→96→96); a final 1x1 conv emits **9 maps**:
+channel 0 a face-center heatmap logit, channels 1-8 the four corner offsets
+in cell units relative to the cell center. Faces are peaks
+("Objects as Points", Zhou et al. 2019); decoding is 3x3 max-pool NMS →
+top 6 → `corner = ((j + 0.5 + offx) * 16 / W, (i + 0.5 + offy) * 16 / H)`.
+**1.19M params** (0.26M of it neck+head) against the legacy head's 6.27M,
+and the fp32 ONNX is **4.66 MB** against 24.5 MB.
+
+Quads are **anonymous**: no face identity anywhere in the model. The generator
+renders every cube in the fixed standard scheme, so the legacy head's six
+named slots were really learning "what color is the middle sticker" — a
+question `web/src/detect/identify.ts` answers directly, and can keep
+re-answering as the light changes. Dropping identity also removes the reason
+the old head hedged: with named slots the loss had to commit to an identity on
+symmetric corner-on views and resolved it by averaging rotations into a
+diamond.
+
+Targets (`train/targets.py`) are built per batch on the GPU from the unchanged
+label arrays — the cache format and `--data` handling did not move. A face is
+a positive iff `conf == 1 and valid == 1`; hidden faces contribute nothing (the
+legacy `hidden_weight` supervision of never-observed geometry is gone). Face
+center is the **intersection of the quad's diagonals**, not the corner mean
+(under perspective the mean drifts toward the near edge). Gaussian sigma is
+`clamp(0.25 * sqrt(area_in_cells), 0.8, 3.0)`; offsets are supervised wherever
+the Gaussian is ≥ 0.5, assigned to the face with the higher Gaussian there and
+ties broken by area. Loss is CenterNet penalty-reduced focal (α=2, β=4, divided
+by the positive count) plus SmoothL1 on offsets (β=0.3 cells), the latter
+still taking the **minimum over the 4 cyclic shifts** of the target quad — the
+same DECISION as the legacy loss, for the same reason.
+
+Measured on all 76k of `data/`: **0 colliding center cells** and 9 of 150,922
+positive faces with an off-grid center, so stride 16 is not too coarse (the
+tripwire for going to stride 8 was 2%).
+
+**`val_conf_acc` means something different for this head.** It is detection
+**F1** at score 0.5 under greedy centroid matching (a match must sit within
+50% of the ground-truth face's mean edge length), not per-slot visibility
+accuracy — do not compare it with pre-2026-09-12 runs. `val_px` / `real_px`
+are the rotation-invariant corner error over **matched** detections only;
+faces with no match are misses and stay out of the mean, showing up in the F1
+instead. `diagnose.py` prints the detection accounting alongside, plus a
+rotation column (`rot20%`: the share of matched faces rotated more than 20°
+from ground truth) — that is the number that says whether the diamond/hedge
+failure mode is back.
+
+`web/` must read `facekp.json` rather than hardcoding preprocessing; for this
+head the sidecar carries `head: "center-v1"`, `anonymous: true`, the output
+stride and a prose description of the decode.
 
 ## Sim-to-real notes (first 20k run, 2026-09)
 
@@ -88,10 +142,26 @@ numbering. Expect the first post-merge run to rebuild the cache (~17 GB)
 and epochs to run ~2x the 38k time.
 
 **Quantization finding:** dynamic int8 shifts corners ~33 px mean — useless
-(the FC regression head quantizes terribly). `export_onnx.py` now gates on
-measured shift (<1 px) and deploys fp32 (24.5 MB) until static QDQ
-calibration is implemented. Browser (headless Chrome, RTX 4070): webgpu
-6.1 ms, wasm 10.9 ms per inference; `web/scripts/check-detect.mjs` runs both.
+(the FC regression head quantizes terribly). `export_onnx.py` gates on
+measured shift (<1 px) and deploys fp32. Browser (headless Chrome, RTX 4070):
+webgpu 6.1 ms, wasm 10.9 ms per inference; `web/scripts/check-detect.mjs`
+runs both.
+
+**Quantization, center head (2026-09-12):** removing the dense layer did NOT
+rescue int8. Static QDQ on the fully convolutional graph still moves corners
+__QUANT__ px mean (gate: 1 px), with and without the head's 1x1 Conv
+excluded, so fp32 ships — now only **4.66 MB**, which was most of the reason
+to want int8 in the first place. The shift is measured by taking the fp32
+model's heatmap peaks and reading BOTH models' offsets at those same cells,
+so NMS tie-breaking noise cannot contaminate it.
+
+**Inference cost, center head (headless Chrome, RTX 4070):** webgpu
+15.3 ms, wasm 24.1 ms — about 2.2x the legacy head, not the
+break-even the plan assumed. The head got much cheaper but the neck runs two
+3x3 convs at 15x20 (144→96→96, ~62 MMACs) where the old squeeze+FC was
+~11 MMACs. If the phone check misses the fps bar, the first lever is
+depthwise-separable fuse convs (~4 MMACs for the same shape), not the
+backbone.
 
 ## M5 labeling workflow
 

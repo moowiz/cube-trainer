@@ -82,6 +82,31 @@ parameterization or heatmap head, more close-up data, M5 real-frame
 fine-tune) and int8 (dynamic quantization shifts corners ~33 px — the fp32
 model is deployed; static QDQ is the TODO).
 
+**Update (2026-09-12) — anonymous-quad head, `--head center`.** Both open
+items above are now settled, one fixed and one closed as "won't fix":
+
+- *Diamond / identity-slot averaging: **FIXED at the root.*** The head is now
+  fully convolutional CenterNet-style (`FaceKPCenter`): faces are peaks in a
+  face-center heatmap and corners are offsets from the peak cell, with **no
+  face identity in the model at all**. The diamonds came from six NAMED
+  output slots forcing the loss to commit to an identity on views where it is
+  genuinely ambiguous; with anonymous quads there is nothing to average.
+  `web/src/detect/identify.ts` names each quad from its center sticker color
+  instead, which is what the fixed-scheme renders were teaching anyway — and
+  unlike the model, it can keep updating its idea of each color as the light
+  changes. `diagnose.py` now reports `rot20%` so a regression is measurable
+  rather than eyeballed.
+- *int8: **closed, superseded.*** Dropping the dense layer did not rescue
+  quantization — static QDQ on the fully convolutional graph still misses the
+  1 px gate. It no longer matters: the same change took the fp32 download
+  from **24.5 MB to 4.66 MB** (6.27M → 1.19M params), which was the whole
+  point of wanting int8.
+
+Cost: inference is ~2.2x the legacy head (headless Chrome, RTX 4070: webgpu
+15.3 ms, wasm 24.1 ms) — the head got cheap but the stride-16 neck is not
+free. Re-verify the phone fps bar via `/autoscan.html`; depthwise-separable
+fuse convs are the lever if it misses.
+
 ---
 
 ## M5 — Real-data fine-tune

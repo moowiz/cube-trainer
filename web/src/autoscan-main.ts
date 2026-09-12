@@ -14,7 +14,8 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation } from './assembly';
 import { sampleGridCells } from './color';
-import { FaceDetector } from './detect/facekp';
+import { FaceDetector, type DetectResult } from './detect/facekp';
+import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
 import { CubeLocalizer, padBox } from './detect/cubebox';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
 import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
@@ -54,17 +55,24 @@ app.innerHTML = `
     #fallback { display: none; background: #4a3320; border: 1px solid #8a6030; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
     #fallback a { color: #ffb454; }
     #stats { color: #8891a0; font-variant-numeric: tabular-nums; margin-top: 6px; }
+    #swatches { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+    #swatches .sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+                    font: 11px system-ui; color: #0006; border: 1px solid #0004; }
+    #swatches .sw.seed { opacity: 0.35; border-style: dashed; }
+    label { display: flex; gap: 5px; align-items: center; color: #8891a0; }
   </style>
   <div id="wrap">
     <h1>Auto scan (M6/M7) — turn the cube slowly in view</h1>
     <div id="bar">
       <button id="start">Start camera</button>
       <button id="reset">Reset scan</button>
+      <label id="heatLbl" style="display:none"><input type="checkbox" id="heat"> heatmap</label>
       <span id="status">model loading…</span>
     </div>
     <div id="stage"><canvas id="view"></canvas></div>
     <div id="fill">${FACE_ORDER.map((f) => `<div class="f" id="fill-${f}" style="color:${DEFAULT_SCHEME_HEX[f]}"><b>${f}</b><span>0%</span></div>`).join('')}</div>
     <div id="fallback">Having trouble? The <a href="scanner.html">grid scanner</a> always works.</div>
+    <div id="swatches" style="display:none"></div>
     <div id="result"></div>
     <div id="stats"></div>
   </div>
@@ -76,6 +84,9 @@ const statusEl = document.getElementById('status')!;
 const resultEl = document.getElementById('result')!;
 const fallbackEl = document.getElementById('fallback')!;
 const statsEl = document.getElementById('stats')!;
+const swatchEl = document.getElementById('swatches')!;
+const heatChk = document.getElementById('heat') as HTMLInputElement;
+const heatLbl = document.getElementById('heatLbl')!;
 
 const camera = new Camera();
 const fps = new FpsCounter();
@@ -91,6 +102,9 @@ let running = false;
 let frameNo = 0;
 let inferBusy = false;
 let pendingDetections: import('./detect/facekp').DetectedFace[] | null = null;
+// The most recent detector result, kept for the debug overlay only: the
+// pipeline itself consumes `pendingDetections` once and drops it.
+let lastDetect: DetectResult | null = null;
 let lastTs = 0;
 let rotations: Partial<Record<FaceId, number>> = {};
 let lastGoodDetectionTs = 0;
@@ -105,6 +119,10 @@ void FaceDetector.load('auto').then(async (d) => {
   const mode = d?.cropTrained ? (localizer ? ' · 2-stage' : ' · 2-stage, localizer missing') : '';
   statusEl.textContent = d ? `model ready (${d.modelId}, ${d.ep}${mode})` : 'no model deployed — use the grid scanner';
   if (!d) fallbackEl.style.display = 'block';
+  if (d?.anonymous) {
+    heatLbl.style.display = 'flex';
+    swatchEl.style.display = 'flex';
+  }
 });
 
 function frameImageData(): ImageDataLike {
@@ -118,6 +136,14 @@ function frameImageData(): ImageDataLike {
 }
 
 function drawOverlay(tracks: TrackedFace[]): void {
+  // Raw anonymous quads first, in grey, under the tracked+named ones: when a
+  // face stops being drawn, this says whether the detector lost it or the
+  // namer refused it (and why).
+  if (lastDetect) {
+    for (const u of lastDetect.unnamed) {
+      drawQuad(ctx, u.quad.corners, '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5);
+    }
+  }
   for (const t of tracks) {
     const strong = t.conf >= SAMPLE_CONF;
     ctx.strokeStyle = DEFAULT_SCHEME_HEX[t.face];
@@ -162,6 +188,7 @@ async function loop(ts: number): Promise<void> {
       view.height = v.videoHeight;
     }
     ctx.drawImage(v, 0, 0);
+    if (lastDetect?.heat && heatChk?.checked) drawHeatmap(ctx, lastDetect.heat);
     frameNo++;
     const dt = lastTs ? ts - lastTs : 33;
     lastTs = ts;
@@ -193,6 +220,7 @@ async function loop(ts: number): Promise<void> {
           }
           const res = await detector!.detect(v, roi);
           pendingDetections = res.faces;
+          lastDetect = res;
         } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
       })();
@@ -232,15 +260,24 @@ async function loop(ts: number): Promise<void> {
         const warped = warpQuad(frame, quad, 90);
         const cells = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 });
         observations.push({ face: t.face, cells: cells.map((c) => c.lab), conf: t.conf });
+        // This face passed the seam veto and is being trusted for color
+        // votes, so its center is a free labeled exemplar: hand it to the
+        // namer, which until now has only had the default-scheme prior.
+        // Full-resolution sampling, unlike the namer's own letterboxed read.
+        detector?.observeCenter(t.face, cells.map((c) => c.lab), cells[4]!.rgb);
       }
       if (observations.length) voter.addFrame(observations);
     }
 
     drawOverlay(tracks);
+    if (detector?.anonymous) exemplarSwatches(swatchEl, detector.exemplars);
     updateFillUI();
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
-    statsEl.textContent = `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}   vetoed ${vetoedCount}`;
+    statsEl.textContent = `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}   vetoed ${vetoedCount}`
+      + (detector?.anonymous && lastDetect
+        ? `   quads ${lastDetect.quads.length}   unnamed ${lastDetect.unnamed.length}`
+        : '');
   }
   requestAnimationFrame((t) => void loop(t));
 }
@@ -268,7 +305,9 @@ document.getElementById('start')!.addEventListener('click', () => {
 document.getElementById('reset')!.addEventListener('click', () => {
   voter.reset();
   tracker.reset();
+  detector?.exemplars.reset();
   rotations = {};
   solved = false;
+  lastDetect = null;
   resultEl.textContent = '';
 });

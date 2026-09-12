@@ -47,7 +47,12 @@ for (const ep of ['webgpu', 'wasm']) {
       console.error(`self-test (${ep}) failed:`, JSON.stringify(result));
       process.exitCode = 1;
     } else {
-      console.log(`OK  ep=${result.ep}  avg ${result.avgMs.toFixed(1)} ms/inference  (${result.fps.toFixed(1)}/s desktop-headless)  faces=${result.faces}`);
+      // Anonymous (center-v1) models report decoded quads as well as named
+      // faces: on the synthetic self-test frame naming usually rejects
+      // everything (a flat red square is not a cube face), so `faces` alone
+      // would read as a failure when the model is in fact fine.
+      const found = result.anonymous ? `quads=${result.quads} named=${result.faces}` : `faces=${result.faces}`;
+      console.log(`OK  ep=${result.ep}  avg ${result.avgMs.toFixed(1)} ms/inference  (${result.fps.toFixed(1)}/s desktop-headless)  ${found}  [${result.model}${result.anonymous ? ', anonymous' : ''}]`);
     }
   } catch (e) {
     console.error(`self-test (${ep}) threw:`, e.message);

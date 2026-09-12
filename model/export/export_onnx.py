@@ -40,7 +40,7 @@ from onnxruntime.quantization import CalibrationDataReader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset  # noqa: E402
-from model import FaceKP  # noqa: E402
+from model import CENTER_STRIDE, build_model  # noqa: E402
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 INPUT_WH = (320, 240)
@@ -104,23 +104,58 @@ def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_
         return [torch.randn(1, 3, input_wh[1], input_wh[0]).numpy() for _ in range(8)]
 
 
-def head_node_names(model_path) -> list[str]:
-    """Gemm/MatMul node names belonging to the FC regression head.
+def head_node_names(model_path, head: str) -> list[str]:
+    """Node names belonging to the prediction head, for the exclusion retry.
 
-    model.py's `self.head` is `Flatten -> Linear(...,512) -> Hardswish ->
+    Legacy: `self.head` is `Flatten -> Linear(...,512) -> Hardswish ->
     Dropout -> Linear(512, 54)`; torch.onnx.export names its nodes with a
     `/head/...` prefix (verified against the actual export - the backbone is
-    conv-only, so these are exactly the two head Gemms). These are the nodes
-    that quantize worst; excluding them is the fallback attempt below.
+    conv-only, so these are exactly the two head Gemms). Those are the nodes
+    that quantize worst.
+
+    Center: `self.head` is a single 1x1 Conv, so the op filter has to include
+    Conv. It is not expected to need excluding - the whole point of dropping
+    the dense layer is that this graph should quantize.
     """
     m = onnx.load(str(model_path))
-    return [n.name for n in m.graph.node if n.op_type in ("Gemm", "MatMul") and "/head/" in n.name]
+    ops = ("Gemm", "MatMul") if head == "legacy" else ("Gemm", "MatMul", "Conv")
+    return [n.name for n in m.graph.node if n.op_type in ops and "/head/" in n.name]
 
 
-def measure_corner_shift(fp32_path, other_path, xs):
+def measure_corner_shift(fp32_path, other_path, xs, head: str):
+    """Mean/max corner movement in input pixels between two ONNX graphs.
+
+    Legacy: corners are output channels, so it is a direct subtraction.
+
+    Center: corners only exist after decoding, and comparing decoded quads
+    would fold NMS tie-breaking noise into a number that is supposed to
+    measure weight precision. So the peak cells are taken from the FP32
+    model and BOTH models' offsets are read at those same cells, which
+    isolates what the gate is actually about: did quantization move the
+    corners? Offsets are in cell units, hence the stride multiply.
+    """
     ref = np.concatenate([ort_run(fp32_path, xs[i : i + 1]) for i in range(len(xs))])
     got = np.concatenate([ort_run(other_path, xs[i : i + 1]) for i in range(len(xs))])
-    px = np.abs(ref[:, :, 1:] - got[:, :, 1:]).reshape(-1, 4, 2) * np.array(INPUT_WH)
+    if head == "legacy":
+        px = np.abs(ref[:, :, 1:] - got[:, :, 1:]).reshape(-1, 4, 2) * np.array(INPUT_WH)
+        return float(px.mean()), float(px.max())
+    n, _, _, w = ref.shape
+    heat = 1 / (1 + np.exp(-ref[:, 0]))
+    px = []
+    for i in range(n):
+        flat = heat[i].ravel()
+        for c in np.argsort(flat)[-3:]:
+            if flat[c] < 0.3:
+                continue
+            cy, cx = divmod(int(c), w)
+            a = ref[i, 1:, cy, cx].reshape(4, 2)
+            b = got[i, 1:, cy, cx].reshape(4, 2)
+            px.append(np.abs(a - b) * CENTER_STRIDE)
+    if not px:
+        print("WARNING: no fp32 heatmap peak above 0.3 on the parity frames - the "
+              "corner-shift gate has nothing to measure, refusing to ship int8")
+        return float("inf"), float("inf")
+    px = np.concatenate(px)
     return float(px.mean()), float(px.max())
 
 
@@ -140,15 +175,19 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
-    model = FaceKP(pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
+    head = ckpt.get("head", "legacy")
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
     model.load_state_dict(ckpt["model"])
     model.eval()
+    out_name = "faces" if head == "legacy" else "maps"
+    params = sum(p.numel() for p in model.parameters())
+    print(f"head={head}  output={out_name}  params={params / 1e6:.2f}M")
 
     fp32_path = out / "facekp.fp32.onnx"
     x = torch.randn(1, 3, INPUT_WH[1], INPUT_WH[0])
     torch.onnx.export(
         model, x, fp32_path, opset_version=17,
-        input_names=["image"], output_names=["faces"],
+        input_names=["image"], output_names=[out_name],
         dynamo=False,
     )
 
@@ -195,7 +234,7 @@ def main():
             activation_type=QuantType.QUInt8,
             nodes_to_exclude=nodes_to_exclude,
         )
-        mean_px, max_px = measure_corner_shift(fp32_path, dst_path, xs)
+        mean_px, max_px = measure_corner_shift(fp32_path, dst_path, xs, head)
         print(f"static QDQ [{label}] vs fp32 on {len(xs)} samples: "
               f"mean corner shift {mean_px:.3f} px, max {max_px:.3f} px")
         return mean_px, max_px
@@ -207,7 +246,7 @@ def main():
     candidates = [("static-qdq-full", full_path, full_mean, full_max)]
 
     if full_mean >= QUANT_GATE_PX:
-        head_nodes = head_node_names(quant_input_path)
+        head_nodes = head_node_names(quant_input_path, head)
         if head_nodes:
             print(f"full QDQ missed the {QUANT_GATE_PX} px gate; retrying with "
                   f"head nodes kept fp32: {head_nodes}")
@@ -239,6 +278,21 @@ def main():
         print("--no-deploy: skipping write to web/public/models/")
         return
 
+    gh, gw = INPUT_WH[1] // CENTER_STRIDE, INPUT_WH[0] // CENTER_STRIDE
+    legacy_output = {
+        "name": "faces", "shape": [1, 6, 9], "faces": "URFDLB",
+        "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
+        "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation",
+    }
+    center_output = {
+        "name": "maps", "shape": [1, 9, gh, gw], "stride": CENTER_STRIDE,
+        "channels": "0: face-center heatmap logit (sigmoid me); 1..8: corner offsets "
+                    "x0,y0..x3,y3 in cells, relative to the cell center",
+        "decode": "3x3 max-pool NMS, top 6, corner = ((j+0.5+offx)*stride/W, "
+                  "(i+0.5+offy)*stride/H); quads are ANONYMOUS - name them by center color",
+        "cornerOrder": "cyclic, winding consistent; starting corner arbitrary",
+    }
+
     WEB_MODELS.mkdir(parents=True, exist_ok=True)
     (WEB_MODELS / "facekp.onnx").write_bytes(deploy.read_bytes())
     meta = {
@@ -246,9 +300,7 @@ def main():
                   "mean": NORM_MEAN.tolist(), "std": NORM_STD.tolist(), "scale": "pixel/255 then (x-mean)/std",
                   "letterbox": "aspect-preserving fit, centered, pad rgb(114,114,114); "
                                "coords map back as (u*W - dx)/scale (see train/dataset.py letterbox_params)"},
-        "output": {"name": "faces", "shape": [1, 6, 9], "faces": "URFDLB",
-                   "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
-                   "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation"},
+        "output": legacy_output if head == "legacy" else center_output,
         "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"), "precision": kind,
         # run name from the checkpoint path (runs/<name>/last.pt), shown in
         # the pages' status lines so a phone user knows which model is live
@@ -256,6 +308,10 @@ def main():
         "checkpoint": Path(args.ckpt).name,
         "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "cropTrained": bool(args.crop_trained),
+        "head": "legacy" if head == "legacy" else "center-v1",
+        # Anonymous quads carry no face identity: the app names each one from
+        # its center sticker color (web/src/detect/identify.ts).
+        "anonymous": head != "legacy",
     }
     (WEB_MODELS / "facekp.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {WEB_MODELS / 'facekp.onnx'} and facekp.json")
