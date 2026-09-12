@@ -82,7 +82,14 @@ async function main() {
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ['--force-color-profile=srgb', '--enable-unsafe-swiftshader'],
+    // --no-sandbox: Chrome refuses to start as root ("Running as root without
+    // --no-sandbox is not supported"), which is every container, including
+    // the rented boxes in model/cloud/RUNBOOK.md. It costs nothing here: the
+    // page we load is our own local scene, never untrusted web content.
+    // --disable-dev-shm-usage: containers often ship a 64 MB /dev/shm and
+    // Chrome dies part-way through a long render when it fills.
+    args: ['--force-color-profile=srgb', '--enable-unsafe-swiftshader',
+           '--no-sandbox', '--disable-dev-shm-usage'],
   });
   const page = await browser.newPage();
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });

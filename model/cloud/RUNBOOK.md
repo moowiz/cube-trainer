@@ -43,7 +43,16 @@ apt-get install -y libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
   libpango-1.0-0 libcairo2 libasound2
 
 node fetch-backgrounds.mjs   # free photo backgrounds the scenes composite
+node fetch-hdris.mjs         # the 16 CC0 HDRI light probes - NOT optional
 ```
+
+`model/backgrounds/` is gitignored, so a fresh checkout has neither photo
+backgrounds nor HDRIs. Missing HDRIs are not an error: generate.mjs prints
+`no HDRIs ... falling back to analytic lights only` on stderr and renders the
+entire set under flat analytic lighting - a quietly different distribution
+from the one signed off on the previews, and the README credits the HDRI pass
+with a real chunk of the sim-to-real gain. `fetch-hdris.mjs` exits non-zero if
+it cannot get all 16, so run it before generating and read its last line.
 
 ## 3. Generate the synthetic set
 
