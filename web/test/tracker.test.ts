@@ -191,3 +191,23 @@ describe('QuadTracker association by geometry', () => {
     expect(t1!.detIndex).toBe(0);
   });
 });
+
+// 2026-09-13: with inference off the main thread the loop runs at 60 Hz
+// while detections arrive every ~90 ms. Dividing the residual by the frame
+// dt made velocity spike ~5x per detection and quads sailed off between
+// ticks (phone screenshot 09:06). One track, close to truth, throughout.
+it('stays on a slowly moving quad with 16 ms frames and a detection every 6th frame', () => {
+  const tracker = new QuadTracker();
+  let truth = SQUARE;
+  let worst = 0;
+  const ids = new Set<number>();
+  for (let i = 0; i < 120; i++) {
+    truth = shiftQuad(truth, 0.8, 0.3); // ~50 px/s at 60 Hz
+    const tracks = tracker.update(i % 6 === 0 ? [{ conf: 0.95, corners: truth }] : null, 16);
+    expect(tracks.length).toBe(1);
+    ids.add(tracks[0]!.id);
+    if (i >= 30) worst = Math.max(worst, maxCornerDist(tracks[0]!.corners, truth));
+  }
+  expect(ids.size).toBe(1);
+  expect(worst).toBeLessThan(6);
+});

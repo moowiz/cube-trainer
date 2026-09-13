@@ -29,7 +29,7 @@ export interface TrackedQuad {
 
 export interface TrackerOptions {
   posAlpha?: number; // position correction gain, default 0.55
-  velAlpha?: number; // velocity correction gain, default 0.25
+  velAlpha?: number; // velocity correction gain per detection gap, default 0.6 (< 1: never overshoots)
   confAlpha?: number; // conf EMA gain, default 0.35
   dropMs?: number; // drop a track after this long without detection, default 450
   gateFrac?: number; // reject a detection whose centroid jumps more than
@@ -38,7 +38,7 @@ export interface TrackerOptions {
 
 const DEFAULTS: Required<TrackerOptions> = {
   posAlpha: 0.55,
-  velAlpha: 0.25,
+  velAlpha: 0.6,
   confAlpha: 0.35,
   dropMs: 450,
   gateFrac: 0.6,
@@ -53,6 +53,13 @@ const YOUNG_GATE_FRAC = 1.2;
 // sensibly if dtMs varies.
 const COAST_VEL_DECAY_PER_33MS = 0.9;
 const COAST_CONF_DECAY_PER_33MS = 0.95;
+// Beyond this without a detection the track holds still rather than keep
+// extrapolating: a constant-velocity guess is worth ~a tick, not more.
+const COAST_MAX_MS = 250;
+// Velocity is trusted unchanged for one typical detection gap; only a coast
+// longer than that starts decaying it (decaying from the first coasted
+// frame made every track lag a moving cube by a few px).
+const COAST_TRUST_MS = 120;
 
 interface Track {
   id: number;
@@ -130,10 +137,11 @@ export class QuadTracker {
     const { posAlpha, velAlpha, confAlpha, dropMs, gateFrac } = this.opts;
     const dtSec = Math.max(dtMs, 1) / 1000;
 
-    // Predict every track forward.
+    // Predict every track forward (a track coasting past COAST_MAX_MS holds).
     const predicted = new Map<number, [number, number][]>();
     for (const [id, track] of this.tracks) {
-      predicted.set(id, track.pos.map(([x, y], i) => [x + track.vel[i]![0] * dtSec, y + track.vel[i]![1] * dtSec]));
+      const move = track.sinceDetectMs < COAST_MAX_MS ? dtSec : 0;
+      predicted.set(id, track.pos.map(([x, y], i) => [x + track.vel[i]![0] * move, y + track.vel[i]![1] * move]));
     }
 
     // Associate: every (track, detection) pair inside the track's gate,
@@ -167,11 +175,18 @@ export class QuadTracker {
         const accepted = bestCyclicRoll(det.corners, pred);
         const newPos: [number, number][] = [];
         const newVel: [number, number][] = [];
+        // The residual accumulated over the whole gap since the last
+        // accepted detection, not over this frame: detections arrive every
+        // inference (~90 ms on a phone) while frames come at 60 Hz, and
+        // dividing by the frame dt made the velocity spike ~5x and the quad
+        // sail off on the next coasted frames (2026-09-13, once inference
+        // moved off the main thread and the loop ran at full rate).
+        const gapSec = Math.max(dtMs, 1) / 1000 + track.sinceDetectMs / 1000;
         for (let i = 0; i < pred.length; i++) {
           const resX = accepted[i]![0] - pred[i]![0];
           const resY = accepted[i]![1] - pred[i]![1];
           newPos.push([pred[i]![0] + posAlpha * resX, pred[i]![1] + posAlpha * resY]);
-          newVel.push([track.vel[i]![0] + (velAlpha * resX) / dtSec, track.vel[i]![1] + (velAlpha * resY) / dtSec]);
+          newVel.push([track.vel[i]![0] + (velAlpha * resX) / gapSec, track.vel[i]![1] + (velAlpha * resY) / gapSec]);
         }
         track.pos = newPos;
         track.vel = newVel;
@@ -182,7 +197,7 @@ export class QuadTracker {
         // doesn't fly off screen or stay falsely confident.
         track.pos = pred;
         const decaySteps = dtMs / 33;
-        const velDecay = Math.pow(COAST_VEL_DECAY_PER_33MS, decaySteps);
+        const velDecay = track.sinceDetectMs + dtMs > COAST_TRUST_MS ? Math.pow(COAST_VEL_DECAY_PER_33MS, decaySteps) : 1;
         const confDecay = Math.pow(COAST_CONF_DECAY_PER_33MS, decaySteps);
         track.vel = track.vel.map(([vx, vy]) => [vx * velDecay, vy * velDecay]);
         track.conf *= confDecay;
