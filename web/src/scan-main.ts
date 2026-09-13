@@ -35,7 +35,7 @@ import { HintState, hintFor } from './ui/hint';
 import { resolveOrientations, orientQuad, fuseSharedCorners, identifyNeighbour } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
-import { solveState } from './state';
+import { PIECE_AMBIGUOUS_CONF, solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
@@ -281,6 +281,25 @@ function renderClusters(tracks: TrackedQuad[]): void {
   exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   rejected ${clusters.rejectedBinds}   opposite conflicts ${oppositeConflicts}`;
 }
 
+/**
+ * The last lock attempt as text: each face's assembled letters ('?' where the
+ * sticker is a near-tie) and how its frames fit the consensus - frames that
+ * had to be turned back, and frames dropped as outliers, are the signature
+ * of a rotation or tracking problem rather than a colour one.
+ */
+function describeAttempt(): string {
+  const a = voter.lastAttempt;
+  if (!a) return '';
+  return a.evidence.map((ev, fi) => {
+    const letters = a.assembled
+      ? Array.from({ length: 9 }, (_, i) => (a.assembled!.confidences[fi * 9 + i]! < PIECE_AMBIGUOUS_CONF ? '?' : a.assembled!.stickerFaces[fi * 9 + i]))
+      : [];
+    const grid = letters.length ? `${letters.slice(0, 3).join('')} ${letters.slice(3, 6).join('')} ${letters.slice(6).join('')}` : '---';
+    const turned = ev.rotations[1] + ev.rotations[2] + ev.rotations[3];
+    return `${ev.face} ${grid}  frames ${ev.frames} inliers ${ev.inliers}${turned ? ` turned ${turned}` : ''} fit ${ev.fit.toFixed(1)}`;
+  }).join('\n');
+}
+
 function updateFillUI(): void {
   const p = voter.progress(clusters.faceMap());
   for (const f of FACE_ORDER) {
@@ -296,7 +315,7 @@ function updateFillUI(): void {
       .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
       .catch((e) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nsolver failed: ${e}`; });
   } else if (!p.locked && p.validationError) {
-    resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)`;
+    resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)\n${describeAttempt()}`;
   }
 }
 
@@ -501,6 +520,7 @@ captureBtn.addEventListener('click', () => {
     tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotationOf(id) ?? null })),
     adjacencyBinds, rejectedBinds: clusters.rejectedBinds, oppositeConflicts,
     progress: voter.progress(clusters.faceMap()),
+    lockAttempt: voter.lastAttempt,
   };
   void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory, extra)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });

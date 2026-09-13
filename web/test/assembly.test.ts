@@ -1,7 +1,7 @@
 // M7 any-order voting: synthetic Lab observations converge to a locked,
 // cubejs-valid state; glare samples are dropped; partial coverage never locks.
 import { describe, expect, it } from 'vitest';
-import { isGlareSample, StickerVoter, type FaceObservation } from '../src/assembly';
+import { isGlareSample, rotateCells, StickerVoter, type FaceObservation } from '../src/assembly';
 import { FACE_ORDER } from '../src/types';
 import type { FaceId, Lab } from '../src/types';
 
@@ -122,5 +122,50 @@ describe('StickerVoter with late bindings', () => {
     map.delete(7);
     v.tryLock(map);
     expect(v.progress(map).locked).not.toBeNull();
+  });
+});
+
+// Frames are aligned up to rotation and outliers dropped (2026-09-13): a face
+// whose rotation was resolved wrongly in some frames, or a track that slid
+// onto another face, must not blend its stickers into the consensus.
+describe('StickerVoter consensus alignment', () => {
+  // solved cube after one U turn: the top row of R F L B is another colour,
+  // so every side face is rotation-asymmetric
+  const AFTER_U = 'UUUUUUUUU' + 'BBBRRRRRR' + 'RRRFFFFFF' + 'DDDDDDDDD' + 'FFFLLLLLL' + 'LLLBBBBBB';
+  const faceCells = (face: FaceId, seed: number): Lab[] => {
+    const fi = FACE_ORDER.indexOf(face);
+    return Array.from({ length: 9 }, (_, i) => noisy(PALETTE[AFTER_U[fi * 9 + i] as FaceId], seed + i));
+  };
+  const scan = (v: StickerVoter, mutate: (face: FaceId, cells: Lab[], frame: number) => Lab[]) => {
+    for (let frame = 0; frame < 60 && !v.progress(FACE_MAP).locked; frame++) {
+      const obs = [0, 3].map((k) => {
+        const face = FACE_ORDER[(frame + k) % 6]!;
+        return { cluster: CLUSTER_OF[face], conf: 0.95, cells: mutate(face, faceCells(face, frame + k * 7), frame) };
+      });
+      v.addFrame(obs, FACE_MAP);
+    }
+    return v.progress(FACE_MAP);
+  };
+
+  it('locks the asymmetric state when every frame is oriented as claimed', () => {
+    const p = scan(new StickerVoter(), (_, cells) => cells);
+    expect(p.locked?.facelets).toBe(AFTER_U);
+  });
+
+  it('re-aligns a minority of frames delivered a quarter turn off', () => {
+    const v = new StickerVoter();
+    const p = scan(v, (_, cells, frame) => (frame % 5 === 1 ? rotateCells(cells, 1) : cells));
+    expect(p.locked?.facelets).toBe(AFTER_U);
+    const r = v.lastAttempt!.evidence.find((e) => e.face === 'R')!;
+    expect(r.rotations[1] + r.rotations[2] + r.rotations[3]).toBeGreaterThan(0); // the off frames were recognised and turned back
+  });
+
+  it('drops frames of a track that slid onto another face', () => {
+    const v = new StickerVoter();
+    // every fourth R frame is really the D face (a swapped track still tagged with R's cluster)
+    const p = scan(v, (face, cells, frame) => (face === 'R' && frame % 4 === 0 ? faceCells('D', frame) : cells));
+    expect(p.locked?.facelets).toBe(AFTER_U);
+    const r = v.lastAttempt!.evidence.find((e) => e.face === 'R')!;
+    expect(r.inliers).toBeLessThan(r.frames);
   });
 });
