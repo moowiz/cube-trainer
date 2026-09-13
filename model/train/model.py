@@ -141,7 +141,13 @@ CENTER_STRIDE = 16
 CENTER_DEDUPE_FRAC = 0.5
 CENTER_MIN_DEDUPE_PX = 8.0     # floor, for degenerate near-zero-area quads
 CENTER_MAX_CANDIDATES = 32     # cells decoded per image before deduplication
-CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)
+CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)   (npts=4; 33 for the 16-point grid)
+# 2026-09-13: `npts` picks what the offsets regress - the 4 corners, or the
+# 16 seam-grid points derived from them (targets.face_points). Checkpoints
+# record it as `npts` (absent => 4); the head name stays "center" so every
+# `head == "center"` branch in the tools keeps working. The maps' channel
+# count says which: 1 + 2 * npts.
+POINT_COUNTS = (4, 16)
 # CenterNet's prior-probability bias: start the heatmap at p=0.1 so the first
 # epochs are not dominated by the ~255 negative cells per positive.
 HEAT_PRIOR_BIAS = -2.19
@@ -153,14 +159,17 @@ def _conv_bn_act(cin: int, cout: int, k: int) -> nn.Sequential:
 
 
 class FaceKPCenter(nn.Module):
-    """MobileNetV3-Small -> stride-16 neck with global context -> 9 maps.
+    """MobileNetV3-Small -> stride-16 neck with global context -> 1+2P maps.
 
-    Output (B, 9, H/16, W/16), i.e. (B,9,16,16) at the 256x256 crop input:
+    Output (B, 1+2P, H/16, W/16), i.e. (B,9,16,16) at the 256x256 crop input
+    for P = npts = 4 corners, (B,33,16,16) for the 16-point seam grid:
       channel 0    face-center heatmap LOGIT (sigmoid at decode)
-      channels 1-8 corner offsets x0,y0,..,x3,y3 in CELL units (1 cell = 16
-                   input px), relative to the center of the cell they sit in.
-                   Linear and unbounded: corners of a partially visible face
-                   legitimately fall outside the frame.
+      channels 1.. point offsets x0,y0,..,x(P-1),y(P-1) in CELL units (1 cell
+                   = 16 input px), relative to the center of the cell they sit
+                   in. Linear and unbounded: corners of a partially visible
+                   face legitimately fall outside the frame. Grid order is
+                   targets.quad_grid_points (row-major, corners at
+                   GRID_CORNER_IDX).
 
     The neck exists because a stride-32 map is too coarse to place a corner
     and a raw stride-16 tap has no global context (48 channels of mid-level
@@ -168,8 +177,12 @@ class FaceKPCenter(nn.Module):
     stride-32 trunk into it is the cheapest way to have both.
     """
 
-    def __init__(self, pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]), split: int = 9):
+    def __init__(self, pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]), split: int = 9,
+                 npts: int = 4):
         super().__init__()
+        if npts not in POINT_COUNTS:
+            raise ValueError(f"npts must be one of {POINT_COUNTS}, got {npts}")
+        self.npts = npts
         weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
         feats = mobilenet_v3_small(weights=weights).features
         self.stem = feats[:split]    # stride 16
@@ -181,7 +194,7 @@ class FaceKPCenter(nn.Module):
         self.grid_hw = (probe16.shape[2], probe16.shape[3])
         self.lateral = _conv_bn_act(c32, 96, 1)
         self.fuse = nn.Sequential(_conv_bn_act(c16 + 96, 96, 3), _conv_bn_act(96, 96, 3))
-        self.head = nn.Conv2d(96, CENTER_OUT_CH, 1)
+        self.head = nn.Conv2d(96, 1 + 2 * npts, 1)
         nn.init.normal_(self.head.weight, std=0.01)
         nn.init.zeros_(self.head.bias)
         with torch.no_grad():
@@ -195,17 +208,19 @@ class FaceKPCenter(nn.Module):
         return self.head(self.fuse(torch.cat([s16, up], dim=1)))
 
 
-def build_model(head: str = "center", pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0])) -> nn.Module:
+def build_model(head: str = "center", pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]),
+                npts: int = 4) -> nn.Module:
     """The single place that turns a checkpoint's `head` key into a module.
 
     Checkpoints written before 2026-09-12 have no `head` key, so every caller
     passes `ckpt.get("head", "legacy")` - which is why "legacy" must keep
-    loading, exporting and diagnosing forever.
+    loading, exporting and diagnosing forever. Likewise `npts` is
+    `ckpt.get("npts", 4)`: center checkpoints before 2026-09-13 are 4-corner.
     """
     if head == "legacy":
         return FaceKP(pretrained=pretrained, input_hw=input_hw)
     if head == "center":
-        return FaceKPCenter(pretrained=pretrained, input_hw=input_hw)
+        return FaceKPCenter(pretrained=pretrained, input_hw=input_hw, npts=npts)
     raise ValueError(f"unknown head {head!r} (expected one of {HEADS})")
 
 
@@ -217,7 +232,9 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     a frame showing three weigh per face, not per frame.
 
     off: SmoothL1 in cell units over the supervised cells, taking the MINIMUM
-    over the 4 cyclic shifts of the target quad, weighted by the Gaussian.
+    over the 4 cyclic shifts of the target quad (for the 16-point grid, the
+    matching rotations of the grid: targets.cyclic_perms), weighted by the
+    Gaussian.
     The cyclic minimum is the same DECISION as keypoint_loss's: on a dead-on
     lone face the starting corner is unobservable, and demanding it anyway
     made the old head hedge by averaging the four rotations. Cyclic shifts
@@ -243,10 +260,15 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     npos = targets.npos.clamp(min=1).to(p.dtype)
     heat_loss = (pos_loss.sum() + neg_loss.sum()) / npos
 
-    off_p = maps[:, 1:].float().view(B, 4, 2, H, W)
+    P = points_in_maps(maps)
+    off_p = maps[:, 1:].float().view(B, P, 2, H, W)
     off_t = targets.off.float()
+    if off_t.shape[1] != P:
+        raise ValueError(f"maps carry {P} points per face but the targets {off_t.shape[1]} "
+                         f"- --points and the checkpoint's npts disagree")
+    perms = _perms(P, maps.device)
     per = torch.stack([
-        nn.functional.smooth_l1_loss(off_p, off_t.roll(k, dims=1), beta=0.3,
+        nn.functional.smooth_l1_loss(off_p, off_t[:, perms[k]], beta=0.3,
                                      reduction="none").mean(dim=(1, 2))
         for k in range(4)
     ]).min(dim=0).values                                    # (B,H,W)
@@ -255,14 +277,46 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     return heat_loss + off_weight * off_loss, heat_loss, off_loss
 
 
+def points_in_maps(maps: torch.Tensor) -> int:
+    """How many points per face a (B,1+2P,H,W) map tensor carries."""
+    return (maps.shape[1] - 1) // 2
+
+
+_PERM_CACHE: dict = {}
+
+
+def _perms(npts: int, device) -> torch.Tensor:
+    key = (npts, str(device))
+    if key not in _PERM_CACHE:
+        from targets import cyclic_perms
+        _PERM_CACHE[key] = cyclic_perms(npts).to(device)
+    return _PERM_CACHE[key]
+
+
+def quad_corners(points: torch.Tensor) -> torch.Tensor:
+    """(...,P,2) decoded points -> (...,4,2) corners: identity for P=4, the
+    four grid corners (targets.GRID_CORNER_IDX) for the 16-point grid."""
+    if points.shape[-2] == 4:
+        return points
+    from targets import GRID_CORNER_IDX
+    return points[..., list(GRID_CORNER_IDX), :]
+
+
 @torch.no_grad()
 def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 0.3,
-                stride: int = CENTER_STRIDE):
-    """(B,9,H,W) raw maps -> (scores (B,k), quads (B,k,4,2) normalized).
+                stride: int = CENTER_STRIDE, points: bool = False):
+    """(B,1+2P,H,W) raw maps -> (scores (B,k), quads (B,k,4,2) normalized).
+
+    With `points=True` the second result is (B,k,P,2): every regressed point
+    (the 16-point grid for a grid checkpoint; identical to the quads for P=4).
+    Deduplication and the default corners come from the 4 corner points
+    either way, so a grid model scores exactly like a corner model.
 
     THE SINGLE SOURCE OF TRUTH for decoding. web/src/detect/facekp.ts mirrors
     this function line for line and web/test/facekp-decode.test.ts compares the
-    two against a dumped fixture - change one, change the other.
+    two against a dumped fixture - change one, change the other. (The mirror
+    is the 9-channel corner version as of 2026-09-13; a grid model needs its
+    P read from facekp.json before it ships.)
 
     Quads are ANONYMOUS: corner order is cyclic with consistent winding, the
     starting corner is arbitrary, and nothing here says which face it is.
@@ -298,11 +352,13 @@ def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 
     top_v = flat.gather(1, top_i)
     ci = torch.div(top_i, W, rounding_mode="floor")
     cj = top_i % W
-    off = maps[:, 1:].reshape(B, 4, 2, H * W)
-    gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, 4, 2, cand))
+    P = points_in_maps(maps)
+    off = maps[:, 1:].reshape(B, P, 2, H * W)
+    gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, P, 2, cand))
     px = (cj.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 0]) * stride
     py = (ci.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 1]) * stride
-    quads_px = torch.stack([px, py], dim=-1).permute(0, 2, 1, 3)      # (B,cand,4,2)
+    pts_px = torch.stack([px, py], dim=-1).permute(0, 2, 1, 3)        # (B,cand,P,2)
+    quads_px = quad_corners(pts_px)                                   # (B,cand,4,2)
     centres = quads_px.mean(dim=2)                                    # (B,cand,2)
     edge = (quads_px - quads_px.roll(-1, dims=2)).norm(dim=-1).mean(dim=2)  # (B,cand)
     radius = torch.clamp(CENTER_DEDUPE_FRAC * edge, min=CENTER_MIN_DEDUPE_PX)  # (B,cand)
@@ -323,9 +379,11 @@ def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 
     kk = min(k, cand)
     order = torch.argsort(~alive, dim=1, stable=True)[:, :kk]
     sel_v = top_v.gather(1, order) * alive.gather(1, order).to(top_v.dtype)
-    quads = quads_px.gather(1, order.view(B, kk, 1, 1).expand(B, kk, 4, 2))
-    quads = quads / torch.tensor(input_wh, dtype=quads.dtype, device=quads.device)
-    return sel_v, quads
+    src = pts_px if points else quads_px
+    n = src.shape[2]
+    out = src.gather(1, order.view(B, kk, 1, 1).expand(B, kk, n, 2))
+    out = out / torch.tensor(input_wh, dtype=out.dtype, device=out.device)
+    return sel_v, out
 
 
 def decode_to_list(maps: torch.Tensor, **kw) -> list[list[dict]]:

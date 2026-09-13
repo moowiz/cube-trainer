@@ -29,6 +29,7 @@ from dataset import CubeKeypointDataset, normalize01, normalize_batch, to_float0
 from gpu_augment import disable_compile, enable_compile, photometric_batch
 from model import (
     HEADS,
+    POINT_COUNTS,
     build_model,
     center_loss,
     center_metrics,
@@ -44,7 +45,7 @@ from targets import build_center_targets, dataset_target_stats
 INPUT_WH = KP_WH   # set per --view in main(); evaluate() reads the module global
 
 
-def evaluate(model, loader, device, head="legacy", grid_hw=None):
+def evaluate(model, loader, device, head="legacy", grid_hw=None, npts=4):
     """-> (loss, px, acc). For the center head the last two are redefined:
     `px` is the corner error over MATCHED detections only and `acc` is
     detection F1 at score 0.5, not per-slot visibility accuracy. The log-line
@@ -61,7 +62,7 @@ def evaluate(model, loader, device, head="legacy", grid_hw=None):
             pred = model(x)
             b = x.size(0)
             if head == "center":
-                t = build_center_targets(conf, corners, valid, grid_hw)
+                t = build_center_targets(conf, corners, valid, grid_hw, npts=npts)
                 loss, _, _ = center_loss(pred, t)
                 e, m, a, c, d = center_metrics(pred, conf, corners, valid, INPUT_WH)
                 err_sum += e
@@ -106,6 +107,11 @@ def main():
                     help="'center': anonymous-quad CenterNet head (default since 2026-09-12). "
                          "'legacy': the named-slot FC regression head - kept so old checkpoints "
                          "stay trainable/comparable, not for new runs")
+    ap.add_argument("--points", type=int, choices=list(POINT_COUNTS), default=4,
+                    help="center head: what the offsets regress - 4 = the face corners, "
+                         "16 = the 4x4 seam grid derived from them (2026-09-13; interior "
+                         "junctions are sharper targets and overdetermine the warp). "
+                         "val_px/real_px stay the CORNER error either way, so runs compare")
     ap.add_argument("--view", choices=["crop", "frame"], default="crop",
                     help="'crop' (the deployed stage-2 view: padded silhouette crops at "
                          f"{KP_WH[0]}x{KP_WH[1]}); 'frame' trains on whole letterboxed frames at "
@@ -136,7 +142,7 @@ def main():
     # projectable from its first line, and rewritten on --resume.
     (out / "meta.json").write_text(json.dumps({
         "epochs": args.epochs, "data": args.data, "batch": args.batch,
-        "workers": args.workers, "head": args.head, "lr": args.lr,
+        "workers": args.workers, "head": args.head, "lr": args.lr, "npts": args.points,
         "view": args.view, "input_wh": INPUT_WH, "started": time.time(),
     }, indent=1))
 
@@ -184,7 +190,8 @@ def main():
     print(f"device={device}  view={args.view} {INPUT_WH[0]}x{INPUT_WH[1]}  train={len(train_ds)}  val={len(val_ds)}"
           + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
-    model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0]),
+                        npts=args.points).to(device)
     grid_hw = getattr(model, "grid_hw", None)
     # `model` stays the plain module: checkpoints, --init/--resume, the
     # optimizer and export all see it. `run` is what forward goes through -
@@ -196,7 +203,7 @@ def main():
     if compiled:
         enable_compile()
     print(f"head={args.head}  params={count_params(model) / 1e6:.2f}M"
-          + (f"  grid={grid_hw[0]}x{grid_hw[1]}" if grid_hw else ""))
+          + (f"  grid={grid_hw[0]}x{grid_hw[1]}  points={args.points}" if grid_hw else ""))
     if args.head == "center":
         dataset_target_stats(val_ds, grid_hw, name="val")
         if real_dl is not None:
@@ -208,6 +215,9 @@ def main():
         if ckpt.get("head", "legacy") != args.head:
             raise SystemExit(f"--init {args.init} has head {ckpt.get('head', 'legacy')!r}, "
                              f"this run is {args.head!r} - the heads share no weights")
+        if args.head == "center" and ckpt.get("npts", 4) != args.points:
+            raise SystemExit(f"--init {args.init} regresses {ckpt.get('npts', 4)} points, this run "
+                             f"{args.points} - the head's last layer differs; pass --points to match")
         if tuple(ckpt.get("input_wh", ())) != tuple(INPUT_WH) or ckpt.get("view", "frame") != args.view:
             # DECISION (PORTRAIT-DESIGN.md 5): no fine-tuning across shapes/views;
             # a landscape full-frame checkpoint is not a starting point for a crop model.
@@ -240,6 +250,8 @@ def main():
         if ckpt.get("head", "legacy") != args.head:
             raise SystemExit(f"resume mismatch: checkpoint head {ckpt.get('head', 'legacy')!r} "
                              f"vs --head {args.head!r}")
+        if args.head == "center" and ckpt.get("npts", 4) != args.points:
+            raise SystemExit(f"resume mismatch: checkpoint npts {ckpt.get('npts', 4)} vs --points {args.points}")
         if ckpt.get("total_steps") != total_steps:
             raise SystemExit(f"resume mismatch: checkpoint expects total_steps={ckpt.get('total_steps')}, "
                              f"this invocation has {total_steps} (data/epochs/batch changed?) - start fresh")
@@ -287,7 +299,7 @@ def main():
                 x = photometric_batch(x)
             x = normalize01(x)
             opt.zero_grad(set_to_none=True)
-            targets = (build_center_targets(conf, corners, valid, grid_hw)
+            targets = (build_center_targets(conf, corners, valid, grid_hw, npts=args.points)
                        if args.head == "center" else None)
             with torch.amp.autocast(device_type="cuda", enabled=device == "cuda"):
                 pred = forward_train(x)
@@ -306,10 +318,10 @@ def main():
         # Eval goes through the plain module: it is ~2 s/epoch eager, and the
         # compiled path would build a graph per eval batch shape (val, val's
         # last batch, real_val) at ~25 s each for nothing.
-        vloss, vpx, vacc = evaluate(model, val_dl, device, args.head, grid_hw)
+        vloss, vpx, vacc = evaluate(model, val_dl, device, args.head, grid_hw, args.points)
         rpx = None
         if real_dl is not None:
-            _, rpx, _ = evaluate(model, real_dl, device, args.head, grid_hw)
+            _, rpx, _ = evaluate(model, real_dl, device, args.head, grid_hw, args.points)
         line = (f"epoch {epoch:3d}  train_loss {run_loss / n:.4f}  val_loss {vloss:.4f}  "
                 f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s"
                 + (f"  real_px {rpx:.2f}" if rpx is not None else "")
@@ -321,7 +333,7 @@ def main():
         print(line, flush=True)
         log.append(line)
         slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "view": args.view, "epoch": epoch,
-                "val_px": vpx, "real_px": rpx, "head": args.head}
+                "val_px": vpx, "real_px": rpx, "head": args.head, "npts": args.points}
         select_px = rpx if (args.select == "real" and rpx is not None) else vpx
         if select_px < best_px:
             best_px = select_px

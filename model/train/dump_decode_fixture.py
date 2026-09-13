@@ -111,7 +111,7 @@ def main():
             raise SystemExit(f"{args.ckpt} has head {head!r}; this fixture is center-head only")
         global INPUT_WH
         INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
-        model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
+        model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]), npts=ckpt.get("npts", 4))
         model.load_state_dict(ckpt["model"])
         model.eval()
         ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH, view=ckpt.get("view", "frame"))

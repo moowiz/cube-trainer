@@ -93,7 +93,8 @@ def main():
     INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
     if args.min_edge is None:
         args.min_edge = min_face_edge_px(INPUT_WH[1])
-    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]),
+                        npts=ckpt.get("npts", 4)).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 

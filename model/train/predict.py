@@ -54,7 +54,8 @@ def main():
     head = ckpt.get("head", "legacy")
     global INPUT_WH
     INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
-    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]),
+                        npts=ckpt.get("npts", 4)).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
     localizer = None
