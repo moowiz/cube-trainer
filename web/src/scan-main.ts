@@ -770,6 +770,8 @@ captureBtn.addEventListener('click', () => {
     rotationVotes: [...rotations].map(([id, r]) => ({ track: id, cluster: r.cluster, counts: r.counts })),
     progress: voter.progress(clusters.faceMap()),
     lockAttempt: voter.lastAttempt,
+    stats: statsEl.textContent,
+    timing: { fps: +fps.fps.toFixed(1), pipelineMs: +pipeEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
   void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });

@@ -38,7 +38,8 @@ async function doLoad(ep: Ep | 'auto', previous: TwoStageModels | null): Promise
     return { models: null, reason: `stage 2 failed to load: ${String(err instanceof Error ? err.message : err)}` };
   }
   if (!d) return { models: null, reason: 'no model deployed (public/models/facekp.onnx missing) — use the grid scanner' };
-  const l = previous?.localizer ?? await CubeLocalizer.load();
+  const l = previous?.localizer.ep === d.ep ? previous.localizer : await CubeLocalizer.load(d.ep);
+  if (previous && l !== previous.localizer) previous.localizer.dispose();
   if (!l) {
     d.dispose();
     return { models: null, reason: 'no stage-1 model deployed (public/models/cubebox.onnx missing) — no two-stage path; use the grid scanner' };

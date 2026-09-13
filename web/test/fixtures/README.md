@@ -56,6 +56,9 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   legacy sampling plan (ring at 0.25 of a cell, logo covers 0.20), aliased to
   blue and fed the white face's frames into B; red/orange 11 deg apart leaked
   into each other at an 8 deg hue split (now 5, and facePlan's 0.30 ring).
+  `-1789315824514`: no blue cluster all session - the blue face's centre read
+  (-0.3, -19.7), 16 from the white centroid, and joined white (sameCluster
+  now never puts a b < -14 reading with a b > -8 one when either is neutral).
 - `session-0913/scan-debug-*.json` — six captures of one afternoon on one
   cube (state pinned by the 08:06 lock, confirmed by photos). Three stalled
   with a colour-count error at 49-53/54 correct: a shadowed blue read as
