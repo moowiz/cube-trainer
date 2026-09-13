@@ -22,3 +22,7 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
 2. Get the files off the phone (share/email/Drive) and drop them here.
 3. Write a test that loads the fixture and asserts classification matches
    `lettersAfterFixes` — it should fail, then fix the classifier against it.
+- `scan-debug-<ts>.json` — **Capture debug** on scan.html: the naming
+  evidence for one detection tick (exemplars, each quad's centre/cells in the
+  naming space, the ranked distances). `-1789290592829` / `-1789290604959` are
+  the blue-named-green lock-in that exemplar-guard.test.ts pins down.

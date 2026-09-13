@@ -330,7 +330,7 @@ async function loop(ts: number): Promise<void> {
       + (lastTick
         ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
           + (lastTick.result
-            ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}  unnamed ${lastTick.result.unnamed.length}`
+            ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}  unnamed ${lastTick.result.unnamed.length}  exemplar rejects ${m?.detector.exemplars.rejected ?? 0}`
             : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
         : '');
   }
