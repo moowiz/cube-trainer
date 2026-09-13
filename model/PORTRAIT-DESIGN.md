@@ -199,15 +199,15 @@ one-line `camera.ts` experiment with an fps number, after this lands.
 with the previous pair re-run on the same frames; the full tables are in
 `README.md` "Always two-stage". Headline:
 
-| | before (v4ft1 + box6) | now (kpft1 + box10) |
+| | before (v4ft1 + box6) | now (kpft3 + box11, deployed) |
 |---|---|---|
-| stage 2 F1 / missed | 0.936 / 13 of 166 | 0.972 / 4 of 178 |
-| stage 2 source-px error far / mid / near | 32 / 35 / 27 | 10 / 16 / 18 |
+| stage 2 F1 / missed | 0.936 / 13 of 166 | 0.961 / 4 of 178 |
+| stage 2 source-px error far / mid / near | 32 / 35 / 27 | 10 / 14 / 16 |
 | stage 2 with the crop jittered ±0.15 | - | 3.51 vs 3.54 model px: unaffected |
-| stage 2 synthetic val_px (crop cache) | - | 2.93 |
-| stage 1 mean IoU / tail < 0.7 | 0.733 / 27.5% | 0.833 / 13.2% |
-| stage 1 far bin IoU | 0.32 | 0.79 |
-| stage 1 per-edge sd | 0.24-0.36 | 0.07-0.10 |
+| stage 2 synthetic val_px (crop cache) | - | 2.79 |
+| stage 1 mean IoU / tail < 0.7 | 0.733 / 27.5% | 0.852 / 7.7% |
+| stage 1 far bin IoU | 0.32 | 0.81 |
+| stage 1 per-edge sd | 0.24-0.36 | 0.04-0.09 |
 
 The range floor did what it was for: the 12 faces under it are all found
 (v4ft1 ignored them and found only 7), and nothing else was lost. Batch 7 was
