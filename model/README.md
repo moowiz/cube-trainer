@@ -85,7 +85,61 @@ box against it).
 **Results** (`data_real_val`, 42 photos / 76 faces, never trained on; the
 measurement plan is `PORTRAIT-DESIGN.md` 5):
 
-RESULTS_TABLE_PLACEHOLDER
+`data_real_val` is 96 frames / 178 faces since batch 7 (42 photos + 54
+clip stills held out as time blocks), never trained on. "Before" is the
+previously deployed pair (`v4ft1` full-frame 320x240 + `box6` 160x120
+landscape) re-measured on exactly the same 96 frames, so the two columns
+are like for like. Corner error is in **source px** (through the crop scale
+for the two-stage model; through the frame scale for the full-frame one),
+because that is what the colour sampler sees; the model-input px are in
+parentheses. Range bins are the face's longest edge over the frame height.
+
+| stage 2 on the padded stage-1 box (`diagnose.py`, pad 0.45) | before: v4ft1 full-frame | **kpft1** two-stage |
+|---|---|---|
+| F1 at score 0.5 | 0.936 | **0.972** |
+| missed faces | 13 of 166 (+12 below the floor ignored) | **4 of 178** (0 of the 12 below the floor) |
+| corner error, model px mean / median | 3.84 / 3.44 | 3.54 / 3.33 |
+| corner error, **source px** mean / median / p90 | (not comparable) | **15.2 / 10.7 / 29.7** |
+| far 0.133-0.188 (43 faces), source px | 32.2, 6 missed | **9.95**, 0 missed |
+| mid 0.188-0.25 (47) | 35.0, 3 missed | **15.8**, 0 missed |
+| near > 0.25 (76) | 27.3, 4 missed | **18.4**, 4 missed |
+| error vs face size, 40-70 px faces | 7.5% of the edge | 7.7% |
+| batch 7 (102 faces) mean px / missed | 4.27 / 9 | **3.67 / 1** |
+| batches 1-6 mean px / missed | 3.32 / 4 (73 faces) | 3.35 / 3 (76 faces) |
+| with the crop jittered ±0.15 per side (localizer error) | - | 3.51 px mean, 2 missed: stage 2 does not care |
+| synthetic val (data_v5 crops, 5760 faces) | - | 2.92 px mean, F1 0.990, source px 5.9 |
+
+The four remaining misses are all foreshortened third faces (shortest edge
+under a quarter of the longest: 3 of 13 such faces missed); glancing-angle
+faces are now the weakest class, exactly the pose `--cornerBias` exists to
+supply. Source-px error is the honest number and it fell 2-3x across the
+board; the far bin, the case this design was for, fell 3.2x and lost its
+misses.
+
+| stage 1 on the whole frame (`bbox_measure.py`, 91 frames with a cube + 5 without) | before: box6 (landscape) | box9 (portrait, no batch 7) | **box10** (portrait + batch 7 + side bands) |
+|---|---|---|---|
+| mean / median IoU | 0.733 / 0.839 | 0.730 / 0.843 | **0.833 / 0.868** |
+| IoU < 0.7 | 27.5% | 33.0% | **13.2%** |
+| misses (obj < 0.5) | 1 | 3 | 2 |
+| cube-less frames, max objectness | 0.23 | 0.03 | 0.05 |
+| batch 7 (54 clip frames) mean IoU / < 0.7 | 0.656 / 39% | 0.653 / 46% | **0.827 / 15%** |
+| batches 1-6 (37 photos) mean IoU | 0.846 | 0.841 | 0.841 |
+| far 0.133-0.188 (6) / mid (13) / near (68) | 0.32 / 0.73 / 0.81 | 0.43 / 0.65 / 0.80 | **0.79 / 0.76 / 0.85** |
+| median w/t, h/t | 1.02, 0.98 | 1.01, 0.98 | 1.02, 1.00 |
+| per-edge sd (L T R B) | 0.36 0.24 0.27 0.35 | 0.18 0.24 0.22 0.23 | **0.10 0.08 0.07 0.10** |
+| log `real_iou` (its own val set) | 0.846 (42 photos) | 0.845 (42 photos) | 0.837 (96 frames) |
+
+box9 vs box10 is the batch-7 effect: identical recipe, the clip frames in
+training (216 of 373 real photos, `*40`) plus the side-band augmentation.
+The old photo batches did not move; the clip frames went from a 46% tail to
+15%, the far bin from 0.43 to 0.79, and the 2.4x-oversized boxes on far
+cubes are gone (w/t 1.05). The two misses left are batch-2's dim
+dead-on-against-a-monitor photo (obj 0.15, the open regression since
+box5) and one batch-6 frame at obj 0.18.
+
+Deployed 2026-09-13: `cubebox` = box10, `facekp` = kpft1 (fp32; the int8
+gate still fails at 8 px mean shift). `web/test/fixtures/facekp-maps-square.json`
+is dumped from kpft1.
 
 ## Architecture: anonymous-quad head (center-v1, 2026-09-12)
 
@@ -441,6 +495,12 @@ scanning range above) dominate the raw mean; report the in-range number too.
 | **box6** | dense | same | Gaussian cell target (**deployed**) | 0.886 | **0.846** | 10.8% | 3.4% | 0.07 |
 | box7 | dense | same | peak-normalised Gaussian, 80 ep (overfits synthetic) | 0.895 | 0.835 | 8.1% | 3.4% | 0.21 |
 | box8 | dense | same | + darkening aug to 0.45× (no measured benefit) | 0.891 | 0.828 | 10.8% | 0.0% | 0.18 |
+| box9 | dense | **120x160 portrait**, data_v5 + data_real (157) | PORTRAIT-DESIGN.md; frame cache pooled 2x; `_bars` p 0.15 | 0.890 | 0.845 (42 photos) | 33.0%† | 29.9%† | 0.08† |
+| **box10** | dense | same + batch 7 (`data_real` 373) | `_side_bars` p 0.10; **deployed 2026-09-13** | 0.885 | 0.837 (96 frames) | 13.2%† | 12.6%† | 0.15† |
+
+† measured with `bbox_measure.py` on the 96-frame val (91 with a cube); the
+earlier rows are on the 37-photo set. Full before/after tables: "Always
+two-stage" above.
 
 \* on the data_v3 split; not comparable. box4/6/7/8 are within noise of each
 other (37 photos). `real_iou`/`real_bad` are printed every epoch and

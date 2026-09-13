@@ -194,6 +194,26 @@ frame would give ~323 px of crop at the floor and 2.25x the pixels per
 sticker for colour, at the cost of a 3.7 MB frame read). Deferred; a
 one-line `camera.ts` experiment with an fps number, after this lands.
 
+**Results (2026-09-13 morning).** Measured as planned, on the 96-frame
+`data_real_val` (42 photos + 54 batch-7 clip stills held out as time blocks)
+with the previous pair re-run on the same frames; the full tables are in
+`README.md` "Always two-stage". Headline:
+
+| | before (v4ft1 + box6) | now (kpft1 + box10) |
+|---|---|---|
+| stage 2 F1 / missed | 0.936 / 13 of 166 | 0.972 / 4 of 178 |
+| stage 2 source-px error far / mid / near | 32 / 35 / 27 | 10 / 16 / 18 |
+| stage 2 with the crop jittered ±0.15 | - | 3.51 vs 3.54 model px: unaffected |
+| stage 2 synthetic val_px (crop cache) | - | 2.93 |
+| stage 1 mean IoU / tail < 0.7 | 0.733 / 27.5% | 0.833 / 13.2% |
+| stage 1 far bin IoU | 0.32 | 0.79 |
+| stage 1 per-edge sd | 0.24-0.36 | 0.07-0.10 |
+
+The range floor did what it was for: the 12 faces under it are all found
+(v4ft1 ignored them and found only 7), and nothing else was lost. Batch 7 was
+labelled the same morning; `score_frames.py` on the clips is superseded by
+the labelled measurement above. Phone check: `/scan.html`.
+
 ## 6. Hardcoded shapes to replace (grep of both trees)
 
 `web/`: nothing hardcodes the shapes (sidecar-driven). Floor (§2),
