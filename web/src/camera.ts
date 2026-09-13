@@ -73,6 +73,7 @@ export class Camera {
       track.addEventListener('ended', () => {
         this._running = false;
       });
+      await requestAutoModes(track);
     }
 
     this.video.srcObject = stream;
@@ -138,6 +139,45 @@ export class Camera {
         // getUserMedia rejects with a DOMException, which callers should see
         // unmodified rather than repackaged into a generic Error.
         return err;
+    }
+  }
+}
+
+// Ask the camera for continuous auto exposure / white balance / focus.
+// getUserMedia leaves the track in whatever mode the driver is sitting in —
+// on a desktop webcam that can be a manual exposure left behind by another
+// app, which shows up here as a blown-out frame until something (Meet, say)
+// explicitly requests auto again. Only modes the track advertises are
+// requested; anything unsupported is skipped and failures are non-fatal.
+// DECISION: 'continuous' rather than 'single-shot' — the cube moves through
+// the frame and each capture needs the metering to follow it.
+type AutoMode = 'exposureMode' | 'whiteBalanceMode' | 'focusMode';
+const AUTO_MODES: AutoMode[] = ['exposureMode', 'whiteBalanceMode', 'focusMode'];
+
+async function requestAutoModes(track: MediaStreamTrack): Promise<void> {
+  if (typeof track.getCapabilities !== 'function') return;
+  let caps: Partial<Record<AutoMode, string[]>>;
+  try {
+    caps = track.getCapabilities() as Partial<Record<AutoMode, string[]>>;
+  } catch {
+    return;
+  }
+  const wanted: Partial<Record<AutoMode, string>> = {};
+  for (const mode of AUTO_MODES) {
+    if (caps[mode]?.includes('continuous')) wanted[mode] = 'continuous';
+  }
+  if (Object.keys(wanted).length === 0) return;
+  try {
+    await track.applyConstraints({ advanced: [wanted as MediaTrackConstraintSet] });
+  } catch {
+    // Some drivers reject the batch; retry one at a time so a single
+    // unsupported key doesn't cost us the others.
+    for (const [mode, value] of Object.entries(wanted)) {
+      try {
+        await track.applyConstraints({ advanced: [{ [mode]: value } as MediaTrackConstraintSet] });
+      } catch {
+        /* leave the driver's mode alone */
+      }
     }
   }
 }
