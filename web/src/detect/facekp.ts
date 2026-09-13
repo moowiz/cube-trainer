@@ -82,6 +82,10 @@ export type Ep = 'webgpu' | 'wasm';
 const CONF_KEEP = 0.25; // hand everything plausible to the caller; it filters
 const BENCH_KEY = 'facekp:epBench:v1';
 const TOP_K = 6;        // max faces the center head decodes per frame (3 can be visible)
+// Decode dedupe, mirroring model/train/model.py's CENTER_* constants exactly.
+const DEDUPE_FRAC = 0.5;      // suppression radius as a fraction of the kept quad's mean edge
+const MIN_DEDUPE_PX = 8;      // floor, for degenerate near-zero-area quads
+const MAX_CANDIDATES = 32;    // cells decoded per frame before deduplication
 
 export class FaceDetector {
   private constructor(
@@ -376,43 +380,44 @@ export function decodeMaps(
   const n = gh * gw;
   const heat = new Float32Array(n);
   for (let c = 0; c < n; c++) heat[c] = 1 / (1 + Math.exp(-maps[c]!));
-  const kept: { score: number; cell: number }[] = [];
-  for (let i = 0; i < gh; i++) {
-    for (let j = 0; j < gw; j++) {
-      const c = i * gw + j;
-      const s = heat[c]!;
-      // 3x3 max-pool NMS, keeping cells that EQUAL their neighbourhood max -
-      // the same `heat == max_pool2d(heat)` test the Python side does. A flat
-      // plateau therefore keeps every cell on it, which is why the fixture
-      // contains one.
-      let isPeak = true;
-      for (let di = -1; di <= 1 && isPeak; di++) {
-        const ni = i + di;
-        if (ni < 0 || ni >= gh) continue;
-        for (let dj = -1; dj <= 1; dj++) {
-          const nj = j + dj;
-          if (nj < 0 || nj >= gw) continue;
-          if (heat[ni * gw + nj]! > s) { isPeak = false; break; }
-        }
-      }
-      if (isPeak) kept.push({ score: s, cell: c });
-    }
-  }
-  // topk: score descending, ties broken by cell index ascending (torch.topk
-  // on a 1-D view returns the lower index first for equal values).
-  kept.sort((a, b) => (b.score - a.score) || (a.cell - b.cell));
+  // Candidates: every cell at or above the threshold, strongest first, ties to
+  // the lower cell index (torch.topk on a 1-D view returns the lower index
+  // first for equal values).
+  const cand: { score: number; cell: number }[] = [];
+  for (let c = 0; c < n; c++) if (heat[c]! >= thresh) cand.push({ score: heat[c]!, cell: c });
+  cand.sort((a, b) => (b.score - a.score) || (a.cell - b.cell));
+
   const out: { score: number; quad: [number, number][] }[] = [];
-  for (const { score, cell } of kept.slice(0, k)) {
-    if (score < thresh) continue;
+  const keptCentre: [number, number][] = [];
+  const keptRadius: number[] = [];
+  for (const { score, cell } of cand.slice(0, MAX_CANDIDATES)) {
     const i = Math.floor(cell / gw);
     const j = cell % gw;
-    const quad: [number, number][] = [];
+    // Decode in input px first: the dedupe radius is a length, so it has to be
+    // measured before the x/y normalization stretches the two axes differently.
+    const px: [number, number][] = [];
     for (let c = 0; c < 4; c++) {
       const ox = maps[(1 + 2 * c) * n + cell]!;
       const oy = maps[(2 + 2 * c) * n + cell]!;
-      quad.push([(j + 0.5 + ox) * stride / iw, (i + 0.5 + oy) * stride / ih]);
+      px.push([(j + 0.5 + ox) * stride, (i + 0.5 + oy) * stride]);
     }
-    out.push({ score, quad });
+    let cx = 0;
+    let cy = 0;
+    let perim = 0;
+    for (let c = 0; c < 4; c++) {
+      cx += px[c]![0] / 4;
+      cy += px[c]![1] / 4;
+      perim += Math.hypot(px[(c + 1) % 4]![0] - px[c]![0], px[(c + 1) % 4]![1] - px[c]![1]);
+    }
+    // Suppression radius scales with the face, so a small cube's three centres
+    // stay separable where a fixed one-cell radius merged them. See the
+    // DECISION comment on decode_maps in model/train/model.py.
+    const radius = Math.max(DEDUPE_FRAC * (perim / 4), MIN_DEDUPE_PX);
+    if (keptCentre.some((c, idx) => Math.hypot(c[0] - cx, c[1] - cy) < keptRadius[idx]!)) continue;
+    keptCentre.push([cx, cy]);
+    keptRadius.push(radius);
+    out.push({ score, quad: px.map(([x, y]) => [x / iw, y / ih]) as [number, number][] });
+    if (out.length >= k) break;
   }
   return out;
 }

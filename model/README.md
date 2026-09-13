@@ -253,6 +253,50 @@ Zero-shot on `data_real_val` (no fine-tune, 20 epochs): 8.96 px, 13 of 76
 faces missed. Not yet comparable with the deployed `ft7` — the deploy gate
 is per batch AFTER the real-photo fine-tune.
 
+## Most misses were the DECODER, not the model (2026-09-12, runs/v4base)
+
+Two thirds of every miss on `data_v4` val was a face the model had found and
+the decoder threw away. The 3x3 max-pool NMS keeps a cell only if it is the
+brightest within one cell of itself — a suppression radius frozen at one
+stride (16 px) no matter how big the cube is on screen. But the spacing
+between a cube's three face centres shrinks with the cube: at 43 px per face
+they sit ~1.8 cells apart, so the strongest face's Gaussian is still rising
+as it crosses the weaker face's own centre cell, and that face is dropped
+with the model **0.83 confident** in it.
+
+Measured over the 201 misses (`train/dump_failures.py` draws them,
+`train/viz_nms.py` draws the mechanism):
+
+| why the face was missed | share | median squash | median heat at the true centre |
+|---|---|---|---|
+| confident, but not its own 3x3 max | **62.7%** | 0.72 | 0.83 |
+| peak survived, below the 0.5 threshold | 16.9% | 0.20 | 0.40 |
+| no peak, model saw nothing | 20.4% | 0.31 | 0.29 |
+
+Note the median squash of the suppressed group: **0.72, i.e. not
+foreshortened at all**. Miss rate by how far the nearest other face centre
+sits: 12.3% at 1.5–2.5 cells, 1.2% at 2.5–4, 0.8% beyond. And the cell that
+outranks the true centre points at the neighbouring face 79% of the time.
+
+**Fix: deduplicate on the decoded quads, radius = 0.5 x the kept quad's own
+mean edge** (floor 8 px), candidates = every cell above threshold, strongest
+first. The radius then scales with the cube. Same checkpoint, no retraining:
+
+| decode | matched | missed | FP | F1 |
+|---|---|---|---|---|
+| 3x3 max-pool | 5647 | 201 | 38 | 0.979 |
+| size-aware (shipped) | 5771 | **77** | 52 | **0.989** |
+
+Sub-40 px faces went from 176 misses to 64. Mean corner error is unchanged
+at 2.6 px (the recovered faces are the harder small ones, so it does not
+improve). Ties in the candidate order are broken by cell index, which needs
+a **stable descending sort — `torch.topk` does not promise that order** and
+was measured returning the higher cell first for an exact tie, which the
+TypeScript mirror then disagreed with. `web/test/fixtures/facekp-maps*.json`
+pin both implementations; the synthetic one now carries a same-quad pair, a
+different-faces-32-px-apart pair, an exact tie, a sub-threshold peak and
+off-frame corners.
+
 ## Scanning range: how far away we care about (DECISION 2026-09-12, user)
 
 The app only ever has to work as far away as a person can hold a cube. The

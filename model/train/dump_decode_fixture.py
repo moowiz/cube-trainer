@@ -31,20 +31,57 @@ INPUT_WH = (320, 240)
 FIXTURE = Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "facekp-maps.json"
 
 
+def _write_quad(maps, i, j, cx, cy, half, stride=CENTER_STRIDE):
+    """Make cell (i,j) predict an axis-aligned square of side 2*half px centred
+    at (cx,cy) px, by writing the offsets that decode to exactly that."""
+    corners = [(cx - half, cy - half), (cx + half, cy - half),
+               (cx + half, cy + half), (cx - half, cy + half)]
+    for c, (x, y) in enumerate(corners):
+        maps[0, 1 + 2 * c, i, j] = x / stride - (j + 0.5)
+        maps[0, 2 + 2 * c, i, j] = y / stride - (i + 0.5)
+
+
 def synthetic_maps(grid_hw=(15, 20), seed: int = 7) -> torch.Tensor:
-    """Deterministic stand-in with the awkward cases a real map also has:
-    two clear peaks, a near-tie plateau (equal neighbours - NMS keeps both
-    only if the comparison is >=), a sub-threshold peak, and offsets that
-    put corners outside the frame."""
+    """Deterministic stand-in carrying the cases a trained map almost never
+    produces but the decoder must get right. Since 2026-09-12 deduplication is
+    on the decoded quads (see model.py::decode_maps), so what matters is no
+    longer plateaus in the heatmap but what the competing cells DRAW:
+
+      A  two adjacent cells describing the SAME quad     -> collapse to one
+      B  two cells 2 apart describing DIFFERENT small
+         faces, centres 32 px apart (the small-cube case
+         the old 3x3 NMS destroyed)                      -> keep both
+      C  an exact score tie between two separate quads   -> both, lower cell
+                                                            index first
+      D  a sub-threshold peak                            -> dropped
+      E  offsets putting corners outside the frame       -> kept as-is
+    """
     g = torch.Generator().manual_seed(seed)
     H, W = grid_hw
     maps = torch.full((1, 9, H, W), -4.0)
     maps += torch.randn(1, 9, H, W, generator=g) * 0.3
     maps[0, 1:] = torch.randn(9 - 1, H, W, generator=g) * 2.0
-    for (i, j, logit) in ((4, 5, 3.5), (9, 13, 2.0), (2, 16, -1.2)):
-        maps[0, 0, i - 1:i + 2, j - 1:j + 2] = logit - 1.5
-        maps[0, 0, i, j] = logit
-    maps[0, 0, 12, 3] = maps[0, 0, 12, 4] = 1.0   # exact plateau tie
+
+    # A: cells (4,5) and (4,6) both draw the one 96 px face centred at (88,72)
+    maps[0, 0, 4, 5], maps[0, 0, 4, 6] = 3.5, 2.6
+    _write_quad(maps, 4, 5, 88, 72, 48)
+    _write_quad(maps, 4, 6, 88, 72, 48)
+
+    # B: a small cube - two 30 px faces whose centres are only 32 px (2 cells)
+    # apart. Both must survive: 0.5 * 30 = 15 px radius < 32 px separation.
+    maps[0, 0, 9, 12], maps[0, 0, 9, 14] = 2.4, 2.0
+    _write_quad(maps, 9, 12, 200, 152, 15)
+    _write_quad(maps, 9, 14, 232, 152, 15)
+
+    # C: an exact tie, two well-separated quads
+    maps[0, 0, 12, 3] = maps[0, 0, 12, 8] = 1.0
+    _write_quad(maps, 12, 3, 56, 200, 20)
+    _write_quad(maps, 12, 8, 136, 200, 20)
+
+    # D: below threshold.  E: corners off the left edge and above the frame.
+    maps[0, 0, 2, 16] = -1.2
+    maps[0, 0, 6, 1] = 2.2
+    _write_quad(maps, 6, 1, -10, 20, 40)
     return maps
 
 

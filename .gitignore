@@ -27,3 +27,6 @@ __pycache__/
 .DS_Store
 model/roboflow/
 model/preview_v*/
+
+# Rendered failure cases - these draw REAL photos (see data_real rule above)
+model/train/failures/
