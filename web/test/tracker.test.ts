@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeLcg, shiftQuad } from './helpers';
-import { FaceTracker } from '../src/detect/tracker';
-import type { DetectedFace } from '../src/detect/facekp';
+import { QuadTracker, type QuadDetection } from '../src/detect/tracker';
 
 // ---------- deterministic noise: tiny hand-rolled LCG (no Math.random) ----------
 
@@ -33,9 +32,9 @@ const SQUARE: Quad = [
 
 const DT = 33; // ms, ~30fps — matches the 2-3 frame detector cadence
 
-describe('FaceTracker', () => {
+describe('QuadTracker', () => {
   it('smooths alternating +/-3px noise to within 1px of truth', () => {
-    const tracker = new FaceTracker();
+    const tracker = new QuadTracker();
     const rand = makeLcg(1);
     let prevOut: Quad | null = null;
     let maxOutStep = 0;
@@ -47,7 +46,7 @@ describe('FaceTracker', () => {
       // a smoothing filter has to reject.
       const sign = i % 2 === 0 ? 1 : -1;
       const noisy = shiftQuad(SQUARE, sign * 3, 0);
-      const det: DetectedFace = { face: 'U', conf: 0.9, corners: noisy };
+      const det: QuadDetection = { conf: 0.9, corners: noisy };
       const [track] = tracker.update([det], DT);
 
       // Only measure steady-state jitter (skip the initial transient while
@@ -64,7 +63,7 @@ describe('FaceTracker', () => {
   });
 
   it('interpolates a constant-velocity quad between sparse detections', () => {
-    const tracker = new FaceTracker();
+    const tracker = new QuadTracker();
     const vel: [number, number] = [5, 2]; // px per frame (per DT ms)
     let truth = SQUARE;
     let lastOut: Quad | null = null;
@@ -72,8 +71,8 @@ describe('FaceTracker', () => {
     for (let i = 0; i < 30; i++) {
       truth = shiftQuad(truth, vel[0], vel[1]);
       const hasDetection = i % 3 === 0;
-      const detections: DetectedFace[] | null = hasDetection
-        ? [{ face: 'U', conf: 0.9, corners: truth }]
+      const detections: QuadDetection[] | null = hasDetection
+        ? [{ conf: 0.9, corners: truth }]
         : null;
       const [track] = tracker.update(detections, DT);
 
@@ -96,14 +95,14 @@ describe('FaceTracker', () => {
   });
 
   it('stays locked to one cyclic corner assignment despite random rolls', () => {
-    const tracker = new FaceTracker();
+    const tracker = new QuadTracker();
     const rand = makeLcg(42);
     let refCorner0: [number, number] | null = null;
 
     for (let i = 0; i < 20; i++) {
       const roll = Math.floor(rand() * 4);
       const rolled = rollQuad(SQUARE, roll);
-      const [track] = tracker.update([{ face: 'U', conf: 0.9, corners: rolled }], DT);
+      const [track] = tracker.update([{ conf: 0.9, corners: rolled }], DT);
 
       if (refCorner0 === null) {
         refCorner0 = track.corners[0];
@@ -116,55 +115,79 @@ describe('FaceTracker', () => {
   });
 
   it('gates a teleported detection but accepts a brand-new track anywhere', () => {
-    const tracker = new FaceTracker();
+    const tracker = new QuadTracker();
 
     // Establish a stable, aged track (>200ms) for face U.
     let stablePos: Quad = SQUARE;
     for (let i = 0; i < 10; i++) {
-      const [track] = tracker.update([{ face: 'U', conf: 0.9, corners: SQUARE }], DT);
+      const [track] = tracker.update([{ conf: 0.9, corners: SQUARE }], DT);
       stablePos = track.corners;
     }
 
-    // Teleport the detection 200px away — should be gated out.
+    // Two detections far away: neither is inside the old track's gate, so
+    // the old track coasts and both become new tracks.
     const teleported = shiftQuad(SQUARE, 200, 200);
-    const outAfterTeleport = tracker.update(
-      [
-        { face: 'U', conf: 0.9, corners: teleported },
-        { face: 'R', conf: 0.8, corners: shiftQuad(SQUARE, 500, 500) }, // brand-new track, far away
-      ],
-      DT,
-    );
+    const far = shiftQuad(SQUARE, 500, 500);
+    const outAfterTeleport = tracker.update([{ conf: 0.9, corners: teleported }, { conf: 0.8, corners: far }], DT);
 
-    const uTrack = outAfterTeleport.find((t) => t.face === 'U')!;
-    const rTrack = outAfterTeleport.find((t) => t.face === 'R')!;
-
-    // U barely moved: the teleported detection was rejected by the gate.
-    expect(maxCornerDist(uTrack.corners, stablePos)).toBeLessThan(5);
-    // R is a fresh track — no prior state to gate against, so it's accepted
-    // immediately wherever its first detection lands.
-    expect(maxCornerDist(rTrack.corners, shiftQuad(SQUARE, 500, 500))).toBeLessThan(1);
+    expect(outAfterTeleport.length).toBe(3);
+    const old = outAfterTeleport.find((t) => t.id === 1)!;
+    // the old track barely moved: the teleported detection was not associated with it
+    expect(maxCornerDist(old.corners, stablePos)).toBeLessThan(5);
+    expect(old.detIndex).toBe(-1);
+    // fresh tracks - no prior state to gate against - are accepted wherever they land
+    expect(outAfterTeleport.some((t) => maxCornerDist(t.corners, far) < 1 && t.detIndex === 1)).toBe(true);
+    expect(outAfterTeleport.some((t) => maxCornerDist(t.corners, teleported) < 1 && t.detIndex === 0)).toBe(true);
   });
 
   it('drops a track once sinceDetectMs exceeds dropMs', () => {
-    const tracker = new FaceTracker({ dropMs: 450 });
+    const tracker = new QuadTracker({ dropMs: 450 });
 
-    tracker.update([{ face: 'U', conf: 0.9, corners: SQUARE }], DT);
+    tracker.update([{ conf: 0.9, corners: SQUARE }], DT);
 
     // ~300ms of coasting: still alive.
-    let out: ReturnType<FaceTracker['update']> = [];
+    let out: ReturnType<QuadTracker['update']> = [];
     for (let i = 0; i < 9; i++) out = tracker.update(null, DT); // 9*33 = 297ms
-    expect(out.some((t) => t.face === 'U')).toBe(true);
+    expect(out.length).toBe(1);
 
     // Push past dropMs (450ms total since last detection).
     for (let i = 0; i < 6; i++) out = tracker.update(null, DT); // +198ms = 495ms
-    expect(out.some((t) => t.face === 'U')).toBe(false);
+    expect(out.length).toBe(0);
   });
 
   it('reset() clears all tracks', () => {
-    const tracker = new FaceTracker();
-    tracker.update([{ face: 'F', conf: 0.9, corners: SQUARE }], DT);
+    const tracker = new QuadTracker();
+    tracker.update([{ conf: 0.9, corners: SQUARE }], DT);
     tracker.reset();
     const out = tracker.update(null, DT);
     expect(out.length).toBe(0);
+  });
+});
+
+describe('QuadTracker association by geometry', () => {
+  it('keeps two nearby tracks apart and follows each one', () => {
+    const tracker = new QuadTracker();
+    const a = SQUARE;
+    const b = shiftQuad(SQUARE, 130, 0); // adjacent face, edges 30 px apart
+    let ida = -1;
+    let idb = -1;
+    for (let i = 0; i < 20; i++) {
+      const out = tracker.update([{ conf: 0.9, corners: shiftQuad(b, i, 0) }, { conf: 0.9, corners: shiftQuad(a, i, 0) }], DT);
+      expect(out.length).toBe(2);
+      const ta = out.find((t) => maxCornerDist(t.corners, shiftQuad(a, i, 0)) < 8)!;
+      const tb = out.find((t) => maxCornerDist(t.corners, shiftQuad(b, i, 0)) < 8)!;
+      expect(ta).toBeDefined();
+      expect(tb).toBeDefined();
+      if (i === 0) { ida = ta.id; idb = tb.id; } else { expect(ta.id).toBe(ida); expect(tb.id).toBe(idb); }
+    }
+  });
+
+  it('a track survives its detection being refused (coasts) and picks it back up', () => {
+    const tracker = new QuadTracker();
+    const [t0] = tracker.update([{ conf: 0.9, corners: SQUARE }], DT);
+    for (let i = 0; i < 5; i++) tracker.update(null, DT);
+    const [t1] = tracker.update([{ conf: 0.9, corners: shiftQuad(SQUARE, 4, 0) }], DT);
+    expect(t1!.id).toBe(t0!.id);
+    expect(t1!.detIndex).toBe(0);
   });
 });

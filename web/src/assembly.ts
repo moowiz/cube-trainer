@@ -1,25 +1,33 @@
 // Any-order state assembly (M7): per-sticker voting across frames.
 //
-// The detector/tracker/orient stack turns frames into per-face 9-cell Lab
-// observations (already in sticker-layout order). This module accumulates
-// them into per-cell sample reservoirs and, once every face has enough
-// evidence, aggregates each cell (Lab median - robust to outlier frames)
-// and hands the result to M1's proven assembleState (center-seeded k-means
-// + cubejs facelet mapping), then validateState. Never trust a single frame
-// (CLAUDE.md): a state only locks when sampling converged AND cubejs
+// The detector/tracker stack turns frames into per-face 9-cell Lab
+// observations (already in sticker-layout order), each tagged with the
+// session colour CLUSTER its centre belongs to (detect/colorid.ts) - not a
+// face letter. This module accumulates them into per-cell sample reservoirs
+// keyed by cluster and, once every cluster has enough evidence and every
+// cluster has a letter, aggregates each cell (Lab median - robust to outlier
+// frames), hands the result to M1's proven assembleState (center-seeded
+// k-means + cubejs facelet mapping), resolves near-tie stickers by piece
+// uniqueness (resolveByPieces), then validateState. Never trust a single
+// frame (CLAUDE.md): a state only locks when sampling converged AND cubejs
 // accepts it.
+//
+// Keying by cluster rather than letter (2026-09-13) is what lets a cluster be
+// renamed (a lone warm cluster resolving to red or orange late in the
+// session) without throwing away or mislabelling the votes already cast.
 //
 // M8 glare rule lives here too: samples that are blown out (very high L,
 // near-zero chroma) carry no pigment information and are dropped before
 // they can dilute the vote.
 
 import { labMedian, labDistance } from './color';
-import { assembleState, validateState, type AssembledState } from './state';
+import { assembleState, resolveByPieces, validateState, type AssembledState } from './state';
 import { FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 
 export interface FaceObservation {
-  face: FaceId;
+  /** Session colour cluster id of this face's centre (detect/colorid.ts). */
+  cluster: number;
   /** 9 Lab cells, row-major in the face's sticker-layout orientation. */
   cells: Lab[];
   /** Detector confidence for this face in this frame, [0,1]. */
@@ -27,8 +35,10 @@ export interface FaceObservation {
 }
 
 export interface AssemblyProgress {
-  /** 0..1 per face: how close its cells are to having enough samples. */
+  /** 0..1 per face: how close its cells are to having enough samples (unbound clusters do not show). */
   faceFill: Record<FaceId, number>;
+  /** Fill of clusters that have no letter yet, by cluster id. */
+  unboundFill: Record<number, number>;
   framesSeen: number;
   /** Set once a valid state has locked. */
   locked: AssembledState | null;
@@ -50,7 +60,7 @@ const RESERVOIR = 25;       // cap per cell; newest replace oldest
 const MIN_CONF = 0.5;       // ignore observations from low-confidence quads
 
 export class StickerVoter {
-  private samples: Map<string, Lab[]> = new Map(); // "F:3" -> reservoir
+  private samples: Map<string, Lab[]> = new Map(); // "<cluster>:<cell>" -> reservoir
   private frames = 0;
   private locked: AssembledState | null = null;
   private lastValidationError: string | null = null;
@@ -62,7 +72,8 @@ export class StickerVoter {
     this.lastValidationError = null;
   }
 
-  addFrame(observations: readonly FaceObservation[]): void {
+  /** Record one frame's observations. `faceMap` is the current cluster -> letter binding, used to try a lock. */
+  addFrame(observations: readonly FaceObservation[], faceMap: ReadonlyMap<number, FaceId>): void {
     if (this.locked) return;
     this.frames++;
     for (const ob of observations) {
@@ -70,33 +81,56 @@ export class StickerVoter {
       for (let i = 0; i < 9; i++) {
         const cell = ob.cells[i]!;
         if (isGlareSample(cell)) continue;
-        const key = `${ob.face}:${i}`;
+        const key = `${ob.cluster}:${i}`;
         let r = this.samples.get(key);
         if (!r) this.samples.set(key, (r = []));
         r.push({ ...cell });
         if (r.length > RESERVOIR) r.shift();
       }
     }
-    this.tryLock();
+    this.tryLock(faceMap);
   }
 
-  private cellSamples(face: FaceId, i: number): Lab[] {
-    return this.samples.get(`${face}:${i}`) ?? [];
+  /** Merge one cluster's votes into another (the clusterer merged them). */
+  mergeClusters(from: number, into: number): void {
+    for (let i = 0; i < 9; i++) {
+      const src = this.samples.get(`${from}:${i}`);
+      if (!src) continue;
+      const key = `${into}:${i}`;
+      const dst = this.samples.get(key) ?? [];
+      this.samples.set(key, [...dst, ...src].slice(-RESERVOIR));
+      this.samples.delete(`${from}:${i}`);
+    }
   }
 
-  private faceReady(face: FaceId): boolean {
-    for (let i = 0; i < 9; i++) if (this.cellSamples(face, i).length < MIN_SAMPLES) return false;
-    return true;
+  private cellSamples(cluster: number, i: number): Lab[] {
+    return this.samples.get(`${cluster}:${i}`) ?? [];
   }
 
-  private tryLock(): void {
-    for (const f of FACE_ORDER) if (!this.faceReady(f)) return;
+  private clusterIds(): number[] {
+    const ids = new Set<number>();
+    for (const key of this.samples.keys()) ids.add(Number(key.split(':')[0]));
+    return [...ids];
+  }
+
+  private fill(cluster: number): number {
+    let have = 0;
+    for (let i = 0; i < 9; i++) have += Math.min(this.cellSamples(cluster, i).length, MIN_SAMPLES);
+    return have / (9 * MIN_SAMPLES);
+  }
+
+  /** Try to lock with the given binding; the caller may call this after a re-binding without new samples. */
+  tryLock(faceMap: ReadonlyMap<number, FaceId>): void {
+    if (this.locked) return;
+    const byFace = new Map<FaceId, number>();
+    for (const [cluster, face] of faceMap) if (this.fill(cluster) >= 1) byFace.set(face, cluster);
+    for (const f of FACE_ORDER) if (!byFace.has(f)) return;
     const captures = FACE_ORDER.map((face) => ({
       face,
-      cells: Array.from({ length: 9 }, (_, i) => labMedian(this.cellSamples(face, i))),
+      cells: Array.from({ length: 9 }, (_, i) => labMedian(this.cellSamples(byFace.get(face)!, i))),
     }));
     try {
-      const assembled = assembleState(captures);
+      const assembled = resolveByPieces(assembleState(captures));
       const v = validateState(assembled.facelets);
       if (v.ok) {
         this.locked = assembled;
@@ -109,20 +143,26 @@ export class StickerVoter {
     }
   }
 
-  progress(): AssemblyProgress {
+  progress(faceMap: ReadonlyMap<number, FaceId>): AssemblyProgress {
     const faceFill = {} as Record<FaceId, number>;
-    for (const f of FACE_ORDER) {
-      let have = 0;
-      for (let i = 0; i < 9; i++) have += Math.min(this.cellSamples(f, i).length, MIN_SAMPLES);
-      faceFill[f] = have / (9 * MIN_SAMPLES);
+    for (const f of FACE_ORDER) faceFill[f] = 0;
+    const unboundFill: Record<number, number> = {};
+    for (const cluster of this.clusterIds()) {
+      const face = faceMap.get(cluster);
+      if (face) faceFill[face] = Math.max(faceFill[face], this.fill(cluster));
+      else unboundFill[cluster] = this.fill(cluster);
     }
     const lowConfidence: number[] = [];
     if (this.locked) {
       // dispersion of each cell's reservoir around its median, worst first
+      const clusterOf = new Map<FaceId, number>();
+      for (const [cluster, face] of faceMap) clusterOf.set(face, cluster);
       const spread: Array<[number, number]> = [];
       FACE_ORDER.forEach((face, fi) => {
+        const cluster = clusterOf.get(face);
+        if (cluster === undefined) return;
         for (let i = 0; i < 9; i++) {
-          const r = this.cellSamples(face, i);
+          const r = this.cellSamples(cluster, i);
           const med = labMedian(r);
           const d = r.reduce((s, x) => s + labDistance(x, med), 0) / Math.max(r.length, 1);
           spread.push([fi * 9 + i, d]);
@@ -135,6 +175,7 @@ export class StickerVoter {
     }
     return {
       faceFill,
+      unboundFill,
       framesSeen: this.frames,
       locked: this.locked,
       validationError: this.lastValidationError,

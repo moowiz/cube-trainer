@@ -470,21 +470,24 @@ export function kmeans(
   return { centroids, labels };
 }
 
-export function nearestCentroid(p: Lab, centroids: readonly Lab[]): { index: number; dist: number; secondDist: number } {
+export function nearestCentroid(p: Lab, centroids: readonly Lab[]): { index: number; dist: number; secondDist: number; secondIndex: number } {
   let index = 0;
+  let secondIndex = -1;
   let dist = Infinity;
   let secondDist = Infinity;
   for (let i = 0; i < centroids.length; i++) {
     const d = labDistance(p, centroids[i]!);
     if (d < dist) {
       secondDist = dist;
+      secondIndex = index;
       dist = d;
       index = i;
     } else if (d < secondDist) {
       secondDist = d;
+      secondIndex = i;
     }
   }
-  return { index, dist, secondDist };
+  return { index, dist, secondDist, secondIndex };
 }
 
 function farthestPointInit(samples: readonly Lab[], k: number): Lab[] {

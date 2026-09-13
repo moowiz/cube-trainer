@@ -1,19 +1,30 @@
-// Corner tracker for the cube face detector (M6).
+// Anonymous quad tracker for the cube face detector (M6).
 //
 // The detector runs every 2-3 frames (detections=null in between); this
 // module smooths jitter with a per-corner alpha-beta filter, coasts on
 // velocity between detections, and rejects outlier jumps (a false positive
 // or a mis-association landing far from where the track predicted).
-import type { DetectedFace } from './facekp';
-import type { FaceId } from '../types';
-import { FACE_ORDER } from '../types';
+//
+// DECISION 2026-09-13: tracks are keyed by a numeric id and associated by
+// GEOMETRY (nearest predicted centroid within a gate), never by a colour
+// name. The previous tracker keyed tracks by face letter, so a face named
+// wrongly once stayed wrong for the life of the track and fed every later
+// frame's colour reading to the wrong exemplar (scan-debug-1789290604959).
+// Identity is now decided downstream, from the track's accumulated colour
+// evidence (colorid.ts), and can change without losing the track.
+export interface QuadDetection {
+  corners: [number, number][];
+  conf: number;
+}
 
-export interface TrackedFace {
-  face: FaceId;
+export interface TrackedQuad {
+  id: number;
   conf: number; // EMA-smoothed confidence
-  corners: [number, number][]; // filtered, 4 corners
+  corners: [number, number][]; // filtered, 4 corners, order stable for the life of the track
   ageMs: number; // time since track created
   sinceDetectMs: number; // time since last accepted detection (0 on frames with one)
+  /** Index into this update's detections that fed the track, or -1 (coasting / no detections). */
+  detIndex: number;
 }
 
 export interface TrackerOptions {
@@ -34,8 +45,9 @@ const DEFAULTS: Required<TrackerOptions> = {
 };
 
 // Below this age a track is still too fresh to trust its prediction for
-// gating (first couple of detections may be noisy) — accept unconditionally.
+// gating (first couple of detections may be noisy) - the gate is widened.
 const GATE_MIN_AGE_MS = 200;
+const YOUNG_GATE_FRAC = 1.2;
 
 // Velocity decay per coasted frame, expressed per 33ms (~30fps) so it scales
 // sensibly if dtMs varies.
@@ -43,15 +55,16 @@ const COAST_VEL_DECAY_PER_33MS = 0.9;
 const COAST_CONF_DECAY_PER_33MS = 0.95;
 
 interface Track {
-  face: FaceId;
+  id: number;
   conf: number;
+  detIndex: number;
   pos: [number, number][]; // 4 corners, px
   vel: [number, number][]; // px/sec
   ageMs: number;
   sinceDetectMs: number;
 }
 
-function centroid(pts: [number, number][]): [number, number] {
+export function centroid(pts: ReadonlyArray<readonly [number, number]>): [number, number] {
   let x = 0;
   let y = 0;
   for (const [px, py] of pts) {
@@ -62,17 +75,17 @@ function centroid(pts: [number, number][]): [number, number] {
 }
 
 // Shoelace formula, unsigned area of the (assumed simple) quad.
-function quadArea(pts: [number, number][]): number {
+export function quadArea(pts: ReadonlyArray<readonly [number, number]>): number {
   let sum = 0;
   for (let i = 0; i < pts.length; i++) {
-    const [x1, y1] = pts[i];
-    const [x2, y2] = pts[(i + 1) % pts.length];
+    const [x1, y1] = pts[i]!;
+    const [x2, y2] = pts[(i + 1) % pts.length]!;
     sum += x1 * y2 - x2 * y1;
   }
   return Math.abs(sum) / 2;
 }
 
-function dist2(a: [number, number], b: [number, number]): number {
+function dist2(a: readonly [number, number], b: readonly [number, number]): number {
   const dx = a[0] - b[0];
   const dy = a[1] - b[1];
   return dx * dx + dy * dy;
@@ -80,7 +93,7 @@ function dist2(a: [number, number], b: [number, number]): number {
 
 // Detector's corner order is only defined up to cyclic rotation (rotation-
 // invariant training target). Roll the incoming corners to whichever of the
-// 4 cyclic rotations best matches the track's predicted order — reflections
+// 4 cyclic rotations best matches the track's predicted order - reflections
 // are never tried, since the detector never emits a mirrored order.
 function bestCyclicRoll(measured: [number, number][], predicted: [number, number][]): [number, number][] {
   const n = measured.length;
@@ -89,19 +102,20 @@ function bestCyclicRoll(measured: [number, number][], predicted: [number, number
   for (let roll = 0; roll < n; roll++) {
     let cost = 0;
     for (let i = 0; i < n; i++) {
-      cost += dist2(measured[(i + roll) % n], predicted[i]);
+      cost += dist2(measured[(i + roll) % n]!, predicted[i]!);
     }
     if (cost < bestCost) {
       bestCost = cost;
-      best = Array.from({ length: n }, (_, i) => measured[(i + roll) % n]);
+      best = Array.from({ length: n }, (_, i) => measured[(i + roll) % n]!);
     }
   }
   return best;
 }
 
-export class FaceTracker {
+export class QuadTracker {
   private opts: Required<TrackerOptions>;
-  private tracks = new Map<FaceId, Track>();
+  private tracks = new Map<number, Track>();
+  private nextId = 1;
 
   constructor(opts: TrackerOptions = {}) {
     this.opts = { ...DEFAULTS, ...opts };
@@ -109,58 +123,64 @@ export class FaceTracker {
 
   reset(): void {
     this.tracks.clear();
+    this.nextId = 1;
   }
 
-  update(detections: DetectedFace[] | null, dtMs: number): TrackedFace[] {
+  update(detections: QuadDetection[] | null, dtMs: number): TrackedQuad[] {
     const { posAlpha, velAlpha, confAlpha, dropMs, gateFrac } = this.opts;
     const dtSec = Math.max(dtMs, 1) / 1000;
-    const detByFace = new Map<FaceId, DetectedFace>();
-    if (detections) {
-      for (const d of detections) detByFace.set(d.face, d);
+
+    // Predict every track forward.
+    const predicted = new Map<number, [number, number][]>();
+    for (const [id, track] of this.tracks) {
+      predicted.set(id, track.pos.map(([x, y], i) => [x + track.vel[i]![0] * dtSec, y + track.vel[i]![1] * dtSec]));
     }
 
-    // Predict every existing track forward, then reconcile with a detection
-    // (if any and if it passes the gate) or let it coast.
-    for (const [face, track] of this.tracks) {
-      const predicted: [number, number][] = track.pos.map(([x, y], i) => [
-        x + track.vel[i][0] * dtSec,
-        y + track.vel[i][1] * dtSec,
-      ]);
-
-      const det = detByFace.get(face);
-      let accepted: [number, number][] | null = null;
-      if (det) {
-        const rolled = bestCyclicRoll(det.corners, predicted);
-        if (track.ageMs < GATE_MIN_AGE_MS) {
-          accepted = rolled;
-        } else {
-          const predCentroid = centroid(predicted);
-          const measCentroid = centroid(rolled);
-          const gate = gateFrac * Math.sqrt(quadArea(predicted));
-          accepted = Math.sqrt(dist2(predCentroid, measCentroid)) <= gate ? rolled : null;
+    // Associate: every (track, detection) pair inside the track's gate,
+    // nearest first, each side used once. A young track gets a wider gate.
+    const assigned = new Map<number, QuadDetection>();
+    const usedDet = new Set<QuadDetection>();
+    if (detections?.length) {
+      const pairs: { id: number; det: QuadDetection; d: number }[] = [];
+      for (const [id, pred] of predicted) {
+        const track = this.tracks.get(id)!;
+        const gate = (track.ageMs < GATE_MIN_AGE_MS ? YOUNG_GATE_FRAC : gateFrac) * Math.sqrt(quadArea(pred));
+        const pc = centroid(pred);
+        for (const det of detections) {
+          const d = Math.sqrt(dist2(pc, centroid(det.corners)));
+          if (d <= gate) pairs.push({ id, det, d });
         }
       }
+      pairs.sort((a, b) => a.d - b.d);
+      for (const p of pairs) {
+        if (assigned.has(p.id) || usedDet.has(p.det)) continue;
+        assigned.set(p.id, p.det);
+        usedDet.add(p.det);
+      }
+    }
 
-      if (accepted) {
+    for (const [id, track] of this.tracks) {
+      const pred = predicted.get(id)!;
+      const det = assigned.get(id);
+      track.detIndex = det ? detections!.indexOf(det) : -1;
+      if (det) {
+        const accepted = bestCyclicRoll(det.corners, pred);
         const newPos: [number, number][] = [];
         const newVel: [number, number][] = [];
-        for (let i = 0; i < predicted.length; i++) {
-          const resX = accepted[i][0] - predicted[i][0];
-          const resY = accepted[i][1] - predicted[i][1];
-          newPos.push([predicted[i][0] + posAlpha * resX, predicted[i][1] + posAlpha * resY]);
-          newVel.push([
-            track.vel[i][0] + (velAlpha * resX) / dtSec,
-            track.vel[i][1] + (velAlpha * resY) / dtSec,
-          ]);
+        for (let i = 0; i < pred.length; i++) {
+          const resX = accepted[i]![0] - pred[i]![0];
+          const resY = accepted[i]![1] - pred[i]![1];
+          newPos.push([pred[i]![0] + posAlpha * resX, pred[i]![1] + posAlpha * resY]);
+          newVel.push([track.vel[i]![0] + (velAlpha * resX) / dtSec, track.vel[i]![1] + (velAlpha * resY) / dtSec]);
         }
         track.pos = newPos;
         track.vel = newVel;
-        track.conf += confAlpha * (det!.conf - track.conf);
+        track.conf += confAlpha * (det.conf - track.conf);
         track.sinceDetectMs = 0;
       } else {
         // Coast: advance by velocity, decay velocity/conf so a stale track
         // doesn't fly off screen or stay falsely confident.
-        track.pos = predicted;
+        track.pos = pred;
         const decaySteps = dtMs / 33;
         const velDecay = Math.pow(COAST_VEL_DECAY_PER_33MS, decaySteps);
         const confDecay = Math.pow(COAST_CONF_DECAY_PER_33MS, decaySteps);
@@ -172,36 +192,37 @@ export class FaceTracker {
     }
 
     // Drop stale tracks.
-    for (const [face, track] of this.tracks) {
-      if (track.sinceDetectMs > dropMs) this.tracks.delete(face);
+    for (const [id, track] of this.tracks) {
+      if (track.sinceDetectMs > dropMs) this.tracks.delete(id);
     }
 
-    // New tracks: any detection for a face with no existing track. Takes
-    // the detection's corner order as-is (nothing to align to yet).
+    // New tracks for unmatched detections. Takes the detection's corner
+    // order as-is (nothing to align to yet).
     if (detections) {
       for (const det of detections) {
-        if (this.tracks.has(det.face)) continue;
-        this.tracks.set(det.face, {
-          face: det.face,
+        if (usedDet.has(det)) continue;
+        this.tracks.set(this.nextId, {
+          id: this.nextId,
           conf: det.conf,
+          detIndex: detections.indexOf(det),
           pos: det.corners.map((c) => [...c] as [number, number]),
           vel: det.corners.map(() => [0, 0]),
           ageMs: 0,
           sinceDetectMs: 0,
         });
+        this.nextId++;
       }
     }
 
-    const out: TrackedFace[] = [];
-    for (const face of FACE_ORDER) {
-      const track = this.tracks.get(face);
-      if (!track) continue;
+    const out: TrackedQuad[] = [];
+    for (const track of this.tracks.values()) {
       out.push({
-        face: track.face,
+        id: track.id,
         conf: track.conf,
         corners: track.pos.map((c) => [...c] as [number, number]),
         ageMs: track.ageMs,
         sinceDetectMs: track.sinceDetectMs,
+        detIndex: track.detIndex,
       });
     }
     return out;
