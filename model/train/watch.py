@@ -6,7 +6,9 @@
 Parses every runs/*-console.log (and runs/<name>/log.txt) into per-epoch
 numbers and serves a single page with charts per run (val_px, train+val
 loss combined, conf accuracy), 5 newest runs, ~1 min auto-refresh, synced
-hover readout across a run's charts. Local only by default.
+hover readout across a run's charts. The page refreshes itself when the
+newest active run's next epoch is due (5 s - 2 min, 1 min when nothing is
+running) instead of on a fixed clock. Local only by default.
 
 Total epochs (for the progress bar and ETA) come from runs/<name>/meta.json,
 which train.py writes before epoch 1; runs without one still chart, just
@@ -82,7 +84,7 @@ th { color:#e8eaf0; }
 </style>
 <main>
 <h1>Cube detector &mdash; training dashboard</h1>
-<p class="sub"><span id="dot"></span>auto-refreshes every 60&#8202;s &middot; <span id="ts">loading&hellip;</span> &middot; 5 most recent runs</p>
+<p class="sub"><span id="dot"></span>refreshes when the next epoch is due &middot; <span id="ts">loading&hellip;</span> &middot; 5 most recent runs</p>
 <div id="root"></div></main>
 <script>
 const METRICS = [
@@ -120,29 +122,53 @@ function fmtClock(d) {
 // the torch.compile warm-up and is not a sample of the steady state.
 function project(rows, total, mtime) {
   const last = rows[rows.length - 1];
-  if (!total) return null;
-  const w = rows.filter(r => r.epoch > 1 && r.sec > 0).slice(-ETA_WINDOW).map(r => r.sec);
-  if (last.epoch >= total) return { done:true, frac:1 };
-  if (!w.length) return { frac: last.epoch / total };
-  const sorted = [...w].sort((a, b) => a - b);
-  const med = sorted.length % 2
-    ? sorted[(sorted.length - 1) / 2]
-    : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
-  const mean = w.reduce((a, b) => a + b, 0) / w.length;
-  const sd = w.length > 1
-    ? Math.sqrt(w.reduce((a, b) => a + (b - mean) ** 2, 0) / (w.length - 1)) : 0;
-  const k = total - last.epoch;
-  const left = k * med;
-  // Epoch seconds are logged rounded to 1 s, so a run whose epochs all read
-  // "16s" shows sd 0 while really varying up to half a second. Add the
-  // rounding's own variance (1/12 s^2) so the band never collapses to zero.
-  const sdq = Math.sqrt(sd * sd + 1 / 12);
-  const band = 1.96 * Math.sqrt(k * sdq * sdq + (k * sdq / Math.sqrt(w.length)) ** 2);
+  // Epoch seconds are integers, so a sub-second epoch (overfit runs) logs as
+  // "0s": read that as half a second rather than dropping the row, or a fast
+  // run gets neither an ETA nor a refresh cadence.
+  const w = rows.filter(r => r.epoch > 1).slice(-ETA_WINDOW).map(r => Math.max(r.sec, 0.5));
+  const p = { total: total || null, done: !!(total && last.epoch >= total) };
+  if (total) p.frac = Math.min(1, last.epoch / total);
+  if (w.length) {
+    const sorted = [...w].sort((a, b) => a - b);
+    p.n = w.length;
+    p.med = sorted.length % 2
+      ? sorted[(sorted.length - 1) / 2]
+      : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+    const mean = w.reduce((a, b) => a + b, 0) / w.length;
+    p.sd = w.length > 1
+      ? Math.sqrt(w.reduce((a, b) => a + (b - mean) ** 2, 0) / (w.length - 1)) : 0;
+  }
   // No epoch line for several epochs' worth of wall clock = it is not running.
+  // Runs too young to have a rate fall back to a flat 3 min before saying so.
   const age = Date.now() / 1000 - mtime;
-  return { frac: last.epoch / total, med, sd, left, band,
-           at: new Date(Date.now() + left * 1000),
-           stale: age > 3 * med + 60 ? age : 0 };
+  p.stale = !p.done && age > 3 * (p.med || 60) + 60 ? age : 0;
+  if (total && !p.done && p.med) {
+    const k = total - last.epoch;
+    p.left = k * p.med;
+    // Epoch seconds are logged rounded to 1 s, so a run whose epochs all read
+    // "16s" shows sd 0 while really varying up to half a second. Add the
+    // rounding's own variance (1/12 s^2) so the band never collapses to zero.
+    const sdq = Math.sqrt(p.sd * p.sd + 1 / 12);
+    p.band = 1.96 * Math.sqrt(k * sdq * sdq + (k * sdq / Math.sqrt(w.length)) ** 2);
+    p.at = new Date(Date.now() + p.left * 1000);
+  }
+  return p;
+}
+
+// Refresh roughly when the next epoch is due, rather than on a fixed clock: a
+// tick landing mid-epoch redraws the same points, and a 16 s/epoch run should
+// not wait a minute to plot one. Driven by the active run whose log was
+// written most recently. Clamped at both ends - an overfit run at 0.4 s/epoch
+// must not turn this into a poll loop, and a box with nothing running should
+// go quiet.
+const MIN_REFRESH = 5000, MAX_REFRESH = 120000, IDLE_REFRESH = 60000, SLACK = 3;
+
+function nextDelay(active) {
+  if (!active.length) return IDLE_REFRESH;
+  const r = active.reduce((a, b) => (b.mtime > a.mtime ? b : a));
+  const due = (r.mtime + r.med + SLACK) * 1000 - Date.now();
+  // Already overdue (we were asleep through an epoch): come back in one epoch.
+  return Math.min(MAX_REFRESH, Math.max(MIN_REFRESH, due > 0 ? due : r.med * 1000));
 }
 
 function drawChart(cv, rows, m, hoverI) {
@@ -201,26 +227,37 @@ function drawChart(cv, rows, m, hoverI) {
 }
 
 async function tick() {
+  let delay = IDLE_REFRESH;
+  try {
+    delay = await render();
+  } catch (e) {
+    document.getElementById('ts').textContent = 'refresh failed: ' + e;  // server gone: keep trying
+  }
+  clearTimeout(timer);
+  timer = setTimeout(tick, delay);
+}
+
+async function render() {
   const runs = await (await fetch('/data')).json();
-  document.getElementById('ts').textContent = 'last updated ' + new Date().toLocaleTimeString();
   const root = document.getElementById('root');
   root.textContent = '';
+  const active = [];   // {mtime, med} per run still producing epochs
   const names = Object.keys(runs).sort((a, b) => runs[b].mtime - runs[a].mtime).slice(0, 5);
   for (const name of names) {
     const { mtime, rows } = runs[name];
     const n = rows.length, last = rows[n - 1];
     const p = project(rows, runs[name].epochs, mtime);
     const h = document.createElement('h2');
-    let head = `${name} — epoch ${last.epoch}${p ? '/' + runs[name].epochs : ''} (${last.sec}s/epoch)`;
-    if (p && p.done) head += ` <span class="now">· finished</span>`;
-    else if (p && p.stale) head += ` <span class="stale">· stalled, no epoch for ${fmtDur(p.stale)}</span>`;
-    else if (p && p.left != null) head += ` <span class="eta">· ${fmtDur(p.left)} left,`
+    let head = `${name} — epoch ${last.epoch}${p.total ? '/' + p.total : ''} (${last.sec}s/epoch)`;
+    if (p.done) head += ` <span class="now">· finished</span>`;
+    else if (p.stale) head += ` <span class="stale">· stalled, no epoch for ${fmtDur(p.stale)}</span>`;
+    else if (p.left != null) head += ` <span class="eta">· ${fmtDur(p.left)} left,`
       + ` done ~${fmtClock(p.at)} ±${fmtDur(p.band)}</span>`
-      + ` <small>${p.med.toFixed(1)}±${p.sd.toFixed(1)} s/epoch over the last`
-      + ` ${Math.min(ETA_WINDOW, rows.filter(r => r.epoch > 1).length)}</small>`;
+      + ` <small>${p.med.toFixed(1)}±${p.sd.toFixed(1)} s/epoch over the last ${p.n}</small>`;
     h.innerHTML = head + ` <small>last log write ${new Date(mtime * 1000).toLocaleString()}</small>`;
     root.append(h);
-    if (p) {
+    if (!p.done && !p.stale && p.med) active.push({ mtime, med: p.med });
+    if (p.frac != null) {
       const bar = document.createElement('div');
       bar.className = 'bar';
       bar.innerHTML = `<i style="width:${(p.frac * 100).toFixed(1)}%"></i>`;
@@ -253,8 +290,13 @@ async function tick() {
       rows.slice(-5).map(r => `<tr class="${r === last ? 'now' : ''}"><td>${r.epoch}</td><td>${r.train_loss.toFixed(4)}</td><td>${r.val_loss.toFixed(4)}</td><td>${r.val_px.toFixed(2)}</td><td>${r.conf_acc.toFixed(3)}</td><td>${r.sec}</td></tr>`).join('');
     root.append(t);
   }
+  const delay = nextDelay(active);
+  document.getElementById('ts').textContent =
+    `last updated ${new Date().toLocaleTimeString()} · next in ${fmtDur(delay / 1000)}`;
+  return delay;
 }
-tick(); setInterval(tick, 60000);
+let timer = null;
+tick();
 </script>"""
 
 
