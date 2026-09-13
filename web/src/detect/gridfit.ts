@@ -116,7 +116,7 @@ const FINAL_WARP = 96;
  * Evaluates at REFINE_WARP for speed; the returned SeamResult is
  * recomputed once at FINAL_WARP (96) for a faithful report.
  */
-export function refineQuad(img: ImageDataLike, quad: Quad, opts: { maxEvals?: number } = {}): { quad: Quad; seam: SeamResult } {
+export function refineQuad(img: ImageDataLike, quad: Quad, opts: { maxEvals?: number; steps?: readonly number[]; finalSeam?: boolean } = {}): { quad: Quad; seam: SeamResult } {
   // DECISION 2026-09-13: 100 evaluations, down from 160 - the smallest
   // budget that still recovers the +/-4 px per-corner perturbation of
   // gridfit.test.ts to within 2 px (64 and 80 do not). Coordinate descent
@@ -134,7 +134,7 @@ export function refineQuad(img: ImageDataLike, quad: Quad, opts: { maxEvals?: nu
   let improvedAny = true;
   while (improvedAny && evals < maxEvals) {
     improvedAny = false;
-    for (const step of REFINE_STEPS) {
+    for (const step of opts.steps ?? REFINE_STEPS) {
       const offsets: Array<[number, number]> = [[step, 0], [-step, 0], [0, step], [0, -step]];
       for (let ci = 0; ci < current.length && evals < maxEvals; ci++) {
         for (const [dx, dy] of offsets) {
@@ -152,6 +152,8 @@ export function refineQuad(img: ImageDataLike, quad: Quad, opts: { maxEvals?: nu
     }
   }
 
-  const seam = seamScore(img, current, FINAL_WARP);
+  // the faithful FINAL_WARP score is a report for the debug panel; a
+  // caller that only wants the corners skips it (opts.finalSeam false)
+  const seam = opts.finalSeam === false ? { score: bestScore, strength: 0 } : seamScore(img, current, FINAL_WARP);
   return { quad: current, seam };
 }

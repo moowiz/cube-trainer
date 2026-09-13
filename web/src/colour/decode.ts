@@ -15,6 +15,7 @@ import type { FaceId } from '../types';
 import { solveAssignment } from '../color';
 import { CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../state';
 import { completeFacelets } from './complete';
+import { refineLegal } from './neighbours';
 
 export interface DecodeOptions {
   /** Wall-clock cap on the legality search (ms); the pop budgets still apply. */
@@ -480,24 +481,29 @@ export function decode(
     };
   }
 
-  const bestKey = keyOf(best.colours);
-  // An ambiguous completion IS a second legal cube at the same cost (the
-  // unseen slots rearranged); the bounded search may not reach it among
-  // thousands of equal-cost arrangements, so say so directly.
-  const resultB = completion === 'ambiguous'
-    ? { found: { cost: best.cost, colours: best.colours }, pops: 0 }
-    : popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey, t0 + maxMs * 1.5, checkPieces);
-  const delta = resultB.found ? resultB.found.cost - best.cost : Infinity;
+  // The runner-up: the cheapest elementary legal move away from the best
+  // (neighbours.ts) - exhaustive over the moves that matter, exact, and a
+  // few ms, where the old budgeted search reported "no runner-up found"
+  // when it had merely run out of pops (a lock on a 7-changed answer with
+  // delta = Infinity, webcam capture 1789338323368). The same enumeration
+  // climbs if the best-first search stopped short of the cheapest legal cube.
+  // An ambiguous completion IS a runner-up at equal cost (the unseen slots
+  // rearranged), whatever the neighbours say.
+  const climbed = checkPieces ? refineLegal(cost, best.colours, legal) : { colours: best.colours.slice(), delta: Infinity, steps: 0 };
+  const finalColours = climbed.colours;
+  const finalCost = best.cost + (checkPieces ? finalColours.reduce((s, c, i) => s + cost[i]![c]! - cost[i]![best!.colours[i]!]!, 0) : 0);
+  const delta = completion === 'ambiguous' ? 0 : climbed.delta;
+  void secondPops;
 
   return {
-    colours: best.colours.slice(),
+    colours: finalColours,
     argmin,
-    cost: best.cost,
-    changed: countChanged(best.colours, argmin, freeSet),
+    cost: finalCost,
+    changed: countChanged(finalColours, argmin, freeSet),
     delta,
-    margins: withFree(computeMargins(cost, best.colours)),
+    margins: withFree(computeMargins(cost, finalColours)),
     legal: true,
-    pops: popsA + resultB.pops,
+    pops: popsA,
     free: free.length,
     completion,
   };

@@ -154,7 +154,11 @@ export function assignLetters(
   // yields to the bigger one instead of stealing a colour from the yellow
   // face (scan-debug-1789321540510: six candidates were cut by evidence
   // BEFORE the distinctness rule, and the sixth colour had no face).
-  const withCentre = groups.map((g) => ({ g, m: centreMembership(g) })).filter((x) => x.m !== null);
+  // DECISION: a group needs some evidence to hold a letter at all - a
+  // two-frame junk track took U from a 111-frame white face on the phone
+  // (capture 1789338640929) and the relabelling then stuck for 20 s.
+  const MIN_GROUP_EVIDENCE = 3;
+  const withCentre = groups.map((g) => ({ g, m: g.nEff >= MIN_GROUP_EVIDENCE ? centreMembership(g) : null })).filter((x) => x.m !== null);
   const colourOf = new Map<number, number>();
   if (withCentre.length) {
     const n = Math.max(withCentre.length, 6);
@@ -172,7 +176,14 @@ export function assignLetters(
     withCentre.forEach(({ g }, i) => { const c = rowToCol[i]!; if (c < 6) colourOf.set(g.id, c); });
   }
   const cands = groups.filter((g) => colourOf.has(g.id));
-  const centreColour = (g: FaceGroup): number | null => hint?.get(g.id) ?? colourOf.get(g.id) ?? null;
+  // a hint from an earlier decode is only trusted where the memberships
+  // do not contradict it, or a wrong decode would perpetuate itself
+  const memb = new Map(withCentre.map((x) => [x.g.id, x.m!]));
+  const centreColour = (g: FaceGroup): number | null => {
+    const h = hint?.get(g.id);
+    if (h !== undefined && (memb.get(g.id)?.[h] ?? 0) >= 0.5) return h;
+    return colourOf.get(g.id) ?? null;
+  };
   const tp = trackPairings(groups, pairings);
 
   interface Best { cost: number; letters: FaceId[]; votes: Map<number, number[]>; penalty: number; mismatches: number }
