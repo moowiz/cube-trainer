@@ -7,3 +7,4 @@ numpy
 pillow
 onnx
 onnxruntime
+matplotlib   # train/viz_nms.py only - the training/export path never imports it

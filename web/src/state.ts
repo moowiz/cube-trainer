@@ -220,13 +220,27 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
   // monitor-cast scan goes 43 -> 44 of 54, but the matte-cube scan goes
   // 52 -> 50, swapping two near-tie pairs (R<->L, F<->U). Squared cost, which
   // makes the solver pay quadratically to move a confident sticker, gives
-  // byte-identical results. So the binding limit is the CENTROIDS, not the
-  // absence of the constraint: when a cast smears two clusters together,
-  // forcing nine-per-color just redistributes the same confusion. The right
-  // next lever is color-notes item 2 (classify against same-frame center
-  // exemplars) and item 4 (project onto the axis between the two rival
-  // centers); revisit the constraint once those land, because it should
-  // compose well with better centroids. The solver stays tested in color.ts.
+  // byte-identical results.
+  //
+  // WHY it cannot help, measured on the same fixtures: rank the true color of
+  // each WRONG sticker among the six centroids by distance. On the
+  // monitor-cast scan only 5 of 11 have their true color even in second
+  // place - 2 are third, 2 are fourth, and 2 are DEAD LAST of six. An
+  // assignment rule can only shuffle stickers between colors; it can never
+  // pick a color that the distance metric ranks sixth, because the cost of
+  // that move is enormous. More than half these errors are unreachable by
+  // any decision rule, balanced or not.
+  //
+  // And the centroids themselves are fine: their minimum pairwise separation
+  // is 22.8 (median 78.5), so the clusters have NOT collapsed into each
+  // other. It is individual SAMPLES that land in the wrong region - glare,
+  // shading and the cast fall unevenly across one face's nine stickers. So
+  // the fix has to change the representation, not the decision rule:
+  // color-notes item 2 (classify against same-frame center exemplars, which
+  // share that sticker's illuminant) and item 4 (project onto the axis
+  // between the two rival centers). Revisit this constraint after those,
+  // when the remaining errors are near-ties it can actually arbitrate. The
+  // solver stays tested in color.ts.
 
   const confidences: number[] = normalized.map((s) => {
     const { dist, secondDist } = nearestCentroid(s, centroids);
