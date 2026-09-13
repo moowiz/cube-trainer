@@ -168,6 +168,7 @@ export class ColorClusters {
   private nextId = 1;
   /** Suggestions refused because the colour was impossible for the centroid (debug). */
   rejectedBinds = 0;
+  private namedCache: { version: number; list: ColorCluster[] } | null = null;
   /** Bumped on every structural change; consumers can cache on it. */
   version = 0;
   /** Called when two clusters merge (from -> into), so vote reservoirs can follow. */
@@ -311,8 +312,9 @@ export class ColorClusters {
     return this.centroids.size;
   }
 
-  /** All clusters with their ordinal colour names. */
+  /** All clusters with their ordinal colour names (memoized until the clusters change). */
   clusters(): ColorCluster[] {
+    if (this.namedCache && this.namedCache.version === this.version) return this.namedCache.list;
     const list: ColorCluster[] = [...this.centroids].map(([id, centroid]) => ({
       id, centroid, n: this.reservoirs.get(id)!.length, color: null, bound: this.bindingOf(id), aliasOf: null,
     }));
@@ -329,6 +331,7 @@ export class ColorClusters {
       }
       if (best) { c.color = best.color; c.aliasOf = best.id; }
     }
+    this.namedCache = { version: this.version, list };
     return list;
   }
 

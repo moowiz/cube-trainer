@@ -129,6 +129,10 @@ export class FaceDetector {
   readonly cropTrained: boolean;
   /** True for center-v1: the model emits unnamed quads, identify.ts names them. */
   readonly anonymous: boolean;
+  /** wasm threads the runtime was configured with (1 without cross-origin isolation). */
+  readonly threads: number = ort.env.wasm.numThreads ?? 1;
+  /** True when the wasm EP runs in ort-web's proxy worker (inference off the main thread). */
+  readonly proxied: boolean = !!ort.env.wasm.proxy;
   /** Center-color exemplars, grown from seam-verified faces. Debug panel reads it. */
   readonly exemplars = new CenterExemplars();
   private outputName: string;
@@ -148,12 +152,30 @@ export class FaceDetector {
       ? Math.min(4, navigator.hardwareConcurrency || 2)
       : 1;
 
+
     const metaRes = await fetch(`${base}models/facekp.json`);
     if (!metaRes.ok) return null;
     const meta = (await metaRes.json()) as FacekpMeta;
     const modelRes = await fetch(`${base}models/facekp.onnx`);
     if (!modelRes.ok) return null;
     const model = new Uint8Array(await modelRes.arrayBuffer());
+
+    // Run the wasm EP in a worker when wasm is what this load will use:
+    // inference then no longer blocks the animation loop (30-45 ms per tick
+    // on a phone was most of the dropped camera frames). The proxy cannot
+    // host the WebGPU EP and the two must not be mixed in one runtime, so
+    // it is decided once, before any session exists: preferred wasm, no
+    // WebGPU, or a cached 'auto' verdict for wasm. A first 'auto' load that
+    // still has to benchmark runs on the main thread and caches its verdict.
+    const cacheId = `${meta.head ?? 'legacy'}:${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
+    interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
+    let cached: BenchCache | null = null;
+    try {
+      const raw = localStorage.getItem(BENCH_KEY);
+      if (raw) cached = JSON.parse(raw) as BenchCache;
+    } catch { /* storage unavailable: bench every load */ }
+    const wasmOnly = preferred === 'wasm' || !('gpu' in navigator) || (cached?.id === cacheId && cached.ep === 'wasm');
+    ort.env.wasm.proxy = wasmOnly;
 
     const create = (ep: Ep) =>
       ort.InferenceSession.create(model, {
@@ -170,13 +192,6 @@ export class FaceDetector {
 
     // 'auto' with WebGPU present: use the cached verdict for this model if
     // there is one, otherwise benchmark both providers and keep the winner.
-    const cacheId = `${meta.head ?? 'legacy'}:${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
-    interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
-    let cached: BenchCache | null = null;
-    try {
-      const raw = localStorage.getItem(BENCH_KEY);
-      if (raw) cached = JSON.parse(raw) as BenchCache;
-    } catch { /* storage unavailable: bench every load */ }
     if (cached && cached.id === cacheId) {
       try {
         return new FaceDetector(await create(cached.ep), meta, cached.ep, cached.ms);

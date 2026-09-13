@@ -43,6 +43,22 @@ import type { FaceId, Lab } from './types';
 
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
 
+// Cross-origin isolation via service worker (public/coi-serviceworker.js) so
+// ort-web gets SharedArrayBuffer and wasm threads on GitHub Pages. First
+// visit: register, then reload once so the page loads under the worker's
+// headers; a sessionStorage flag stops any reload loop.
+(() => {
+  if (self.crossOriginIsolated || !('serviceWorker' in navigator) || location.protocol !== 'https:') return;
+  const flag = 'coi-reloaded';
+  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}coi-serviceworker.js`).then((reg) => {
+    if (navigator.serviceWorker.controller || sessionStorage.getItem(flag)) return;
+    sessionStorage.setItem(flag, '1');
+    const sw = reg.installing ?? reg.waiting;
+    if (sw) sw.addEventListener('statechange', () => { if (sw.state === 'activated') location.reload(); });
+    else if (reg.active) location.reload();
+  }).catch(() => undefined);
+})();
+
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute color samples
 const REFINE = true;         // grid-prior corner refinement before sampling
 // Seam-score veto: a face whose PRE-refinement warp shows no 3x3 seam
@@ -54,6 +70,13 @@ const REFINE = true;         // grid-prior corner refinement before sampling
 // metric and lifts garbage from ~0.63 to ~1.4 (would pass 70-80%).
 const SEAM_VETO_SCORE = 1.15;
 const FALLBACK_AFTER_MS = 6000;
+// The colour pipeline (sample, refine, cluster, vote) runs only on frames
+// that carry a fresh detection: between ticks the tracker coasts the same
+// quads over near-identical pixels, so re-sampling bought nothing and cost
+// 10-40 ms per animation frame on a phone (refineQuad alone is up to 160
+// seam-score warps per face). The UI readouts refresh on a timer.
+const UI_EVERY_MS = 250;
+const LOCK_EVERY_MS = 500;
 // Once the session has NAMED all six colours, a face reading with more than
 // this many cells that are none of them (crushed-L Lab further than
 // STICKER_MAX_DIST from every named cluster) is not a face: a hand, the
@@ -103,12 +126,14 @@ app.innerHTML = `
           <option value="1">detect every frame</option>
           <option value="3">detect every 3rd frame</option>
         </select>
-        <label><input type="checkbox" id="stage1" checked> stage-1 box + ROI</label>
+        <label><input type="checkbox" id="stage1"> stage-1 box + ROI</label>
+        <label><input type="checkbox" id="labelsChk"> labels</label>
+        <label><input type="checkbox" id="refusedChk"> refused quads</label>
         <label id="heatLbl" hidden><input type="checkbox" id="heat"> heatmap</label>
         <label><input type="checkbox" id="stage2off"> stage 2 off (localizer only)</label>
         <label id="cellsLbl" hidden><input type="checkbox" id="cellsChk"> per-sticker readout</label>
         <label><input type="checkbox" id="exChk"> clusters</label>
-        <label><input type="checkbox" id="samplesChk" checked> sample patches</label>
+        <label><input type="checkbox" id="samplesChk"> sample patches</label>
         <button id="capture" disabled title="Download this tick's naming evidence + the last ${TICK_HISTORY} ticks as JSON, plus the raw frame">Capture debug</button>
       </div>
       <div id="msg"></div>
@@ -142,6 +167,8 @@ const stage2Off = $<HTMLInputElement>('stage2off');
 const cellsChk = $<HTMLInputElement>('cellsChk');
 const exChk = $<HTMLInputElement>('exChk');
 const samplesChk = $<HTMLInputElement>('samplesChk');
+const labelsChk = $<HTMLInputElement>('labelsChk');
+const refusedChk = $<HTMLInputElement>('refusedChk');
 const pauseBtn = $<HTMLButtonElement>('pause');
 const attemptEl = $('attempt');
 const exEl = $('exemplars');
@@ -195,6 +222,9 @@ let cubeTooSmall = false;  // localizer found a cube whose silhouette is under t
 let noCube = false;        // localizer found nothing on the last tick
 let solved = false;
 let vetoedCount = 0;       // faces skipped by the seam veto (debug stat)
+let pipeEma = 0;           // ms spent in the colour pipeline per detection frame (EMA)
+let lastUiTs = 0;
+let lastLockTs = 0;
 let alienCount = 0;        // faces skipped because their cells are no known colour (debug stat)
 let paused = false;
 /** The quads actually sampled for votes this frame (source px, oriented) and their sampling plan, for the overlay. */
@@ -405,7 +435,7 @@ function drawOverlay(tracks: TrackedQuad[]): void {
   // seen but deliberately skipped for size; solid grey = a quality refusal.
   if (lastTick?.result?.heat && heatChk.checked) drawHeatmap(ctx, lastTick.result.heat);
   if (lastTick && stageChk.checked) drawStage1(ctx, lastTick.box?.box ?? null, lastTick.roi, lastTick.obj);
-  if (lastTick?.result) {
+  if (lastTick?.result && refusedChk.checked) {
     for (const u of lastTick.result.unnamed) {
       if (!isQualityRefusal(u.reason)) continue;
       const tooSmall = u.reason.startsWith(TOO_SMALL_REASON);
@@ -418,7 +448,9 @@ function drawOverlay(tracks: TrackedQuad[]): void {
     const cl = trackCluster.get(t.id);
       const rot = rotationOf(t.id);
     ctx.globalAlpha = strong ? 1 : 0.5;
-    const label = `${face ? DEFAULT_SCHEME_NAMES[face] : cl !== undefined ? `cluster ${cl}?` : '?'}${rot === undefined ? ' ↻?' : ''} ${t.conf.toFixed(2)}`;
+    const label = labelsChk.checked
+      ? `${face ? DEFAULT_SCHEME_NAMES[face] : cl !== undefined ? `cluster ${cl}?` : '?'}${rot === undefined ? ' ↻?' : ''} ${t.conf.toFixed(2)}`
+      : '';
     drawQuad(ctx, t.corners, face ? DEFAULT_SCHEME_HEX[face] : '#cfd3dc', label, strong ? 4 : 1.5);
     ctx.globalAlpha = 1;
   }
@@ -523,7 +555,8 @@ async function loop(ts: number): Promise<void> {
     if (tracks.some((t) => t.conf >= SAMPLE_CONF)) lastGoodDetectionTs = ts;
 
     const confident = tracks.filter((t) => t.conf >= SAMPLE_CONF && !(t.detIndex >= 0 && refused.has(t.detIndex)));
-    if (confident.length && !solved) {
+    const pipeStart = performance.now();
+    if (dets && confident.length && !solved) {
       const frame = frameImageData();
 
       // 1. colour: every confident face's centre goes into the session
@@ -628,7 +661,9 @@ async function loop(ts: number): Promise<void> {
         observations.push({ cluster: trackCluster.get(s.x.t.id)!, cells: s.cells, conf: s.x.conf });
       }
       if (observations.length) voter.addFrame(observations, clusters.faceMap());
-      else voter.tryLock(clusters.faceMap());
+      if (ts - lastLockTs >= LOCK_EVERY_MS) { lastLockTs = ts; voter.tryLock(clusters.faceMap()); }
+      const pipeMs = performance.now() - pipeStart;
+      pipeEma = pipeEma === 0 ? pipeMs : 0.1 * pipeMs + 0.9 * pipeEma;
     }
 
     if (!confident.length || solved) sampledQuads = [];
@@ -639,20 +674,23 @@ async function loop(ts: number): Promise<void> {
     const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube), ts);
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
-    if (m?.detector.anonymous) exemplarSwatches(swatchEl, m.detector.exemplars);
-    if (exChk.checked) renderClusters(tracks);
-    updateFillUI();
-    fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
-    statsEl.textContent =
-      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   pairings ${pairings} (edge rejects ${edgeRejects})   vetoed ${vetoedCount}   alien ${alienCount}\n`
-      + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}   ` : '')
-      + (lastTick
-        ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
-          + (lastTick.result
-            ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}`
-            : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
-        : '');
+    if (ts - lastUiTs >= UI_EVERY_MS) {
+      lastUiTs = ts;
+      if (m?.detector.anonymous) exemplarSwatches(swatchEl, m.detector.exemplars);
+      if (exChk.checked) renderClusters(tracks);
+      updateFillUI();
+      fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
+      statsEl.textContent =
+        `fps ${fps.fps.toFixed(1)}   pipeline ${pipeEma.toFixed(1)} ms   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   pairings ${pairings} (edge rejects ${edgeRejects})   vetoed ${vetoedCount}   alien ${alienCount}\n`
+        + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
+        + (lastTick
+          ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
+            + (lastTick.result
+              ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}`
+              : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
+          : '');
+    }
   }
   requestAnimationFrame((t) => void loop(t));
 }
