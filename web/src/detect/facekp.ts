@@ -26,6 +26,7 @@
 // The app must keep working when no model file is deployed: load() resolves
 // null on a missing model, and callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
+import { configureMainThreadWasm, createSession, type Ep, type RunSession } from './session';
 import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
 import type { ImageDataLike } from '../rectify';
@@ -90,7 +91,7 @@ interface FacekpMeta {
   minFaceEdgeFrac?: number;
 }
 
-export type Ep = 'webgpu' | 'wasm';
+export type { Ep } from './session';
 
 const CONF_KEEP = 0.25; // hand everything plausible to the caller; it filters
 const BENCH_KEY = 'facekp:epBench:v1';
@@ -102,7 +103,7 @@ const MAX_CANDIDATES = 32;    // cells decoded per frame before deduplication
 
 export class FaceDetector {
   private constructor(
-    private session: ort.InferenceSession,
+    private session: RunSession,
     private meta: FacekpMeta,
     readonly ep: Ep,
     /** Per-EP mean inference ms when 'auto' ran (or replayed) a benchmark. */
@@ -129,10 +130,10 @@ export class FaceDetector {
   readonly cropTrained: boolean;
   /** True for center-v1: the model emits unnamed quads, identify.ts names them. */
   readonly anonymous: boolean;
-  /** wasm threads the runtime was configured with (1 without cross-origin isolation). */
-  readonly threads: number = ort.env.wasm.numThreads ?? 1;
-  /** True when the wasm EP runs in ort-web's proxy worker (inference off the main thread). */
-  readonly proxied: boolean = !!ort.env.wasm.proxy;
+  /** wasm threads of the runtime hosting the session (1 without cross-origin isolation). */
+  get threads(): number { return this.session.threads; }
+  /** True when inference runs in the worker (session.ts), off the main thread. */
+  get proxied(): boolean { return this.session.offThread; }
   /** Center-color exemplars, grown from seam-verified faces. Debug panel reads it. */
   readonly exemplars = new CenterExemplars();
   private outputName: string;
@@ -146,12 +147,7 @@ export class FaceDetector {
   /** Resolves null when no model is deployed (the grid scanner is the fallback). */
   static async load(preferred: Ep | 'auto' = 'auto'): Promise<FaceDetector | null> {
     const base = import.meta.env.BASE_URL;
-    ort.env.wasm.wasmPaths = `${base}ort/`;
-    // GitHub Pages sends no COOP/COEP headers, so no SharedArrayBuffer there.
-    ort.env.wasm.numThreads = self.crossOriginIsolated
-      ? Math.min(4, navigator.hardwareConcurrency || 2)
-      : 1;
-
+    configureMainThreadWasm();
 
     const metaRes = await fetch(`${base}models/facekp.json`);
     if (!metaRes.ok) return null;
@@ -160,28 +156,8 @@ export class FaceDetector {
     if (!modelRes.ok) return null;
     const model = new Uint8Array(await modelRes.arrayBuffer());
 
-    // Run the wasm EP in a worker when wasm is what this load will use:
-    // inference then no longer blocks the animation loop (30-45 ms per tick
-    // on a phone was most of the dropped camera frames). The proxy cannot
-    // host the WebGPU EP and the two must not be mixed in one runtime, so
-    // it is decided once, before any session exists: preferred wasm, no
-    // WebGPU, or a cached 'auto' verdict for wasm. A first 'auto' load that
-    // still has to benchmark runs on the main thread and caches its verdict.
-    const cacheId = `${meta.head ?? 'legacy'}:${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
-    interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
-    let cached: BenchCache | null = null;
-    try {
-      const raw = localStorage.getItem(BENCH_KEY);
-      if (raw) cached = JSON.parse(raw) as BenchCache;
-    } catch { /* storage unavailable: bench every load */ }
-    const wasmOnly = preferred === 'wasm' || !('gpu' in navigator) || (cached?.id === cacheId && cached.ep === 'wasm');
-    ort.env.wasm.proxy = wasmOnly;
-
-    const create = (ep: Ep) =>
-      ort.InferenceSession.create(model, {
-        executionProviders: [ep],
-        graphOptimizationLevel: 'all',
-      });
+    // wasm sessions run in the worker, webgpu on the page (session.ts)
+    const create = (ep: Ep) => createSession(model, ep);
 
     if (preferred !== 'auto') {
       return new FaceDetector(await create(preferred), meta, preferred);
@@ -192,6 +168,13 @@ export class FaceDetector {
 
     // 'auto' with WebGPU present: use the cached verdict for this model if
     // there is one, otherwise benchmark both providers and keep the winner.
+    const cacheId = `${meta.head ?? 'legacy'}:${meta.precision ?? 'fp32'}:${meta.input.shape.join('x')}`;
+    interface BenchCache { id: string; ep: Ep; ms: Partial<Record<Ep, number>> }
+    let cached: BenchCache | null = null;
+    try {
+      const raw = localStorage.getItem(BENCH_KEY);
+      if (raw) cached = JSON.parse(raw) as BenchCache;
+    } catch { /* storage unavailable: bench every load */ }
     if (cached && cached.id === cacheId) {
       try {
         return new FaceDetector(await create(cached.ep), meta, cached.ep, cached.ms);
@@ -199,7 +182,7 @@ export class FaceDetector {
     }
 
     const [, , h, w] = meta.input.shape;
-    const bench = async (session: ort.InferenceSession): Promise<number> => {
+    const bench = async (session: RunSession): Promise<number> => {
       const feed = { image: new ort.Tensor('float32', new Float32Array(3 * h * w), [1, 3, h, w]) };
       for (let i = 0; i < 5; i++) await session.run(feed); // warmup: shader compile etc.
       const t0 = performance.now();
@@ -211,7 +194,7 @@ export class FaceDetector {
     // afterwards, but initializing plain wasm first breaks a later webgpu
     // init ("multiple calls to initWasm()").
     const ms: Partial<Record<Ep, number>> = {};
-    let gpuSession: ort.InferenceSession | null = null;
+    let gpuSession: RunSession | null = null;
     try {
       gpuSession = await create('webgpu');
       ms.webgpu = await bench(gpuSession);

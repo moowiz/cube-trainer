@@ -7,6 +7,7 @@
 // full-frame stage 2): callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
 import { letterbox, type Box, type Letterbox } from './geometry';
+import { createSession, type RunSession } from './session';
 
 interface CubeboxMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
@@ -33,7 +34,7 @@ export class CubeLocalizer {
   /** Objectness of the most recent locate() call, hit or miss (debug overlay). */
   lastObj = 0;
 
-  private constructor(private session: ort.InferenceSession, private meta: CubeboxMeta) {
+  private constructor(private session: RunSession, private meta: CubeboxMeta) {
     const [, , h, w] = meta.input.shape;
     this.iw = w;
     this.ih = h;
@@ -54,9 +55,7 @@ export class CubeLocalizer {
       const modelRes = await fetch(`${base}models/cubebox.onnx`);
       if (!modelRes.ok) return null;
       const buf = await modelRes.arrayBuffer();
-      const session = await ort.InferenceSession.create(new Uint8Array(buf), {
-        executionProviders: ['wasm'],
-      });
+      const session = await createSession(new Uint8Array(buf), 'wasm');
       return new CubeLocalizer(session, meta);
     } catch {
       return null;
