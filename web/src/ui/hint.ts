@@ -1,0 +1,59 @@
+// User-facing hint for a frame where the detector sees a cube but the namer
+// refuses every face. The refusal reasons already exist for the debug
+// overlay (identify.ts); this turns the dominant one into something a person
+// can act on. Pure so it can be tested without a camera.
+
+import { TOO_SMALL_REASON } from '../detect/identify';
+
+export interface Hint {
+  key: 'closer' | 'light' | 'glare';
+  text: string;
+}
+
+const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: string }[] = [
+  { key: 'closer', match: (r) => r.startsWith(TOO_SMALL_REASON), text: 'Move closer — the cube is too small to read' },
+  { key: 'light', match: (r) => r === 'too dark', text: 'More light — the cube is too dark to read' },
+  { key: 'glare', match: (r) => r.startsWith('glare'), text: 'Glare — tilt the cube away from the light' },
+];
+
+/**
+ * Pick a hint from the refusal reasons of this frame's unnamed quads (or, with
+ * no quads, from the localizer's box being too small), or null when nothing
+ * actionable is happening. Majority reason wins so a lone glare quad next to two too-small ones
+ * says "move closer".
+ */
+export function hintFor(reasons: readonly string[], anyFaceNamed: boolean, cubeTooSmall = false): Hint | null {
+  if (anyFaceNamed) return null;
+  // The localizer saw a cube whose whole silhouette is under the face floor:
+  // no face can be big enough, whether or not the face detector fired.
+  if (reasons.length === 0) return cubeTooSmall ? { key: 'closer', text: HINTS[0]!.text } : null;
+  let best: Hint | null = null;
+  let bestN = 0;
+  for (const h of HINTS) {
+    const n = reasons.filter(h.match).length;
+    if (n > bestN) { best = { key: h.key, text: h.text }; bestN = n; }
+  }
+  return best;
+}
+
+/**
+ * Debounces hints across frames: a hint shows only after it has held for
+ * `holdMs` (a single refused frame during a turn is noise) and clears the
+ * moment a face is read. Call `update` every frame; render what it returns.
+ */
+export class HintState {
+  private candidate: Hint | null = null;
+  private since = 0;
+  private shown: Hint | null = null;
+
+  // DECISION: 400 ms hold - about the time a slow turn spends passing
+  // through a bad angle; long enough to not flicker, short enough to feel live.
+  constructor(private readonly holdMs = 400) {}
+
+  update(hint: Hint | null, now: number): Hint | null {
+    if (!hint) { this.candidate = null; this.shown = null; return null; }
+    if (!this.candidate || this.candidate.key !== hint.key) { this.candidate = hint; this.since = now; }
+    if (now - this.since >= this.holdMs) this.shown = hint;
+    return this.shown;
+  }
+}
