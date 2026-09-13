@@ -94,6 +94,46 @@ describe('QuadTracker', () => {
     }
   });
 
+  it('carries a late detection forward by its lag instead of fusing it as current', () => {
+    // A cube moving at 5 px/frame, detected every 3rd frame, with each
+    // detection delivered LAG frames after the frame it describes (the
+    // live-view case: inference latency). Fused as if current, every
+    // detection pulls the quad back by LAG*5 px and it saws between there
+    // and the coasted position; with the lag declared, the measurement is
+    // carried forward along the track's velocity and the quad stays on
+    // the truth.
+    const LAG = 3;
+    const vel: [number, number] = [5, 0];
+    const run = (declareLag: boolean): number => {
+      const tracker = new QuadTracker();
+      const truths: Quad[] = [];
+      let truth = SQUARE;
+      let worst = 0;
+      for (let i = 0; i < 60; i++) {
+        truth = shiftQuad(truth, vel[0], vel[1]);
+        truths.push(truth);
+        const k = i - LAG;
+        const dets: QuadDetection[] | null = k >= 0 && k % 3 === 0 ? [{ conf: 0.9, corners: truths[k]! }] : null;
+        const [track] = tracker.update(dets, DT, dets && declareLag ? LAG * DT : 0);
+        if (i >= 40 && track) worst = Math.max(worst, maxCornerDist(track.corners, truth));
+      }
+      return worst;
+    };
+    const naive = run(false);
+    const compensated = run(true);
+    expect(naive).toBeGreaterThan(LAG * 5 * 0.5);   // the uncorrected filter sits well behind the truth
+    expect(compensated).toBeLessThan(3);
+  });
+
+  it('reports the accepted raw corners in track order', () => {
+    const tracker = new QuadTracker();
+    tracker.update([{ conf: 0.9, corners: SQUARE }], DT);
+    const [track] = tracker.update([{ conf: 0.9, corners: rollQuad(shiftQuad(SQUARE, 4, 0), 2) }], DT);
+    expect(track!.measured).toEqual(shiftQuad(SQUARE, 4, 0));
+    const [coasting] = tracker.update(null, DT);
+    expect(coasting!.measured).toBeNull();
+  });
+
   it('stays locked to one cyclic corner assignment despite random rolls', () => {
     const tracker = new QuadTracker();
     const rand = makeLcg(42);

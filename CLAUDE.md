@@ -20,7 +20,7 @@ Two halves:
 
 1. Capture: `getUserMedia`, rear camera, 640x480, into a `<video>`.
 2. Detect: keypoint model → 4 corners + confidence for each visible face (up to 3).
-3. Track: Kalman filter on corners. Run the detector every 2–3 frames, interpolate between.
+3. Track: alpha-beta filter on corners, state kept at measurement time. Run the detector every 2–3 frames, interpolate between. The view is delayed by the detector's measured latency (`framering.ts`) so every overlay is drawn on the frame its corners came from; a late detection is fused at its own frame time and extrapolated, never fused as current.
 4. Rectify: homography-warp each face quad to a 90x90 canvas.
 5. Sample: robust patch statistics (trimmed median, clip/dark fractions, spread, censoring) at each of the 9 cell centers; the centre cell reads a diagonal ring around the logo. Each reading gets a quality WEIGHT (blur, motion, view angle, size, track age, glare, seam) - never a gate.
 6. Log: readings go into an append-only EvidenceLog keyed by track id and cell, with letter-free shared-edge pairings between co-visible quads. The log IS the capture format; the solver is a pure function of it (`web/src/colour/`).
@@ -42,6 +42,7 @@ Two halves:
 web/
   src/
     camera.ts        getUserMedia setup, frame pump
+    framering.ts     recent frames frozen on arrival; the synced (latency-delayed) view
     detect/          ORT session, pre/post-processing, Kalman tracker
     rectify.ts       homography + warp
     color.ts         Lab conversion, patch statistics, sampling geometry, Hungarian
