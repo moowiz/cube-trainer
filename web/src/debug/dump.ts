@@ -44,18 +44,26 @@ export function downloadBlob(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-/** The current camera frame as a clean PNG (no overlay). */
-export function rawFrameBlob(video: HTMLVideoElement): Promise<Blob | null> {
+/** A frame source: the live video, or a frozen frame from the scan page's ring. */
+export type FrameSource = HTMLVideoElement | HTMLCanvasElement;
+
+export function frameDims(src: FrameSource): { w: number; h: number } {
+  return src instanceof HTMLVideoElement ? { w: src.videoWidth, h: src.videoHeight } : { w: src.width, h: src.height };
+}
+
+/** The frame as a clean PNG (no overlay). */
+export function rawFrameBlob(video: FrameSource): Promise<Blob | null> {
   const c = document.createElement('canvas');
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
+  const { w, h } = frameDims(video);
+  c.width = w;
+  c.height = h;
   c.getContext('2d')!.drawImage(video, 0, 0);
   return new Promise((resolve) => c.toBlob(resolve, 'image/png'));
 }
 
 /** Download the raw frame as `<prefix>-<stamp>.png`; returns the file name. */
-export async function saveRawFrame(video: HTMLVideoElement, prefix: string, stamp = Date.now()): Promise<string | null> {
-  if (video.videoWidth === 0) return null;
+export async function saveRawFrame(video: FrameSource, prefix: string, stamp = Date.now()): Promise<string | null> {
+  if (frameDims(video).w === 0) return null;
   const blob = await rawFrameBlob(video);
   if (!blob) return null;
   const name = `${prefix}-${stamp}.png`;
@@ -71,7 +79,7 @@ export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; 
 }
 
 /** Everything the naming layer saw for this detection, as a plain object. */
-export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: HTMLVideoElement,
+export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
                               history: readonly TickSummary[] = [], extra: Record<string, unknown> = {}): unknown {
   const ex = detector.exemplars;
   return {
@@ -79,7 +87,7 @@ export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, 
     captured: new Date().toISOString(),
     model: detector.modelId,
     ep: detector.ep,
-    input: { w: video.videoWidth, h: video.videoHeight },
+    input: frameDims(video),
     inferMs: res?.inferMs ?? null,
     totalMs: res?.totalMs ?? null,
     exemplars: ex.status().map((e) => ({ ...e, color: DEFAULT_SCHEME_NAMES[e.face] })),
@@ -106,7 +114,7 @@ export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, 
 }
 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
-export async function captureDebug(res: DetectResult | null, detector: FaceDetector, video: HTMLVideoElement,
+export async function captureDebug(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
                                    prefix = 'detect-debug', history: readonly TickSummary[] = [],
                                    extra: Record<string, unknown> = {},
                                    sink?: (json: string, name: string) => Promise<void>): Promise<string> {

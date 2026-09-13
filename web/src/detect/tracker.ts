@@ -20,11 +20,14 @@ export interface QuadDetection {
 export interface TrackedQuad {
   id: number;
   conf: number; // EMA-smoothed confidence
-  corners: [number, number][]; // filtered, 4 corners, order stable for the life of the track
+  corners: [number, number][]; // filtered, 4 corners, order stable for the life of the track, at this update's frame
   ageMs: number; // time since track created
-  sinceDetectMs: number; // time since last accepted detection (0 on frames with one)
+  sinceDetectMs: number; // time since last accepted detection arrived (0 on frames with one)
   /** Index into this update's detections that fed the track, or -1 (coasting / no detections). */
   detIndex: number;
+  /** The accepted detection's raw corners in the track's order (exact for
+   *  the frame the detector saw, unfiltered), when detIndex >= 0. */
+  measured: [number, number][] | null;
 }
 
 export interface TrackerOptions {
@@ -53,7 +56,7 @@ const YOUNG_GATE_FRAC = 1.2;
 // sensibly if dtMs varies.
 const COAST_VEL_DECAY_PER_33MS = 0.9;
 const COAST_CONF_DECAY_PER_33MS = 0.95;
-// Beyond this without a detection the track holds still rather than keep
+// Beyond this past its state the track holds still rather than keep
 // extrapolating: a constant-velocity guess is worth ~a tick, not more.
 const COAST_MAX_MS = 250;
 // Velocity is trusted unchanged for one typical detection gap; only a coast
@@ -65,10 +68,12 @@ interface Track {
   id: number;
   conf: number;
   detIndex: number;
-  pos: [number, number][]; // 4 corners, px
+  measured: [number, number][] | null;
+  pos: [number, number][]; // 4 corners, px, at the last measurement's frame
   vel: [number, number][]; // px/sec
   ageMs: number;
-  sinceDetectMs: number;
+  sinceDetectMs: number;   // since the last measurement ARRIVED
+  stateAgeMs: number;      // since the last measurement's FRAME (= sinceDetectMs + its lag)
 }
 
 export function centroid(pts: ReadonlyArray<readonly [number, number]>): [number, number] {
@@ -133,15 +138,43 @@ export class QuadTracker {
     this.nextId = 1;
   }
 
-  update(detections: QuadDetection[] | null, dtMs: number): TrackedQuad[] {
-    const { posAlpha, velAlpha, confAlpha, dropMs, gateFrac } = this.opts;
-    const dtSec = Math.max(dtMs, 1) / 1000;
+  /** Change gains on the fly (tracks are kept). */
+  configure(opts: TrackerOptions): void {
+    this.opts = { ...this.opts, ...opts };
+  }
 
-    // Predict every track forward (a track coasting past COAST_MAX_MS holds).
+  /**
+   * Advance every track by dtMs and fuse `detections`, which describe the
+   * frame `lagMs` before the one the tracks are being advanced to (0 when
+   * the detection is for this very frame).
+   *
+   * The filter state lives at MEASUREMENT time: a detection is compared
+   * with the track predicted to the moment the detector looked, and the
+   * corners handed out are that state carried forward to now along the
+   * velocity. Fusing a ~100 ms old measurement as if it were current was
+   * the rubber-band jitter on the phone (2026-09-13); shifting the
+   * measurement forward by vel*lag instead is a positive-feedback loop
+   * (a velocity error shifts the measurement, which feeds the velocity),
+   * so the lag is taken out on the prediction side, never the measurement.
+   */
+  update(detections: QuadDetection[] | null, dtMs: number, lagMs = 0): TrackedQuad[] {
+    const { posAlpha, velAlpha, confAlpha, dropMs, gateFrac } = this.opts;
+    const dt = Math.max(dtMs, 1);
+    const lag = Math.max(lagMs, 0);
+
+    // Time passes for every track; a track's state stays where its last
+    // measurement put it (state age = time since that measurement's frame).
+    for (const track of this.tracks.values()) {
+      track.ageMs += dt;
+      track.sinceDetectMs += dt;
+      track.stateAgeMs += dt;
+    }
+
+    // Predict every track to the measurement's frame (a state older than
+    // COAST_MAX_MS holds still rather than keep extrapolating).
     const predicted = new Map<number, [number, number][]>();
     for (const [id, track] of this.tracks) {
-      const move = track.sinceDetectMs < COAST_MAX_MS ? dtSec : 0;
-      predicted.set(id, track.pos.map(([x, y], i) => [x + track.vel[i]![0] * move, y + track.vel[i]![1] * move]));
+      predicted.set(id, this.extrapolate(track, Math.max(0, track.stateAgeMs - lag)));
     }
 
     // Associate: every (track, detection) pair inside the track's gate,
@@ -171,17 +204,19 @@ export class QuadTracker {
       const pred = predicted.get(id)!;
       const det = assigned.get(id);
       track.detIndex = det ? detections!.indexOf(det) : -1;
+      track.measured = null;
       if (det) {
         const accepted = bestCyclicRoll(det.corners, pred);
+        track.measured = accepted;
         const newPos: [number, number][] = [];
         const newVel: [number, number][] = [];
-        // The residual accumulated over the whole gap since the last
-        // accepted detection, not over this frame: detections arrive every
-        // inference (~90 ms on a phone) while frames come at 60 Hz, and
-        // dividing by the frame dt made the velocity spike ~5x and the quad
-        // sail off on the next coasted frames (2026-09-13, once inference
-        // moved off the main thread and the loop ran at full rate).
-        const gapSec = Math.max(dtMs, 1) / 1000 + track.sinceDetectMs / 1000;
+        // The residual accumulated over the whole gap between the two
+        // measurements' frames, not over this loop step: detections arrive
+        // every inference (~90 ms on a phone) while frames come at 60 Hz,
+        // and dividing by the frame dt made the velocity spike ~5x and the
+        // quad sail off on the next coasted frames (2026-09-13). A gap
+        // under one step (lag shrank between two ticks) counts as a step.
+        const gapSec = Math.max(track.stateAgeMs - lag, dt) / 1000;
         for (let i = 0; i < pred.length; i++) {
           const resX = accepted[i]![0] - pred[i]![0];
           const resY = accepted[i]![1] - pred[i]![1];
@@ -192,18 +227,16 @@ export class QuadTracker {
         track.vel = newVel;
         track.conf += confAlpha * (det.conf - track.conf);
         track.sinceDetectMs = 0;
+        track.stateAgeMs = lag;
       } else {
-        // Coast: advance by velocity, decay velocity/conf so a stale track
-        // doesn't fly off screen or stay falsely confident.
-        track.pos = pred;
-        const decaySteps = dtMs / 33;
-        const velDecay = track.sinceDetectMs + dtMs > COAST_TRUST_MS ? Math.pow(COAST_VEL_DECAY_PER_33MS, decaySteps) : 1;
+        // Coast: decay velocity/conf so a stale track doesn't fly off
+        // screen or stay falsely confident.
+        const decaySteps = dt / 33;
+        const velDecay = track.sinceDetectMs > COAST_TRUST_MS ? Math.pow(COAST_VEL_DECAY_PER_33MS, decaySteps) : 1;
         const confDecay = Math.pow(COAST_CONF_DECAY_PER_33MS, decaySteps);
         track.vel = track.vel.map(([vx, vy]) => [vx * velDecay, vy * velDecay]);
         track.conf *= confDecay;
-        track.sinceDetectMs += dtMs;
       }
-      track.ageMs += dtMs;
     }
 
     // Drop stale tracks.
@@ -220,10 +253,12 @@ export class QuadTracker {
           id: this.nextId,
           conf: det.conf,
           detIndex: detections.indexOf(det),
+          measured: det.corners.map((c) => [...c] as [number, number]),
           pos: det.corners.map((c) => [...c] as [number, number]),
           vel: det.corners.map(() => [0, 0]),
           ageMs: 0,
           sinceDetectMs: 0,
+          stateAgeMs: lag,
         });
         this.nextId++;
       }
@@ -234,12 +269,19 @@ export class QuadTracker {
       out.push({
         id: track.id,
         conf: track.conf,
-        corners: track.pos.map((c) => [...c] as [number, number]),
+        corners: this.extrapolate(track, track.stateAgeMs),
         ageMs: track.ageMs,
         sinceDetectMs: track.sinceDetectMs,
         detIndex: track.detIndex,
+        measured: track.measured ? track.measured.map((c) => [...c] as [number, number]) : null,
       });
     }
     return out;
+  }
+
+  /** The track's corners `aheadMs` after its state, at its velocity; a constant-velocity guess is worth ~a tick, not more. */
+  private extrapolate(track: Track, aheadMs: number): [number, number][] {
+    const sec = Math.min(Math.max(aheadMs, 0), COAST_MAX_MS) / 1000;
+    return track.pos.map(([x, y], i) => [x + track.vel[i]![0] * sec, y + track.vel[i]![1] * sec]);
   }
 }

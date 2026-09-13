@@ -1,7 +1,8 @@
 // scan.html - the one camera page.
 //
-//   Auto mode  (default) the M6/M7 pipeline per CLAUDE.md: camera -> two-stage
-//              detector (stage-1 localizer on the frame, stage-2 corners on its
+//   Auto mode  (default) the M6/M7 pipeline per CLAUDE.md: camera -> frame
+//              ring (every frame frozen on arrival) -> two-stage detector
+//              (stage-1 localizer on the frame, stage-2 corners on its
 //              padded box; a stage-1 miss is a tick with no detections) ->
 //              corner tracker -> homography rectify at native resolution ->
 //              robust 9-cell sampling -> EVIDENCE LOG (readings with quality
@@ -9,7 +10,10 @@
 //              solver (src/colour/solve.ts, docs/colour-pipeline-design.md)
 //              on a timer -> lock on its certificates. Nothing on this page
 //              decides a colour; the page pumps frames, appends to the log,
-//              and renders the Solution.
+//              and renders the Solution. The view runs one inference
+//              latency behind the camera so every overlay is drawn on the
+//              exact frame its corners came from (framering.ts); the debug
+//              panel can switch it back to live for comparison.
 //   Grid mode  the M1 grid scanner (ui/scanner.ts), the same component the
 //              trainer's Scan tab mounts. It is the fallback (M8): a banner
 //              offers it when detection stays weak, and it is the only path
@@ -23,6 +27,7 @@
 //              nothing is recomputed differently for the panel.
 import './ui/scan.css';
 import { Camera } from './camera';
+import { FrameRing, type RingFrame } from './framering';
 import { FpsCounter } from './debug/fps';
 import { labToSrgb, minFaceEdgePx, type CellPlan } from './color';
 import { SolverClient } from './colour/client';
@@ -78,6 +83,21 @@ const UI_EVERY_MS = 250;
 // at 1.5 s settles at one every 2 s).
 const SOLVE_MIN_MS = 300;
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
+// Frames kept frozen behind the live camera. The view lags the camera by
+// the detector's latency (measured, in frames) so a detection is applied
+// on the frame it was computed for; the ring must hold at least that many.
+// 16 frames is ~0.5 s at 30 fps - beyond that a detection is applied late
+// (carried forward along the track's velocity) rather than waited for.
+const RING_FRAMES = 16;
+// The display delay follows a decaying maximum of the observed latency:
+// a spike raises it at once, and it eases off by a frame every ~3 s.
+const LAG_DECAY_PER_FRAME = 1 / 90;
+// DECISION 2026-09-13: with the measurements time-exact the filter no longer
+// has a latency to hide, so the position gain goes up (0.55 -> 0.7): what
+// remains is the detector's few px of per-frame noise, and the grid-prior
+// refinement in the sampler snaps the read cells regardless.
+const SYNC_POS_ALPHA = 0.7;
+const LIVE_POS_ALPHA = 0.55;
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
@@ -114,6 +134,10 @@ app.innerHTML = `
           <option value="1">detect every frame</option>
           <option value="2">detect every 2nd frame</option>
           <option value="3">detect every 3rd frame</option>
+        </select>
+        <select id="sync" title="Synced: the view is delayed by the detector's latency and each overlay is drawn on the frame it was computed for. Live: the view is the newest frame and detections are carried forward to it.">
+          <option value="sync">view: synced to detection</option>
+          <option value="live">view: live (overlay carried forward)</option>
         </select>
         <label><input type="checkbox" id="stage1"> stage-1 box + ROI</label>
         <label><input type="checkbox" id="labelsChk"> labels</label>
@@ -161,6 +185,7 @@ const saveBtn = $<HTMLButtonElement>('save');
 const captureBtn = $<HTMLButtonElement>('capture');
 const epSel = $<HTMLSelectElement>('ep');
 const everySel = $<HTMLSelectElement>('every');
+const syncSel = $<HTMLSelectElement>('sync');
 const stageChk = $<HTMLInputElement>('stage1');
 const heatChk = $<HTMLInputElement>('heat');
 const stage2Off = $<HTMLInputElement>('stage2off');
@@ -175,7 +200,9 @@ const exEl = $('exemplars');
 
 const camera = new Camera();
 const fps = new FpsCounter();
-const tracker = new QuadTracker();
+const tracker = new QuadTracker({ posAlpha: SYNC_POS_ALPHA });
+const ring = new FrameRing(RING_FRAMES);
+syncSel.addEventListener('change', () => tracker.configure({ posAlpha: syncSel.value === 'sync' ? SYNC_POS_ALPHA : LIVE_POS_ALPHA }));
 
 // The evidence log is the whole colour state of the page. Everything the
 // solver knows is in it, so Capture debug dumps it and the replay test can
@@ -197,15 +224,31 @@ const pendingPairings = new Map<number, { a: number; b: number; edgeA: number; e
 const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
+/** A finished detection tick, waiting for the view to reach its frame. */
+interface Arrival {
+  frame: number;          // ring index of the frame the detector looked at
+  ts: number;             // that frame's capture timestamp
+  dets: QuadDetection[];  // anonymous quads for the tracker
+  tick: TwoStageResult;
+}
+
 let models: TwoStageModels | null = null;
 let running = false;
+let loopGen = 0;           // bumps per start so a stale frame callback can't run a second loop
 let frameNo = 0;
 let inferBusy = false;
-let pendingDetections: QuadDetection[] | null = null;
-// The most recent detection tick, kept for the debug overlay and the banner:
-// the pipeline itself consumes `pendingDetections` once and drops it.
+// Ticks land here in frame order (inference never overlaps) and are taken
+// out when the view reaches their frame - or at once, carried forward, when
+// the view is already past it (live mode, or a latency spike).
+const arrivals: Arrival[] = [];
+// The most recent APPLIED detection tick, for the debug overlay and the banner.
 let lastTick: TwoStageResult | null = null;
-let lastTs = 0;
+let shown: RingFrame | null = null;   // the frame under the overlay right now
+let lagMax = 0;            // decaying max of tick latency, in frames (sets the view delay)
+let lagEma = 0;            // tick latency EMA, frames, for the stats line
+let lateTicks = 0;         // ticks applied after the view had passed their frame
+let vfcSeen = false;       // requestVideoFrameCallback has fired: trust it as the new-frame signal
+let vfcFresh = false;      // a video frame arrived since the last loop pass
 let lastGoodDetectionTs = 0;
 const hintState = new HintState();
 let cubeTooSmall = false;  // localizer found a cube whose silhouette is under the face floor
@@ -250,23 +293,45 @@ installDetectSelfTest({ current: () => models, load });
 
 // ---- the auto pipeline --------------------------------------------------
 
-function frameImageData(): ImageData {
-  const v = camera.video;
-  if (work.width !== v.videoWidth) {
-    work.width = v.videoWidth;
-    work.height = v.videoHeight;
+/** Pixels of a frozen frame (one readback, for the sampler). */
+function frameImageData(src: HTMLCanvasElement): ImageData {
+  if (work.width !== src.width || work.height !== src.height) {
+    work.width = src.width;
+    work.height = src.height;
   }
-  workCtx.drawImage(v, 0, 0);
+  workCtx.drawImage(src, 0, 0);
   return workCtx.getImageData(0, 0, work.width, work.height);
 }
 
-/** One detection tick. Stage 1 on the frame, then stage 2 on its padded box
- *  unless the debug panel has switched stage 2 off. */
-async function tick(v: HTMLVideoElement, m: TwoStageModels): Promise<TwoStageResult> {
-  if (!stage2Off.checked) return detectTwoStage(m.localizer, m.detector, v);
+/** One detection tick on a frozen frame: stage 1, then stage 2 on its
+ *  padded box unless the debug panel has switched stage 2 off. Both stages
+ *  see the same pixels (the live video moved on between them before). */
+async function tick(src: HTMLCanvasElement, m: TwoStageModels): Promise<TwoStageResult> {
+  if (!stage2Off.checked) return detectTwoStage(m.localizer, m.detector, src);
   const t0 = performance.now();
-  const box = await m.localizer.locate(v, v.videoWidth, v.videoHeight);
+  const box = await m.localizer.locate(src, src.width, src.height);
   return { result: null, box, roi: null, obj: m.localizer.lastObj, locateMs: performance.now() - t0 };
+}
+
+/** The frame Save frame / Capture debug should export: the one under the overlay. */
+function exportFrame(): HTMLCanvasElement | HTMLVideoElement {
+  return shown?.canvas ?? camera.video;
+}
+
+// The loop runs once per CAMERA frame, not per display refresh: a 30 fps
+// camera under a 60 Hz rAF would otherwise push every frame into the ring
+// twice. requestVideoFrameCallback is the new-frame signal where it exists;
+// until it has fired once (it may never, for a video that is not in the
+// document on some browsers) every rAF counts as a frame, as before.
+function armFrameSignal(v: HTMLVideoElement, gen: number): void {
+  const rvfc = (v as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number }).requestVideoFrameCallback;
+  if (typeof rvfc !== 'function') return;
+  rvfc.call(v, () => {
+    if (gen !== loopGen) return;
+    vfcSeen = true;
+    vfcFresh = true;
+    armFrameSignal(v, gen);
+  });
 }
 
 /** A track's face letter from the current solution (null while ungrouped or unlettered). */
@@ -456,47 +521,46 @@ function updateFillUI(): void {
   if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
 }
 
-async function loop(ts: number): Promise<void> {
-  if (!running) return;
-  if (paused) { requestAnimationFrame((t) => void loop(t)); return; }
+function loop(ts: number, gen: number): void {
+  if (!running || gen !== loopGen) return;
+  const again = () => requestAnimationFrame((t) => loop(t, gen));
+  if (paused || (vfcSeen && !vfcFresh)) { again(); return; }
+  vfcFresh = false;
   const v = camera.video;
   if (v.videoWidth > 0) {
     if (view.width !== v.videoWidth) {
       view.width = v.videoWidth;
       view.height = v.videoHeight;
     }
-    ctx.drawImage(v, 0, 0);
+    const head = ring.push(v, ts);
     frameNo++;
-    const dt = lastTs ? ts - lastTs : 33;
-    lastTs = ts;
 
-    // Detector on a cadence, never overlapping inferences. Every tick is
-    // stage 1 on the frame then stage 2 on its padded box; a stage-1 miss
-    // hands the tracker an empty detection list (tracks decay exactly as
-    // they do when stage 2 finds nothing) and the banner says no cube.
-    // Detection cadence: 'auto' runs a tick whenever the inference worker
-    // and the sampler are both free - a desktop then ticks at 30-60/s, a
-    // phone at whatever its inference allows - else every Nth frame.
+    // Detector on a cadence, never overlapping inferences, always on the
+    // newest frame. Every tick is stage 1 on the frame then stage 2 on its
+    // padded box; a stage-1 miss hands the tracker an empty detection list
+    // (tracks decay exactly as they do when stage 2 finds nothing) and the
+    // banner says no cube. Cadence: 'auto' runs a tick whenever the
+    // inference worker and the sampler are both free - a desktop then ticks
+    // every frame, a phone at whatever its inference allows - else every
+    // Nth frame.
     const m = models;
     const due = everySel.value === 'auto' ? !sampler.busy : frameNo % Number(everySel.value) === 0;
     if (m && !inferBusy && due) {
       inferBusy = true;
       void (async () => {
         try {
-          const t = await tick(v, m);
+          const t = await tick(head.canvas, m);
           ticks++;
           if (!t.box) stage1Misses++;
           locateEma = locateEma === 0 ? t.locateMs : 0.1 * t.locateMs + 0.9 * locateEma;
           if (t.result) inferEma = inferEma === 0 ? t.result.inferMs : 0.1 * t.result.inferMs + 0.9 * inferEma;
-          // anonymous quads feed the tracker; quality refusals are remembered per quad
-          pendingDetections = (t.result?.quads ?? []).map((q) => ({ corners: q.corners, conf: q.conf }));
-          lastTick = t;
-          noCube = !t.box;
-          // A face edge can't exceed the cube's silhouette, so a silhouette
-          // under the range floor (a fraction of the SOURCE frame height) is
-          // too far, full stop - whatever stage 2 then says about it.
-          cubeTooSmall = !!t.box
-            && Math.max(t.box.box[2] - t.box.box[0], t.box.box[3] - t.box.box[1]) < minFaceEdgePx(v.videoHeight);
+          // latency in frames: how far the camera moved on while the detector
+          // looked, plus the one pass before this result can be applied
+          const lag = ring.head - head.index + 1;
+          lagMax = Math.max(lagMax, lag);
+          lagEma = lagEma === 0 ? lag : 0.1 * lag + 0.9 * lagEma;
+          // anonymous quads feed the tracker once the view reaches this frame
+          arrivals.push({ frame: head.index, ts: head.ts, tick: t, dets: (t.result?.quads ?? []).map((q) => ({ corners: q.corners, conf: q.conf })) });
           tickHistory.push(summarizeTick(Date.now(), t.obj, t.result));
           if (tickHistory.length > TICK_HISTORY) tickHistory.shift();
           if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars);
@@ -505,9 +569,36 @@ async function loop(ts: number): Promise<void> {
       })();
     }
 
-    const dets = pendingDetections;
-    pendingDetections = null;
-    const tracks = tracker.update(dets, dt);
+    // Which frame to show. Synced: as many frames behind the camera as the
+    // detector is slow, so a tick's frame is still ahead of (or at) the view
+    // when the tick lands. Live: the newest frame. The pointer never goes
+    // backwards - a delay increase repeats a frame, a decrease skips one.
+    lagMax = Math.max(0, lagMax - LAG_DECAY_PER_FRAME);
+    const delay = syncSel.value === 'sync' ? Math.min(RING_FRAMES - 2, Math.ceil(lagMax)) : 0;
+    const wantIndex = Math.min(head.index, Math.max(shown?.index ?? -1, head.index - delay));
+    const frame = ring.get(wantIndex) ?? head;
+    const dt = shown && frame.index !== shown.index ? frame.ts - shown.ts : 0;
+    ctx.drawImage(frame.canvas, 0, 0);
+
+    // The newest finished tick at or before this frame is applied now;
+    // older ones it supersedes are dropped; newer ones wait their turn. A
+    // tick applied after its frame is carried forward by the lag.
+    let applied: Arrival | null = null;
+    while (arrivals.length && arrivals[0]!.frame <= frame.index) applied = arrivals.shift()!;
+    const lagMs = applied ? Math.max(0, frame.ts - applied.ts) : 0;
+    if (applied) {
+      if (applied.frame < frame.index) lateTicks++;
+      const t = applied.tick;
+      lastTick = t;
+      noCube = !t.box;
+      // A face edge can't exceed the cube's silhouette, so a silhouette
+      // under the range floor (a fraction of the SOURCE frame height) is
+      // too far, full stop - whatever stage 2 then says about it.
+      cubeTooSmall = !!t.box
+        && Math.max(t.box.box[2] - t.box.box[0], t.box.box[3] - t.box.box[1]) < minFaceEdgePx(v.videoHeight);
+    }
+    const dets = applied?.dets ?? null;
+    const tracks = tracker.update(dets, dt, lagMs);
     // track births and deaths, for the log (re-acquisition prior) and housekeeping
     const nowIds = new Set(tracks.map((t) => t.id));
     const centroid = (c: [number, number][]): [number, number] => [c.reduce((s, p) => s + p[0], 0) / 4, c.reduce((s, p) => s + p[1], 0) / 4];
@@ -538,19 +629,26 @@ async function loop(ts: number): Promise<void> {
       // same pixels under a stale quad, and beside its own replacement it
       // reads as a second face in the frame
       const fresh = confident.filter((t) => t.sinceDetectMs === 0);
-      if (fresh.length && !sampler.busy) {
+      // the pixels the detector saw (gone from the ring only after a
+      // latency spike longer than the ring - then this tick is not read)
+      const src = ring.get(applied!.frame);
+      if (fresh.length && src && !sampler.busy) {
         const tracks: SampleTrack[] = fresh.map((t) => {
+          // corners AT that frame: the filtered ones when the view is on it,
+          // the raw measurement when the tick was applied late (the filtered
+          // quad has been carried forward past the frame by then)
+          const corners = lagMs > 0 && t.measured ? t.measured : t.corners;
           const prev = lastCorners.get(t.id);
           let speed = 0;
-          if (prev && ts > prev.t) {
+          if (prev && src.ts > prev.t) {
             let dd = 0;
-            for (let i = 0; i < 4; i++) dd += Math.hypot(t.corners[i]![0] - prev.corners[i]![0], t.corners[i]![1] - prev.corners[i]![1]);
-            speed = dd / 4 / (ts - prev.t);
+            for (let i = 0; i < 4; i++) dd += Math.hypot(corners[i]![0] - prev.corners[i]![0], corners[i]![1] - prev.corners[i]![1]);
+            speed = dd / 4 / (src.ts - prev.t);
           }
-          lastCorners.set(t.id, { corners: t.corners, t: ts });
+          lastCorners.set(t.id, { corners, t: src.ts });
           const nth = (nthOf.get(t.id) ?? 0) + 1;
           nthOf.set(t.id, nth);
-          return { id: t.id, corners: t.corners, conf: t.conf, speed, nth };
+          return { id: t.id, corners, conf: t.conf, speed, nth };
         });
         // letter-free pairings: two quads sharing an image-space edge. Which
         // cube edge it is, and hence every rotation, is the solver's job.
@@ -562,8 +660,8 @@ async function loop(ts: number): Promise<void> {
           }
         }
         pendingPairings.set(detFrame, pairs);
-        const frame = frameImageData();
-        sampler.sample(detFrame, Date.now(), frame.width, frame.height, frame.data.buffer, tracks, REFINE);
+        const px = frameImageData(src.canvas);
+        sampler.sample(detFrame, Date.now(), px.width, px.height, px.data.buffer, tracks, REFINE);
       }
       const pipeMs = performance.now() - pipeStart;
       pipeEma = pipeEma === 0 ? pipeMs : 0.1 * pipeMs + 0.9 * pipeEma;
@@ -595,7 +693,7 @@ async function loop(ts: number): Promise<void> {
       updateFillUI();
       fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
       statsEl.textContent =
-        `fps ${fps.fps.toFixed(1)}   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
+        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
         + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
         + (lastTick
           ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
@@ -604,12 +702,14 @@ async function loop(ts: number): Promise<void> {
               : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
           : '');
     }
+    shown = frame;
   }
-  requestAnimationFrame((t) => void loop(t));
+  again();
 }
 
 function stopAuto(): void {
   running = false;
+  loopGen++;
   setPaused(false);
   camera.stop();
   startBtn.textContent = 'Start camera';
@@ -655,7 +755,10 @@ startBtn.addEventListener('click', () => {
       saveBtn.disabled = false;
       captureBtn.disabled = false;
       pauseBtn.disabled = false;
-      requestAnimationFrame((t) => void loop(t));
+      const gen = ++loopGen;
+      vfcSeen = vfcFresh = false;
+      armFrameSignal(camera.video, gen);
+      requestAnimationFrame((t) => loop(t, gen));
     } catch (err) {
       msgEl.textContent = String(err instanceof Error ? err.message : err);
     }
@@ -665,6 +768,7 @@ startBtn.addEventListener('click', () => {
 $('reset').addEventListener('click', () => {
   newScramble();
   tracker.reset();
+  arrivals.length = 0;
   log = emptyLog();
   detFrame = 0;
   lastCorners.clear();
@@ -681,7 +785,7 @@ $('reset').addEventListener('click', () => {
   lastTick = null;
   resultEl.textContent = '';
   hintEl.hidden = true;
-  stage1Misses = ticks = 0;
+  stage1Misses = ticks = lateTicks = 0;
   sampledQuads = [];
   renderedSolution = null;
   attemptEl.replaceChildren();
@@ -692,7 +796,7 @@ $('reset').addEventListener('click', () => {
 
 saveBtn.addEventListener('click', () => {
   if (!running) return;
-  void saveRawFrame(camera.video, 'scan-frame').then((name) => { msgEl.textContent = name ? `saved ${name}` : ''; });
+  void saveRawFrame(exportFrame(), 'scan-frame').then((name) => { msgEl.textContent = name ? `saved ${name}` : ''; });
 });
 captureBtn.addEventListener('click', () => {
   if (!models) { msgEl.textContent = 'nothing to capture: models not loaded'; return; }
@@ -710,13 +814,13 @@ captureBtn.addEventListener('click', () => {
     params: DEFAULT_PARAMS,
     locked: !!locked,
     stats: statsEl.textContent,
-    timing: { fps: +fps.fps.toFixed(1), samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
+    timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
   const post = params.get('post');
   const sink = post
     ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
     : undefined;
-  void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra, sink)
+  void captureDebug(lastTick?.result ?? null, models.detector, exportFrame(), 'scan-debug', tickHistory, extra, sink)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); });
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
