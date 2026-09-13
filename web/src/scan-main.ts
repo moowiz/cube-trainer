@@ -57,6 +57,7 @@ app.innerHTML = `
     <h1>Scan the cube
       <span id="modes"><button id="modeAuto" class="on">Auto</button><button id="modeGrid">Grid</button></span>
       <small id="status" class="auto">model loading…</small>
+      <small id="build" title="git hash · build time">build ${__BUILD__.hash} · ${__BUILD__.time}</small>
     </h1>
     <div id="bar" class="auto">
       <button id="start">Start camera</button>
