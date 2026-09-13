@@ -6,13 +6,11 @@
 (() => {
   const pages = [
     ['./', 'Trainer', 'index.html'],
-    ['autoscan.html', 'Auto scan'],
-    ['detect.html', 'Detector'],
-    ['bbox.html', 'Cube localizer'],
-    ['scanner.html', 'Grid scanner'],
+    ['scan.html', 'Scan (auto)'],
+    ['scan.html?mode=grid', 'Scan (grid)'],
     ['label.html', 'Labeler'],
   ];
-  const here = location.pathname.split('/').pop() || 'index.html';
+  const here = (location.pathname.split('/').pop() || 'index.html') + (location.search.includes('mode=grid') ? '?mode=grid' : '');
 
   const style = document.createElement('style');
   style.textContent = `

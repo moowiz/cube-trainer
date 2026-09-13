@@ -574,7 +574,7 @@ likely to bite (video is the cheap way for everything but the first):
    The `_bars` augmentation is the only thing standing in for a 640x480
    laptop/desktop webcam: wide FOV, noisy, auto-exposure hunting, the
    user's face and torso in frame, cube held toward the lens, monitor
-   glow. Capture from the app itself (`/bbox.html` frame dump or the
+   glow. Capture from the app itself (`/scan.html` Save frame, or the
    debug frame dump) on a laptop: 30-50 frames, several distances, with
    and without the cube.
 2. **Daylight and backlight.** A handful of balcony/window shots in batch 6.

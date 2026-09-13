@@ -1,0 +1,44 @@
+/* scan.html: the one camera page (auto scanner + grid scanner + debug panel). */
+body { margin: 0; background: #111318; color: #e8eaf0; font: 14px system-ui, sans-serif; }
+#wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
+h1 { font-size: 18px; margin: 4px 0 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+h1 small { font-size: 12px; font-weight: 400; color: #8b93a3; }
+#stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+#view { width: 100%; display: block; }
+#hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; text-align: center;
+        font-size: 16px; font-weight: 600; color: #fff; background: #c0392bd9; }
+button, select { background: #2a2f3a; color: inherit; border: 1px solid #3a4150; border-radius: 6px; padding: 8px 14px; font: inherit; }
+button:disabled { opacity: 0.5; }
+button.on { background: #3a4a6a; border-color: #5a7ab0; }
+#bar, .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+#modes { display: inline-flex; gap: 4px; }
+#fill { display: flex; gap: 6px; margin: 8px 0; }
+.f { flex: 1; text-align: center; border-radius: 6px; padding: 4px 0; background: #1a1e26; border: 1px solid #3a4150; }
+.f b { display: block; }
+#result { background: #1a1e26; border-radius: 8px; padding: 10px 12px; margin-top: 10px; white-space: pre-wrap; word-break: break-all; }
+#result:empty { display: none; }
+#fallback { display: none; background: #4a3320; border: 1px solid #8a6030; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
+#fallback a { color: #ffb454; }
+#stats { color: #8891a0; font-variant-numeric: tabular-nums; margin-top: 6px; white-space: pre-line; }
+#msg { color: #ffb454; min-height: 1.2em; margin-top: 8px; }
+#status { color: #8891a0; }
+label { display: flex; gap: 5px; align-items: center; color: #8891a0; }
+a { color: #7aa2ff; }
+details#debug { margin-top: 12px; border: 1px solid #2a2f3a; border-radius: 8px; padding: 6px 10px; }
+details#debug summary { cursor: pointer; color: #8b93a3; }
+#swatches { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+#swatches .sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+                font: 11px system-ui; color: #0006; border: 1px solid #0004; }
+#swatches .sw.seed { opacity: 0.35; border-style: dashed; }
+#cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+#cells .face { background: #1a1e26; border-radius: 8px; padding: 8px 10px; }
+#cells .hd { font: 11px ui-monospace, monospace; color: #8b93a6; margin-bottom: 6px; white-space: pre-line; }
+#cells .g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
+#cells .c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; font: 10px/1.15 ui-monospace, monospace; border: 1px solid #0005; }
+#cells .c.mid { outline: 2px solid #e8eaf0; outline-offset: 1px; }
+#cells .c b { font-size: 10px; font-weight: 600; }
+/* the grid scanner keeps its own light theme inside its host */
+#grid { display: none; background: #eceef2; color: #1b222c; border-radius: 8px; padding: 12px; }
+body.grid #grid { display: block; }
+body.grid .auto { display: none !important; }

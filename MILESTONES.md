@@ -70,7 +70,7 @@ Small keypoint detector (MobileNetV3 or similar backbone, heatmap or direct-regr
 **Watch for:** WebGPU availability. Benchmark both `webgpu` and `wasm` providers; if wasm is too slow, shrink the model before optimizing anything else.
 
 **Status (2026-09-11):** pipeline complete end-to-end — 38k-image training,
-ONNX export with parity gates, browser runtime (`detect.html`) verified in
+ONNX export with parity gates, browser runtime (`scan.html`, debug panel) verified in
 headless Chrome (webgpu 6.1 ms / wasm 10.9 ms per inference on desktop).
 **Speed bar met:** measured on the user's phone 2026-09-11 — 60 fps on the
 wasm EP, 4x the >=15 fps bar. Accuracy: median 3.4 px on
@@ -114,7 +114,7 @@ items above are now settled, one fixed and one closed as "won't fix":
 
 Cost: inference is only ~10-15% slower than the legacy head (alternating
 rounds on an idle box: webgpu 6.6 vs 5.9 ms, wasm 17.0 vs 14.6 ms), so the
-60 fps should hold - re-verify on the phone via `/autoscan.html`.
+60 fps should hold - re-verify on the phone via `/scan.html`.
 Depthwise-separable fuse convs in the neck are the lever if it ever misses.
 
 **Update (2026-09-13) — the full data_v4 run, and the accuracy bar is MET.**
@@ -188,7 +188,7 @@ not a model change.
 
 ---
 
-## M6 — Tracking + rectification in the app  🔶 (code complete 2026-09-12, awaiting phone verification via /autoscan.html)
+## M6 — Tracking + rectification in the app  🔶 (code complete 2026-09-12, awaiting phone verification via /scan.html)
 
 Wire the detector into `web/`. Kalman filter on corners. Run detection every 2–3 frames, interpolate. Homography warp each face to 90x90. Feed rectified faces into the M1 sampling/classification path.
 
