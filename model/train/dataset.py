@@ -174,20 +174,37 @@ def crop_window(hull, pads, bounds):
             min(bounds[2], x1 + pr * bw), min(bounds[3], y1 + pb * bh))
 
 
+def clamp_window(window, w: float, h: float):
+    """Clamp a float window to [0,w]x[0,h] and keep it at least 1 px wide.
+    Letterbox offsets come out at -1e-15 from float rounding and PIL's
+    resize(box=...) refuses any negative offset outright."""
+    x0, y0, x1, y1 = window
+    x0, y0 = max(0.0, float(x0)), max(0.0, float(y0))
+    x1, y1 = min(float(w), float(x1)), min(float(h), float(y1))
+    if x1 - x0 < 1.0:
+        x0, x1 = max(0.0, min(x0, w - 1.0)), max(0.0, min(x0, w - 1.0)) + 1.0
+    if y1 - y0 < 1.0:
+        y0, y1 = max(0.0, min(y0, h - 1.0)), max(0.0, min(y0, h - 1.0)) + 1.0
+    return (x0, y0, x1, y1)
+
+
 def crop_letterbox(img: Image.Image, window, iw: int, ih: int):
     """Cut `window` (x0,y0,x1,y1, float px) out of `img` and letterbox it into
-    (iw, ih). Returns (canvas, scale, dx, dy) with p' = (p - (x0,y0)) * scale
-    + (dx, dy) - the same transform facekp.ts applies to a ROI."""
+    (iw, ih). Returns (canvas, scale, dx, dy, window) with the window clamped
+    to the image and p' = (p - (x0,y0)) * scale + (dx, dy) - the same
+    transform facekp.ts applies to a ROI."""
+    window = clamp_window(window, img.width, img.height)
     x0, y0, x1, y1 = window
     cw, ch = x1 - x0, y1 - y0
     scale, dx, dy = letterbox_params(cw, ch, iw, ih)
+    dx, dy = max(0.0, dx), max(0.0, dy)
     nw, nh = max(1, round(cw * scale)), max(1, round(ch * scale))
     # PIL's resize takes a float box: no rounding of the window edges, so the
     # label transform above is exact rather than off by up to half a pixel.
     crop = img.resize((nw, nh), Image.BILINEAR, box=(x0, y0, x1, y1))
     out = Image.new("RGB", (iw, ih), PAD_RGB)
     out.paste(crop, (round(dx), round(dy)))
-    return out, scale, dx, dy
+    return out, scale, dx, dy, window
 
 
 def _label_fingerprint(files: list[Path]) -> int:
@@ -234,7 +251,7 @@ def _cache_chunk(args):
                 window = (x0, y0, x0 + side, y0 + side)
             else:
                 window = crop_window(hull, rng.uniform(CACHE_PAD[0], CACHE_PAD[1], size=4), (0, 0, w, h))
-            canvas, scale, dx, dy = crop_letterbox(img, window, iw, ih)
+            canvas, scale, dx, dy, window = crop_letterbox(img, window, iw, ih)
             origin = (window[0], window[1])
         imgs[start + k] = np.asarray(canvas)
         confs[k] = conf
@@ -311,7 +328,7 @@ def recrop(canvas: np.ndarray, corners_px: np.ndarray, conf: np.ndarray, valid: 
             window = (cx0, cy0, cx1, cy1)
     else:
         window = crop_window(hull, pads, content)
-    out, scale, dx, dy = crop_letterbox(img, window, *out_wh)
+    out, scale, dx, dy, window = crop_letterbox(img, window, *out_wh)
     new = (corners_px - [window[0], window[1]]) * scale + [dx, dy]
     conf = conf.copy()
     ow, oh = out_wh
