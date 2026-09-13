@@ -1,0 +1,125 @@
+// Debug exports and readouts shared by the scan page's debug panel (and any
+// future page): download helpers, the RAW camera frame for the labeling
+// loop, the naming-evidence snapshot, and the per-sticker readout.
+//
+// Rule for every image written here: the raw frame, never the overlay canvas.
+// A painted quad or box would poison training data.
+//
+// The readout and the snapshot are both built from `res.named`, which is
+// what nameQuads actually decided from - the same cell samples and the same
+// exemplar ranking. Nothing here re-derives a colour decision; the one
+// derived value is each cell's nearest exemplar, which naming never computes
+// because only the centre names a face, and it is computed with the app's
+// own labDistance against the app's own live exemplars so it cannot drift
+// from what the centre decision would say.
+import { labDistance } from '../color';
+import type { DetectResult, FaceDetector } from '../detect/facekp';
+import type { CenterExemplars } from '../detect/identify';
+import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
+import type { FaceId, Lab } from '../types';
+
+export function downloadBlob(blob: Blob, name: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** The current camera frame as a clean PNG (no overlay). */
+export function rawFrameBlob(video: HTMLVideoElement): Promise<Blob | null> {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  c.getContext('2d')!.drawImage(video, 0, 0);
+  return new Promise((resolve) => c.toBlob(resolve, 'image/png'));
+}
+
+/** Download the raw frame as `<prefix>-<stamp>.png`; returns the file name. */
+export async function saveRawFrame(video: HTMLVideoElement, prefix: string, stamp = Date.now()): Promise<string | null> {
+  if (video.videoWidth === 0) return null;
+  const blob = await rawFrameBlob(video);
+  if (!blob) return null;
+  const name = `${prefix}-${stamp}.png`;
+  downloadBlob(blob, name);
+  return name;
+}
+
+export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; d: number; second: number } {
+  const ranked = FACE_ORDER
+    .map((f) => ({ f, d: labDistance(lab, exemplars.get(f)) }))
+    .sort((a, b) => a.d - b.d);
+  return { face: ranked[0]!.f, d: ranked[0]!.d, second: ranked[1]!.d };
+}
+
+/** Everything the naming layer saw for this detection, as a plain object. */
+export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement): unknown {
+  const ex = detector.exemplars;
+  return {
+    captured: new Date().toISOString(),
+    model: detector.modelId,
+    ep: detector.ep,
+    input: { w: video.videoWidth, h: video.videoHeight },
+    inferMs: res.inferMs,
+    totalMs: res.totalMs,
+    exemplars: FACE_ORDER.map((f) => ({
+      face: f, color: DEFAULT_SCHEME_NAMES[f], measured: ex.isMeasured(f), lab: ex.get(f),
+    })),
+    quads: res.quads.map((q, i) => {
+      const n = res.named?.[i];
+      return {
+        i,
+        conf: q.conf,
+        cornersSourcePx: q.corners,
+        named: n && {
+          face: n.face, color: n.color, reason: n.reason, nameConf: n.nameConf,
+          centreNorm: n.center, centreRgb: n.rgb,
+          ranked: n.ranked,
+          cells: n.cellsNorm?.map((lab, k) => ({
+            k, rgb: n.cellRgb?.[k], lab: n.cells?.[k], labNorm: lab, nearest: cellPick(lab, ex),
+          })),
+        },
+      };
+    }),
+  };
+}
+
+/** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
+export async function captureDebug(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
+                                   prefix = 'detect-debug'): Promise<string> {
+  const stamp = Date.now();
+  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video), null, 1)], { type: 'application/json' }),
+               `${prefix}-${stamp}.json`);
+  await saveRawFrame(video, prefix, stamp);
+  return `${prefix}-${stamp}`;
+}
+
+/** Per-sticker readout: one 3x3 swatch grid per named quad, each cell with its nearest exemplar and distance. */
+export function renderCellReadout(host: HTMLElement, res: DetectResult | null, exemplars: CenterExemplars): void {
+  host.textContent = '';
+  if (!res?.named) return;
+  res.named.forEach((n, i) => {
+    if (!n.cellsNorm || !n.cellRgb) return;
+    const box = document.createElement('div');
+    box.className = 'face';
+    const hd = document.createElement('div');
+    hd.className = 'hd';
+    const best = n.ranked?.[0];
+    hd.textContent = `quad ${i} · ${res.quads[i] ? res.quads[i]!.conf.toFixed(2) : '?'} · ${n.reason}\n`
+      + (best ? `centre ${n.color ?? '—'} d ${best.d.toFixed(1)} · conf ${n.nameConf.toFixed(2)}` : 'not named');
+    const g = document.createElement('div');
+    g.className = 'g';
+    n.cellsNorm.forEach((lab, k) => {
+      const p = cellPick(lab, exemplars);
+      const rgb = n.cellRgb![k]!;
+      const c = document.createElement('div');
+      c.className = 'c' + (k === 4 ? ' mid' : '');
+      c.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      c.style.color = p.d > 35 ? '#fff' : '#000';
+      c.innerHTML = `<b>${DEFAULT_SCHEME_NAMES[p.face].slice(0, 3)}</b><span>${p.d.toFixed(0)}</span>`;
+      g.append(c);
+    });
+    box.append(hd, g);
+    host.append(box);
+  });
+}

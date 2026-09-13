@@ -1,7 +1,7 @@
 // Grid-overlay scanner (milestone M1): fixed 3x3 grid over the camera feed,
 // scan the six faces in U R F D L B order, classify in Lab via k-means seeded
 // from the face centers, validate with cubejs, show the solution.
-// Mountable both standalone (scanner.html) and inside the trainer's Scan tab.
+// Mounted by scan.html (grid mode) and by the trainer's Scan tab.
 
 import './scanner.css';
 import { Camera } from '../camera';

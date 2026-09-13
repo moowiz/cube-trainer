@@ -16,10 +16,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: p('index.html'),
-        scanner: p('scanner.html'),
-        detect: p('detect.html'),
-        autoscan: p('autoscan.html'),
-        bbox: p('bbox.html'),
+        scan: p('scan.html'),
       },
     },
   },

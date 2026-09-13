@@ -121,7 +121,7 @@ with corners mapped back to frame px, `padBox`, the cadence in
    roi }`: stage 1 every detection tick (~1 ms on wasm); `roi = padBox(box,
    0.45)`; stage 2 on the ROI; on a stage-1 miss return null. No
    tracker-hull ROI, no centre crop, no full frame. Used by
-   `autoscan-main.ts` and `detect-main.ts`; `bbox.html` stays the stage-1
+   `scan-main.ts` (one page since 2026-09-13; its debug panel has the stage-1-only switch that `bbox.html` was)
    page.
 2. **Miss handling**: a null tick feeds the tracker nothing (tracks decay as
    they do today when the detector finds nothing); `HintState` shows "no
@@ -161,7 +161,7 @@ with corners mapped back to frame px, `padBox`, the cadence in
 6. Export both (`export_bbox.py`, `export_onnx.py` with the crop stamp),
    deploy to `web/public/models/`, `npm test`, push (Pages deploys).
 7. Measurement (§5) written into README and this file; phone check in the
-   morning via `/autoscan.html`.
+   morning via `/scan.html`.
 
 ## 5. Measurement
 
@@ -174,7 +174,7 @@ Before = deployed `v4ft1`/`box6`. Bins as fractions of frame height: far
 | stage 2 close-up corner error in source px | same |
 | stage 2 synthetic `val_px` on the crop cache | `train.py` |
 | cubebox `real_iou`, in-range <0.7, per-edge sd, size bins | `train_bbox.py` log, `bbox_measure.py`, `bbox_rows.py` |
-| end-to-end on the phone: faces per frame, lock time, fps, both EPs | `/autoscan.html` |
+| end-to-end on the phone: faces per frame, lock time, fps, both EPs | `/scan.html` |
 | batch7 (720x1280) once labelled; phone clips re-scored | `score_frames.py` |
 
 Baselines: v4ft1 full-frame 3.31 px mean / 3.03 median, 4 missed of 73;
@@ -186,7 +186,7 @@ they are 720x1280 video frames, not 480x640 app frames. A 16:9 frame into
 160x120 uses 67.5 px of width vs the app's 90, so if the phone's video is
 the usual vertical crop of the 4:3 sensor the clip figures understate what
 the app sees by 1.33x. Not blocking: stage 1 is measured on app frames via
-`bbox.html`, stage 2 no longer cares.
+`scan.html` (stage 2 off), stage 2 no longer cares.
 
 **Resolution.** Stage 2 is scale-normalized by the crop, so model input
 size is no longer the far-cube lever; capture resolution is (a 720x1280

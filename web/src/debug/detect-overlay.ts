@@ -4,8 +4,8 @@
 // a way to see its output in the debug panel." The center head adds three
 // things worth seeing — the face-center heatmap the peaks come from, the raw
 // quads before anything named them, and the color exemplars the naming
-// compares against — so each gets a drawing here, shared by detect.html and
-// autoscan.html rather than copy-pasted into both.
+// compares against — so each gets a drawing here, shared by the scan page
+// and the self-test rather than copy-pasted around.
 import type { HeatMap } from '../detect/facekp';
 import type { CenterExemplars } from '../detect/identify';
 import { FACE_ORDER } from '../types';
