@@ -21,7 +21,7 @@ from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from augment import augment_sample
 from dataset import CubeKeypointDataset, normalize01, normalize_batch, to_float01
-from gpu_augment import photometric_batch
+from gpu_augment import disable_compile, enable_compile, photometric_batch
 from model import (HEADS, build_model, center_loss, center_metrics, conf_accuracy, count_params,
                    f1_from_counts, keypoint_loss, pixel_error)
 from targets import build_center_targets, dataset_target_stats
@@ -95,8 +95,14 @@ def main():
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=3e-4)
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=8,
+                    help="DataLoader workers. 8 with --compile (the main thread is idle enough "
+                         "for them to pay), 4 with --compile off; ~56%% CPU either way")
     ap.add_argument("--overfit", type=int, default=0, help="train+val on the first N samples, no augmentation")
+    ap.add_argument("--compile", choices=["auto", "on", "off"], default="auto",
+                    help="torch.compile(mode='reduce-overhead') the model and the GPU augmentation. "
+                         "'auto' tries and falls back to eager if compilation fails (no Triton / "
+                         "compiler on this machine); 'on' makes that failure fatal")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -151,6 +157,15 @@ def main():
 
     model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     grid_hw = getattr(model, "grid_hw", None)
+    # `model` stays the plain module: checkpoints, --init/--resume, the
+    # optimizer and export all see it. `run` is what forward goes through -
+    # the compiled wrapper shares its parameters. Measured 2026-09-12 (batch
+    # 64): fwd+bwd+opt 20.2 ms eager -> 13.8 ms with reduce-overhead (Inductor
+    # fusion + CUDA graphs), and the fused augmentation stages on top.
+    compiled = device == "cuda" and args.compile != "off"
+    run = torch.compile(model, mode="reduce-overhead", dynamic=False) if compiled else model
+    if compiled:
+        enable_compile()
     print(f"head={args.head}  params={count_params(model) / 1e6:.2f}M"
           + (f"  grid={grid_hw[0]}x{grid_hw[1]}" if grid_hw else ""))
     if args.head == "center":
@@ -203,6 +218,18 @@ def main():
         start_epoch = ckpt["epoch"] + 1
         print(f"resumed {rp} at epoch {start_epoch}/{args.epochs} (best val_px so far {best_px:.2f})")
 
+    def forward_train(x):
+        nonlocal run, compiled
+        try:
+            return run(x)
+        except Exception as e:  # noqa: BLE001 - compile backend failure, first step only
+            if not compiled or args.compile == "on":
+                raise
+            print(f"torch.compile failed, continuing eager: {str(e).splitlines()[0][:160]}", flush=True)
+            run, compiled = model, False
+            disable_compile()
+            return run(x)
+
     for epoch in range(start_epoch, args.epochs + 1):
         model.train()
         t0 = time.time()
@@ -214,6 +241,10 @@ def main():
         run_off = torch.zeros((), device=device)
         n = 0
         for x, conf, corners, valid in train_dl:
+            if compiled:
+                # reduce-overhead = CUDA graphs: tell the runtime the previous
+                # step's graph outputs (pred) may now be overwritten.
+                torch.compiler.cudagraph_mark_step_begin()
             # All four come out of the DataLoader pinned; a blocking .to() on
             # any of them is a stream sync (memcpy + cudaStreamSynchronize).
             x, conf, corners, valid = (t.to(device, non_blocking=True) for t in (x, conf, corners, valid))
@@ -225,7 +256,7 @@ def main():
             targets = (build_center_targets(conf, corners, valid, grid_hw)
                        if args.head == "center" else None)
             with torch.amp.autocast(device_type="cuda", enabled=device == "cuda"):
-                pred = model(x)
+                pred = forward_train(x)
                 loss, lh, lo = (center_loss(pred, targets) if args.head == "center"
                                 else keypoint_loss(pred, conf, corners, valid))
             scaler.scale(loss).backward()
@@ -238,6 +269,9 @@ def main():
             n += x.size(0)
         run_loss, run_heat, run_off = run_loss.item(), run_heat.item(), run_off.item()
         t_train = time.time() - t0
+        # Eval goes through the plain module: it is ~2 s/epoch eager, and the
+        # compiled path would build a graph per eval batch shape (val, val's
+        # last batch, real_val) at ~25 s each for nothing.
         vloss, vpx, vacc = evaluate(model, val_dl, device, args.head, grid_hw)
         rpx = None
         if real_dl is not None:

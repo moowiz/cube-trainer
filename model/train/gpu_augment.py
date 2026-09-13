@@ -204,6 +204,53 @@ def _draw_params(b: int):
     return p, blur_idx, blur_sigma, motion_idx, lengths, angles
 
 
+def _stage_a(x: torch.Tensor, p: torch.Tensor):
+    """Pad mask, color jitter, white balance - the elementwise chain before
+    the indexed convolutions. (B,3,H,W) float, params (B,PARAM_COLS)."""
+    b = x.shape[0]
+    pad = (x == PAD_GRAY).all(dim=1, keepdim=True)   # (B,1,H,W) letterbox/pillar pixels
+    x = color_jitter(x, p[:, 0].view(b, 1, 1, 1), p[:, 1].view(b, 1, 1, 1), p[:, 2].view(b, 1, 1, 1))
+    x = x.mul_(p[:, 3:6].view(b, 3, 1, 1)).clamp_(0, 1)          # white balance (gain 1 where off)
+    return x, pad
+
+
+def _stage_b(x: torch.Tensor, p: torch.Tensor, pad: torch.Tensor) -> torch.Tensor:
+    """Noise (one fused kernel, sigma 0 where off) and the padding restore."""
+    b = x.shape[0]
+    x = x.addcmul_(torch.randn_like(x), p[:, 6].view(b, 1, 1, 1)).clamp_(0, 1)
+    return torch.where(pad, PAD_GRAY, x)
+
+
+# The two elementwise stages are what torch.compile fuses well (a dozen
+# memory-bound passes become ~3 kernels); the convolutions in between are
+# cuDNN either way and their index sets change size every batch, which
+# would mean a recompile per size. enable_compile() swaps the stages for
+# compiled versions; the CPU-side _draw_params is never traced (Inductor's
+# CPU backend needs a C++ toolchain the GPU path does not).
+_stage_a_impl = _stage_a
+_stage_b_impl = _stage_b
+
+
+def enable_compile(mode: str = "default") -> None:
+    """Compile the elementwise stages. dynamic=False: the batch shape is
+    static except for the last partial batch, which gets its own graph.
+
+    mode "default", not "reduce-overhead": the stages mutate their inputs
+    and hand tensors to each other and to eager convolutions in between,
+    and CUDA-graph outputs are static buffers the next replay overwrites -
+    check_gpu_augment.py --compile hit exactly that. Kernel fusion is the
+    whole gain here (two launches instead of ~15 passes), graphs add
+    nothing to it."""
+    global _stage_a_impl, _stage_b_impl
+    _stage_a_impl = torch.compile(_stage_a, mode=mode, dynamic=False)
+    _stage_b_impl = torch.compile(_stage_b, mode=mode, dynamic=False)
+
+
+def disable_compile() -> None:
+    global _stage_a_impl, _stage_b_impl
+    _stage_a_impl, _stage_b_impl = _stage_a, _stage_b
+
+
 @torch.no_grad()
 def photometric_batch(x: torch.Tensor) -> torch.Tensor:
     """(B,3,H,W) float in [0,1] on any device -> same shape/range, augmented.
@@ -217,14 +264,10 @@ def photometric_batch(x: torch.Tensor) -> torch.Tensor:
     copy, and the device only ever runs kernels. check_fast_path.py asserts
     this with torch.cuda.set_sync_debug_mode.
     """
-    b = x.shape[0]
     dev = x.device
-    pad = (x == PAD_GRAY).all(dim=1, keepdim=True)   # (B,1,H,W) letterbox/pillar pixels
-
-    p, blur_idx, blur_sigma, motion_idx, lengths, angles = _draw_params(b)
+    p, blur_idx, blur_sigma, motion_idx, lengths, angles = _draw_params(x.shape[0])
     p = p.to(dev, non_blocking=True)
-    x = color_jitter(x, p[:, 0].view(b, 1, 1, 1), p[:, 1].view(b, 1, 1, 1), p[:, 2].view(b, 1, 1, 1))
-    x = x.mul_(p[:, 3:6].view(b, 3, 1, 1)).clamp_(0, 1)          # white balance (gain 1 where off)
+    x, pad = _stage_a_impl(x, p)
 
     if blur_idx.numel():
         k = 2 * int(math.ceil(3 * float(blur_sigma.max()))) + 1  # CPU tensor: no sync
@@ -235,6 +278,4 @@ def photometric_batch(x: torch.Tensor) -> torch.Tensor:
         idx = motion_idx.to(dev, non_blocking=True)
         x[idx] = motion_blur(x[idx], lengths, angles).clamp_(0, 1)   # conv sums can land at 1+eps
 
-    # noise: one fused kernel over the whole batch, sigma 0 where it is off
-    x = x.addcmul_(torch.randn_like(x), p[:, 6].view(b, 1, 1, 1)).clamp_(0, 1)
-    return torch.where(pad, PAD_GRAY, x)
+    return _stage_b_impl(x, p, pad)

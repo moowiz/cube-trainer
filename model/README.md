@@ -368,41 +368,69 @@ Fix, in order of payoff:
    `torch.cuda.set_sync_debug_mode("error")` - keep it passing. Step: 47.6 ->
    25.9 ms (2467 img/s GPU-side, GPU at ~94%); batch 128 gives 51 ms, i.e.
    nothing, so the GPU is now the real limit.
-5. **Workers: 4, not 8.** End to end (`bench_local.py --data <root>
-   --workers 4,6,8`, 2026-09-12): 4 workers 2343 img/s, 6 -> 1975, 8 -> 1688.
-   The loader alone does ~3000 img/s at 8 workers, but the main thread
-   spends ~25 of every 26 ms issuing kernels, and every extra worker's
-   result handling (unpickle, pin) competes with it for the GIL. So the
-   fastest setting is also the quietest one. `--workers` does not enter the
-   resume guard, so a paused run can switch to 4.
+5. **Workers.** Eager, the main thread spends ~25 of every 26 ms issuing
+   kernels, and every extra worker's result handling (unpickle, pin)
+   competes with it for the GIL, so 4 workers were as good as 8. With step
+   6 below the main thread is mostly idle and 8 workers pay again: use
+   `--workers 8` (the default) with `--compile` (also the default), 4
+   without; 12 buys a last ~5% and sits at the ~80% CPU ceiling. `--workers`
+   does not enter the resume guard, so a paused run can switch.
+   (`bench_local.py` used to read a burst rate - 30 steps right after the
+   prefetch queue filled - which is why an earlier version of this note
+   claimed 8 workers were slower; it now measures a 300-step sustained
+   window. Trust train.py's own `train <s> <img/s>` numbers first.)
 
-   Per-epoch: the log line now ends with `train <s> <img/s>  eval <s>` so
-   the val/real_val share is visible; the first epoch also pays worker spawn
-   and a cold memmap cache. Sustained on data_v4 (51,296 train images, 4
-   workers, desktop in use): 27 s/epoch = 26 s train at ~1950 img/s + 1 s
-   eval, so a 150-epoch from-scratch run is ~70 min (was ~140 s/epoch on
-   long5b before 2026-09-12).
+   Per-epoch: the log line ends with `train <s> <img/s>  eval <s>` so the
+   val/real_val share is visible; the first epoch also pays worker spawn,
+   a cold memmap cache and (compiled) the compile itself. Sustained on
+   data_v4 (51,296 train images, desktop in use):
+
+   | setting                      | epoch | train      | eval |
+   |------------------------------|-------|------------|------|
+   | eager, 4 workers             | 27 s  | 1950 img/s | 1 s  |
+   | compiled, 4 workers          | 27 s  | 2050 img/s | 2 s  |
+   | compiled, 8 workers          | 17 s  | 3240 img/s | 1 s  |
+   | compiled, 12 workers         | 16 s  | 3410 img/s | 1 s  |
+
+   so a 150-epoch from-scratch run is ~45 min (was ~140 s/epoch on long5b
+   before 2026-09-12, i.e. ~6 h). The sustained `bench_local.py` sweep
+   (300-step windows, data_v4) agrees: eager 4/6/8 workers 2128/2361/2381
+   img/s, compiled 2208/2927/3616; batch 128 and 256 lose either way.
+6. **torch.compile** - DONE 2026-09-12, `--compile auto|on|off` (default
+   auto: try, fall back to eager with a printed line if the backend is
+   missing). The model runs through `torch.compile(mode="reduce-overhead",
+   dynamic=False)` (Inductor fusion + CUDA graphs: fwd+bwd+opt 20.2 -> 13.8
+   ms at batch 64) and the two elementwise augmentation stages through
+   `gpu_augment.enable_compile()` (mode "default": 5.8 -> 2.3 ms; not
+   "reduce-overhead", the stages mutate inputs and feed eager convolutions,
+   and CUDA-graph outputs are static buffers the next replay overwrites).
+   The plain module keeps doing checkpoints, --init/--resume, export and
+   eval (eval is ~2 s eager and would cost ~25 s of compile per batch shape).
+   First-epoch cost: ~150 s cold, ~40 s with Inductor's on-disk cache warm;
+   the train loader's last partial batch is one extra graph. Prerequisites
+   on this machine: `pip install "triton-windows<3.3"` (pairs with torch
+   2.6; in the venv now) and Python >= 3.13.5 (3.13.4's installer shipped
+   a pyconfig.h that defines Py_GIL_DISABLED and breaks every extension
+   compile - the machine is on 3.13.15). MSVC Build Tools + Windows SDK
+   were installed along the way but the GPU-only path does not need them:
+   Triton uses its bundled TinyCC for the launcher stubs. Do not trace CPU
+   tensors into a compiled function - Inductor's CPU backend does need
+   cl.exe, and that is how the first attempt failed. `bench_compile.py`
+   measures the modes; `check_gpu_augment.py --compile` proves the compiled
+   stages (identity, padding restore).
 
    **Measured dead ends (don't retry without a new reason):**
-   - `torch.compile`: no Triton on Windows. `triton-windows` 3.2 installs
-     but its bundled TinyCC cannot compile against Python 3.13's headers
-     ("limited API not supported in the free-threaded build") - every
-     Inductor mode fails. Uninstalled. Needs MSVC Build Tools (Triton then
-     uses cl.exe) or a Python 3.12 venv; `train/bench_compile.py` is the
-     one-command measurement once that exists.
-   - CUDA graphs: whole fwd+bwd+opt step captured in one graph 19.2 ->
-     16.9 ms (-12% of that part, ~5% of the step); `make_graphed_callables`
-     on fwd+bwd alone -5%. Not worth the OneCycleLR/GradScaler/odd-last-batch
-     plumbing while the loader ceiling is this close.
+   - Hand-rolled CUDA graphs (`torch.cuda.graph` / `make_graphed_callables`
+     without Inductor): -5..12% of fwd+bwd+opt. torch.compile's
+     reduce-overhead mode does the same plus fusion for free - see step 6.
    - autocast dtype: fp16 19.2 ms, bf16 23.9, fp32 31.5, fp32+tf32 29.8.
    - channels_last: 2.3-3.5x SLOWER (depthwise convs). batch 128/256: no
      gain once the syncs were gone. Photometric pass in fp16: 6.6 -> 5.9 ms
      (launch-bound, not bandwidth-bound) - not worth a dtype split.
 
 **Resource etiquette:** this is the user's daily-driver PC — keep it usable
-while jobs run. Don't raise `--workers` beyond ~half the CPU threads (the
-first run used 8 at ~56% CPU: acceptable ceiling, don't exceed it; since
-step 5 above, 4 is both fastest and quietest), don't
+while jobs run. The agreed CPU ceiling is ~80% (raised from ~56% on
+2026-09-12): up to ~12 `--workers` on the 20-thread i5, no more; don't
 chase 100% utilization of anything, and prefer making each worker's unit of
 work cheaper (caching, smaller decodes) over adding workers. Same applies to
 the M3 generator: one headless-Chrome instance is plenty.
