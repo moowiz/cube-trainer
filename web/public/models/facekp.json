@@ -34,17 +34,19 @@
     "decode": "corner = ((j+0.5+offx)*stride/W, (i+0.5+offy)*stride/H); candidates are every cell >= threshold, strongest first (ties to the lower cell index), then drop a quad whose center is within 0.5 x an already-kept quad's mean edge (floor 8 px), keep 6; NOT a 3x3 max-pool - that dropped a face on small cubes. Quads are ANONYMOUS - name them by center color",
     "cornerOrder": "cyclic, winding consistent; starting corner arbitrary"
   },
-  "trainedEpoch": 12,
-  "valPx": 2.764851041925169,
-  "realPx": 3.328550856688927,
+  "trainedEpoch": 9,
+  "valPx": 2.8242573104611335,
+  "realPx": 3.4467154221207488,
   "precision": "fp32",
-  "run": "kpft3",
+  "run": "kpft6",
   "checkpoint": "best.pt",
-  "exported": "2026-09-13 03:07",
+  "exported": "2026-09-13 16:18",
   "cropTrained": true,
   "view": "crop",
   "cropPad": 0.45,
   "minFaceEdgeFrac": 0.133,
   "head": "center-v1",
-  "anonymous": true
+  "anonymous": true,
+  "points": 4,
+  "gridCornerIdx": null
 }

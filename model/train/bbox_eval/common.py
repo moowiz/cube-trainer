@@ -74,7 +74,10 @@ def batch_index() -> dict[str, str]:
             elif f.is_dir() and not f.name.startswith("_"):
                 for g in f.iterdir():
                     if g.suffix.lower() in (".jpg", ".jpeg", ".png"):
-                        idx[g.name] = f.name
+                        # "<batch>/<file>" sources since batch 8; bare names
+                        # belong to the first batch that used them
+                        idx[f"{f.name}/{g.name}"] = f.name
+                        idx.setdefault(g.name, f.name)
     return idx
 
 

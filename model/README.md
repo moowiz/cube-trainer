@@ -194,8 +194,13 @@ heatmap at stride 4 with per-junction peaks - which is a different (and
 costlier on the phone) architecture, not a flag on this one. Keep
 `--points 4`.
 
-Deployed 2026-09-13: `cubebox` = **box11**, `facekp` = **kpft3** (fp32; the int8
-gate still fails at 8 px mean shift). `web/test/fixtures/facekp-maps-square.json`
+Deployed 2026-09-13 (evening): `cubebox` = **box11**, `facekp` = **kpft6**
+(kpft3's recipe with batch 8 in `data_real`; on the 114-frame val batch 8
+went 4.52 -> 4.06 px, everything else within noise, overall 3.51 -> 3.45,
+F1 0.951 -> 0.956; box11 was already fine on batch 8 at 0.816 IoU, none
+under 0.7). fp32; the int8 gate still fails at 14 px mean shift. kp4 ->
+kpft7 (scratch base with batch 8 at `*20`, then the same fine-tune) is the
+pending comparison. `web/test/fixtures/facekp-maps-square.json`
 is dumped from kpft3.
 
 ## Architecture: anonymous-quad head (center-v1, 2026-09-12)
