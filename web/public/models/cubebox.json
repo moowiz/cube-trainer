@@ -30,9 +30,11 @@
     "channels": "0: objectness logit (sigmoid me); 1..4: cx,cy,w,h raw - sigmoid each, then multiply by input w/h; map back through the letterbox like facekp corners"
   },
   "task": "stage-1 cube localizer (two-stage detector): single bbox + objectness",
-  "valIou": 0.822336069928876,
+  "head": "dense",
+  "valIou": 0.8857626588068391,
+  "realIou": 0.8458870552681588,
   "trainedEpoch": 38,
-  "run": "box3",
+  "run": "box6",
   "checkpoint": "best.pt",
-  "exported": "2026-09-12 11:02"
+  "exported": "2026-09-12 21:33"
 }

@@ -20,21 +20,23 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from bbox_data import BOX_WH  # noqa: E402
 from dataset import NORM_MEAN, NORM_STD  # noqa: E402
-from train_bbox import TinyBox  # noqa: E402
+from train_bbox import build_box_model  # noqa: E402
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", default="../train/runs/box3/best.pt")
+    ap.add_argument("--ckpt", default="../train/runs/box4/best.pt")
     ap.add_argument("--out", default="out")
     args = ap.parse_args()
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
-    model = TinyBox()
+    head = ckpt.get("head", "gap")  # checkpoints before 2026-09-12 are all gap
+    model = build_box_model(head)
     model.load_state_dict(ckpt["model"])
     model.eval()
+    print(f"head: {head}")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -66,7 +68,9 @@ def main():
                                "sigmoid each, then multiply by input w/h; map back "
                                "through the letterbox like facekp corners"},
         "task": "stage-1 cube localizer (two-stage detector): single bbox + objectness",
-        "valIou": ckpt.get("val_iou"), "trainedEpoch": ckpt.get("epoch"),
+        "head": head,
+        "valIou": ckpt.get("val_iou"), "realIou": ckpt.get("real_iou"),
+        "trainedEpoch": ckpt.get("epoch"),
         "run": Path(args.ckpt).resolve().parent.name,
         "checkpoint": Path(args.ckpt).name,
         "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),

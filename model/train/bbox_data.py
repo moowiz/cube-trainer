@@ -1,43 +1,154 @@
 """Datasets for the stage-1 cube localizer (bbox at 160x120).
 
 Two sources, one sample contract: (image CHW normalized like FaceKP,
-objectness float, bbox [cx, cy, w, h] normalized to [0,1]).
+objectness float, bbox [cx, cy, w, h] normalized to [0,1], box_valid float).
 
 - SynthBBox wraps CubeKeypointDataset: bbox = hull of the visible faces'
   corner labels (free supervision from the corner data, incl. real photos
   in data_real). Hard negatives (no cube) come through as objectness 0.
+  box_valid is always 1: these labels ARE the silhouette convention.
 - CocoBBox reads a Roboflow COCO export dir (all its classes mean "a cube";
   largest box wins if several). Real-world variety stage 2 can't use -
   other people's cubes, rooms, and lighting.
+  **box_valid defaults to 0**: audited 2026-09-12 against the stage-2
+  keypoint silhouette on 393 of its images, those human boxes sit at median
+  IoU 0.756 with the silhouette and run 16% wide, 71% of them below IoU 0.8.
+  They are a different labelling convention, and at --coco-rep 8 they were
+  ~29% of the mixture, i.e. the regressor was fit to a blend of two
+  conventions. Keep them for objectness ("a cube exists, in a real room"),
+  which is what they were actually good for, and take extent from the
+  silhouette labels only. `--coco-box` puts their box loss back.
 
-Light train-time augmentation lives here (hflip, brightness/contrast
-jitter, noise) - geometric variety beyond flips comes from the sources
-themselves; keep stage 1 simple until measurement says otherwise.
+Train-time augmentation (all of it lives here):
+
+- geometry: isotropic zoom + translate, then a *portrait pillarbox*
+  simulation. The app feeds 480x640 portrait frames, which letterbox into
+  160x120 as a 90x120 content window with 35 px grey bars each side; every
+  synthetic image is 640x480 landscape and fills the canvas edge to edge, so
+  before this the model had never seen a bar outside the ~157 real photos.
+  Measured cost of that gap on the deployed model: a controlled A/B on the
+  same synthetic val images (landscape vs a 3:4 centre crop - identical cube
+  pixel size, only the bars differ) moved median width/true from 1.002 to
+  0.964, i.e. a systematic ~4% shrink, in the direction the user reported.
+- photometric: brightness/contrast/noise, and hflip.
+
+DECISION 2026-09-12: the 320x240 cache is reduced to 160x120 with a 2x2
+average (`avg_pool2d`), not `[::2, ::2]`. Nearest-neighbour decimation
+aliases sticker edges; the browser's `drawImage` downscale does not. Feeding
+the deployed model a `::2`-decimated input instead of a smooth one moved
+median IoU on data_real_val from 0.888 to 0.959 - the model was trained on a
+sharper, aliased image than it is ever shown at runtime.
 """
 from __future__ import annotations
 
 import json
+import math
 import random
 from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
 
 from dataset import CubeKeypointDataset, NORM_MEAN, NORM_STD, letterbox_image, letterbox_params
 
 BOX_WH = (160, 120)
+# rgb(114,114,114) in the normalized space the model sees - the letterbox pad.
+PAD = torch.tensor((114.0 / 255.0 - NORM_MEAN) / NORM_STD, dtype=torch.float32).view(3, 1, 1)
+# app geometry: 480x640 -> 160x120 letterbox is a 90x120 window centred at x=35
+PORTRAIT_W = round(BOX_WH[1] * 3 / 4)
+PORTRAIT_X = (BOX_WH[0] - PORTRAIT_W) // 2
 
 
-def _augment(x: torch.Tensor, obj: float, box: torch.Tensor):
+def reduce_to_box_input(x: torch.Tensor) -> torch.Tensor:
+    """(3,240,320) -> (3,120,160) with a 2x2 box filter (see module docstring)."""
+    return F.avg_pool2d(x.unsqueeze(0), 2).squeeze(0)
+
+
+def _has_bars(x: torch.Tensor) -> bool:
+    """True if this sample is already letterboxed (a portrait real photo)."""
+    return bool(torch.allclose(x[:, :, 0], PAD.view(3, 1).expand(3, x.shape[1]), atol=1e-3))
+
+
+def _xyxy(box: torch.Tensor, w: int, h: int):
+    return (float(box[0] - box[2] / 2) * w, float(box[1] - box[3] / 2) * h,
+            float(box[0] + box[2] / 2) * w, float(box[1] + box[3] / 2) * h)
+
+
+def _from_xyxy(x0, y0, x1, y1, w: int, h: int) -> torch.Tensor:
+    return torch.tensor([(x0 + x1) / 2 / w, (y0 + y1) / 2 / h, (x1 - x0) / w, (y1 - y0) / h],
+                        dtype=torch.float32)
+
+
+def _paste(canvas_wh, content: torch.Tensor, ox: int, oy: int) -> torch.Tensor:
+    """content (3,h,w) onto a PAD-filled canvas at (ox,oy), cropping overhang."""
+    W, H = canvas_wh
+    out = PAD.expand(3, H, W).clone()
+    ch, cw = content.shape[1], content.shape[2]
+    sx0, sy0 = max(0, -ox), max(0, -oy)
+    dx0, dy0 = max(0, ox), max(0, oy)
+    ww = min(cw - sx0, W - dx0)
+    hh = min(ch - sy0, H - dy0)
+    if ww > 0 and hh > 0:
+        out[:, dy0:dy0 + hh, dx0:dx0 + ww] = content[:, sy0:sy0 + hh, sx0:sx0 + ww]
+    return out
+
+
+def _zoom_translate(x: torch.Tensor, box: torch.Tensor, lo=0.72, hi=1.3):
+    """Isotropic resample + random placement. Rejects placements that would
+    push the cube off the canvas - a clipped cube would be a wrong target."""
+    W, H = BOX_WH
+    s = random.uniform(lo, hi)
+    nh, nw = max(8, round(H * s)), max(8, round(W * s))
+    content = F.interpolate(x.unsqueeze(0), size=(nh, nw), mode="bilinear",
+                            align_corners=False, antialias=True).squeeze(0)
+    x0, y0, x1, y1 = _xyxy(box, nw, nh)
+    for _ in range(6):
+        ox = random.randint(min(0, W - nw), max(0, W - nw))
+        oy = random.randint(min(0, H - nh), max(0, H - nh))
+        if x0 + ox >= 0 and y0 + oy >= 0 and x1 + ox <= W and y1 + oy <= H:
+            return _paste(BOX_WH, content, ox, oy), _from_xyxy(x0 + ox, y0 + oy, x1 + ox, y1 + oy, W, H)
+    return x, box
+
+
+def _pillarbox(x: torch.Tensor, box: torch.Tensor):
+    """Crop a 3:4 window and re-centre it with grey bars: the exact geometry a
+    480x640 phone frame gets. Content scale is unchanged (both letterboxes
+    are height-limited at scale 0.1875), so only the bars are new."""
+    W, H = BOX_WH
+    x0, y0, x1, y1 = _xyxy(box, W, H)
+    lo = max(0, math.ceil(x1) - PORTRAIT_W)
+    hi = min(math.floor(x0), W - PORTRAIT_W)
+    if lo > hi:
+        return x, box  # cube wider than the portrait window; leave it alone
+    left = random.randint(lo, hi)
+    window = x[:, :, left:left + PORTRAIT_W]
+    return (_paste(BOX_WH, window, PORTRAIT_X, 0),
+            _from_xyxy(x0 - left + PORTRAIT_X, y0, x1 - left + PORTRAIT_X, y1, W, H))
+
+
+def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = True):
     if random.random() < 0.5:  # hflip
         x = torch.flip(x, dims=[2])
         if obj > 0:
             box = box.clone()
             box[0] = 1.0 - box[0]
+    if geometry and obj > 0:
+        barred = _has_bars(x)
+        if random.random() < 0.6:
+            x, box = _zoom_translate(x, box)
+        if not barred and random.random() < 0.45:
+            x, box = _pillarbox(x, box)
     if random.random() < 0.7:  # brightness/contrast in normalized space
-        x = x * random.uniform(0.8, 1.25) + random.uniform(-0.3, 0.3)
+        # The downward reach matters: data_v4's auto-exposure floor re-renders
+        # near-black scenes brighter (5.4% of them), so the synthetic set has
+        # almost no genuinely dim frames left, and the one dim photo in
+        # data_real_val (cube luminance 64 against a median of 108) fell from
+        # objectness 0.99 under box3 to 0.07 - a flat detection miss. Reaching
+        # to 0.45x puts dim frames back in the mixture.
+        x = x * random.uniform(0.45, 1.25) + random.uniform(-0.35, 0.3)
     if random.random() < 0.4:
         x = x + torch.randn_like(x) * random.uniform(0.01, 0.06)
     return x, obj, box
@@ -54,7 +165,7 @@ class SynthBBox(Dataset):
 
     def __getitem__(self, i: int):
         x, conf, corners, valid = self.inner[i]
-        x = x[:, ::2, ::2]  # 320x240 cache -> 160x120, same normalized coords
+        x = reduce_to_box_input(x)  # 320x240 cache -> 160x120, same normalized coords
         vis = (conf > 0.5) & (valid > 0.5)
         if vis.any():
             pts = corners[vis].reshape(-1, 2)
@@ -67,11 +178,12 @@ class SynthBBox(Dataset):
             obj = 0.0
         if self.augment:
             x, obj, box = _augment(x, obj, box)
-        return x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32)
+        return (x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32),
+                torch.tensor(1.0, dtype=torch.float32))
 
 
 class CocoBBox(Dataset):
-    def __init__(self, split_dir: str | Path, augment: bool):
+    def __init__(self, split_dir: str | Path, augment: bool, box_valid: float = 0.0):
         self.dir = Path(split_dir)
         d = json.loads((self.dir / "_annotations.coco.json").read_text())
         boxes: dict[int, list] = {}
@@ -83,6 +195,7 @@ class CocoBBox(Dataset):
             best = max(bs, key=lambda b: b[2] * b[3]) if bs else None
             self.items.append((im["file_name"], im["width"], im["height"], best))
         self.augment = augment
+        self.box_valid = box_valid
 
     def __len__(self) -> int:
         return len(self.items)
@@ -105,5 +218,8 @@ class CocoBBox(Dataset):
             box = torch.zeros(4)
             obj = 0.0
         if self.augment:
-            x, obj, box = _augment(x, obj, box)
-        return x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32)
+            # geometry off: these boxes don't follow our convention, so there is
+            # nothing to keep consistent - and photometric/flip still help objectness.
+            x, obj, box = _augment(x, obj, box, geometry=False)
+        return (x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32),
+                torch.tensor(self.box_valid if b is not None else 1.0, dtype=torch.float32))
