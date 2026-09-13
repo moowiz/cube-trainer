@@ -271,9 +271,11 @@ real solves says single-frame epochs are common.
   in 2.1 is the first thing to re-plan.
 - How often does the tracker actually drop the turned face vs. keep a
   wrong quad through the turn? Decides whether signal 1 or 2 leads.
-- The 16-point grid head's cell-centre accuracy is directly relevant:
-  thin epochs (2-3 frames) get no temporal averaging, so per-frame
-  sampling placement is the noise floor.
+- Per-frame sampling placement is the noise floor for thin epochs (2-3
+  frames get no temporal averaging). The 16-point grid head was tried the
+  same day and did not move it (`model/README.md`, cell-centre error 2.58
+  vs 2.69 px); the floor is kpft3's ~2.6 px at the 256 crop, ~11 source
+  px, ~7.6 in the far bin.
 - Whether to keep scanning and solve mode as one session (start lock →
   moves) or let the user start mid-solve with a fresh six-face read.
   The record format supports both via `reseed`.

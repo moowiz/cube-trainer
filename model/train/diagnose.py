@@ -106,10 +106,19 @@ def apply_h(H: np.ndarray, uv: np.ndarray) -> np.ndarray:
     return p[:, :2] / w
 
 
+# Which of the grid's points the cell-centre homography is fitted to
+# (`--fit`): all 16, the 12 interior (non-corner) ones, or the 4 innermost.
+FIT_SUBSETS = {"all": list(range(16)), "interior": [p for p in range(16) if p not in (0, 3, 12, 15)],
+               "inner": [5, 6, 9, 10]}
+FIT_SUBSET = "all"
+
+
 def cell_centre_error(pred_pts: np.ndarray, gt_corners: np.ndarray, npts: int) -> float:
     """Mean distance between the 9 sticker centres placed by a homography fitted
-    to ALL predicted points and those from the ground-truth corners (px)."""
-    Hp = fit_homography(unit_points(npts), pred_pts)
+    to the predicted points (all of them, or the `--fit` subset for a grid
+    model) and those from the ground-truth corners (px)."""
+    sel = FIT_SUBSETS[FIT_SUBSET] if npts == 16 else list(range(npts))
+    Hp = fit_homography(unit_points(npts)[sel], pred_pts[sel])
     Hg = fit_homography(unit_points(4), gt_corners)
     return float(np.linalg.norm(apply_h(Hp, CELL_UV) - apply_h(Hg, CELL_UV), axis=1).mean())
 
@@ -160,7 +169,11 @@ def main():
                     help="crop view: per-side padding U(PAD_VAL-J, PAD_VAL+J) instead of exactly "
                          "PAD_VAL, simulating localizer error")
     ap.add_argument("--seed", type=int, default=0, help="for --jitter")
+    ap.add_argument("--fit", choices=list(FIT_SUBSETS), default="all",
+                    help="grid checkpoints: which points the cell-centre homography is fitted to")
     args = ap.parse_args()
+    global FIT_SUBSET
+    FIT_SUBSET = args.fit
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
@@ -298,7 +311,8 @@ def main():
     if head == "center":
         ce = np.array([r["cellErr"] for r in hit])
         cs = np.array([r["cellErr"] * r["src"] for r in hit])
-        print(f"CELL-CENTRE error (9 sticker centres via a homography fitted to all {npts} points): "
+        fitted = f"{FIT_SUBSET} {len(FIT_SUBSETS[FIT_SUBSET])}" if npts == 16 else f"all {npts}"
+        print(f"CELL-CENTRE error (9 sticker centres via a homography fitted to {fitted} points): "
               f"mean {ce.mean():.2f} px  median {np.median(ce):.2f} px  p90 {np.percentile(ce, 90):.2f} px"
               f"  | source px: mean {cs.mean():.2f}  median {np.median(cs):.2f}  p90 {np.percentile(cs, 90):.2f}")
         if npts != 4:
