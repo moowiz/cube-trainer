@@ -108,10 +108,16 @@ export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
 export async function captureDebug(res: DetectResult | null, detector: FaceDetector, video: HTMLVideoElement,
                                    prefix = 'detect-debug', history: readonly TickSummary[] = [],
-                                   extra: Record<string, unknown> = {}): Promise<string> {
+                                   extra: Record<string, unknown> = {},
+                                   sink?: (json: string, name: string) => Promise<void>): Promise<string> {
   const stamp = Date.now();
-  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video, history, extra), null, 1)], { type: 'application/json' }),
-               `${prefix}-${stamp}.json`);
+  const json = JSON.stringify(debugSnapshot(res, detector, video, history, extra), null, 1);
+  if (sink) {
+    // a headless clip replay posts the capture to the dev server instead of downloading
+    await sink(json, `${prefix}-${stamp}.json`);
+    return `${prefix}-${stamp}`;
+  }
+  downloadBlob(new Blob([json], { type: 'application/json' }), `${prefix}-${stamp}.json`);
   await saveRawFrame(video, prefix, stamp);
   return `${prefix}-${stamp}`;
 }

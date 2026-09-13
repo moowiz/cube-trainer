@@ -13,9 +13,14 @@ import type { DecodeResult } from './types';
 import { FACE_ORDER } from '../types';
 import type { FaceId } from '../types';
 import { solveAssignment } from '../color';
+import { CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../state';
 import { completeFacelets } from './complete';
 
 export interface DecodeOptions {
+  /** Wall-clock cap on the legality search (ms); the pop budgets still apply. */
+  maxMs?: number;
+  /** Check the 20 pieces on colour ids before calling `legal` and focus the expansion on broken ones (default true; off when `legal` is trivial). */
+  checkPieces?: boolean;
   /** Best-first pops before giving up on legality. */
   maxPops?: number;
   /** Extra pops after the best legal state, looking for the runner-up. */
@@ -141,6 +146,49 @@ function buildBalanced(cost: readonly (readonly number[])[]): { colours: number[
   return { colours, cost: centre.cost + rest.cost };
 }
 
+// ---------- piece check on colour ids ----------
+//
+// The search visits thousands of states; building a facelet string and
+// running validateState on each cost ~25 us and dominated the search. This
+// checks the 20 pieces directly on the colour ids (letters come from the
+// six centres) with bitmask lookups and reports the slots of the pieces
+// that are impossible or duplicated. Parity is left to validateState,
+// which only runs once every piece is a real, unique piece.
+
+const FACE_IDX: Record<string, number> = { U: 0, R: 1, F: 2, D: 3, L: 4, B: 5 };
+const maskOf = (letters: readonly string[]) => letters.reduce((m, l) => m | (1 << FACE_IDX[l]!), 0);
+const CORNER_MASKS = new Set(CORNER_COLORS.map(maskOf));
+const EDGE_MASKS = new Set(EDGE_COLORS.map(maskOf));
+const PIECE_SLOTS: readonly (readonly number[])[] = [...CORNER_FACELETS, ...EDGE_FACELETS];
+const PIECE_IS_CORNER = PIECE_SLOTS.map((p) => p.length === 3);
+const colourFace = new Int32Array(6);
+const seenMask = new Int32Array(64);
+
+/** Slots belonging to impossible or duplicated pieces; empty when every piece is real and unique. */
+function badPieceSlots(colours: readonly number[]): number[] {
+  for (let fi = 0; fi < 6; fi++) colourFace[colours[CENTER_SLOTS[fi]!]!] = fi;
+  seenMask.fill(-1);
+  const bad: number[] = [];
+  for (let p = 0; p < PIECE_SLOTS.length; p++) {
+    const slots = PIECE_SLOTS[p]!;
+    let mask = 0;
+    let bits = 0;
+    for (const s of slots) {
+      const b = 1 << colourFace[colours[s]!]!;
+      if (mask & b) { bits = -1; break; } // two stickers of one piece the same colour
+      mask |= b;
+      bits++;
+    }
+    const real = bits > 0 && (PIECE_IS_CORNER[p] ? CORNER_MASKS.has(mask) : EDGE_MASKS.has(mask));
+    if (!real) { bad.push(...slots); continue; }
+    // a corner mask has three bits and an edge mask two, so one table serves both
+    const prev = seenMask[mask]!;
+    if (prev >= 0) bad.push(...PIECE_SLOTS[prev]!, ...slots);
+    else seenMask[mask] = p;
+  }
+  return bad;
+}
+
 // ---------- 2-swap search over the balanced optimum ----------
 
 /**
@@ -181,14 +229,18 @@ interface Swap {
   delta: number;
 }
 
-function collectSwaps(cost: readonly (readonly number[])[], colours: readonly number[], swapsPerNode: number): Swap[] {
+function collectSwaps(cost: readonly (readonly number[])[], colours: readonly number[], swapsPerNode: number, focus: ReadonlySet<number> | null): Swap[] {
   let n = 0;
   for (let i = 0; i < N_SLOTS; i++) {
     const ci = colours[i]!;
     const costIci = cost[i]![ci]!;
+    const iFocus = focus === null || focus.has(i);
     for (let j = i + 1; j < N_SLOTS; j++) {
       const cj = colours[j]!;
       if (cj === ci) continue;
+      // from an illegal state only a swap that touches a broken piece can
+      // make progress; the rest keep it broken and only cost more
+      if (!iFocus && !focus!.has(j)) continue;
       if (!isAllowedSwap(colours, i, j)) continue;
       candI[n] = i;
       candJ[n] = j;
@@ -198,7 +250,9 @@ function collectSwaps(cost: readonly (readonly number[])[], colours: readonly nu
     }
   }
   const order = candOrder.subarray(0, n);
-  order.sort((a, b) => candDelta[a]! - candDelta[b]!);
+  // the heap orders the children; the sort only matters when there are
+  // more candidates than the cap and the cheapest must be kept
+  if (n > swapsPerNode) order.sort((a, b) => candDelta[a]! - candDelta[b]!);
   const take = Math.min(swapsPerNode, n);
   const out = new Array<Swap>(take);
   for (let k = 0; k < take; k++) {
@@ -282,19 +336,25 @@ function popUntil(
   budget: number,
   swapsPerNode: number,
   isTarget: (colours: readonly number[]) => boolean,
+  deadline = Infinity,
+  checkPieces = true,
 ): PopResult {
   let pops = 0;
   while (pops < budget) {
+    if ((pops & 63) === 0 && performance.now() > deadline) break;
     const node = heap.pop();
     if (!node) break;
     pops++;
     const key = keyOf(node.colours);
     if (seen.has(key)) continue;
     seen.add(key);
-    if (legal(node.colours) && isTarget(node.colours)) {
+    const bad = checkPieces ? badPieceSlots(node.colours) : [];
+    if (bad.length === 0 && legal(node.colours) && isTarget(node.colours)) {
       return { found: node, pops };
     }
-    const swaps = collectSwaps(cost, node.colours, swapsPerNode);
+    // a piece failure focuses the expansion on its slots; a parity failure
+    // (all pieces real) can be fixed by swaps anywhere
+    const swaps = collectSwaps(cost, node.colours, swapsPerNode, bad.length ? new Set(bad) : null);
     for (const sw of swaps) {
       const child = node.colours.slice();
       const tmp = child[sw.i]!;
@@ -351,6 +411,9 @@ export function decode(
   const maxPops = opts.maxPops ?? 30000;
   const secondPops = opts.secondPops ?? 12000;
   const swapsPerNode = opts.swapsPerNode ?? 120;
+  const t0 = performance.now();
+  const maxMs = opts.maxMs ?? Infinity;
+  const checkPieces = opts.checkPieces ?? true;
 
   const argmin = computeArgmin(cost);
   const balanced = buildBalanced(cost);
@@ -397,7 +460,7 @@ export function decode(
     best = { cost: balanced.cost, colours: balanced.colours };
     popsA = 0;
   } else {
-    const resultA = popUntil(heap, seen, cost, legal, maxPops, swapsPerNode, () => true);
+    const resultA = popUntil(heap, seen, cost, legal, maxPops, swapsPerNode, () => true, t0 + maxMs, checkPieces);
     best = resultA.found;
     popsA = resultA.pops;
   }
@@ -423,7 +486,7 @@ export function decode(
   // thousands of equal-cost arrangements, so say so directly.
   const resultB = completion === 'ambiguous'
     ? { found: { cost: best.cost, colours: best.colours }, pops: 0 }
-    : popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey);
+    : popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey, t0 + maxMs * 1.5, checkPieces);
   const delta = resultB.found ? resultB.found.cost - best.cost : Infinity;
 
   return {

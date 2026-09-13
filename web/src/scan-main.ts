@@ -626,12 +626,27 @@ function setPaused(on: boolean): void {
 
 pauseBtn.addEventListener('click', () => { if (running) setPaused(!paused); });
 
+// Clip replay: scan.html?clip=/clips/x.mp4[&autostart=1][&autocapture=1]
+// feeds a recording through the live pipeline (camera.ts startClip); with
+// autocapture the debug capture downloads when the clip ends, so a clip
+// becomes an evidence-log fixture with no hands on the cube.
+const params = new URL(location.href).searchParams;
+const clipUrl = params.get('clip');
+if (clipUrl) startBtn.textContent = 'Play clip';
+
 startBtn.addEventListener('click', () => {
   void (async () => {
     if (running) { stopAuto(); return; }
     msgEl.textContent = '';
     try {
-      await camera.start();
+      if (clipUrl) {
+        await camera.startClip(clipUrl, () => {
+          const sol = locked ?? solution;
+          msgEl.textContent = `clip ended - ${locked ? 'LOCKED' : (sol?.reason ?? 'no solution')}`;
+          console.log(`CLIP ENDED locked=${!!locked} reason="${sol?.reason ?? ''}" facelets=${sol?.facelets ?? ''} frames=${log.frames} quads=${log.quads.length}`);
+          if (params.get('autocapture')) setTimeout(() => captureBtn.click(), 1500);
+        });
+      } else await camera.start();
       running = true;
       lastGoodDetectionTs = performance.now();
       startBtn.textContent = 'Stop camera';
@@ -695,8 +710,12 @@ captureBtn.addEventListener('click', () => {
     stats: statsEl.textContent,
     timing: { fps: +fps.fps.toFixed(1), samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
-  void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra)
-    .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });
+  const post = params.get('post');
+  const sink = post
+    ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
+    : undefined;
+  void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra, sink)
+    .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); });
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
 exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; });
@@ -732,3 +751,9 @@ document.addEventListener('visibilitychange', () => {
   if (running) stopAuto();
   grid?.stop();
 });
+
+if (clipUrl && params.get('autostart')) {
+  // a muted <video> may autoplay without a gesture; the models must be up first
+  const kick = () => { if (models) startBtn.click(); else setTimeout(kick, 200); };
+  setTimeout(kick, 500);
+}

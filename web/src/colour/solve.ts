@@ -235,7 +235,7 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     const freeNow = cm.nEff.filter((n) => n < P.freeBelow).length;
     const complete = groups.filter((g) => g.letter).length >= 5 && freeNow <= 9;
     if (last && !opts.quick && complete) {
-      const balanced = decode(cm.cost, legalAll);
+      const balanced = decode(cm.cost, legalAll, { checkPieces: false, secondPops: 0 });
       balancedFacelets = balanced.colours ? coloursToFacelets(balanced.colours) : null;
       if (balanced.colours) resolveUnknownRotations(groups, balanced.colours);
       ({ ev } = slotMap(groups, sigs));
@@ -243,9 +243,9 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
       // DECISION: 6k/3k pops is ~500 ms on a desktop for a search that
       // fails, a second or two in the phone's worker; a cube that needs
       // more is a cube whose evidence is not there yet
-      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 6000, secondPops: 3000 });
+      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 6000, secondPops: 3000, maxMs: 250 });
     } else {
-      result = decode(cm.cost, legalAll);
+      result = decode(cm.cost, legalAll, { checkPieces: false, secondPops: 0 });
     }
     nEff = cm.nEff;
     slotLab = cm.lab;
