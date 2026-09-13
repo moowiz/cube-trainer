@@ -19,6 +19,7 @@ export default defineConfig({
         scanner: p('scanner.html'),
         detect: p('detect.html'),
         autoscan: p('autoscan.html'),
+        bbox: p('bbox.html'),
       },
     },
   },
