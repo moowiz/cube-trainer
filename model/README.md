@@ -378,7 +378,10 @@ Fix, in order of payoff:
 
    Per-epoch: the log line now ends with `train <s> <img/s>  eval <s>` so
    the val/real_val share is visible; the first epoch also pays worker spawn
-   and a cold memmap cache.
+   and a cold memmap cache. Sustained on data_v4 (51,296 train images, 4
+   workers, desktop in use): 27 s/epoch = 26 s train at ~1950 img/s + 1 s
+   eval, so a 150-epoch from-scratch run is ~70 min (was ~140 s/epoch on
+   long5b before 2026-09-12).
 
    **Measured dead ends (don't retry without a new reason):**
    - `torch.compile`: no Triton on Windows. `triton-windows` 3.2 installs
