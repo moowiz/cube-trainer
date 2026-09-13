@@ -169,3 +169,31 @@ describe('StickerVoter consensus alignment', () => {
     expect(r.inliers).toBeLessThan(r.frames);
   });
 });
+
+describe('StickerVoter consensus seeding', () => {
+  it('a junk majority that does not agree with itself cannot define the consensus', () => {
+    // three of every four R frames are a hand / the desk: nine unrelated colours, different each frame
+    const AFTER_U = 'UUUUUUUUU' + 'BBBRRRRRR' + 'RRRFFFFFF' + 'DDDDDDDDD' + 'FFFLLLLLL' + 'LLLBBBBBB';
+    const faceCells = (face: FaceId, seed: number): Lab[] => {
+      const fi = FACE_ORDER.indexOf(face);
+      return Array.from({ length: 9 }, (_, i) => noisy(PALETTE[AFTER_U[fi * 9 + i] as FaceId], seed + i));
+    };
+    // a different arrangement of sticker-like colours every frame: no two junk frames agree
+    const junk = (seed: number): Lab[] => {
+      let x = seed * 2654435761 + 12345;
+      return Array.from({ length: 9 }, () => { x = (x * 1103515245 + 12345) & 0x7fffffff; return noisy(PALETTE[FACE_ORDER[x % 6]!], x); });
+    };
+    const v = new StickerVoter();
+    for (let frame = 0; frame < 120 && !v.progress(FACE_MAP).locked; frame++) {
+      const obs = [0, 3].map((k) => {
+        const face = FACE_ORDER[(frame + k) % 6]!;
+        const cells = face === 'R' && frame % 4 !== 0 ? junk(frame) : faceCells(face, frame + k * 7);
+        return { cluster: CLUSTER_OF[face], conf: 0.95, cells };
+      });
+      v.addFrame(obs, FACE_MAP);
+    }
+    expect(v.progress(FACE_MAP).locked?.facelets).toBe(AFTER_U);
+    const r = v.lastAttempt!.evidence.find((e) => e.face === 'R')!;
+    expect(r.inliers).toBeLessThan(r.frames / 2);
+  });
+});

@@ -40,3 +40,7 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   lock that failed with "U appears 8 times": the old cell-keyed voter blended
   stickers of frames whose rotation disagreed; the voter now aligns whole
   frames to the face consensus and drops outliers (assembly.test.ts).
+  `-1789310783346` carries the first `lockAttempt`: R fed 120 frames (three
+  clusters, one of them skin at chroma 28 grouped into red by a hairline hue
+  gap) with 30 inliers, U 40 frames with 16 - the consensus is now seeded by
+  support and frames with cells of no known colour are dropped at the source.

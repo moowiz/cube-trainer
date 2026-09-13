@@ -20,9 +20,9 @@
 import './ui/scan.css';
 import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
-import { StickerVoter, type FaceObservation } from './assembly';
+import { StickerVoter, type FaceObservation, type LockAttempt } from './assembly';
 import { ColorClusters, hueDeg } from './detect/colorid';
-import { minFaceEdgePx, sampleGridCells } from './color';
+import { labToSrgb, minFaceEdgePx, sampleGridCells } from './color';
 import type { Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
 import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
@@ -34,8 +34,9 @@ import { OBSCURED_REASON, TOO_SMALL_REASON } from './detect/identify';
 import { HintState, hintFor } from './ui/hint';
 import { resolveOrientations, orientQuad, fuseSharedCorners, identifyNeighbour } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
-import { warpQuad, type ImageDataLike } from './rectify';
-import { PIECE_AMBIGUOUS_CONF, solveState } from './state';
+import { mapUV, squareToQuad, warpQuad, type ImageDataLike } from './rectify';
+import { normalizeFaceCells, PIECE_AMBIGUOUS_CONF, solveState } from './state';
+import { ALIAS_DIST } from './detect/colorid';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
@@ -53,6 +54,19 @@ const REFINE = true;         // grid-prior corner refinement before sampling
 // metric and lifts garbage from ~0.63 to ~1.4 (would pass 70-80%).
 const SEAM_VETO_SCORE = 1.15;
 const FALLBACK_AFTER_MS = 6000;
+// Once the session knows its six colours, a face reading with more than this
+// many cells that are no known colour (crushed-L Lab further than
+// STICKER_MAX_DIST from every cluster) is not a face: a hand, the desk, a
+// quad hanging off the cube. It neither feeds the clusters nor votes.
+// scan-debug-1789310783346: 38 frames of skin became a "red" cluster and
+// 90 junk frames drowned the R face.
+const STICKER_MAX_DIST = ALIAS_DIST;
+const MAX_ALIEN_CELLS = 2;
+// Sampling geometry drawn by the "sample patches" overlay, in cell units
+// (mirrors the legacy plan sampleGridCells uses on a 90 px warp).
+const PATCH_HALF = 0.2;
+const CENTRE_PATCH_HALF = 0.1;
+const CENTRE_RING_OFF = 0.25;
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 
 const app = document.getElementById('app')!;
@@ -66,6 +80,7 @@ app.innerHTML = `
     <div id="bar" class="auto">
       <button id="start">Start camera</button>
       <button id="reset">Reset scan</button>
+      <button id="pause" disabled title="Freeze the frame and the overlay to inspect what was sampled">Pause</button>
       <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
     </div>
     <div id="stage" class="auto"><canvas id="view"></canvas><div id="hint" hidden></div></div>
@@ -73,6 +88,7 @@ app.innerHTML = `
     <div id="unbound" class="auto"></div>
     <div id="fallback" class="auto">Having trouble? The <a href="#" id="toGrid">grid scanner</a> always works.</div>
     <div id="result" class="auto"></div>
+    <div id="attempt" class="auto grids"></div>
     <div id="stats" class="auto"></div>
     <details id="debug" class="auto">
       <summary>Debug</summary>
@@ -92,12 +108,13 @@ app.innerHTML = `
         <label><input type="checkbox" id="stage2off"> stage 2 off (localizer only)</label>
         <label id="cellsLbl" hidden><input type="checkbox" id="cellsChk"> per-sticker readout</label>
         <label><input type="checkbox" id="exChk"> clusters</label>
+        <label><input type="checkbox" id="samplesChk" checked> sample patches</label>
         <button id="capture" disabled title="Download this tick's naming evidence + the last ${TICK_HISTORY} ticks as JSON, plus the raw frame">Capture debug</button>
       </div>
       <div id="msg"></div>
       <div id="swatches" hidden></div>
       <div id="exemplars" hidden></div>
-      <div id="cells"></div>
+      <div id="cells" class="grids"></div>
     </details>
     <div id="grid"></div>
   </div>
@@ -124,6 +141,9 @@ const heatChk = $<HTMLInputElement>('heat');
 const stage2Off = $<HTMLInputElement>('stage2off');
 const cellsChk = $<HTMLInputElement>('cellsChk');
 const exChk = $<HTMLInputElement>('exChk');
+const samplesChk = $<HTMLInputElement>('samplesChk');
+const pauseBtn = $<HTMLButtonElement>('pause');
+const attemptEl = $('attempt');
 const exEl = $('exemplars');
 
 const camera = new Camera();
@@ -164,6 +184,10 @@ let cubeTooSmall = false;  // localizer found a cube whose silhouette is under t
 let noCube = false;        // localizer found nothing on the last tick
 let solved = false;
 let vetoedCount = 0;       // faces skipped by the seam veto (debug stat)
+let alienCount = 0;        // faces skipped because their cells are no known colour (debug stat)
+let paused = false;
+/** The quads actually sampled for votes this frame (source px, oriented), for the overlay. */
+let sampledQuads: { face: FaceId; quad: [number, number][] }[] = [];
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -233,6 +257,97 @@ function setRotation(id: number, rot: number): void {
   if (cluster !== undefined) rotations.set(id, { rot, cluster });
 }
 
+/** True when the session knows its colours and this reading has too many cells that are none of them. */
+function looksAlien(cells: Lab[]): boolean {
+  if (clusters.size() < 6) return false;
+  let alien = 0;
+  for (const c of normalizeFaceCells(cells)) {
+    const near = clusters.nearestLab(c);
+    if (!near || near.d > STICKER_MAX_DIST) alien++;
+  }
+  return alien > MAX_ALIEN_CELLS;
+}
+
+/** Outline every patch the colour sampler reads on the quads that voted this frame. */
+function drawSamplePatches(): void {
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  for (const { face, quad } of sampledQuads) {
+    const m = squareToQuad(quad);
+    ctx.strokeStyle = DEFAULT_SCHEME_HEX[face];
+    const box = (u: number, v: number, half: number) => {
+      const pts = [[u - half, v - half], [u + half, v - half], [u + half, v + half], [u - half, v + half]]
+        .map(([a, b]) => mapUV(m, a!, b!));
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.stroke();
+    };
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const u = (c + 0.5) / 3;
+        const v = (r + 0.5) / 3;
+        if (r === 1 && c === 1) {
+          box(u, v, CENTRE_PATCH_HALF / 3);
+          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) box(u + (sx! * CENTRE_RING_OFF) / 3, v + (sy! * CENTRE_RING_OFF) / 3, CENTRE_PATCH_HALF / 3);
+        } else {
+          box(u, v, PATCH_HALF / 3);
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+
+/**
+ * The last lock attempt as six 3x3 grids: each cell painted with the colour
+ * the voter settled on for that sticker, badged with the colour it was
+ * DECIDED to be (a red '?' where the sticker is a near-tie). Frames that had
+ * to be turned back or were dropped as outliers are the signature of a
+ * rotation or tracking problem rather than a colour one.
+ */
+function renderAttempt(): void {
+  const a = voter.lastAttempt;
+  if (!a) { attemptEl.replaceChildren(); return; }
+  attemptEl.replaceChildren();
+  a.evidence.forEach((ev, fi) => {
+    const box = document.createElement('div');
+    box.className = 'face';
+    const hd = document.createElement('div');
+    hd.className = 'hd';
+    const turned = ev.rotations[1] + ev.rotations[2] + ev.rotations[3];
+    hd.textContent = `${ev.face} ${DEFAULT_SCHEME_NAMES[ev.face]} · clusters ${ev.clusters.join('+')}\nframes ${ev.frames} · inliers ${ev.inliers}${turned ? ` · turned ${turned}` : ''} · fit ${ev.fit.toFixed(1)}`;
+    const g = document.createElement('div');
+    g.className = 'g';
+    ev.cells.forEach((lab, k) => {
+      const rgb = labToSrgb(lab);
+      const c = document.createElement('div');
+      c.className = 'c' + (k === 4 ? ' mid' : '');
+      c.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      if (a.assembled) {
+        const i = fi * 9 + k;
+        const letter = a.assembled.stickerFaces[i]!;
+        const low = a.assembled.confidences[i]! < PIECE_AMBIGUOUS_CONF;
+        const tag = document.createElement('span');
+        tag.className = 'tag' + (low ? ' low' : '');
+        tag.style.background = DEFAULT_SCHEME_HEX[letter];
+        tag.textContent = low ? '?' : letter;
+        tag.title = `decided ${DEFAULT_SCHEME_NAMES[letter]} (conf ${a.assembled.confidences[i]!.toFixed(2)})`;
+        c.append(tag);
+      }
+      g.append(c);
+    });
+    box.append(hd, g);
+    attemptEl.append(box);
+  });
+  if (a.error) {
+    const note = document.createElement('div');
+    note.className = 'hd';
+    note.textContent = a.error;
+    attemptEl.append(note);
+  }
+}
+
 /** 9 Lab cells of a quad, sampled from the native-resolution frame. */
 function sampleFace(frame: ImageDataLike, quad: [number, number][]): Lab[] {
   const warped = warpQuad(frame, quad, 90);
@@ -281,24 +396,7 @@ function renderClusters(tracks: TrackedQuad[]): void {
   exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   rejected ${clusters.rejectedBinds}   opposite conflicts ${oppositeConflicts}`;
 }
 
-/**
- * The last lock attempt as text: each face's assembled letters ('?' where the
- * sticker is a near-tie) and how its frames fit the consensus - frames that
- * had to be turned back, and frames dropped as outliers, are the signature
- * of a rotation or tracking problem rather than a colour one.
- */
-function describeAttempt(): string {
-  const a = voter.lastAttempt;
-  if (!a) return '';
-  return a.evidence.map((ev, fi) => {
-    const letters = a.assembled
-      ? Array.from({ length: 9 }, (_, i) => (a.assembled!.confidences[fi * 9 + i]! < PIECE_AMBIGUOUS_CONF ? '?' : a.assembled!.stickerFaces[fi * 9 + i]))
-      : [];
-    const grid = letters.length ? `${letters.slice(0, 3).join('')} ${letters.slice(3, 6).join('')} ${letters.slice(6).join('')}` : '---';
-    const turned = ev.rotations[1] + ev.rotations[2] + ev.rotations[3];
-    return `${ev.face} ${grid}  frames ${ev.frames} inliers ${ev.inliers}${turned ? ` turned ${turned}` : ''} fit ${ev.fit.toFixed(1)}`;
-  }).join('\n');
-}
+let renderedAttempt: LockAttempt | null = null;
 
 function updateFillUI(): void {
   const p = voter.progress(clusters.faceMap());
@@ -315,12 +413,14 @@ function updateFillUI(): void {
       .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
       .catch((e) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nsolver failed: ${e}`; });
   } else if (!p.locked && p.validationError) {
-    resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)\n${describeAttempt()}`;
+    resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)`;
   }
+  if (voter.lastAttempt !== renderedAttempt) { renderedAttempt = voter.lastAttempt; renderAttempt(); }
 }
 
 async function loop(ts: number): Promise<void> {
   if (!running) return;
+  if (paused) { requestAnimationFrame((t) => void loop(t)); return; }
   const v = camera.video;
   if (v.videoWidth > 0) {
     if (view.width !== v.videoWidth) {
@@ -379,9 +479,11 @@ async function loop(ts: number): Promise<void> {
       // 1. colour: every confident face's centre goes into the session
       //    clusters, in the track's own corner order (the centre is
       //    rotation-free). Identity follows from the cluster, not the frame.
+      const alien = new Set<number>();
       for (const t of confident) {
         const cells = sampleFace(frame, t.corners);
         if (seamScore(frame, t.corners).score < SEAM_VETO_SCORE) { vetoedCount++; continue; }
+        if (looksAlien(cells)) { alienCount++; alien.add(t.id); continue; }
         trackCluster.set(t.id, clusters.observe(cells));
       }
 
@@ -430,19 +532,25 @@ async function loop(ts: number): Promise<void> {
       }
 
       // 4. rectify + sample + vote (native-resolution reads), keyed by cluster
-      const votable = oriented.filter((x) => !conflicted.has(x.t.id));
+      const votable = oriented.filter((x) => !conflicted.has(x.t.id) && !alien.has(x.t.id));
       const { fused } = fuseSharedCorners(votable);
       const observations: FaceObservation[] = [];
+      sampledQuads = [];
       for (const x of votable) {
         let quad = fused.get(x.face)!.map((c) => [c[0], c[1]]) as [number, number][];
         if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
-        observations.push({ cluster: trackCluster.get(x.t.id)!, cells: sampleFace(frame, quad), conf: x.conf });
+        const cells = sampleFace(frame, quad);
+        if (looksAlien(cells)) { alienCount++; continue; }
+        sampledQuads.push({ face: x.face, quad });
+        observations.push({ cluster: trackCluster.get(x.t.id)!, cells, conf: x.conf });
       }
       if (observations.length) voter.addFrame(observations, clusters.faceMap());
       else voter.tryLock(clusters.faceMap());
     }
 
+    if (!confident.length || solved) sampledQuads = [];
     drawOverlay(tracks);
+    if (samplesChk.checked) drawSamplePatches();
     // Banner for refusals the user can fix (too far, too dark, glare).
     const reasons = lastTick?.result?.unnamed.map((u) => u.reason).filter(isQualityRefusal) ?? [];
     const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube), ts);
@@ -454,7 +562,7 @@ async function loop(ts: number): Promise<void> {
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
     statsEl.textContent =
-      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   vetoed ${vetoedCount}\n`
+      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   vetoed ${vetoedCount}   alien ${alienCount}\n`
       + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}   ` : '')
       + (lastTick
         ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
@@ -468,11 +576,23 @@ async function loop(ts: number): Promise<void> {
 
 function stopAuto(): void {
   running = false;
+  setPaused(false);
   camera.stop();
   startBtn.textContent = 'Start camera';
   saveBtn.disabled = true;
   captureBtn.disabled = true;
+  pauseBtn.disabled = true;
 }
+
+function setPaused(on: boolean): void {
+  paused = on;
+  pauseBtn.textContent = on ? 'Resume' : 'Pause';
+  pauseBtn.classList.toggle('on', on);
+  const v = camera.video;
+  if (on) v.pause(); else void v.play().catch(() => undefined);
+}
+
+pauseBtn.addEventListener('click', () => { if (running) setPaused(!paused); });
 
 startBtn.addEventListener('click', () => {
   void (async () => {
@@ -485,6 +605,7 @@ startBtn.addEventListener('click', () => {
       startBtn.textContent = 'Stop camera';
       saveBtn.disabled = false;
       captureBtn.disabled = false;
+      pauseBtn.disabled = false;
       requestAnimationFrame((t) => void loop(t));
     } catch (err) {
       msgEl.textContent = String(err instanceof Error ? err.message : err);
@@ -503,7 +624,10 @@ $('reset').addEventListener('click', () => {
   lastTick = null;
   resultEl.textContent = '';
   hintEl.hidden = true;
-  vetoedCount = stage1Misses = ticks = adjacencyBinds = oppositeConflicts = 0;
+  vetoedCount = alienCount = stage1Misses = ticks = adjacencyBinds = oppositeConflicts = 0;
+  sampledQuads = [];
+  renderedAttempt = null;
+  attemptEl.replaceChildren();
   tickHistory.length = 0;
 });
 
@@ -518,7 +642,7 @@ captureBtn.addEventListener('click', () => {
   const extra = {
     clusters: clusters.clusters().map((c) => ({ ...c, hue: +hueDeg(c.centroid).toFixed(1) })),
     tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotationOf(id) ?? null })),
-    adjacencyBinds, rejectedBinds: clusters.rejectedBinds, oppositeConflicts,
+    adjacencyBinds, rejectedBinds: clusters.rejectedBinds, oppositeConflicts, vetoedCount, alienCount,
     progress: voter.progress(clusters.faceMap()),
     lockAttempt: voter.lastAttempt,
   };

@@ -26,6 +26,25 @@ export function srgbToLab(r: number, g: number, b: number): Lab {
   return { L: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
 }
 
+/** CIE Lab (D65) -> sRGB 0-255, clamped; the inverse of srgbToLab, for showing measured colours. */
+export function labToSrgb(lab: Lab): [number, number, number] {
+  const fy = (lab.L + 16) / 116;
+  const fx = fy + lab.a / 500;
+  const fz = fy - lab.b / 200;
+  const finv = (t: number) => (t > 0.206893 ? t * t * t : (t - 16 / 116) / 7.787);
+  const x = finv(fx) * 0.95047;
+  const y = finv(fy);
+  const z = finv(fz) * 1.08883;
+  const rl = 3.2404542 * x - 1.5371385 * y - 0.4985314 * z;
+  const gl = -0.969266 * x + 1.8760108 * y + 0.041556 * z;
+  const bl = 0.0556434 * x - 0.2040259 * y + 1.0572252 * z;
+  const gam = (c: number) => {
+    const v = c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(Math.max(c, 0), 1 / 2.4) - 0.055;
+    return Math.round(Math.min(255, Math.max(0, v * 255)));
+  };
+  return [gam(rl), gam(gl), gam(bl)];
+}
+
 export function labDistance(p: Lab, q: Lab): number {
   const dL = p.L - q.L;
   const da = p.a - q.a;

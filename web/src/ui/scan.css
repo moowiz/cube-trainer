@@ -30,14 +30,21 @@ details#debug summary { cursor: pointer; color: #8b93a3; }
 #swatches .sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
                 font: 11px system-ui; color: #0006; border: 1px solid #0004; }
 #swatches .sw.seed { opacity: 0.35; border-style: dashed; }
-#cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
-#cells .face { background: #1a1e26; border-radius: 8px; padding: 8px 10px; }
-#cells .hd { font: 11px ui-monospace, monospace; color: #8b93a6; margin-bottom: 6px; white-space: pre-line; }
-#cells .g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
-#cells .c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
+.grids { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.grids:empty { display: none; }
+.grids .face { background: #1a1e26; border-radius: 8px; padding: 8px 10px; }
+.grids .hd { font: 11px ui-monospace, monospace; color: #8b93a6; margin-bottom: 6px; white-space: pre-line; }
+.grids .g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
+.grids .c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
             justify-content: center; font: 10px/1.15 ui-monospace, monospace; border: 1px solid #0005; }
-#cells .c.mid { outline: 2px solid #e8eaf0; outline-offset: 1px; }
-#cells .c b { font-size: 10px; font-weight: 600; }
+.grids .c.mid { outline: 2px solid #e8eaf0; outline-offset: 1px; }
+.grids .c b { font-size: 10px; font-weight: 600; }
+/* lock attempt: the measured colour fills the cell, the decided letter is the badge */
+#attempt .c { position: relative; }
+#attempt .c .tag { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; border-radius: 50%;
+                   border: 1px solid #0008; display: grid; place-items: center; font: 700 10px ui-monospace, monospace; color: #000; }
+#attempt .c .tag.low { background: #fff !important; color: #c00; }
+#bar button.on { background: #3a4a7a; }
 /* the grid scanner keeps its own light theme inside its host */
 #grid { display: none; background: #eceef2; color: #1b222c; border-radius: 8px; padding: 12px; }
 body.grid #grid { display: block; }
