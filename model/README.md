@@ -514,6 +514,120 @@ and misplaced shared corners.
 4. `python train/train.py --data ../data,../data_real --init runs/long/best.pt --epochs 30 --lr 5e-5 --out runs/ft`
 5. `python export/export_onnx.py --ckpt ../train/runs/ft/best.pt`
 
+### Batch 7: phone clips (2026-09-13)
+
+Five hand-held clips (`stephens_photos/video/`, ~4 min total) → 210 stills
+at 1/s (`extract_frames.py`, `v*.jpg`) + 69 extras picked by the deployed
+models' scores (`bbox_eval/score_frames.py`, `x*.jpg`, `extras-manifest.json`
+says why: uncertain / 1face / far / dark / miss / falseface / edge), all
+720x1280, all labelled in one sitting. Clips a-b walk through the flat
+(living room, bedroom, mirror, bathroom sink), c-d are the desk with the
+cube in hand against two monitors, e is the cube sitting on the desk by
+the keyboard, far and static.
+
+- **Split** (`batch7/val-picks.json`): the val slice is *contiguous 1-second
+  blocks* from every clip (39 stills) plus the extras that fall inside them
+  by clip+time (15), so no val frame has a train neighbour half a second
+  away. 216 → `data_real`, 54 → `data_real_val` (now 96 frames, 373 in
+  `data_real`). Stage 2's `real_px`/`--select real` are therefore weighted
+  toward video frames from here on; `diagnose.py` still splits per batch,
+  so the old 42-photo numbers stay comparable.
+- **Cube-less frames**: 21 were exported with no faces. 12 are real
+  negatives (bed, wall, mousepad, wristwatch, bottle, keyboard) and were
+  imported with `--keep-negatives` (stage 1 objectness 0). The other 9
+  (`v00012 x00002 x00007 x00008 x00011 x00031 x00037 x00047 x00065`) have
+  a cube in them — mid-turn with the layers misaligned, or cut off at the
+  frame edge — and were **skipped**, not imported: training objectness 0
+  on a visible cube would be wrong, and there is no box-only label type.
+- `check_labels.py` flags 5 frames (`v00058 v00065 v00079 v00092 v00201`)
+  with two *opposite* faces marked visible (R+L or F+B). The anonymous-quad
+  head does not use the face slot, so they train correctly as-is; they only
+  matter if a named-face head ever comes back.
+- 720x1280 is 16:9; the app frame is 4:3 from the same sensor width, so the
+  frame cache pillarboxes these to 180x320 inside 240x320 (grey side bands,
+  cube at its true app scale) and the crop cache cuts them natively.
+
+### Real-data coverage and what to shoot next
+
+Census of `data_real` + `data_real_val` after batch 7 (frames; range bins
+are the longest visible edge over frame height, floor 0.133; "edge" = cube
+centre within 20% of a frame border):
+
+| batch | frames | val | no cube | 1 face | 2 | 3 | far <0.188 | mid | near >0.25 | edge | landscape | source |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 22 | 4 | 0 | 6 | 12 | 4 | 3 | 4 | 15 | 2 | 0 | 3000x4000 photos |
+| 2 | 38 | 7 | 0 | 22 | 11 | 5 | 0 | 1 | 37 | 1 | 10 | photos + app frames |
+| 3 | 23 | 4 | 0 | 0 | 12 | 11 | 0 | 0 | 23 | 0 | 0 | app frames |
+| 4 | 14 | 3 | 0 | 1 | 7 | 6 | 0 | 2 | 12 | 0 | 0 | app frames |
+| 5 | 7 | 2 | 0 | 1 | 3 | 3 | 0 | 0 | 7 | 0 | 0 | app frames |
+| 6 | 95 | 22 | 22 | 28 | 30 | 15 | 9 | 22 | 42 | 1 | 0 | 3000x4000 photos |
+| 7 | 270 | 54 | 12 | 103 | 119 | 36 | 55 | 96 | 107 | 14 | 0 | 720x1280 clip stills |
+
+469 frames, 27 of them with every face under the range floor. What is
+covered well: the stickerless GAN cube in one person's hands, indoors under
+warm room light, bed/blanket/wood/tile/desk backgrounds, near and mid
+range, a solved and a glossy white-body cube (batch 6), the desk-with-
+monitors scene (batch 7 only). What is thin or absent, in the order it is
+likely to bite (video is the cheap way for everything but the first):
+
+1. **A desktop webcam, landscape.** Ten landscape frames exist, all phone.
+   The `_bars` augmentation is the only thing standing in for a 640x480
+   laptop/desktop webcam: wide FOV, noisy, auto-exposure hunting, the
+   user's face and torso in frame, cube held toward the lens, monitor
+   glow. Capture from the app itself (`/bbox.html` frame dump or the
+   debug frame dump) on a laptop: 30-50 frames, several distances, with
+   and without the cube.
+2. **Daylight and backlight.** A handful of balcony/window shots in batch 6.
+   Missing: direct sun with hard shadows and blown highlights on the
+   stickers, the cube held against a bright window (silhouette + flare),
+   overcast outdoors, and a night room lit by a single lamp or the phone's
+   screen. One clip each.
+3. **Other cubes.** Almost everything is one GAN stickerless cube. Missing:
+   a classic black-body stickered cube, a worn one with faded/peeling
+   stickers, a white-body cube, a non-standard scheme, and - as *hard
+   negatives* - a 2x2, a 4x4, dice, Lego bricks, a colourful gift box.
+   The detector has never been asked to say "not a 3x3".
+4. **Hard negatives it will meet.** Tiled walls and grids without a cube
+   (batch 6 has tiles only *with* one), a keyboard alone (batch 7 has it),
+   colourful clutter, a cube *picture* on a screen or box, a second
+   person's hands, a phone case, coffee mugs. Cube-less frames are 7% of
+   real data; the synthetic set has 7% too. 30-60 more from the places
+   the app will actually be used.
+5. **Mid-turn cubes.** Skipped in batch 7 because there is no label for a
+   cube whose layers are misaligned (faces are not planar quads). The app
+   sees this constantly while the user scrambles or solves. Decision
+   needed: either a box-only label (stage 1 keeps tracking, stage 2 refuses
+   the frame) or the localizer learns them from clips with no stage-2
+   labels. Until then, don't shoot them.
+6. **Cube partly out of frame.** 14 batch-7 frames are near a border, but
+   frames where a face is *cut* by the border were skipped. Per the
+   labelling convention (occluded corners are estimated and clicked) these
+   are labelable when the centre sticker is visible; 20-30 such frames
+   would teach both stages the app's most common failure while the user
+   is adjusting their grip.
+7. **Hands and skin.** One person's hands only. A second pair of hands,
+   gloves, sleeves, and a cube held in fingertips (most of the face
+   uncovered) vs palmed (a face half covered) - stage 2's occlusion
+   handling is trained on capsule fingers.
+8. **Motion blur and bad focus.** The blur-rejected frames never reach the
+   labeller; the app runs on them. A deliberately fast clip (`--blur 0`
+   on extraction) with 20-30 blurred-but-labelable frames would show
+   whether stage 1 holds the track through a fast move.
+9. **Two cubes in one frame.** Stage 1 regresses one box; several batch-7
+   desk frames show a second cube on the table, unlabelled (no frame has
+   more than 3 faces), so stage 1 is being taught "the one in the hand".
+   The app's behaviour with two cubes is undefined; either keep them out
+   of the shot list or decide "biggest wins" and label accordingly.
+10. **A second phone / front camera.** All source material is one Pixel's
+    rear camera. A different phone changes colour rendering (matters for
+    the colour stage, not detection) and the front camera changes the
+    mirror/FOV; both are one clip's worth.
+
+Data-efficiency note: batch 7's 216 train frames at `*150` oversampling
+make real photos ~half of the stage-2 fine-tune (was ~30%); if the
+synthetic `val_px` drifts up in `kpft*` runs, drop the multiplier to
+`*60`.
+
 ## Training performance
 
 Measured on the first 20k run (RTX 4070 SUPER): ~116 s/epoch at ~164 img/s,

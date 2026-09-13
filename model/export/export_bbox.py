@@ -18,9 +18,9 @@ import onnxruntime as ort
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
-from dataset import NORM_MEAN, NORM_STD  # noqa: E402
-from shapes import BOX_WH, MIN_FACE_EDGE_FRAC  # noqa: E402
-from train_bbox import build_box_model  # noqa: E402
+from dataset import NORM_MEAN, NORM_STD
+from shapes import BOX_WH, MIN_FACE_EDGE_FRAC
+from train_bbox import build_box_model
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 

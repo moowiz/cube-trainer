@@ -68,9 +68,12 @@ def center_color(face: np.ndarray) -> str:
         elif (mx - mn) / mx < 0.30:
             votes.append("white")
         else:
-            if mx == r: h = 60 * (((g - b) / (mx - mn)) % 6)
-            elif mx == g: h = 60 * ((b - r) / (mx - mn) + 2)
-            else: h = 60 * ((r - g) / (mx - mn) + 4)
+            if mx == r:
+                h = 60 * (((g - b) / (mx - mn)) % 6)
+            elif mx == g:
+                h = 60 * ((b - r) / (mx - mn) + 2)
+            else:
+                h = 60 * ((r - g) / (mx - mn) + 4)
             votes.append(min(_HUES, key=lambda f: min(abs(h - _HUES[f]), 360 - abs(h - _HUES[f]))))
     vals, counts = np.unique(votes, return_counts=True)
     top = str(vals[np.argmax(counts)])

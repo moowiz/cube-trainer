@@ -377,7 +377,6 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
 
     scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
     scale_t = torch.tensor(wh, dtype=torch.float32)
-    scale = scale_t.numpy()
     dets_s = scores.detach().float().cpu().numpy()
     quads_px = quads.detach().float().cpu() * scale_t
     gt_px = corners_t.detach().float().cpu() * scale_t

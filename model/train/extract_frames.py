@@ -20,7 +20,6 @@ struggles with, so they must not enter the data that way.
 from __future__ import annotations
 
 import argparse
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -60,7 +59,8 @@ def decode(video: Path, tmp: Path, rate: int, long_side: int) -> tuple[list[Path
     # scale keeps aspect; -2 rounds the other side to even. autorotate is on
     # by default so the rotate tag is honoured before scaling.
     hdr = is_hdr(video)
-    vf = f"fps={rate}," + (TONEMAP + "," if hdr else "") +          f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'"
+    vf = (f"fps={rate}," + (TONEMAP + "," if hdr else "")
+          + f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'")
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", str(video),
            "-vf", vf, "-q:v", "2", str(tmp / "f%06d.jpg")]
     subprocess.run(cmd, check=True)
@@ -82,7 +82,8 @@ def extract(video: Path, out: Path, start_idx: int, a: argparse.Namespace) -> in
     with tempfile.TemporaryDirectory(prefix="frames_") as td:
         frames, hdr = decode(video, Path(td), a.rate, a.long_side)
         if not frames:
-            print(f"{video.name}: no frames decoded"); return 0
+            print(f"{video.name}: no frames decoded")
+            return 0
         ims = [Image.open(f).convert("RGB") for f in frames]
         sharp = np.array([sharpness(im) for im in ims])
         floor = a.blur * float(np.median(sharp))
@@ -91,17 +92,21 @@ def extract(video: Path, out: Path, start_idx: int, a: argparse.Namespace) -> in
         for w0 in range(0, len(ims), win):
             idx = w0 + int(np.argmax(sharp[w0:w0 + win]))
             if sharp[idx] < floor:
-                n_blur += 1; continue
+                n_blur += 1
+                continue
             t = thumb(ims[idx])
             if last_thumb is not None and float(np.abs(t - last_thumb).mean()) < a.dup:
-                n_dup += 1; continue
+                n_dup += 1
+                continue
             last_thumb = t
             name = f"{a.prefix}{start_idx + kept:05d}.jpg"
             ims[idx].save(out / name, quality=92)
             kept += 1
-            if a.max and kept >= a.max: break
+            if a.max and kept >= a.max:
+                break
         w, h = ims[0].size
-        print(f"{video.name}: {len(ims)} decoded at {w}x{h}{' (HDR tone-mapped)' if hdr else ''}, {-(-len(ims)//win)} windows -> kept {kept} "
+        hdr_note = " (HDR tone-mapped)" if hdr else ""
+        print(f"{video.name}: {len(ims)} decoded at {w}x{h}{hdr_note}, {-(-len(ims)//win)} windows -> kept {kept} "
               f"(dropped {n_blur} blurry, {n_dup} duplicate)")
         return kept
 

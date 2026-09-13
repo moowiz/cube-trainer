@@ -21,8 +21,8 @@ from PIL import Image, ImageEnhance, ImageFilter
 
 import gpu_augment as G
 from dataset import CubeKeypointDataset, to_float01
-
 from shapes import KP_WH
+
 INPUT_WH = KP_WH
 
 
@@ -159,7 +159,8 @@ def main():
     if dev == "cuda":
         torch.cuda.synchronize()
     ms = (time.perf_counter() - t) / reps * 1000
-    print(f"photometric_batch on (64,3,{INPUT_WH[1]},{INPUT_WH[0]}) [{dev}]: {ms:.2f} ms/batch = {ms / 64:.3f} ms/sample")
+    print(f"photometric_batch on (64,3,{INPUT_WH[1]},{INPUT_WH[0]}) [{dev}]: "
+          f"{ms:.2f} ms/batch = {ms / 64:.3f} ms/sample")
 
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)

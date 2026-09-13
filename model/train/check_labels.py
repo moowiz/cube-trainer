@@ -70,6 +70,7 @@ def main():
         vis = {f: fd["corners"] for f, fd in e["faces"].items() if fd["visible"] and fd.get("corners")}
         if args.images and vis:
             from PIL import Image
+
             from grid_check import check_face
             img_path = Path(args.images) / e["image"]
             if img_path.exists():
@@ -100,7 +101,7 @@ def main():
             checked += 1
             if len(matches) != 2:
                 bad += 1
-                near = sorted(((d[i, j], i, j) for i in range(4) for j in range(4)))[:2]
+                near = sorted((d[i, j], i, j) for i in range(4) for j in range(4))[:2]
                 gaps = ", ".join(f"{a}[{i}]~{b}[{j}] {dd:.0f}px" for dd, i, j in near)
                 print(f"{e['image']}: {a} and {b} share a cube edge but have "
                       f"{len(matches)} coincident corner(s) instead of 2 "

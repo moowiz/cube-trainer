@@ -17,7 +17,8 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 
-from shapes import KP_WH
+from shapes import KP_WH, grid_hw
+
 INPUT_WH = KP_WH
 TRAIN_IMAGES = 51300      # a 54k set after the 5% val split
 EPOCHS = 150
@@ -64,7 +65,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
         x = normalize01(photometric_batch(to_float01(x)))
         if channels_last:
             x = x.to(memory_format=torch.channels_last)
-        tg = build_center_targets(c, co, v, (15, 20))
+        tg = build_center_targets(c, co, v, grid_hw(INPUT_WH))
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast('cuda', enabled=(dev == 'cuda')):
             loss, _, _ = center_loss(model(x), tg)
@@ -95,15 +96,16 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--data', default='../data_v4')
+    ap.add_argument('--data', default='../data_v5')
     ap.add_argument('--workers', default='4,6,8')
     ap.add_argument('--compile', action='store_true', help='run the worker sweep compiled (train.py --compile)')
     args = ap.parse_args()
 
     import functools
+
     from augment import augment_sample
     from dataset import CubeKeypointDataset
-    from model import count_params, build_model
+    from model import build_model, count_params
 
     dev = 'cuda' if torch.cuda.is_available() else 'cpu'
     print('gpu:', torch.cuda.get_device_name(0) if dev == 'cuda' else 'CPU only', flush=True)

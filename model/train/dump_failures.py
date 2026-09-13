@@ -31,10 +31,9 @@ from PIL import Image, ImageDraw
 
 from dataset import CubeKeypointDataset, normalize_batch
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps
-from shapes import min_face_edge_px
+from shapes import KP_WH, min_face_edge_px
 from targets import quad_centers
 
-from shapes import KP_WH
 INPUT_WH = KP_WH  # overwritten from the checkpoint
 GT_OK, GT_MISS, DET_OK, DET_FP = (60, 200, 110), (235, 70, 60), (70, 150, 245), (240, 150, 40)
 

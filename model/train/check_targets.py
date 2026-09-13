@@ -21,10 +21,10 @@ import argparse
 import numpy as np
 import torch
 
-from model import center_loss, center_metrics, decode_maps, f1_from_counts
+from model import center_loss, center_metrics, f1_from_counts
+from shapes import KP_WH, grid_hw
 from targets import build_center_targets, quad_areas, quad_centers
 
-from shapes import KP_WH, grid_hw
 INPUT_WH = KP_WH
 GRID_HW = grid_hw(KP_WH)
 
@@ -43,9 +43,21 @@ def random_labels(b: int, rng: np.random.Generator):
     valid = torch.zeros(b, 6)
     corners = torch.zeros(b, 6, 4, 2)
     for i in range(b):
+        placed: list[tuple[float, float, float]] = []
         for f in range(rng.integers(1, 4)):
-            cx, cy = rng.uniform(0.12, 0.88), rng.uniform(0.12, 0.88)
-            s = rng.uniform(0.05, 0.32)
+            # Faces of one cube never overlap: two visible faces' centres sit
+            # about one edge apart. decode_maps deduplicates candidates within
+            # CENTER_DEDUPE_FRAC (0.5) of a kept quad's mean edge, so random
+            # quads dropped on top of each other would be merged by design,
+            # not by a bug - keep centres >= 0.75 edge apart.
+            for _ in range(50):
+                cx, cy = rng.uniform(0.12, 0.88), rng.uniform(0.12, 0.88)
+                s = rng.uniform(0.05, 0.32)
+                if all(np.hypot(cx - px, cy - py) >= 0.75 * 2 * max(s, ps) for px, py, ps in placed):
+                    break
+            else:
+                continue
+            placed.append((cx, cy, s))
             # a random projective-ish quad, not an axis-aligned square: the
             # diagonal-intersection center and the cyclic corner minimum both
             # have to survive shear and rotation
