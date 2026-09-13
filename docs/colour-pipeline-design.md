@@ -65,6 +65,18 @@ wrong lock at any prefix. Clip replays of the 9/12 monitor-light videos
 run through the page headlessly and refuse - that lighting remains the
 open hard case.
 
+**Naming under casts (clip replays, same day):** under warm room light
+white reads as a tan of chroma ~50 while blue sits at 18, and on a fast
+indoor scan white was darker than yellow - "least chromatic" and
+"brightest" both fail, and a wrong white gives a legal but relabelled cube
+(a wrong lock on the fast-scan fixture caught it). White is now the
+palette's achromatic point by structure: the colour from which the other
+five spread around the hue circle (largest gap ~150 deg vs 170-290 from any
+other candidate), and hues are ranked relative to it. The letter map is
+also re-checked against the decoded centre colours and the decode redone
+if it moves. The palette is fitted only to tracks of lettered faces from
+the second round on (a hand beside the cube is a track too).
+
 Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.
