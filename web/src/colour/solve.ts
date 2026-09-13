@@ -50,7 +50,7 @@ function paletteLab(sigs: readonly TrackSignature[], labelOf: (t: number, cell: 
     s.cells.forEach((c, k) => {
       if (!c.lab || c.nEff <= 0) return;
       const l = labelOf(s.track, k);
-      if (l === null) return;
+      if (l === null || l < 0 || l >= 6) return;
       L[l]!.push(c.lab.L); A[l]!.push(c.lab.a); B[l]!.push(c.lab.b); W[l]!.push(c.nEff);
     });
   }
@@ -187,8 +187,11 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
       seeds = farthestPointSeeds(centres.map((s) => s.cells[4]!.value!), centres.map((s) => s.cells[4]!.nEff), 6);
     }
     const fit = fitPalette(points, 6, { seeds, nu: P.nu, sigmaFloor: SIGMA_FLOOR });
+    // a point whose cluster died (total weight under minWeight, early in a
+    // session when every reading still carries a low quality weight) has
+    // label -1 and belongs to no colour
     const labelByKey = new Map<string, number>();
-    points.forEach((p, i) => labelByKey.set(`${p.track}:${p.cell}`, fit.labels[i]!));
+    points.forEach((p, i) => { const l = fit.labels[i]!; if (l >= 0) labelByKey.set(`${p.track}:${p.cell}`, l); });
     palette = { centres: fit.centres, sigma: fit.sigma, lab: paletteLab(sigs, (t, k) => labelByKey.get(`${t}:${k}`) ?? null) };
     const member = (x: Vec3 | null) => (x ? memberships(x, palette, P.nu) : null);
 
@@ -202,13 +205,21 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     let { ev } = slotMap(groups, sigs);
     let cm = costMatrix(ev, palette, P.nu);
     const legalAll = () => true;
-    if (last && !opts.quick) {
+    // The legality search is only meaningful with six lettered faces: with
+    // fewer, most rows are free and the search burns its whole budget on a
+    // flat cost surface (13 s on a one-quad log). Before that the balanced
+    // optimum is the answer and the reason says how many faces are missing.
+    const complete = groups.filter((g) => g.letter).length === 6;
+    if (last && !opts.quick && complete) {
       const balanced = decode(cm.cost, legalAll);
       balancedFacelets = balanced.colours ? coloursToFacelets(balanced.colours) : null;
       if (balanced.colours) resolveUnknownRotations(groups, balanced.colours);
       ({ ev } = slotMap(groups, sigs));
       cm = costMatrix(ev, palette, P.nu);
-      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok);
+      // DECISION: 12k/6k pops is ~400 ms on a desktop for a search that
+      // fails, a second or two in the phone's worker; a cube that needs more
+      // is a cube whose evidence is not there yet
+      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 12000, secondPops: 6000 });
     } else {
       result = decode(cm.cost, legalAll);
     }
