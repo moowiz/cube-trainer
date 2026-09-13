@@ -148,6 +148,7 @@ val, pad 0.45; log `real_px` is the fine-tune's own selection metric):
 | kp2 → **kpft3** | scratch on `data_v5,data_real*20`, then `*150` ft | **3.33** | **3.33 / 3.04** | 0.961 | 4 / 10 | **3.45, 0** | 10.2 / 14.1 / 16.2 |
 | kp3 → kpft4 | scratch on `data_v5,data_real*40`, then `*150` ft | 3.39 | - | - | - | - | - |
 | kp2 → kpft5 | as kpft3 but 30 fine-tune epochs | 3.33 | - | - | - | - | - |
+| kpg1 → kpgft1 | kp2/kpft3 recipe with `--points 16` (seam grid, below) | 3.63 | 3.63 / 3.17 | 0.964 | 4 / 9 | - | 11.4 / 15.3 / 18.5 |
 
 Real photos in the from-scratch mix help: kp2 alone (no fine-tune) already
 reached 3.52 on the val, kp1 needed its fine-tune for 3.55, and kp2's
@@ -157,6 +158,41 @@ synthetic val_px is better too (2.69 vs 2.77). Doubling that weight (kp3,
 where 15 do. kpft3 trades four more false positives at
 score 0.5 (the tracker and seam veto absorb those) for 6% lower corner
 error and a clean batch 7.
+
+**16-point seam grid (`--points 16`, 2026-09-13): tried, no gain, not
+deployed.** The idea: the 4 corners fix a homography, so the 16 seam
+intersections are derived from them exactly and the head regresses those
+instead - interior junctions are crisp features a thumb rarely covers, and 16
+points overdetermine the 8-dof warp so the app could fit it by least squares,
+read the residual as a quality weight and drop outliers. Tooling is in place
+(`targets.face_points` / `cyclic_perms`, `--points`, checkpoints record
+`npts`, `decode_maps(points=True)`, `check_targets.py` covers both counts) and
+`diagnose.py` gained the **cell-centre error** - the 9 sticker centres through
+a homography fitted to every regressed point, i.e. the number the colour
+sampler actually feels - plus `--fit all|interior|inner` to choose the points
+the warp is fitted to. Same recipe as kp2 → kpft3, real val:
+
+| | kpft3 (4 corners) | kpgft1 (16-point grid) |
+|---|---|---|
+| corner error | **3.33 px** | 3.63 px |
+| cell-centre error | **2.58 px (10.7 src px)** | 2.69 px (11.7 src px) |
+| far-bin cell-centre | **7.6 src px** | 8.6 src px |
+| under crop jitter ±0.15 | **2.49 px** | 2.66 px |
+| raw 16-point error | - | 3.05 px |
+
+Why it cannot help with this head, measured rather than argued: fitting the
+warp to all 16 points, the 12 interior ones or the 4 innermost gives the
+same cell-centre error to 0.01 px. The head regresses every point from one
+peak cell's features, so the 16 come out projectively consistent with each
+other - the error is a whole-face shift, not independent per-point noise,
+and there is nothing for redundancy to average or a residual to flag. The
+lower interior-point error (3.05 vs 3.63 for the corners) is geometry (points
+near the centre move less under a whole-face error), not easier features.
+Spreading the offset loss over 16 targets cost the corners ~9%. Redundancy
+would need points that are localized *independently* - a dense junction
+heatmap at stride 4 with per-junction peaks - which is a different (and
+costlier on the phone) architecture, not a flag on this one. Keep
+`--points 4`.
 
 Deployed 2026-09-13: `cubebox` = **box11**, `facekp` = **kpft3** (fp32; the int8
 gate still fails at 8 px mean shift). `web/test/fixtures/facekp-maps-square.json`
