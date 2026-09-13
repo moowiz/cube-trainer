@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeLcg } from './helpers';
 import {
   srgbToLab,
+  labToSrgb,
   labDistance,
   labMedian,
   samplePatch,
@@ -442,5 +443,14 @@ describe('sampleSurroundPatches', () => {
     const wallPatches = sampleSurroundPatches(wall, rect, 8);
     const wallSimilar = wallPatches.filter((p) => labDistance(p.lab, faceMean) < 16).length;
     expect(wallSimilar).toBe(wallPatches.length); // everything matches -> not a cube
+  });
+});
+
+describe('labToSrgb', () => {
+  it('inverts srgbToLab on sticker-like colours', () => {
+    for (const rgb of [[255, 255, 255], [200, 0, 33], [0, 170, 92], [248, 86, 4], [205, 219, 53], [0, 81, 161], [128, 128, 128]] as [number, number, number][]) {
+      const back = labToSrgb(srgbToLab(...rgb));
+      rgb.forEach((v, i) => expect(Math.abs(back[i]! - v)).toBeLessThanOrEqual(1));
+    }
   });
 });

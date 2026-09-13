@@ -13,6 +13,13 @@
 // then validateState. Never trust a single frame (CLAUDE.md): a state only
 // locks when sampling converged AND cubejs accepts it.
 //
+// The consensus is SEEDED by support, not by the median of everything: a
+// face that received 120 frames of which 90 were a hand or the desk (a junk
+// cluster grouped into "red" by a hairline hue gap, scan-debug-1789310783346)
+// has a median that is junk, and re-alignment then converges on junk. Each
+// candidate seed frame is scored by how many frames fit it at some rotation;
+// the best-supported seed's supporters define the first median.
+//
 // DECISION 2026-09-13: frames, not cells, are the unit of evidence. The
 // previous voter keyed samples by (cluster, cell index) AFTER the frame's
 // rotation was applied, so a face whose rotation was resolved differently in
@@ -94,7 +101,12 @@ const RESERVOIR = 40;       // frames kept per cluster; newest replace oldest
 const MIN_CONF = 0.5;       // ignore observations from low-confidence quads
 /** A frame whose best-rotation fit to the consensus is worse than this (normalized Lab, mean over cells) is an outlier. */
 const OUTLIER_DIST = 18;
+/** Frame-to-frame fit is noisier than frame-to-median: seeds tolerate a bit more. */
+const SEED_DIST = OUTLIER_DIST * 1.25;
+const MAX_SEEDS = 12;
 const ALIGN_ITERATIONS = 3;
+/** A lock is attempted every this many frames with observations (the consensus is not free). */
+const LOCK_EVERY = 4;
 
 /** Row-major 3x3 cell index after k quarter turns: rotated[i] = cells[ROT[k][i]]. */
 const ROT: readonly (readonly number[])[] = (() => {
@@ -106,6 +118,15 @@ const ROT: readonly (readonly number[])[] = (() => {
 
 export function rotateCells<T>(cells: readonly T[], k: number): T[] {
   return ROT[k & 3]!.map((j) => cells[j]!);
+}
+
+interface Consensus {
+  cells: (Lab | null)[];
+  inliers: number;
+  rotations: [number, number, number, number];
+  fit: number;
+  /** the aligned inlier frames, normalized */
+  aligned: (Lab | null)[][];
 }
 
 interface FrameObs {
@@ -148,6 +169,10 @@ export class StickerVoter {
   private lastValidationError: string | null = null;
   /** Debug: the last lock attempt with every face covered. */
   lastAttempt: LockAttempt | null = null;
+  /** bumped on every change to the observations; the consensus cache keys on it */
+  private version = 0;
+  private cache = new Map<string, { version: number; value: Consensus }>();
+  private sinceAttempt = 0;
 
   reset(): void {
     this.obs.clear();
@@ -155,6 +180,9 @@ export class StickerVoter {
     this.locked = null;
     this.lastValidationError = null;
     this.lastAttempt = null;
+    this.version++;
+    this.cache.clear();
+    this.sinceAttempt = 0;
   }
 
   /** Record one frame's observations. `faceMap` is the current cluster -> letter binding, used to try a lock. */
@@ -168,8 +196,9 @@ export class StickerVoter {
       if (!r) this.obs.set(ob.cluster, (r = []));
       r.push({ cells, norm: normalize(cells) });
       if (r.length > RESERVOIR) r.shift();
+      this.version++;
     }
-    this.tryLock(faceMap);
+    if (++this.sinceAttempt >= LOCK_EVERY) this.tryLock(faceMap);
   }
 
   /** Merge one cluster's votes into another (the clusterer merged them). */
@@ -178,6 +207,7 @@ export class StickerVoter {
     if (!src) return;
     this.obs.set(into, [...(this.obs.get(into) ?? []), ...src].slice(-RESERVOIR));
     this.obs.delete(from);
+    this.version++;
   }
 
   private clusterIds(): number[] {
@@ -188,14 +218,41 @@ export class StickerVoter {
     return clusters.flatMap((c) => this.obs.get(c) ?? []);
   }
 
+  /** Consensus of the frames of these clusters, cached until the observations change. */
+  private consensusOf(clusters: readonly number[]): Consensus {
+    const key = [...clusters].sort((a, b) => a - b).join(',');
+    const hit = this.cache.get(key);
+    if (hit && hit.version === this.version) return hit.value;
+    const value = this.consensus(this.framesOf(clusters));
+    this.cache.set(key, { version: this.version, value });
+    return value;
+  }
+
   /**
    * The consensus of a set of frames: per-cell medians after aligning every
-   * frame by its best rotation and dropping the frames that fit none.
+   * frame by its best rotation and dropping the frames that fit none. Seeded
+   * by the frame the most other frames agree with, so a junk majority cannot
+   * define the starting point.
    */
-  private consensus(frames: readonly FrameObs[]): { cells: (Lab | null)[]; inliers: number; rotations: [number, number, number, number]; fit: number; aligned: (Lab | null)[][] } {
+  private consensus(frames: readonly FrameObs[]): Consensus {
     if (!frames.length) return { cells: Array.from({ length: 9 }, () => null), inliers: 0, rotations: [0, 0, 0, 0], fit: 0, aligned: [] };
-    let rot = frames.map(() => 0);
-    let keep = frames.map(() => true);
+    const bestRot = (norm: readonly (Lab | null)[], ref: readonly (Lab | null)[]): { k: number; d: number } => {
+      let k = 0;
+      let d = Infinity;
+      for (let r = 0; r < 4; r++) { const x = fitAt(norm, r, ref); if (x < d) { d = x; k = r; } }
+      return { k, d };
+    };
+    // seed: the candidate with the most supporters (frames within SEED_DIST at some rotation)
+    const step = Math.max(1, Math.floor(frames.length / MAX_SEEDS));
+    let seed = 0;
+    let seedSupport = -1;
+    for (let s = 0; s < frames.length; s += step) {
+      let support = 0;
+      for (const f of frames) if (bestRot(f.norm, frames[s]!.norm).d <= SEED_DIST) support++;
+      if (support > seedSupport) { seedSupport = support; seed = s; }
+    }
+    let rot = frames.map((f) => bestRot(f.norm, frames[seed]!.norm).k);
+    let keep = frames.map((f) => bestRot(f.norm, frames[seed]!.norm).d <= SEED_DIST);
     for (let iter = 0; iter < ALIGN_ITERATIONS; iter++) {
       const aligned = frames.flatMap((f, j) => (keep[j] ? [rotateCells(f.norm, rot[j]!)] : []));
       const con = Array.from({ length: 9 }, (_, i) => cellMedian(aligned, i));
@@ -206,7 +263,7 @@ export class StickerVoter {
         return best;
       });
       keep = frames.map((f, j) => fitAt(f.norm, rot[j]!, con) <= OUTLIER_DIST);
-      if (!keep.some(Boolean)) keep = frames.map(() => true);
+      if (!keep.some(Boolean)) keep = frames.map((_, j) => j === seed);
     }
     // the majority's claimed rotation is the absolute one: re-express every
     // alignment relative to it so "as claimed" frames read as rotation 0
@@ -241,21 +298,21 @@ export class StickerVoter {
 
   private evidenceOf(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): FaceEvidence {
     const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
-    const frames = this.framesOf(clusters);
-    const con = this.consensus(frames);
-    return { face, clusters, frames: frames.length, inliers: con.inliers, rotations: con.rotations, fit: con.fit, cells: con.cells.filter((c): c is Lab => c !== null) };
+    const con = this.consensusOf(clusters);
+    return { face, clusters, frames: this.framesOf(clusters).length, inliers: con.inliers, rotations: con.rotations, fit: con.fit, cells: con.cells.filter((c): c is Lab => c !== null) };
   }
 
   private faceFill(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): number {
     const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
     const frames = this.framesOf(clusters);
     if (!frames.length) return 0;
-    return this.fillOf(this.consensus(frames).cells, frames);
+    return this.fillOf(this.consensusOf(clusters).cells, frames);
   }
 
   /** Try to lock with the given binding; the caller may call this after a re-binding without new samples. */
   tryLock(faceMap: ReadonlyMap<number, FaceId>): void {
     if (this.locked) return;
+    this.sinceAttempt = 0;
     const evidence: FaceEvidence[] = [];
     for (const face of FACE_ORDER) {
       const ev = this.evidenceOf(face, faceMap);
@@ -287,8 +344,7 @@ export class StickerVoter {
     const unboundFill: Record<number, number> = {};
     for (const cluster of this.clusterIds()) {
       if (faceMap.has(cluster)) continue;
-      const frames = this.obs.get(cluster)!;
-      unboundFill[cluster] = this.fillOf(this.consensus(frames).cells, frames);
+      unboundFill[cluster] = this.fillOf(this.consensusOf([cluster]).cells, this.obs.get(cluster)!);
     }
     const lowConfidence: number[] = [];
     if (this.locked) {
@@ -296,9 +352,8 @@ export class StickerVoter {
       const spread: Array<[number, number]> = [];
       FACE_ORDER.forEach((face, fi) => {
         const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
-        const frames = this.framesOf(clusters);
-        if (!frames.length) return;
-        const con = this.consensus(frames);
+        if (!clusters.length) return;
+        const con = this.consensusOf(clusters);
         for (let i = 0; i < 9; i++) {
           const m = cellMedian(con.aligned, i);
           if (!m) continue;
