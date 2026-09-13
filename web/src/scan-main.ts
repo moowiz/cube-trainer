@@ -32,7 +32,7 @@ import { detectTwoStage, type TwoStageResult } from './detect/twostage';
 import { QuadTracker, type QuadDetection, type TrackedQuad } from './detect/tracker';
 import { OBSCURED_REASON, TOO_SMALL_REASON } from './detect/identify';
 import { HintState, hintFor } from './ui/hint';
-import { resolveOrientations, orientQuad, fuseSharedCorners, identifyNeighbour } from './detect/orient';
+import { resolveOrientations, orientQuad, fuseSharedCorners, identifyNeighbour, edgePiecesPlausible } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
 import { mapUV, squareToQuad, warpQuad, type ImageDataLike } from './rectify';
 import { normalizeFaceCells, PIECE_AMBIGUOUS_CONF, solveState } from './state';
@@ -158,14 +158,25 @@ const trackCluster = new Map<number, number>();   // track id -> session colour 
 clusters.onMerge = (from, into) => {
   voter.mergeClusters(from, into);
   for (const [t, c] of trackCluster) if (c === from) trackCluster.set(t, into);
-  for (const [t, r] of rotations) if (r.cluster === from) rotations.set(t, { rot: r.rot, cluster: into });
+  for (const [t, r] of rotations) if (r.cluster === from) rotations.set(t, { counts: r.counts, cluster: into });
 };
-// track id -> resolved sticker-layout rotation, valid only while the track
-// still reads as the cluster it was resolved for: a track that slides onto a
-// different physical face during a cube turn (geometry association) must not
-// carry the old face's rotation, or every neighbour it then "identifies" is
-// wrong (scan-debug-1789308171326).
-const rotations = new Map<number, { rot: number; cluster: number }>();
+// track id -> VOTES for its sticker-layout rotation (one per frame with a
+// shared-edge pairing; the majority is the rotation), valid only while the
+// track still reads as the cluster they were cast for: a track that slides
+// onto a different physical face during a cube turn (geometry association)
+// must not carry the old face's rotation, or every neighbour it then
+// "identifies" is wrong (scan-debug-1789308171326). Votes rather than
+// last-wins: one bad pairing used to overwrite a good one and a lone face
+// then coasted on it for as long as it stayed in view (the 08:06 session,
+// L and B a quarter and a half turn off with every colour right).
+const rotations = new Map<number, { counts: number[]; cluster: number }>();
+// pairing log for Capture debug: the last orientation decisions and whether
+// the stickers along the shared edge could be real pieces
+interface PairingEvent { t: number; a: FaceId; b: FaceId; ra: number; rb: number; ok: boolean }
+const pairingLog: PairingEvent[] = [];
+const PAIRING_LOG = 80;
+let pairings = 0;
+let edgeRejects = 0;
 let adjacencyBinds = 0;
 let oppositeConflicts = 0;
 const work = document.createElement('canvas');
@@ -249,15 +260,30 @@ function faceOfTrack(t: TrackedQuad): FaceId | null {
   return c === undefined ? null : clusters.faceOf(c);
 }
 
-/** A track's remembered rotation, if it was resolved for the cluster the track reads as now. */
+/** A track's rotation by majority of its votes, if they were cast for the cluster the track reads as now. */
 function rotationOf(id: number): number | undefined {
   const r = rotations.get(id);
-  return r && trackCluster.get(id) === r.cluster ? r.rot : undefined;
+  if (!r || trackCluster.get(id) !== r.cluster) return undefined;
+  const best = Math.max(...r.counts);
+  return best > 0 ? r.counts.indexOf(best) : undefined;
 }
 
-function setRotation(id: number, rot: number): void {
+/** One frame of evidence (or its retraction, weight -1) that track `id` is at rotation `rot`. */
+function voteRotation(id: number, rot: number, weight = 1): void {
   const cluster = trackCluster.get(id);
-  if (cluster !== undefined) rotations.set(id, { rot, cluster });
+  if (cluster === undefined) return;
+  let r = rotations.get(id);
+  if (!r || r.cluster !== cluster) rotations.set(id, (r = { counts: [0, 0, 0, 0], cluster }));
+  r.counts[rot] = Math.max(0, r.counts[rot]! + weight);
+}
+
+/** Each cell's face letter by nearest named cluster (null where no cluster is close). */
+function cellFaces(cells: Lab[]): (FaceId | null)[] {
+  const map = clusters.faceMap();
+  return normalizeFaceCells(cells).map((c) => {
+    const near = clusters.nearestLab(c);
+    return near && near.d <= STICKER_MAX_DIST ? (map.get(near.id) ?? null) : null;
+  });
 }
 
 /** True when the session knows its colours and this reading has too many cells that are none of them. */
@@ -418,7 +444,7 @@ function updateFillUI(): void {
   if (p.locked && !solved) {
     solved = true;
     const flipped = (p.locked.flipped?.length ? `\n(${p.locked.flipped.length} sticker(s) resolved by piece uniqueness)` : '')
-      + (p.locked.turned?.some(Boolean) ? `\n(faces turned to fit the pieces: ${FACE_ORDER.filter((_, i) => p.locked!.turned![i]).join(' ')})` : '');
+      + (p.locked.turned?.some(Boolean) ? `\n(orientation corrected from the pieces for ${FACE_ORDER.filter((_, i) => p.locked!.turned![i]).join(', ')})` : '');
     resultEl.textContent = `LOCKED\n${p.locked.facelets}${flipped}\nsolving…`;
     void solveState(p.locked.facelets)
       .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
@@ -502,9 +528,14 @@ async function loop(ts: number): Promise<void> {
       //    pin rotations; a face keeps its last rotation on lone frames.
       const lettered = confident.flatMap((t) => { const face = faceOfTrack(t); return face ? [{ t, face }] : []; });
       const distinct = lettered.filter((x, i) => lettered.findIndex((y) => y.face === x.face) === i);
+      const castThisFrame = new Map<number, number>(); // track id -> rotation voted this frame (retractable)
       if (distinct.length >= 2) {
         const res = resolveOrientations(distinct.map((x) => ({ face: x.face, corners: x.t.corners })));
-        for (const x of distinct) { const k = res.rotations[x.face]; if (k !== undefined) setRotation(x.t.id, k); }
+        for (const x of distinct) {
+          const k = res.rotations[x.face];
+          if (k !== undefined) { voteRotation(x.t.id, k); castThisFrame.set(x.t.id, k); }
+        }
+        if (res.pairsUsed) pairings += res.pairsUsed;
       }
 
       // 3. adjacency: an undecided face sharing an edge with an oriented,
@@ -529,7 +560,7 @@ async function loop(ts: number): Promise<void> {
             const wasBound = clusters.bindingOf(cl) !== null;
             if (clusters.suggest(cl, DEFAULT_SCHEME_NAMES[id.face]) === 'bound') {
               if (!wasBound) adjacencyBinds++;
-              setRotation(other.id, id.rotation);
+              voteRotation(other.id, id.rotation);
             }
           } else if (otherFace === OPPOSITE[known.face]) {
             conflicted.add(other.id);
@@ -545,15 +576,43 @@ async function loop(ts: number): Promise<void> {
       // 4. rectify + sample + vote (native-resolution reads), keyed by cluster
       const votable = oriented.filter((x) => !conflicted.has(x.t.id) && !alien.has(x.t.id));
       const { fused } = fuseSharedCorners(votable);
-      const observations: FaceObservation[] = [];
-      sampledQuads = [];
+      const sampled: { x: (typeof votable)[number]; quad: [number, number][]; cells: Lab[]; letters: (FaceId | null)[] }[] = [];
       for (const x of votable) {
         let quad = fused.get(x.face)!.map((c) => [c[0], c[1]]) as [number, number][];
         if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
         const cells = sampleFace(frame, quad);
         if (looksAlien(cells)) { alienCount++; continue; }
-        sampledQuads.push({ face: x.face, quad });
-        observations.push({ cluster: trackCluster.get(x.t.id)!, cells, conf: x.conf });
+        sampled.push({ x, quad, cells, letters: cellFaces(cells) });
+      }
+      // 5. the cube checks the pairing: two oriented faces sharing an edge
+      //    must show real pieces along it (no sticker pair of one piece is
+      //    the same or opposite colours). A failing pair was oriented wrongly
+      //    or one quad is not that face: neither votes, and the rotation
+      //    votes this frame cast for them are retracted.
+      const bad = new Set<number>();
+      for (let i = 0; i < sampled.length; i++) {
+        for (let j = i + 1; j < sampled.length; j++) {
+          const A = sampled[i]!;
+          const B = sampled[j]!;
+          if (OPPOSITE[A.x.face] === B.x.face) continue;
+          const ok = edgePiecesPlausible(A.x.face, A.letters, B.x.face, B.letters);
+          pairingLog.push({ t: Date.now(), a: A.x.face, b: B.x.face, ra: rotationOf(A.x.t.id)!, rb: rotationOf(B.x.t.id)!, ok });
+          if (pairingLog.length > PAIRING_LOG) pairingLog.shift();
+          if (ok) continue;
+          edgeRejects++;
+          for (const S of [A, B]) {
+            bad.add(S.x.t.id);
+            const k = castThisFrame.get(S.x.t.id);
+            if (k !== undefined) voteRotation(S.x.t.id, k, -1);
+          }
+        }
+      }
+      const observations: FaceObservation[] = [];
+      sampledQuads = [];
+      for (const s of sampled) {
+        if (bad.has(s.x.t.id)) continue;
+        sampledQuads.push({ face: s.x.face, quad: s.quad });
+        observations.push({ cluster: trackCluster.get(s.x.t.id)!, cells: s.cells, conf: s.x.conf });
       }
       if (observations.length) voter.addFrame(observations, clusters.faceMap());
       else voter.tryLock(clusters.faceMap());
@@ -573,7 +632,7 @@ async function loop(ts: number): Promise<void> {
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
     statsEl.textContent =
-      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   vetoed ${vetoedCount}   alien ${alienCount}\n`
+      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   pairings ${pairings} (edge rejects ${edgeRejects})   vetoed ${vetoedCount}   alien ${alienCount}\n`
       + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}   ` : '')
       + (lastTick
         ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
@@ -630,6 +689,8 @@ $('reset').addEventListener('click', () => {
   clusters.reset();
   trackCluster.clear();
   rotations.clear();
+  pairingLog.length = 0;
+  pairings = edgeRejects = 0;
   models?.detector.exemplars.reset();
   solved = false;
   lastTick = null;
@@ -654,6 +715,8 @@ captureBtn.addEventListener('click', () => {
     clusters: clusters.clusters().map((c) => ({ ...c, hue: +hueDeg(c.centroid).toFixed(1) })),
     tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotationOf(id) ?? null })),
     adjacencyBinds, rejectedBinds: clusters.rejectedBinds, oppositeConflicts, vetoedCount, alienCount,
+    pairings, edgeRejects, pairingLog,
+    rotationVotes: [...rotations].map(([id, r]) => ({ track: id, cluster: r.cluster, counts: r.counts })),
     progress: voter.progress(clusters.faceMap()),
     lockAttempt: voter.lastAttempt,
   };
