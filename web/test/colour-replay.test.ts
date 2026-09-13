@@ -116,11 +116,11 @@ describe('evidence-log captures', () => {
   it('lists the captures', () => { console.log(`evidence captures: ${files.length ? files.join(', ') : 'none yet'}`); });
   for (const file of files) {
     it(file, { timeout: 30000 }, () => {
-      const d = read(`evidence/${file}`) as { evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string; note?: string };
+      const d = read(`evidence/${file}`) as { evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string | null; note?: string };
       // `truth` is a confirmed state; `scrambleTruth` is what the page's
-      // scramble produces from a solved cube - the truth whenever the
-      // scramble was actually applied (delete the field from the file if not)
-      const truth = d.truth ?? d.scrambleTruth;
+      // scramble produces from a solved cube, present only when the user
+      // ticked "I applied it" before capturing
+      const truth = d.truth ?? d.scrambleTruth ?? undefined;
       const log = d.evidenceLog;
       // JSON has no Map; groups' rotation maps are rebuilt by the solver anyway
       const rows: string[] = [];

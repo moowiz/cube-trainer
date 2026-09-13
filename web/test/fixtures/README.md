@@ -87,7 +87,8 @@ reproduces the phone exactly. To turn a capture into a regression test:
 1. Put the JSON in `fixtures/evidence/` (any name).
 2. Add a top-level `"truth": "<54 facelets>"` when the state is known (a
    scramble applied from solved + cubejs, or a confirmed lock), and
-   optionally `"note"`.
+   optionally `"note"`. A capture made with the "I applied it" box ticked
+   already carries `scrambleTruth` and needs neither.
 3. `colour-replay.test.ts` runs every file there, prints the bake-off table
    for all embeddings, asserts the default embedding never answers wrong,
    and matches `truth` when present.

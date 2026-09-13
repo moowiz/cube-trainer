@@ -82,7 +82,7 @@ app.innerHTML = `
       <small id="status" class="auto">model loading…</small>
       <small id="build" title="git hash · build time">build ${__BUILD__.hash} · ${__BUILD__.time}</small>
     </h1>
-    <div id="scramble" class="auto" title="Apply this to a solved cube before scanning: the capture then carries the true state and becomes a regression fixture on its own"></div>
+    <div id="scramble" class="auto" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span id="scrambleAlg"></span> <label><input type="checkbox" id="applied"> I applied it (from solved)</label></div>
     <div id="bar" class="auto">
       <button id="start">Start camera</button>
       <button id="reset">Reset scan</button>
@@ -133,9 +133,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // A fresh scramble per session (and per Reset): scanned from a solved cube
 // it gives every capture a known truth.
 let scramble = '';
+const appliedChk = $<HTMLInputElement>('applied');
 function newScramble(): void {
   scramble = randomScramble();
-  $('scramble').innerHTML = `<b>Scramble</b> <span>${scramble}</span> <small>(from solved; new one on Reset)</small>`;
+  $('scrambleAlg').textContent = scramble;
+  appliedChk.checked = false;
 }
 newScramble();
 const view = $<HTMLCanvasElement>('view');
@@ -678,7 +680,9 @@ captureBtn.addEventListener('click', () => {
   const sol = locked ?? solution;
   const extra = {
     scramble,
-    scrambleTruth: scrambleState(scramble),
+    // the truth only when the user says the scramble was applied from solved
+    scrambleApplied: appliedChk.checked,
+    scrambleTruth: appliedChk.checked ? scrambleState(scramble) : null,
     evidenceLog: log,
     solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
     params: DEFAULT_PARAMS,
