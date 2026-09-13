@@ -32,3 +32,8 @@ model/preview_v*/
 
 # Rendered failure cases - these draw REAL photos (see data_real rule above)
 model/train/failures/
+
+# rendered portrait set (PORTRAIT-DESIGN.md) and render logs
+model/data_v5/
+model/data_v5_part*/
+model/gen/logs/

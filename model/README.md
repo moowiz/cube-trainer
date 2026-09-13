@@ -16,14 +16,76 @@ python -m venv .venv
 
 ```
 cd train
-..\.venv\Scripts\python train.py --head center --data ../data --overfit 50 --epochs 600 --batch 16 --lr 1e-3
+..\.venv\Scripts\python train.py --data ../data_v5 --overfit 50 --epochs 600 --batch 16 --lr 1e-3
     # pipeline correctness check. Center head verified 2026-09-12: 0.50 px
     # (the legacy head reached 2.07 px on the same check).
-..\.venv\Scripts\python train.py --head center --data ../data --epochs 30 --out runs/base
+..\.venv\Scripts\python train_bbox.py --data "../data_v5,../data_real*40" --coco ../roboflow --neg ../negatives ^
+    --head dense --epochs 50 --out runs/box9                       # stage 1, ~18 min
+..\.venv\Scripts\python train.py --data ../data_v5 --epochs 150 --out runs/kp1    # stage 2 from scratch, ~45 min
+..\.venv\Scripts\python train.py --data "../data_v5,../data_real*150" --init runs/kp1/best.pt ^
+    --epochs 15 --lr 5e-5 --select real --out runs/kpft1           # stage 2 real-photo fine-tune
 cd ..\export
-..\.venv\Scripts\python export_onnx.py --ckpt ../train/runs/base/best.pt
-    # -> web/public/models/facekp.onnx + facekp.json (pre/post-processing metadata)
+..\.venv\Scripts\python export_bbox.py --ckpt ../train/runs/box9/best.pt      # -> web/public/models/cubebox.{onnx,json}
+..\.venv\Scripts\python export_onnx.py --ckpt ../train/runs/kpft1/best.pt --data ../data_v5
+    # -> web/public/models/facekp.onnx + facekp.json (pre/post-processing metadata, cropTrained stamp)
 ```
+
+## Always two-stage: portrait stage 1, square crop stage 2 (2026-09-13)
+
+Design and the decisions behind it: `PORTRAIT-DESIGN.md` (final). The app
+runs `cubebox` on the whole phone frame and `facekp` on stage 1's box padded
+0.45 per side, on every detection tick, on every page; a stage-1 miss is a
+tick with no detections. There is no full-frame stage 2 anywhere.
+
+| model | input | sees | grid | cache |
+|---|---|---|---|---|
+| `cubebox` (stage 1) | **120x160** portrait | the 480x640 phone frame at 0.25, no bars | 10x8 (HxW) | `cache_240x320/` (pooled by 2 at load) |
+| `facekp` (stage 2) | **256x256** square | the padded silhouette crop | 16x16 | `cache_crop320/` |
+
+`train/shapes.py` is the only place these live (`BOX_WH`, `KP_WH`,
+`FRAME_CACHE_WH`, `CROP_CACHE_WH`, `MIN_FACE_EDGE_FRAC`, `PAD_VAL`); every
+script imports it, checkpoints carry `input_wh` and `view`, and eval/export
+rebuild from the checkpoint. The synthetic set is `data_v5`: 54k **480x640
+portrait** renders (5 instances x 10,800, seeds 1-5, `--cornerBias 0.4`,
+generator unchanged from data_v4; audit: 7.1% negatives, 5.3%
+exposure-boosted, 15 frames under the luminance floor, 0.2% of faces under
+the range floor).
+
+**The crop view** (`CubeKeypointDataset(view="crop")`, the stage-2 default).
+The cache holds one padded-silhouette crop per image cut from the **native**
+image (480x640 render, 3000x4000 photo) with per-side padding U(0.2, 0.7),
+deterministic by file stem, letterboxed square to 320. Each sample is then
+re-cropped around the cube hull with per-side padding U(-0.1, 0.45) (train;
+negative = the localizer clipped the cube) or exactly 0.45 (val = the app's
+`padBox`), clamped to the cached content like the app clamps to the frame,
+and letterboxed to 256. Cube-less renders get a random square window (a
+stage-1 false positive on a hand or a mug). Why not crop the old 320x240
+thumbnail: the app cuts ~215 px out of the source at the range floor and
+shrinks it; cutting 60 px out of a thumbnail and blowing it up 5x was the
+train/inference mismatch that capped the previous two-stage attempt
+(`BBOX-HANDOFF.md` 1c). `_zoom_crop`, `_portrait_sim` and `_pillarbox` are
+gone; stage 1 gets top/bottom `_bars` at p 0.15 (the desktop webcam case)
+and COCO negatives a random 3:4 crop at p 0.6 (empty phone frames).
+
+Both caches build in parallel (`_build_cache`, ~8-10 workers): 54k frames in
+94 s, 54k crops in 86 s.
+
+**The range floor is a fraction of the source frame height**, 0.133 (the
+measured arm's-reach edge is 0.153), because stage 2 is scale-normalized by
+the crop and its model px no longer say how far away the cube is. It is 85 px
+on a phone frame, 42.6 px in the frame cache and 34 px at the 256 crop input
+(where it only masks the sliver of a third face at the edge of a loose
+crop). `targets.py` derives the ignore band from the grid height,
+`diagnose.py` bins faces by that fraction (far 0.133-0.188, mid 0.188-0.25,
+near > 0.25) and reports corner error in source px through the crop scale,
+and `web/src/color.ts` `MIN_FACE_EDGE_FRAC` is compared in source px
+(`identify.ts` receives the crop geometry; `autoscan-main.ts` tests stage 1's
+box against it).
+
+**Results** (`data_real_val`, 42 photos / 76 faces, never trained on; the
+measurement plan is `PORTRAIT-DESIGN.md` 5):
+
+RESULTS_TABLE_PLACEHOLDER
 
 ## Architecture: anonymous-quad head (center-v1, 2026-09-12)
 
@@ -461,10 +523,11 @@ them to 320x240.
 
 Fix, in order of payoff:
 
-1. **Pre-decoded cache** — DONE: `dataset.py` lazily builds
-   `data/cache_320x240/` (memory-mapped uint8 images + label tensors,
-   rebuilt when the label count changes) and reads samples from it;
-   augmentation runs on the cached input-size images.
+1. **Pre-decoded cache** — DONE: `dataset.py` lazily builds a cache per
+   view (`cache_240x320/` frames for stage 1, `cache_crop320/` silhouette
+   crops for stage 2; memory-mapped uint8 images + label tensors, rebuilt
+   when the labels change) and reads samples from it; augmentation runs on
+   the cached images. Built in parallel since 2026-09-13.
 2. **Cheaper worker output** — DONE 2026-09-12. Profiled after (1): a
    worker spent ~6 ms/sample, of which 3.9 ms was `np.random.normal`
    drawing float64 noise and 0.6 ms the float32 normalize, and then shipped
@@ -584,7 +647,7 @@ the cube style also randomizes seam morphology — tile corner radius up to
 GAN-fat, tile depth, body color (black/white/oddball), circular and logo
 center caps — and the backdrop/table planes draw from a real-photo pool
 (`gen/fetch-backgrounds.mjs`) so photos actually reach the visible pixels.
-augment.py adds portrait pillarbox simulation, JPEG round-trips, directional
+augment.py adds JPEG round-trips, directional
 motion blur, and white-balance channel gains at train time (those four cover
 the video-pipeline look and retrofit every existing tranche for free).
 
@@ -710,6 +773,8 @@ Each label:
 }
 ```
 
+- Since `data_v5` the renders are **480x640 portrait** (`--width 480 --height 640`);
+  `fill` is defined on the vertical FOV so the size distribution is unchanged.
 - `corners` are float pixel coordinates in order **[top-left, top-right,
   bottom-right, bottom-left] of that face in its cubejs sticker-layout
   orientation** (the corners touching stickers 1, 3, 9, 7). They are reported
@@ -727,7 +792,7 @@ next) — this is the M3 "labels visualize correctly" check.
 
 ```
 gen/      generator (Node + three + puppeteer)   <- M3, done
-data/     generated images + labels              <- gitignored
+data_v5/  generated 480x640 images + labels       <- gitignored (data_v4: the 640x480 set, unused)
 train/    keypoint model + training              <- M4 (dataset/augment/model/train)
           train_bbox.py + bbox_eval/               stage-1 localizer + its measurement scripts
 export/   torch -> onnx -> int8 quantize         <- M4 (export_onnx.py)

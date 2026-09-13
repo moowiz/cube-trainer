@@ -101,7 +101,7 @@ def main():
             draw.rectangle(box, outline=(90, 230, 110), width=3)
             draw.rectangle(window, outline=(90, 230, 110), width=1)
             draw.text((box[0] + 4, box[1] + 4), f"obj {obj:.2f}", fill=(90, 230, 110))
-        small, scale, dx, dy = crop_letterbox(img, window, *INPUT_WH)
+        small, scale, dx, dy, window = crop_letterbox(img, window, *INPUT_WH)
         x = (np.asarray(small, dtype=np.float32) / 255.0 - NORM_MEAN) / NORM_STD
         xt = torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device)
         with torch.no_grad():
