@@ -30,9 +30,14 @@ export const DEFAULT_PARAMS: SolveParams = {
   // is not evidence, it is a junk row that sends the legality search
   // flailing for a second per solve (both first-day phone captures spent
   // 100+ frames there). Below 1 the pieces decide the slot instead.
-  freeBelow: 1,
+  freeBelow: 0.5,
   nMin: 6,
-  kMax: 4,
+  // DECISION 2026-09-13 (fast-scan capture 1789324991747): the delta
+  // certificate is the lock; `changed` and the per-slot margin are UI
+  // hints. Both blocked a 54/54 answer with delta 30+ for seconds - a slot
+  // with a single reading has a flat row and margin 0 though no legal cube
+  // swaps it, and a fast scan's free classification moves 6 stickers.
+  kMax: 9,
   deltaMin: 3,
   marginMin: 1,
   nu: 3,
@@ -261,6 +266,16 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
       const rc = robustCentre(ps.map((p) => p.x), ps.map((p) => p.w));
       return rc.value;
     });
+    // Six faces are six colours: once geometry has grouped the tracks into
+    // lettered faces, each face's CENTRE aggregate is a colour anchor the
+    // free fit cannot argue with. k-clusters alone merged yellow and green
+    // under thin evidence and split something else (fast-scan capture
+    // 1789324991747, 8 s in); a seed per face fixes the count of colours.
+    [4, 13, 22, 31, 40, 49].forEach((slot, fi) => {
+      const g = groups.find((x) => x.letter === FACE_ORDER[fi]);
+      const v = g?.cells[4]!.value;
+      if (g && v && g.cells[4]!.nEff >= 1) seeds![colours[slot]!] = v;
+    });
     if (seeds.some(Boolean)) {
       const sigma = pts.map((ps, c) => {
         if (!ps.length || !seeds![c]) return SIGMA_FLOOR;
@@ -296,17 +311,15 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     }
     return (c >= 0 ? ordinalNames(palette.lab)[c] : null) ?? weakest;
   })();
-  const minMargin = result ? Math.min(...result.margins) : 0;
   let reason = 'ok';
   if (!result) reason = 'no evidence';
   else if (lettered.length < 5) reason = `${lettered.length}/6 faces seen`;
   else if (result.free > 9) reason = `show the ${weakestName} face (${weakest}): ${result.free} stickers unseen`;
-  else if (result.completion === 'ambiguous') reason = `show the ${weakestName} face (${weakest}): its ${result.free} unseen stickers are not forced by the pieces`;
-  else if (result.completion === 'none') reason = `show the ${weakestName} face (${weakest}): no cube completes its ${result.free} unseen stickers`;
+  else if (!result.legal && result.completion === 'ambiguous') reason = `show the ${weakestName} face (${weakest}): its ${result.free} unseen stickers are not forced by the pieces`;
+  else if (!result.legal && result.completion === 'none') reason = `show the ${weakestName} face (${weakest}): no cube completes its ${result.free} unseen stickers`;
   else if (!result.legal) reason = 'no legal cube within budget';
   else if (result.changed > P.kMax) reason = `${result.changed} stickers moved from their nearest colour (max ${P.kMax})`;
-  else if (result.delta < P.deltaMin) reason = `runner-up cube only ${result.delta.toFixed(1)} worse (need ${P.deltaMin})`;
-  else if (minMargin < P.marginMin) reason = `a sticker is within ${minMargin.toFixed(1)} of another colour (need ${P.marginMin})`;
+  else if (result.delta < P.deltaMin) reason = `runner-up cube only ${result.delta.toFixed(1)} worse (need ${P.deltaMin})${result.free ? ` - ${result.free} unseen, ${result.completion}` : ''}`;
   return {
     facelets: result?.legal ? facelets : null,
     decode: result,

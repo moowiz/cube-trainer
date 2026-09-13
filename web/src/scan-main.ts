@@ -24,9 +24,11 @@
 import './ui/scan.css';
 import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
-import { blurScore, facePlan, labToSrgb, minFaceEdgePx, quadEdgePx, quadViewCos, sampleGridStats, type CellPlan } from './color';
+import { labToSrgb, minFaceEdgePx, type CellPlan } from './color';
 import { SolverClient } from './colour/client';
-import { emptyLog, makeReading, quadWeight, trimLog } from './colour/evidence';
+import { emptyLog, trimLog } from './colour/evidence';
+import { SamplerClient } from './colour/sampler';
+import type { SampleTrack } from './colour/sample.worker';
 import { DEFAULT_PARAMS } from './colour/solve';
 import type { EvidenceLog, Solution } from './colour/types';
 import type { Ep } from './detect/facekp';
@@ -39,8 +41,7 @@ import { QuadTracker, type QuadDetection, type TrackedQuad } from './detect/trac
 import { OBSCURED_REASON, TOO_SMALL_REASON } from './detect/identify';
 import { HintState, hintFor } from './ui/hint';
 import { matchSharedEdge } from './detect/orient';
-import { refineQuad } from './detect/gridfit';
-import { mapUV, squareToQuad, warpQuad, type ImageDataLike } from './rectify';
+import { mapUV, squareToQuad } from './rectify';
 import { randomScramble, scrambleState } from './scramble';
 import { solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
@@ -71,7 +72,11 @@ const FALLBACK_AFTER_MS = 6000;
 // solver runs on its own timer over the whole log (it is a pure function of
 // it) and the UI readouts refresh on another.
 const UI_EVERY_MS = 250;
-const SOLVE_EVERY_MS = 700;
+// The solver runs as often as it can without running back to back: at
+// least SOLVE_MIN_MS apart, and no more often than every 1.5x its own
+// recent duration (a desktop solves in 200 ms and re-solves 3x/s, a phone
+// at 1.5 s settles at one every 2 s).
+const SOLVE_MIN_MS = 300;
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 
 const app = document.getElementById('app')!;
@@ -105,8 +110,9 @@ app.innerHTML = `
           <option value="wasm">EP: wasm</option>
         </select>
         <select id="every">
-          <option value="2">detect every 2nd frame</option>
+          <option value="auto">detect: as fast as the machine allows</option>
           <option value="1">detect every frame</option>
+          <option value="2">detect every 2nd frame</option>
           <option value="3">detect every 3rd frame</option>
         </select>
         <label><input type="checkbox" id="stage1"> stage-1 box + ROI</label>
@@ -185,6 +191,9 @@ let logVersion = 0;
 let solvedVersion = -1;
 let solveEma = 0;
 const solver = new SolverClient();
+const sampler = new SamplerClient();
+// pairings of a frame wait for the sampler's quads so the log stays in frame order
+const pendingPairings = new Map<number, { a: number; b: number; edgeA: number; edgeB: number; cost: number; tol: number }[]>();
 const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
@@ -241,14 +250,14 @@ installDetectSelfTest({ current: () => models, load });
 
 // ---- the auto pipeline --------------------------------------------------
 
-function frameImageData(): ImageDataLike {
+function frameImageData(): ImageData {
   const v = camera.video;
   if (work.width !== v.videoWidth) {
     work.width = v.videoWidth;
     work.height = v.videoHeight;
   }
   workCtx.drawImage(v, 0, 0);
-  return workCtx.getImageData(0, 0, work.width, work.height) as unknown as ImageDataLike;
+  return workCtx.getImageData(0, 0, work.width, work.height);
 }
 
 /** One detection tick. Stage 1 on the frame, then stage 2 on its padded box
@@ -362,41 +371,22 @@ function renderSolution(): void {
   attemptEl.append(note);
 }
 
-/**
- * One quad's contribution to the log: refine the corners against the grid
- * prior, warp, read the nine cells as patch statistics, and weight them by
- * the quad's quality (design 3.1-3.2). Returns false below the size floor -
- * the one hard gate, because facePlan has no sampling budget there.
- */
-function observeQuad(frame: ImageDataLike, t: TrackedQuad, frameH: number, now: number): boolean {
-  let quad = t.corners.map((c) => [c[0], c[1]]) as [number, number][];
-  if (REFINE) quad = refineQuad(frame, quad).quad.map((c) => [c[0], c[1]]) as [number, number][];
-  let perim = 0;
-  for (let i = 0; i < 4; i++) perim += Math.hypot(quad[i]![0] - quad[(i + 1) % 4]![0], quad[i]![1] - quad[(i + 1) % 4]![1]);
-  const plan = facePlan(perim / 4 / 3, minFaceEdgePx(frameH));
-  if (!plan) return false;
-  const warped = warpQuad(frame, quad, 90);
-  const stats = sampleGridStats(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 }, plan);
-  const prev = lastCorners.get(t.id);
-  let speed = 0;
-  if (prev && now > prev.t) {
-    let d = 0;
-    for (let i = 0; i < 4; i++) d += Math.hypot(quad[i]![0] - prev.corners[i]![0], quad[i]![1] - prev.corners[i]![1]);
-    speed = d / 4 / (now - prev.t);
-  }
-  lastCorners.set(t.id, { corners: quad, t: now });
-  const nth = (nthOf.get(t.id) ?? 0) + 1;
-  nthOf.set(t.id, nth);
-  const q = { conf: t.conf, blur: blurScore(warped), viewCos: quadViewCos(quad), edgePx: quadEdgePx(quad), speed, nth, frameH };
-  const w = quadWeight(q);
-  log.quads.push({
-    frame: detFrame, t: Date.now(), track: t.id, corners: quad, conf: t.conf,
-    blur: q.blur, viewCos: q.viewCos, edgePx: q.edgePx, speed, nth,
-    readings: stats.map((p, i) => makeReading(i, p, w)),
-  });
-  sampledQuads.push({ track: t.id, quad, plan });
-  return true;
-}
+/** The sampler's result for one detection frame: append to the log, mirror to the solver. */
+sampler.onSampled = (r) => {
+  if (locked) return;
+  const present = new Set(r.quads.map((q) => q.track));
+  const pairs = (pendingPairings.get(r.frame) ?? []).filter((p) => present.has(p.a) && present.has(p.b));
+  pendingPairings.delete(r.frame);
+  if (!r.quads.length) return;
+  log.quads.push(...r.quads);
+  for (const p of pairs) log.pairings.push({ frame: r.frame, ...p });
+  sampledQuads = r.refined;
+  // mirror to the worker before trimming so both logs trim identically
+  solver.sync(log);
+  const dropped = trimLog(log);
+  solver.trimmed(dropped.quads, dropped.pairings, dropped.events);
+  logVersion++;
+};
 
 function drawOverlay(tracks: TrackedQuad[]): void {
   // Debug layering, back to front: stage 1's box and ROI, heatmap, then the
@@ -482,8 +472,12 @@ async function loop(ts: number): Promise<void> {
     // stage 1 on the frame then stage 2 on its padded box; a stage-1 miss
     // hands the tracker an empty detection list (tracks decay exactly as
     // they do when stage 2 finds nothing) and the banner says no cube.
+    // Detection cadence: 'auto' runs a tick whenever the inference worker
+    // and the sampler are both free - a desktop then ticks at 30-60/s, a
+    // phone at whatever its inference allows - else every Nth frame.
     const m = models;
-    if (m && !inferBusy && frameNo % Number(everySel.value) === 0) {
+    const due = everySel.value === 'auto' ? !sampler.busy : frameNo % Number(everySel.value) === 0;
+    if (m && !inferBusy && due) {
       inferBusy = true;
       void (async () => {
         try {
@@ -538,34 +532,41 @@ async function loop(ts: number): Promise<void> {
     if (dets && !locked) {
       detFrame++;
       log.frames = detFrame;
-      if (confident.length) {
-        const frame = frameImageData();
-        sampledQuads = [];
-        const observed: TrackedQuad[] = [];
-        // only tracks with a detection THIS frame: a coasting track is the
-        // same pixels under a stale quad, and beside its own replacement it
-        // reads as a second face in the frame
-        for (const t of confident) if (t.sinceDetectMs === 0 && observeQuad(frame, t, v.videoHeight, ts)) observed.push(t);
+      // only tracks with a detection THIS frame: a coasting track is the
+      // same pixels under a stale quad, and beside its own replacement it
+      // reads as a second face in the frame
+      const fresh = confident.filter((t) => t.sinceDetectMs === 0);
+      if (fresh.length && !sampler.busy) {
+        const tracks: SampleTrack[] = fresh.map((t) => {
+          const prev = lastCorners.get(t.id);
+          let speed = 0;
+          if (prev && ts > prev.t) {
+            let dd = 0;
+            for (let i = 0; i < 4; i++) dd += Math.hypot(t.corners[i]![0] - prev.corners[i]![0], t.corners[i]![1] - prev.corners[i]![1]);
+            speed = dd / 4 / (ts - prev.t);
+          }
+          lastCorners.set(t.id, { corners: t.corners, t: ts });
+          const nth = (nthOf.get(t.id) ?? 0) + 1;
+          nthOf.set(t.id, nth);
+          return { id: t.id, corners: t.corners, conf: t.conf, speed, nth };
+        });
         // letter-free pairings: two quads sharing an image-space edge. Which
         // cube edge it is, and hence every rotation, is the solver's job.
-        for (let i = 0; i < observed.length; i++) {
-          for (let j = i + 1; j < observed.length; j++) {
-            const a = observed[i]!;
-            const b = observed[j]!;
-            const m = matchSharedEdge(a.corners, b.corners);
-            if (m) log.pairings.push({ frame: detFrame, a: a.id, b: b.id, edgeA: m.i, edgeB: m.j, cost: m.cost, tol: m.tol });
+        const pairs: { a: number; b: number; edgeA: number; edgeB: number; cost: number; tol: number }[] = [];
+        for (let i = 0; i < fresh.length; i++) {
+          for (let j = i + 1; j < fresh.length; j++) {
+            const mm = matchSharedEdge(fresh[i]!.corners, fresh[j]!.corners);
+            if (mm) pairs.push({ a: fresh[i]!.id, b: fresh[j]!.id, edgeA: mm.i, edgeB: mm.j, cost: mm.cost, tol: mm.tol });
           }
         }
-        // mirror to the worker before trimming so both logs trim identically
-        solver.sync(log);
-        const dropped = trimLog(log);
-        solver.trimmed(dropped.quads, dropped.pairings, dropped.events);
-        logVersion++;
+        pendingPairings.set(detFrame, pairs);
+        const frame = frameImageData();
+        sampler.sample(detFrame, Date.now(), frame.width, frame.height, frame.data.buffer, tracks, REFINE);
       }
       const pipeMs = performance.now() - pipeStart;
       pipeEma = pipeEma === 0 ? pipeMs : 0.1 * pipeMs + 0.9 * pipeEma;
     }
-    if (!locked && !solver.busy && logVersion !== solvedVersion && ts - lastSolveTs >= SOLVE_EVERY_MS) {
+    if (!locked && !solver.busy && logVersion !== solvedVersion && ts - lastSolveTs >= Math.max(SOLVE_MIN_MS, 1.5 * solveEma)) {
       lastSolveTs = ts;
       solvedVersion = logVersion;
       void solver.requestSolve().then((sol) => {
@@ -592,7 +593,7 @@ async function loop(ts: number): Promise<void> {
       updateFillUI();
       fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
       statsEl.textContent =
-        `fps ${fps.fps.toFixed(1)}   sampling ${pipeEma.toFixed(1)} ms   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
+        `fps ${fps.fps.toFixed(1)}   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
         + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
         + (lastTick
           ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
@@ -657,6 +658,7 @@ $('reset').addEventListener('click', () => {
   logVersion = 0;
   solvedVersion = -1;
   solver.reset();
+  pendingPairings.clear();
   models?.detector.exemplars.reset();
   solved = false;
   lastTick = null;
@@ -691,7 +693,7 @@ captureBtn.addEventListener('click', () => {
     params: DEFAULT_PARAMS,
     locked: !!locked,
     stats: statsEl.textContent,
-    timing: { fps: +fps.fps.toFixed(1), samplingMs: +pipeEma.toFixed(1), solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
+    timing: { fps: +fps.fps.toFixed(1), samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
   void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });

@@ -39,7 +39,10 @@ export function quadWeight(q: QuadQuality): number {
   const still = ramp(q.speed, 0, 3, 1, 0.2);
   const view = ramp(q.viewCos, 0.4, 0.8, 0.3, 1);
   const size = ramp(q.edgePx / Math.max(1, minFaceEdgePx(q.frameH)), 1, 2, 0.3, 1);
-  const age = q.nth <= 1 ? 0.3 : q.nth === 2 ? 0.6 : 1;
+  // DECISION: a track's first detections weigh less (a false positive is
+  // most likely to be young), but not much less - a fast scan is nothing
+  // but young tracks (23 of them in 19 s on 1789324991747)
+  const age = q.nth <= 1 ? 0.5 : q.nth === 2 ? 0.8 : 1;
   return q.conf * sharp * still * view * size * age;
 }
 

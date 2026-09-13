@@ -144,7 +144,7 @@ describe('synthetic session', () => {
         locked++;
       } else {
         expect(s.lockable, hidden).toBe(false);
-        expect(s.reason).toMatch(/not forced/);
+        expect(s.reason).toMatch(/not forced|ambiguous/);
       }
     }
     expect(locked).toBe(3); // R, F, D are forced on this scramble, L is not (complete.test.ts)

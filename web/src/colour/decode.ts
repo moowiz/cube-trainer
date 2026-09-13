@@ -418,7 +418,12 @@ export function decode(
   }
 
   const bestKey = keyOf(best.colours);
-  const resultB = popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey);
+  // An ambiguous completion IS a second legal cube at the same cost (the
+  // unseen slots rearranged); the bounded search may not reach it among
+  // thousands of equal-cost arrangements, so say so directly.
+  const resultB = completion === 'ambiguous'
+    ? { found: { cost: best.cost, colours: best.colours }, pops: 0 }
+    : popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey);
   const delta = resultB.found ? resultB.found.cost - best.cost : Infinity;
 
   return {
