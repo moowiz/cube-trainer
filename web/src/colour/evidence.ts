@@ -49,7 +49,9 @@ export function patchWeight(p: PatchStats): number {
   const glare = p.clipFrac > 0.6 ? 0 : 1 - p.clipFrac;
   const seam = Math.max(0.1, 1 - 2 * p.darkFrac);
   const flat = Math.exp(-p.spread / 8);
-  const censored = p.censored.reduce((w, c) => (c ? w * 0.5 : w), 1);
+  // a censored channel is a bound, not a value; MEASURED: every orange
+  // reading on the phone has R at 255, so this must stay a mild discount
+  const censored = p.censored.reduce((w, c) => (c ? w * 0.8 : w), 1);
   return glare * seam * flat * censored;
 }
 

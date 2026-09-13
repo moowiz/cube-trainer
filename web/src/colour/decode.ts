@@ -13,6 +13,7 @@ import type { DecodeResult } from './types';
 import { FACE_ORDER } from '../types';
 import type { FaceId } from '../types';
 import { solveAssignment } from '../color';
+import { completeFacelets } from './complete';
 
 export interface DecodeOptions {
   /** Best-first pops before giving up on legality. */
@@ -309,9 +310,9 @@ function popUntil(
   return { found: null, pops };
 }
 
-function countChanged(colours: readonly number[], argmin: readonly number[]): number {
+function countChanged(colours: readonly number[], argmin: readonly number[], skip: ReadonlySet<number> = new Set()): number {
   let n = 0;
-  for (let s = 0; s < colours.length; s++) if (colours[s] !== argmin[s]) n++;
+  for (let s = 0; s < colours.length; s++) if (!skip.has(s) && colours[s] !== argmin[s]) n++;
   return n;
 }
 
@@ -330,6 +331,18 @@ function computeMargins(cost: readonly (readonly number[])[], colours: readonly 
   return margins;
 }
 
+/** Slots whose cost row is all zero: no evidence, free for the constraints to decide. */
+function freeSlots(cost: readonly (readonly number[])[]): number[] {
+  const out: number[] = [];
+  for (let s = 0; s < N_SLOTS; s++) if (cost[s]!.every((c) => c === 0)) out.push(s);
+  return out;
+}
+
+// DECISION: a sticker the pieces force carries this margin - the cost of
+// any 2-swap that keeps the cube legal is at least one evidenced sticker's
+// cost, and 30 is the cost cap of the matrix.
+const FORCED_MARGIN = 30;
+
 export function decode(
   cost: readonly (readonly number[])[],
   legal: (colours: readonly number[]) => boolean,
@@ -341,6 +354,34 @@ export function decode(
 
   const argmin = computeArgmin(cost);
   const balanced = buildBalanced(cost);
+
+  // Unseen stickers: the balanced step gave them the colours the counts
+  // demand, in an arbitrary arrangement. The pieces decide the arrangement;
+  // when they force it the completion is the answer for those slots and
+  // each carries FORCED_MARGIN, when they do not the slots are ambiguous
+  // (margin 0) and no lock can pass.
+  const free = freeSlots(cost);
+  const freeSet = new Set(free); // a free slot has no nearest colour to move from
+  let completion: DecodeResult['completion'] = free.length ? 'none' : 'n/a';
+  const forced = new Set<number>();
+  if (free.length) {
+    const letters = coloursToFacelets(balanced.colours).split('');
+    const letterOf = new Map<number, string>();
+    CENTER_SLOTS.forEach((slot, fi) => letterOf.set(balanced.colours[slot]!, 'URFDLB'[fi]!));
+    for (const s of free) if (!CENTER_SLOTS.includes(s)) letters[s] = '?';
+    const c = completeFacelets(letters.join(''));
+    if (c.facelets) {
+      completion = 'unique';
+      const colourOf = new Map([...letterOf].map(([col, l]) => [l, col]));
+      for (const s of free) { balanced.colours[s] = colourOf.get(c.facelets[s]!)!; forced.add(s); }
+    } else if (c.solutions >= 2 || c.overflow) {
+      completion = 'ambiguous';
+    }
+  }
+  const withFree = (margins: number[]): number[] => {
+    for (const s of free) margins[s] = forced.has(s) ? FORCED_MARGIN : 0;
+    return margins;
+  };
 
   const heap = new MinHeap();
   heap.push({ cost: balanced.cost, colours: balanced.colours });
@@ -366,11 +407,13 @@ export function decode(
       colours: null,
       argmin,
       cost: balanced.cost,
-      changed: countChanged(balanced.colours, argmin),
+      changed: countChanged(balanced.colours, argmin, freeSet),
       delta: Infinity,
-      margins: computeMargins(cost, balanced.colours),
+      margins: withFree(computeMargins(cost, balanced.colours)),
       legal: false,
       pops: popsA,
+      free: free.length,
+      completion,
     };
   }
 
@@ -382,10 +425,12 @@ export function decode(
     colours: best.colours.slice(),
     argmin,
     cost: best.cost,
-    changed: countChanged(best.colours, argmin),
+    changed: countChanged(best.colours, argmin, freeSet),
     delta,
-    margins: computeMargins(cost, best.colours),
+    margins: withFree(computeMargins(cost, best.colours)),
     legal: true,
     pops: popsA + resultB.pops,
+    free: free.length,
+    completion,
   };
 }

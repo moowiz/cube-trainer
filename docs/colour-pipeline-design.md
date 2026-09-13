@@ -32,6 +32,23 @@ solver. Embedding: lab-crushed classified all 54 free on both captures
 where logchroma needed the decoder to move four orange stickers, so
 lab-crushed is the default now.
 
+**Third capture (same day, blue-cast light, each face shown once):**
+three findings. (1) Glare was defined as "any channel >= 250" and the
+phone clips the red channel of every orange sticker, so every orange
+reading weighed zero and 18 stickers on shown faces were "unseen" - glare
+now means blown to white. (2) No single colour space is robust: logchroma
+separates yellow from green under this cast where Lab collapses them, Lab
+separates red from orange where logchroma does not, L at 0.5 alone solves
+the blue-monitor scan; the solve now runs in three spaces and the
+certificate picks (quick balanced pass ranks them, full search on the top
+two). (3) Five faces can suffice: `complete.ts` fills unseen stickers from
+the pieces exactly and says whether they are forced; slots with negligible
+evidence (< 1) are treated as unseen; one hidden face is forced on about
+half of scrambles (two same-coloured visible stickers on the hidden face's
+edges leave a legal swap), and the search reports the rest as ambiguous.
+The capture itself now refuses honestly: the red and orange centre
+readings are within 1.4 of swapping under that light.
+
 Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.

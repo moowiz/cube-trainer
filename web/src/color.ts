@@ -661,7 +661,14 @@ function median(xs: number[]): number {
 
 /** DECISION: trim the brightest and darkest 10% of pixels (by luminance) before the per-channel median. */
 export const PATCH_TRIM = 0.1;
-export const CLIP_LEVEL = 250; // any channel at or above this counts as clipped
+// A pixel is GLARE when it is blown towards white - its darkest channel is
+// near the top - not when one channel saturates: the phone's ISP clips the
+// red channel of every orange sticker to 255 (and often red's), and "any
+// channel >= 250" threw every orange reading of the third phone session
+// away (18 stickers "unseen" on faces that had been shown for 100 frames).
+// A saturated channel is a censored value, reported per channel in
+// `censored`; it is not missing pigment.
+export const CLIP_LEVEL = 235; // min(r, g, b) at or above this counts as glare
 export const DARK_LEVEL = 0.08 * 255; // luminance below this counts as dark
 
 /**
@@ -688,7 +695,7 @@ export function samplePatchStats(img: ImageData, cx: number, cy: number, size = 
       const b = d[i + 2]!;
       const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       pixels.push([r, g, b, luma]);
-      if (r >= CLIP_LEVEL || g >= CLIP_LEVEL || b >= CLIP_LEVEL) clipped++;
+      if (r >= CLIP_LEVEL && g >= CLIP_LEVEL && b >= CLIP_LEVEL) clipped++;
       if (luma < DARK_LEVEL) dark++;
     }
   }

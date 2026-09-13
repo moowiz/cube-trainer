@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
 import { srgbToLab } from '../src/color';
 import { emptyLog, patchWeight } from '../src/colour/evidence';
-import { solve } from '../src/colour/solve';
+import { solve, solveBest } from '../src/colour/solve';
 import type { EvidenceLog, PatchStats, RGB } from '../src/colour/types';
 import { sharedEdge } from '../src/detect/orient';
 import { rotateCells } from '../src/state';
@@ -24,7 +24,7 @@ function lcg(seed: number): () => number {
   return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
 }
 
-interface SimOptions { frames?: number; reacquireEvery?: number; glare?: number; fingers?: number; seed?: number; wb?: number }
+interface SimOptions { frames?: number; reacquireEvery?: number; glare?: number; fingers?: number; seed?: number; wb?: number; hide?: FaceId[] }
 
 /** Build a log of `frames` corner views of `truth` (URFDLB facelets). */
 function simulate(truth: string, o: SimOptions = {}): { log: EvidenceLog; cellRot: Map<number, number> } {
@@ -33,7 +33,8 @@ function simulate(truth: string, o: SimOptions = {}): { log: EvidenceLog; cellRo
   const every = o.reacquireEvery ?? 16;
   const log = emptyLog();
   // the eight corner views: three mutually adjacent faces each
-  const VIEWS: FaceId[][] = [['U', 'F', 'R'], ['U', 'R', 'B'], ['U', 'B', 'L'], ['U', 'L', 'F'], ['D', 'R', 'F'], ['D', 'B', 'R'], ['D', 'L', 'B'], ['D', 'F', 'L']];
+  const ALL: FaceId[][] = [['U', 'F', 'R'], ['U', 'R', 'B'], ['U', 'B', 'L'], ['U', 'L', 'F'], ['D', 'R', 'F'], ['D', 'B', 'R'], ['D', 'L', 'B'], ['D', 'F', 'L']];
+  const VIEWS = ALL.filter((v) => !v.some((f) => o.hide?.includes(f)));
   // each face's current track id and that track's raw cell rotation
   const trackOf = new Map<FaceId, number>();
   const cellRot = new Map<number, number>();
@@ -129,6 +130,31 @@ describe('synthetic session', () => {
     expect(() => solve(one)).not.toThrow();
     expect(solve(one).lockable).toBe(false);
     expect(() => solve(log)).not.toThrow();
+  });
+
+  it('five faces are enough when the pieces force the sixth (and a refusal when they do not)', () => {
+    let locked = 0;
+    for (const hidden of ['R', 'F', 'D', 'L'] as FaceId[]) {
+      const { log } = simulate(TRUTH, { hide: [hidden], seed: 21 });
+      const s = solveBest(log);
+      expect(s.decode?.free, hidden).toBe(9);
+      if (s.decode?.completion === 'unique') {
+        expect(s.facelets, hidden).toBe(TRUTH);
+        expect(s.lockable, `${hidden}: ${s.reason}`).toBe(true);
+        locked++;
+      } else {
+        expect(s.lockable, hidden).toBe(false);
+        expect(s.reason).toMatch(/not forced/);
+      }
+    }
+    expect(locked).toBe(3); // R, F, D are forced on this scramble, L is not (complete.test.ts)
+  });
+
+  it('four faces are not: the unseen stickers are ambiguous and it refuses', () => {
+    const { log } = simulate(TRUTH, { hide: ['D', 'B'], seed: 22 });
+    const s = solveBest(log);
+    expect(s.lockable).toBe(false);
+    expect(s.reason).toMatch(/unseen|faces seen/);
   });
 
   it('is honest with too little evidence: a four-face session does not lock', () => {

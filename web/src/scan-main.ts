@@ -436,7 +436,7 @@ function renderSolver(): void {
   const pal = sol.palette.lab.map((l, c) => `colour ${c} ${(sol.colourLetter[c] ? DEFAULT_SCHEME_NAMES[sol.colourLetter[c]!] : '?').padEnd(7)} `
     + (l ? `L ${l.L.toFixed(0).padStart(3)} a ${l.a.toFixed(0).padStart(4)} b ${l.b.toFixed(0).padStart(4)}` : 'empty') + `  sigma ${sol.palette.sigma[c]!.toFixed(1)}`);
   const groups = sol.groups.map((g) => `group ${g.id} ${(g.letter ?? '-').padEnd(2)} evidence ${g.nEff.toFixed(0).padStart(4)}  rot ${g.absRotation ?? '?'}  tracks ${g.tracks.map((t) => `#${t}${g.rotation.get(t) ? `+${g.rotation.get(t)}` : ''}`).join(' ')}`);
-  exEl.textContent = [...pal, '', ...groups, '', `${sol.reason} - solve ${sol.ms.toFixed(0)} ms - frames ${log.frames} quads ${log.quads.length} pairings ${log.pairings.length}`].join('\n');
+  exEl.textContent = [...pal, '', ...groups, '', `${sol.reason} - ${sol.embedding} - solve ${sol.ms.toFixed(0)} ms - frames ${log.frames} quads ${log.quads.length} pairings ${log.pairings.length}`].join('\n');
 }
 
 let renderedSolution: Solution | null = null;
@@ -679,6 +679,9 @@ captureBtn.addEventListener('click', () => {
   if (!models) { msgEl.textContent = 'nothing to capture: models not loaded'; return; }
   const sol = locked ?? solution;
   const extra = {
+    // evidence-log capture format version: 2 = glare means blown to white
+    // (v1 counted any saturated channel, which zeroed every orange reading)
+    version: 2,
     scramble,
     // the truth only when the user says the scramble was applied from solved
     scrambleApplied: appliedChk.checked,

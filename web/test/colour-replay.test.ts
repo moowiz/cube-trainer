@@ -10,9 +10,9 @@ import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
 import { labToSrgb } from '../src/color';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
-import { emptyLog } from '../src/colour/evidence';
-import { solve } from '../src/colour/solve';
-import type { EvidenceLog, RGB } from '../src/colour/types';
+import { emptyLog, patchWeight } from '../src/colour/evidence';
+import { solve, solveBest } from '../src/colour/solve';
+import type { EvidenceLog, Reading, RGB } from '../src/colour/types';
 import type { FaceId, Lab } from '../src/types';
 import { FACE_ORDER } from '../src/types';
 
@@ -83,7 +83,7 @@ describe('colour solver replay', () => {
   }
   it('prints the bake-off table', () => {
     console.log('\n' + table.join('\n'));
-    expect(table.length).toBe(CASES.length * 3);
+    expect(table.length).toBe(CASES.length * Object.keys(EMBEDDINGS).length);
   });
 
   for (const c of CASES) {
@@ -107,6 +107,31 @@ describe('colour solver replay', () => {
   });
 });
 
+/**
+ * v1 captures (no `version`) computed clipFrac as "any channel >= 250",
+ * which is 1.0 for every orange sticker on the phone, and weighted those
+ * readings zero. Recover: a reading whose median colour is not near white
+ * was not glare; its quad weight is what its unclipped siblings imply.
+ */
+function migrateV1(log: EvidenceLog): EvidenceLog {
+  const oldPatch = (r: Reading): number => {
+    const glare = r.clipFrac > 0.6 ? 0 : 1 - r.clipFrac;
+    const seam = Math.max(0.1, 1 - 2 * r.darkFrac);
+    const flat = Math.exp(-r.spread / 8);
+    const cens = r.censored.reduce((w, c) => (c ? w * 0.5 : w), 1);
+    return glare * seam * flat * cens;
+  };
+  for (const q of log.quads) {
+    const qw = q.readings.filter((r) => r.clipFrac === 0 && oldPatch(r) > 0).map((r) => r.w / oldPatch(r));
+    const quadW = qw.length ? qw.sort((a, b) => a - b)[qw.length >> 1]! : 0.5;
+    for (const r of q.readings) {
+      if (Math.min(...r.rgb) < 235) r.clipFrac = 0;
+      r.w = quadW * patchWeight({ rgb: r.rgb, lab: r.lab, clipFrac: r.clipFrac, darkFrac: r.darkFrac, spread: r.spread, censored: r.censored, n: 144 });
+    }
+  }
+  return log;
+}
+
 // Phone captures in the evidence-log format (fixtures/README.md): every file
 // under fixtures/evidence/ is solved; `truth` (54 facelets) is asserted when
 // present, and a lock is only ever the truth.
@@ -116,7 +141,8 @@ describe('evidence-log captures', () => {
   it('lists the captures', () => { console.log(`evidence captures: ${files.length ? files.join(', ') : 'none yet'}`); });
   for (const file of files) {
     it(file, { timeout: 30000 }, () => {
-      const d = read(`evidence/${file}`) as { evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string | null; note?: string };
+      const d = read(`evidence/${file}`) as { version?: number; evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string | null; note?: string };
+      if (!d.version) migrateV1(d.evidenceLog);
       // `truth` is a confirmed state; `scrambleTruth` is what the page's
       // scramble produces from a solved cube, present only when the user
       // ticked "I applied it" before capturing
@@ -129,7 +155,9 @@ describe('evidence-log captures', () => {
         rows.push(`${name.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} faces ${s.centresSeen}/6 legal ${s.decode?.legal ? 'y' : 'n'} changed ${s.decode?.changed ?? '-'} delta ${s.decode ? (s.decode.delta === Infinity ? 'inf' : s.decode.delta.toFixed(1)) : '-'} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
       }
       console.log('\n' + rows.join('\n'));
-      const s = solve(log);
+      const s = solveBest(log);
+      rows.push(`${'ensemble'.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} -> ${s.embedding} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
+      console.log(rows[rows.length - 1]);
       if (truth) {
         if (s.facelets) expect(s.facelets).toBe(truth);
         expect(s.lockable ? s.facelets : truth).toBe(truth);
