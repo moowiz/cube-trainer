@@ -426,6 +426,13 @@ rotation: click around the face from any starting corner, either direction
 normalizes winding. `check_labels.py` catches zigzags (non-convex quads)
 and misplaced shared corners.
 
+0. (Optional) Shoot a phone video instead of photos and pull stills out of it:
+   `python train/extract_frames.py clip.mp4 --out ../stephens_photos/batch7`
+   — one keeper per second, sharpest frame of each window, duplicates
+   dropped, phone rotation honoured (bundled ffmpeg via `imageio-ffmpeg`).
+   `--every` / `--max` / `--long-side` tune it. Move slowly and change
+   *something* every second (distance, angle, grip, light); a clip where
+   nothing changes yields one useful frame.
 1. Open `<deploy>/label.html` (also in `web/public/`), load photos, click
    each visible face's 4 corners going around the face, export
    `labels-all.json`.
