@@ -12,7 +12,7 @@
 import { validateState, rotateCells } from '../state';
 import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
-import { DEFAULT_EMBEDDING, type Embedding } from './colorspace';
+import { DEFAULT_EMBEDDING, LAB_CRUSHED, LAB_HALF, LOGCHROMA, type Embedding } from './colorspace';
 import { coloursToFacelets, decode } from './decode';
 import { aggregateTracks, coVisible } from './evidence';
 import { groupTracks, reconcileRotations } from './faces';
@@ -26,6 +26,11 @@ export const DEFAULT_PARAMS: SolveParams = {
   // DECISION: starting points from the design; the lock gates are to be
   // calibrated on evidence-log fixtures with the no-wrong-lock rule first.
   nSat: 12,
+  // DECISION: a sticker glimpsed once at a glancing angle (nEff 0.1-0.5)
+  // is not evidence, it is a junk row that sends the legality search
+  // flailing for a second per solve (both first-day phone captures spent
+  // 100+ frames there). Below 1 the pieces decide the slot instead.
+  freeBelow: 1,
   nMin: 6,
   kMax: 4,
   deltaMin: 3,
@@ -92,7 +97,7 @@ function slotMap(groups: readonly FaceGroup[], sigs: readonly TrackSignature[]):
   return { slotOf, ev: { members } };
 }
 
-function costMatrix(ev: SlotEvidence, palette: Palette, nu: number): { cost: number[][]; nEff: number[]; lab: (Lab | null)[] } {
+function costMatrix(ev: SlotEvidence, palette: Palette, nu: number, freeBelow: number): { cost: number[][]; nEff: number[]; lab: (Lab | null)[] } {
   const cost: number[][] = [];
   const nEff: number[] = [];
   const lab: (Lab | null)[] = [];
@@ -111,7 +116,7 @@ function costMatrix(ev: SlotEvidence, palette: Palette, nu: number): { cost: num
     }
     nEff.push(n);
     lab.push(n > 0 ? { L: L / n, a: A / n, b: B / n } : null);
-    if (n <= 0) { cost.push(new Array<number>(6).fill(0)); continue; }
+    if (n < freeBelow) { cost.push(new Array<number>(6).fill(0)); continue; }
     const m = Math.max(...E);
     const Z = E.reduce((z, e) => z + (e === -Infinity ? 0 : Math.exp(e - m)), 0);
     cost.push(E.map((e) => (e === -Infinity ? COST_CAP : Math.min(COST_CAP, -(e - m - Math.log(Z))))));
@@ -211,27 +216,29 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     //    rotation does not change which colour an aggregate is, only which
     //    slot it sits in, and the refit needs only the colours
     let { ev } = slotMap(groups, sigs);
-    let cm = costMatrix(ev, palette, P.nu);
+    let cm = costMatrix(ev, palette, P.nu, P.freeBelow);
     const legalAll = () => true;
     // The legality search is only meaningful with six lettered faces: with
     // fewer, most rows are free and the search burns its whole budget on a
     // flat cost surface (13 s on a one-quad log). Before that the balanced
     // optimum is the answer and the reason says how many faces are missing.
-    // ... and with every slot carrying at least some evidence: on the first
-    // phone session the search ran 400-900 ms per solve for 260 frames
-    // while two faces had barely been shown, and "no legal cube" was the
-    // wrong hint - the reason below names the face to show instead.
-    const complete = groups.filter((g) => g.letter).length === 6 && Math.min(...cm.nEff) >= 1;
+    // ... or five, with at most one face's worth of unseen stickers: the
+    // decoder completes those from the pieces (complete.ts) and says
+    // whether they were forced. More unseen than that and the search would
+    // wander a flat cost surface (400-900 ms per solve on the first phone
+    // session while two faces had barely been shown).
+    const freeNow = cm.nEff.filter((n) => n < P.freeBelow).length;
+    const complete = groups.filter((g) => g.letter).length >= 5 && freeNow <= 9;
     if (last && !opts.quick && complete) {
       const balanced = decode(cm.cost, legalAll);
       balancedFacelets = balanced.colours ? coloursToFacelets(balanced.colours) : null;
       if (balanced.colours) resolveUnknownRotations(groups, balanced.colours);
       ({ ev } = slotMap(groups, sigs));
-      cm = costMatrix(ev, palette, P.nu);
-      // DECISION: 12k/6k pops is ~400 ms on a desktop for a search that
-      // fails, a second or two in the phone's worker; a cube that needs more
-      // is a cube whose evidence is not there yet
-      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 12000, secondPops: 6000 });
+      cm = costMatrix(ev, palette, P.nu, P.freeBelow);
+      // DECISION: 6k/3k pops is ~500 ms on a desktop for a search that
+      // fails, a second or two in the phone's worker; a cube that needs
+      // more is a cube whose evidence is not there yet
+      result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 6000, secondPops: 3000 });
     } else {
       result = decode(cm.cost, legalAll);
     }
@@ -292,10 +299,11 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
   const minMargin = result ? Math.min(...result.margins) : 0;
   let reason = 'ok';
   if (!result) reason = 'no evidence';
-  else if (lettered.length < 6) reason = `${lettered.length}/6 faces seen`;
-  else if (minN < 1) reason = `show the ${weakestName} face (${weakest}): ${minN.toFixed(1)} evidence`;
+  else if (lettered.length < 5) reason = `${lettered.length}/6 faces seen`;
+  else if (result.free > 9) reason = `show the ${weakestName} face (${weakest}): ${result.free} stickers unseen`;
+  else if (result.completion === 'ambiguous') reason = `show the ${weakestName} face (${weakest}): its ${result.free} unseen stickers are not forced by the pieces`;
+  else if (result.completion === 'none') reason = `show the ${weakestName} face (${weakest}): no cube completes its ${result.free} unseen stickers`;
   else if (!result.legal) reason = 'no legal cube within budget';
-  else if (minN < P.nMin) reason = `weakest sticker (${weakestName} face) has ${minN.toFixed(1)} of ${P.nMin} evidence`;
   else if (result.changed > P.kMax) reason = `${result.changed} stickers moved from their nearest colour (max ${P.kMax})`;
   else if (result.delta < P.deltaMin) reason = `runner-up cube only ${result.delta.toFixed(1)} worse (need ${P.deltaMin})`;
   else if (minMargin < P.marginMin) reason = `a sticker is within ${minMargin.toFixed(1)} of another colour (need ${P.marginMin})`;
@@ -311,8 +319,52 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     centresSeen: lettered.length,
     lockable: reason === 'ok',
     reason,
+    embedding: embedding.name,
     ms: performance.now() - t0,
     gains,
     balanced: balancedFacelets,
   };
+}
+
+// DECISION 2026-09-13: no single colour space survived the third phone
+// capture - logchroma separates yellow from green under a blue cast where
+// every Lab weighting collapses them, lab-crushed separates red from orange
+// where logchroma does not, and L at 0.5 alone solves the blue-monitor scan.
+// So the solve runs in all three and the certificate chooses: legal first,
+// then the largest delta, then the fewest changes. Three solves in the
+// worker cost a few hundred ms; a wrong space costs a session.
+export const ENSEMBLE: Embedding[] = [LAB_CRUSHED, LOGCHROMA, LAB_HALF];
+
+export function solveBest(log: EvidenceLog, embeddings: readonly Embedding[] = ENSEMBLE, opts: Omit<SolveOptions, 'embedding'> = {}): Solution {
+  const t0 = performance.now();
+  // 1. a cheap balanced-only pass per space ranks them: fewest stickers the
+  //    counts had to move, then the widest minimum margin. The legality
+  //    search is the expensive part (a failing one burns its whole budget)
+  //    and it runs only where the balanced optimum looks close.
+  const quick = embeddings.map((embedding) => ({ embedding, s: solve(log, { ...opts, embedding, quick: true }) }));
+  const key = (x: Solution): [number, number] => [x.decode?.changed ?? 99, x.decode ? -Math.min(...x.decode.margins) : 0];
+  quick.sort((a, b) => { const ka = key(a.s); const kb = key(b.s); return ka[0] - kb[0] || ka[1] - kb[1]; });
+  // 2. full solves in that order, stopping at the first lock; at most two,
+  //    because a failing legality search costs its whole budget and the
+  //    third-ranked space has never been the one that locked
+  let best: Solution | null = null;
+  let full = 0;
+  const rank = (x: Solution): number[] => [x.lockable ? 1 : 0, x.decode?.legal ? 1 : 0, x.decode ? (x.decode.delta === Infinity ? 1e9 : x.decode.delta) : -1, -(x.decode?.changed ?? 99), x.centresSeen];
+  for (const { embedding } of quick) {
+    if (full++ >= 2) break;
+    const s = solve(log, { ...opts, embedding });
+    if (!best) best = s;
+    else {
+      const a = rank(s);
+      const b = rank(best);
+      for (let i = 0; i < a.length; i++) {
+        if (a[i]! === b[i]!) continue;
+        if (a[i]! > b[i]!) best = s;
+        break;
+      }
+    }
+    if (s.lockable) break;
+  }
+  best!.ms = performance.now() - t0;
+  return best!;
 }

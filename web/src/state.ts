@@ -464,10 +464,10 @@ export interface ValidationResult {
   badStickers?: number[];
 }
 
-const CENTER_INDICES: readonly number[] = [4, 13, 22, 31, 40, 49];
+export const CENTER_INDICES: readonly number[] = [4, 13, 22, 31, 40, 49];
 
 // Each triple starts with the slot's U/D facelet, listed clockwise.
-const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
+export const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
   [8, 9, 20], // URF
   [6, 18, 38], // UFL
   [0, 36, 47], // ULB
@@ -478,7 +478,7 @@ const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
   [35, 17, 51], // DRB
 ];
 
-const CORNER_COLORS: readonly (readonly [string, string, string])[] = [
+export const CORNER_COLORS: readonly (readonly [string, string, string])[] = [
   ['U', 'R', 'F'], // URF
   ['U', 'F', 'L'], // UFL
   ['U', 'L', 'B'], // ULB
@@ -491,7 +491,7 @@ const CORNER_COLORS: readonly (readonly [string, string, string])[] = [
 
 // Each pair is [primary, secondary]: primary = U/D facelet for U/D edges,
 // F/B facelet for equator edges (FR, FL, BL, BR).
-const EDGE_FACELETS: readonly (readonly [number, number])[] = [
+export const EDGE_FACELETS: readonly (readonly [number, number])[] = [
   [5, 10], // UR
   [7, 19], // UF
   [3, 37], // UL
@@ -506,7 +506,7 @@ const EDGE_FACELETS: readonly (readonly [number, number])[] = [
   [48, 14], // BR
 ];
 
-const EDGE_COLORS: readonly (readonly [string, string])[] = [
+export const EDGE_COLORS: readonly (readonly [string, string])[] = [
   ['U', 'R'],
   ['U', 'F'],
   ['U', 'L'],

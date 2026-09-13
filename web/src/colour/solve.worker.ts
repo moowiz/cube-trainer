@@ -4,7 +4,7 @@
 // phone, and the frame pump must keep painting through it.
 
 import { emptyLog, trimLog } from './evidence';
-import { solve } from './solve';
+import { solveBest } from './solve';
 import type { EvidenceLog, Pairing, QuadObs, Solution, TrackEvent } from './types';
 
 export type SolverRequest =
@@ -27,7 +27,7 @@ self.onmessage = (ev: MessageEvent<SolverRequest>) => {
     log.frames = msg.frames;
     trimLog(log);
   } else {
-    const solution = solve(log);
+    const solution = solveBest(log);
     const out: SolverResponse = { type: 'solution', id: msg.id, solution };
     (self as unknown as Worker).postMessage(out);
   }

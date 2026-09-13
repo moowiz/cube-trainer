@@ -10,7 +10,7 @@ import { CHROMA_KNEE, CHROMA_SLOPE } from '../state';
 import type { Lab } from '../types';
 import type { RGB, Vec3 } from './types';
 
-export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed';
+export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half';
 
 export interface Embedding {
   name: EmbeddingName;
@@ -81,20 +81,27 @@ export const LAB_REL: Embedding = {
   },
 };
 
+/** Face-relative L at weight `w`, plain ab. w = 0.15 is the old clustering space. */
+export function labWeighted(name: EmbeddingName, w: number): Embedding {
+  return {
+    name,
+    chroma: [1, 2],
+    embedQuad(_rgb, lab) {
+      const medL = median(lab.map((c) => c.L));
+      return lab.map((c) => [(c.L - medL) * w, c.a, c.b]);
+    },
+  };
+}
+
 /** Candidate C: the old clustering space (crushed relative L, plain ab), the baseline. */
-export const LAB_CRUSHED: Embedding = {
-  name: 'lab-crushed',
-  chroma: [1, 2],
-  embedQuad(_rgb, lab) {
-    const medL = median(lab.map((c) => c.L));
-    return lab.map((c) => [(c.L - medL) * 0.15, c.a, c.b]);
-  },
-};
+export const LAB_CRUSHED: Embedding = labWeighted('lab-crushed', 0.15);
+export const LAB_HALF: Embedding = labWeighted('lab-half', 0.5);
 
 export const EMBEDDINGS: Record<EmbeddingName, Embedding> = {
   logchroma: LOGCHROMA,
   'lab-rel': LAB_REL,
   'lab-crushed': LAB_CRUSHED,
+  'lab-half': LAB_HALF,
 };
 
 // DECISION 2026-09-13: the bake-off on the seven single-frame truths

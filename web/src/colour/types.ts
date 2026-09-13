@@ -164,6 +164,10 @@ export interface DecodeResult {
   legal: boolean;
   /** Search effort spent, for the stats line. */
   pops: number;
+  /** Slots with no evidence at all (all-zero rows). */
+  free: number;
+  /** How the free slots were filled: forced by the pieces ('unique'), not forced ('ambiguous'), no completion or budget out ('none'), or nothing to fill. */
+  completion: 'unique' | 'ambiguous' | 'none' | 'n/a';
 }
 
 export interface Solution {
@@ -184,6 +188,8 @@ export interface Solution {
   lockable: boolean;
   /** Why not lockable (or 'ok'). */
   reason: string;
+  /** Which colour space produced this solution. */
+  embedding: string;
   /** Milliseconds spent. */
   ms: number;
   /** Per-frame chromatic gains actually applied (debug). */
@@ -195,7 +201,9 @@ export interface Solution {
 export interface SolveParams {
   /** Evidence saturation per track-cell. */
   nSat: number;
-  /** Minimum nEff per slot to lock. */
+  /** Evidence below which a slot counts as unseen: its row is freed for the pieces to decide. */
+  freeBelow: number;
+  /** Evidence a slot needs for the UI to call it full. */
   nMin: number;
   /** Lock gates. */
   kMax: number;
