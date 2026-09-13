@@ -1050,6 +1050,8 @@
   async function suggestAll() {
     if (suggestingAll) return;
     if (!state.images.length) { showToast('Load images first'); return; }
+    // easy to hit by accident next to Suggest, and it touches every image
+    if (!confirm(`Run the model on all ${state.images.length} image(s)? Unlabeled faces get pre-filled (your labels are kept); every suggestion still needs verifying.`)) return;
     if (!(await ensureModel())) return;
     suggestingAll = true;
     const btn = document.getElementById('suggestAllBtn');
