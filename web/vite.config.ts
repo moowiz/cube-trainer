@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         main: p('index.html'),
         scan: p('scan.html'),
+        label: p('label.html'),
       },
     },
   },
