@@ -120,6 +120,17 @@ describe('synthetic session', () => {
     }
   });
 
+  it('survives the first detections: one quad of low-weight readings, then two', () => {
+    // the phone's first frames: every reading weighs 0.3 (first detection of
+    // a track) and clusters die under the palette's weight floor
+    const { log } = simulate(TRUTH, { frames: 1 });
+    for (const q of log.quads) for (const r of q.readings) r.w *= 0.3;
+    const one = { ...log, quads: log.quads.slice(0, 1) };
+    expect(() => solve(one)).not.toThrow();
+    expect(solve(one).lockable).toBe(false);
+    expect(() => solve(log)).not.toThrow();
+  });
+
   it('is honest with too little evidence: a four-face session does not lock', () => {
     const { log } = simulate(TRUTH, { frames: 3 });
     const s = solve(log);
