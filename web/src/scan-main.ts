@@ -24,7 +24,7 @@ import { StickerVoter, type FaceObservation } from './assembly';
 import { minFaceEdgePx, sampleGridCells } from './color';
 import type { DetectedFace, Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
-import { captureDebug, renderCellReadout, saveRawFrame } from './debug/dump';
+import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
 import { installDetectSelfTest } from './debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from './detect/models';
 import { detectTwoStage, type TwoStageResult } from './detect/twostage';
@@ -36,7 +36,7 @@ import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
 import { solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
-import { DEFAULT_SCHEME_HEX, FACE_ORDER } from './types';
+import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId } from './types';
 
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute color samples
@@ -50,6 +50,7 @@ const REFINE = true;         // grid-prior corner refinement before sampling
 // metric and lifts garbage from ~0.63 to ~1.4 (would pass 70-80%).
 const SEAM_VETO_SCORE = 1.15;
 const FALLBACK_AFTER_MS = 6000;
+const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
@@ -86,10 +87,12 @@ app.innerHTML = `
         <label id="heatLbl" hidden><input type="checkbox" id="heat"> heatmap</label>
         <label><input type="checkbox" id="stage2off"> stage 2 off (localizer only)</label>
         <label id="cellsLbl" hidden><input type="checkbox" id="cellsChk"> per-sticker readout</label>
-        <button id="capture" disabled title="Download this tick's naming evidence as JSON, plus the raw frame">Capture debug</button>
+        <label><input type="checkbox" id="exChk"> exemplars</label>
+        <button id="capture" disabled title="Download this tick's naming evidence + the last ${TICK_HISTORY} ticks as JSON, plus the raw frame">Capture debug</button>
       </div>
       <div id="msg"></div>
       <div id="swatches" hidden></div>
+      <div id="exemplars" hidden></div>
       <div id="cells"></div>
     </details>
     <div id="grid"></div>
@@ -116,6 +119,8 @@ const stageChk = $<HTMLInputElement>('stage1');
 const heatChk = $<HTMLInputElement>('heat');
 const stage2Off = $<HTMLInputElement>('stage2off');
 const cellsChk = $<HTMLInputElement>('cellsChk');
+const exChk = $<HTMLInputElement>('exChk');
+const exEl = $('exemplars');
 
 const camera = new Camera();
 const fps = new FpsCounter();
@@ -144,6 +149,7 @@ let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
 let inferEma = 0;
+const tickHistory: TickSummary[] = [];
 
 // ---- models -------------------------------------------------------------
 
@@ -215,6 +221,17 @@ function drawOverlay(tracks: TrackedFace[]): void {
   }
 }
 
+/** Live exemplar table: what each face's colour is believed to be, and how that belief was built. */
+function renderExemplars(m: TwoStageModels): void {
+  const ex = m.detector.exemplars;
+  const recent = ex.history.slice(-8).reverse()
+    .map((e) => `${e.kind === 'observe' ? '+' : '×'} ${DEFAULT_SCHEME_NAMES[e.face]} d${e.own}${e.other ? ` (nearer ${DEFAULT_SCHEME_NAMES[e.other]} ${e.otherD})` : ''}`)
+    .join('   ');
+  exEl.textContent = ex.status()
+    .map((e) => `${DEFAULT_SCHEME_NAMES[e.face].padEnd(6)} ${e.measured ? `measured x${e.n}` : 'prior     '}  L ${e.lab.L.toFixed(0).padStart(4)} a ${e.lab.a.toFixed(0).padStart(4)} b ${e.lab.b.toFixed(0).padStart(4)}`)
+    .join('\n') + `\nrejected ${ex.rejected}   last: ${recent || '—'}`;
+}
+
 function updateFillUI(): void {
   const p = voter.progress();
   for (const f of FACE_ORDER) {
@@ -266,7 +283,10 @@ async function loop(ts: number): Promise<void> {
           // too far, full stop - whatever stage 2 then says about it.
           cubeTooSmall = !!t.box
             && Math.max(t.box.box[2] - t.box.box[0], t.box.box[3] - t.box.box[1]) < minFaceEdgePx(v.videoHeight);
+          tickHistory.push(summarizeTick(Date.now(), t.obj, t.result));
+          if (tickHistory.length > TICK_HISTORY) tickHistory.shift();
           if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars);
+          if (exChk.checked) renderExemplars(m);
         } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
       })();
@@ -374,6 +394,7 @@ $('reset').addEventListener('click', () => {
   resultEl.textContent = '';
   hintEl.hidden = true;
   vetoedCount = stage1Misses = ticks = 0;
+  tickHistory.length = 0;
 });
 
 // ---- debug exports (raw frame only, never the overlay) -------------------
@@ -384,10 +405,11 @@ saveBtn.addEventListener('click', () => {
 });
 captureBtn.addEventListener('click', () => {
   if (!lastTick?.result || !models) { msgEl.textContent = 'nothing to capture: no stage-2 result on the last tick'; return; }
-  void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug')
+  void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
+exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; if (exChk.checked && models) renderExemplars(models); });
 
 // ---- modes ----------------------------------------------------------------
 
