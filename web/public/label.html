@@ -1014,8 +1014,29 @@
       x[2 * plane + i] = (px[i * 4 + 2] / 255 - mb) / sb;
     }
     const out = await ortSession.run({ image: new ortMod.Tensor('float32', x, [1, 3, ih, iw]) });
-    const y = out.faces.data;
     let filled = 0, skipped = 0;
+    if (out.maps) {
+      // center-v1 head: anonymous quads. Name each by the colour under its
+      // centre (nearest default-scheme colour in Lab) - a suggestion, like the
+      // corners themselves; the human verifies. A quad whose colour maps to a
+      // face the human already labeled is skipped, never overwrites.
+      const [, , gh, gw] = ortMeta.output.shape;
+      const stride = ortMeta.output.stride || 16;
+      const quads = decodeMaps(out.maps.data, gh, gw, stride);
+      const claimed = new Set();
+      for (const q of quads) {
+        if (q.score < 0.5) continue; // same bar as the legacy path
+        const cx = q.px.reduce((a, c) => a + c[0], 0) / 4, cy = q.px.reduce((a, c) => a + c[1], 0) / 4;
+        const id = nameByCentre(g, cx, cy, claimed);
+        if (!id) continue;
+        if (faces[id].visible) { skipped++; claimed.add(id); continue; }
+        faces[id] = { visible: true, corners: q.px.map(([qx, qy]) => [(qx - dx) / scale, (qy - dy) / scale]), suggested: true };
+        claimed.add(id);
+        filled++;
+      }
+      return { filled, skipped };
+    }
+    const y = out.faces.data;
     for (let f = 0; f < 6; f++) {
       const conf = 1 / (1 + Math.exp(-y[f * 9]));
       if (conf < 0.5) continue;
@@ -1035,6 +1056,65 @@
       filled++;
     }
     return { filled, skipped };
+  }
+
+  // Port of decodeMaps in web/src/detect/facekp.ts (keep the two in step):
+  // every cell >= 0.25 strongest first, dedupe by 0.5 x mean edge (floor 8 px),
+  // keep 6. Returns quads in model-input pixels.
+  function decodeMaps(maps, gh, gw, stride) {
+    const n = gh * gw;
+    const cand = [];
+    for (let c = 0; c < n; c++) {
+      const s = 1 / (1 + Math.exp(-maps[c]));
+      if (s >= 0.25) cand.push({ score: s, cell: c });
+    }
+    cand.sort((a, b) => (b.score - a.score) || (a.cell - b.cell));
+    const out = [], keptC = [], keptR = [];
+    for (const { score, cell } of cand.slice(0, 32)) {
+      const i = Math.floor(cell / gw), j = cell % gw;
+      const px = [];
+      for (let c = 0; c < 4; c++) {
+        px.push([(j + 0.5 + maps[(1 + 2 * c) * n + cell]) * stride, (i + 0.5 + maps[(2 + 2 * c) * n + cell]) * stride]);
+      }
+      let cx = 0, cy = 0, perim = 0;
+      for (let c = 0; c < 4; c++) {
+        cx += px[c][0] / 4; cy += px[c][1] / 4;
+        perim += Math.hypot(px[(c + 1) % 4][0] - px[c][0], px[(c + 1) % 4][1] - px[c][1]);
+      }
+      const r = Math.max(0.5 * (perim / 4), 8);
+      if (keptC.some((k, idx) => Math.hypot(k[0] - cx, k[1] - cy) < keptR[idx])) continue;
+      keptC.push([cx, cy]); keptR.push(r);
+      out.push({ score, px });
+      if (out.length >= 6) break;
+    }
+    return out;
+  }
+
+  // Nearest default-scheme colour (Lab distance) to the mean of a 5x5 patch
+  // at (cx, cy) on the letterboxed canvas. Red/orange and white/yellow are
+  // the known confusions - that is what "verify positions" is for.
+  const SCHEME_LAB = { U: [251, 251, 249], R: [226, 67, 60], F: [51, 177, 93], D: [245, 214, 61], L: [245, 143, 42], B: [46, 108, 224] };
+  for (const k in SCHEME_LAB) SCHEME_LAB[k] = rgbToLab(SCHEME_LAB[k]);
+  function rgbToLab([r, g, b]) {
+    const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const [R, G, B] = [lin(r), lin(g), lin(b)];
+    const x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047, y = R * 0.2126 + G * 0.7152 + B * 0.0722, z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
+    const f = (t) => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+  }
+  function nameByCentre(g, cx, cy, claimed) {
+    const d = g.getImageData(Math.round(cx) - 2, Math.round(cy) - 2, 5, 5).data;
+    let r = 0, gg = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; }
+    const lab = rgbToLab([r / 25, gg / 25, b / 25]);
+    let best = null, bestD = Infinity;
+    for (const id of FACE_ORDER) {
+      if (claimed.has(id)) continue;
+      const ref = SCHEME_LAB[id];
+      const dist = Math.hypot(lab[0] - ref[0], lab[1] - ref[1], lab[2] - ref[2]);
+      if (dist < bestD) { bestD = dist; best = id; }
+    }
+    return best;
   }
 
   async function suggestFromModel() {
