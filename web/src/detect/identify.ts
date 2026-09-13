@@ -58,6 +58,18 @@ export interface NamedQuad {
   cells?: Lab[];
   /** The center patch in sRGB, for the debug swatches. */
   rgb?: [number, number, number];
+  /** The same 9 cells in sRGB, in the same order as `cells`. Already sampled
+   *  alongside the Lab; kept so a debug view can show what was looked at. */
+  cellRgb?: [number, number, number][];
+  /** The 9 cells in the normalized clustering space `center` lives in - this
+   *  is the space the naming distance is measured in, so a debug view that
+   *  showed raw Lab would not be showing the numbers the decision used. */
+  cellsNorm?: Lab[];
+  /** Every exemplar distance for the CENTER cell, nearest first - the full
+   *  ranking the decision was made from, not just the winner it produced.
+   *  The app ranks only the center; per-cell rankings are a debug-time
+   *  derivation, not something naming computes. */
+  ranked?: { face: FaceId; d: number }[];
 }
 
 function hexToLab(hex: string): Lab {
@@ -200,16 +212,26 @@ export function nameQuads(
       out[i] = { face: null, color: null, reason: 'glare: face blown out', nameConf: 0 };
       return;
     }
-    const center = normalizeFaceCells(cells)[4]!;
+    const cellsNorm = normalizeFaceCells(cells);
+    const center = cellsNorm[4]!;
     const ranked = FACE_ORDER
       .map((f) => ({ f, d: labDistance(center, exemplars.get(f)) }))
       .sort((a, b) => a.d - b.d);
     const [best, second] = ranked as [{ f: FaceId; d: number }, { f: FaceId; d: number }];
     const nameConf = second.d > 0 ? Math.max(0, Math.min(1, 1 - best.d / second.d)) : 0;
+    // `dbg` is the evidence this decision was made from, carried out verbatim
+    // - nothing here is recomputed for the debug view, it is the same arrays
+    // and the same `ranked` the winner was picked from.
+    const dbg = {
+      cells,
+      cellsNorm,
+      cellRgb: samples.map((s) => s.rgb),
+      ranked: ranked.map((r) => ({ face: r.f, d: r.d })),
+    };
     cands.push({ i, face: best.f, dist: best.d, nameConf, center, cells,
                  rgb: samples[4]!.rgb, score: scores?.[i] ?? 1 });
-    out[i] = { face: null, color: colorOf(best.f), reason: 'lost a tie-break', nameConf, center, cells,
-               rgb: samples[4]!.rgb };
+    out[i] = { face: null, color: colorOf(best.f), reason: 'lost a tie-break', nameConf, center,
+               rgb: samples[4]!.rgb, ...dbg };
   });
 
   // Rule 3, before assignment: two quads that look the same cannot both be
@@ -223,7 +245,8 @@ export function nameQuads(
       if (labDistance(ca.center, cb.center) < CENTER_MIN_DIST) {
         const loser = ca.score >= cb.score ? cb : ca;
         dropped.add(loser.i);
-        out[loser.i] = { face: null, color: colorOf(loser.face), reason: 'center matches another quad',
+        out[loser.i] = { ...out[loser.i]!, face: null, color: colorOf(loser.face),
+                         reason: 'center matches another quad',
                          nameConf: loser.nameConf, center: loser.center };
       }
     }
@@ -237,7 +260,8 @@ export function nameQuads(
     if (dropped.has(c.i)) continue;
     const held = taken.get(c.face);
     if (held) {
-      out[c.i] = { face: null, color: colorOf(c.face), reason: `${colorOf(c.face)} already claimed (${c.face})`,
+      out[c.i] = { ...out[c.i]!, face: null, color: colorOf(c.face),
+                   reason: `${colorOf(c.face)} already claimed (${c.face})`,
                    nameConf: c.nameConf, center: c.center };
       continue;
     }
@@ -250,14 +274,14 @@ export function nameQuads(
     if (!opp || !taken.has(face)) continue;
     const loser = c.score >= opp.score ? opp : c;
     taken.delete(loser.face);
-    out[loser.i] = { face: null, color: colorOf(loser.face),
+    out[loser.i] = { ...out[loser.i]!, face: null, color: colorOf(loser.face),
                      reason: `${colorOf(face)}/${colorOf(OPPOSITE[face])} cannot be co-visible (${face}/${OPPOSITE[face]})`,
                      nameConf: loser.nameConf, center: loser.center };
   }
 
   for (const [face, c] of taken) {
-    out[c.i] = { face, color: colorOf(face), reason: 'ok', nameConf: c.nameConf, center: c.center,
-                 cells: c.cells, rgb: c.rgb };
+    out[c.i] = { ...out[c.i]!, face, color: colorOf(face), reason: 'ok',
+                 nameConf: c.nameConf, center: c.center, cells: c.cells, rgb: c.rgb };
   }
   return out;
 }
