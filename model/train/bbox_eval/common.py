@@ -132,3 +132,12 @@ def iou_table(rows, key, label):
         print(f"  {str(g):28s} {len(sel):4d}   {io.mean():.3f}   {np.median(io):.3f}  {100 * (io < 0.7).mean():4.0f}%"
               f"   {np.median([r['wr'] for r in sel]):.3f}   {np.median([r['hr'] for r in sel]):.3f}"
               f"   {min(r['obj'] for r in sel):.2f}")
+
+
+def localizer_args(onnx_path):
+    """(onnx, meta) for Localizer: a side-exported model uses the sidecar next to it."""
+    if not onnx_path:
+        return None, None
+    p = pathlib.Path(onnx_path)
+    meta = p.with_suffix(".json")
+    return p, (meta if meta.exists() else None)

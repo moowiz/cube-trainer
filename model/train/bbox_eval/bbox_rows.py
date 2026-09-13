@@ -8,10 +8,10 @@ import sys
 
 import numpy as np
 
-from common import ROOT, Localizer, iou_table, labelled_rows, range_bin
+from common import ROOT, Localizer, iou_table, labelled_rows, localizer_args, range_bin
 
 root = ROOT / sys.argv[1]
-loc = Localizer(sys.argv[3] if len(sys.argv) > 3 else None)
+loc = Localizer(*localizer_args(sys.argv[3] if len(sys.argv) > 3 else None))
 rows = labelled_rows(root, loc)
 json.dump(rows, open(sys.argv[2], "w"), indent=1)
 print(f"{'name':>12s} {'batch':>7s} {'size':>6s} {'IoU':>6s} {'w/t':>5s} {'h/t':>5s}  port")
