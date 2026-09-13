@@ -10,10 +10,28 @@ from __future__ import annotations
 
 import io
 import math
+import os
 import random
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
+
+# One float32-capable Generator per PROCESS, created on first use. PyTorch
+# reseeds `random` and the legacy np.random global in every DataLoader
+# worker, but knows nothing about a Generator we make ourselves - and on
+# Linux (the cloud box) workers are forked, so a module-level instance would
+# be cloned into all of them with an identical stream. Keying on the pid
+# gives every worker its own OS-entropy seed on either platform.
+_rng_cache: dict[int, np.random.Generator] = {}
+
+
+def _rng() -> np.random.Generator:
+    pid = os.getpid()
+    g = _rng_cache.get(pid)
+    if g is None:
+        _rng_cache.clear()
+        g = _rng_cache[pid] = np.random.default_rng()
+    return g
 
 
 def _affine(img: Image.Image, corners: np.ndarray, angle_deg, scale, tx, ty):
@@ -161,7 +179,10 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
         img = _motion_blur(img)
     if random.random() < 0.5:
         arr = np.asarray(img, dtype=np.float32)
-        arr += np.random.normal(0, random.uniform(2, 10), arr.shape)
+        # Generator API with dtype=float32: the legacy np.random.normal
+        # draws float64 and was 3.9 ms per 320x240 image, the single most
+        # expensive op in this function (~1/3 of the whole per-sample cost).
+        arr += _rng().standard_normal(arr.shape, dtype=np.float32) * random.uniform(2, 10)
         img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
     if random.random() < 0.35:
         # video/JPEG compression: blocky chroma like a phone camera stream

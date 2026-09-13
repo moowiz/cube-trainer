@@ -329,8 +329,22 @@ Fix, in order of payoff:
    `data/cache_320x240/` (memory-mapped uint8 images + label tensors,
    rebuilt when the label count changes) and reads samples from it;
    augmentation runs on the cached input-size images.
-2. Only if still starved after (1): move photometric augmentation to the GPU
-   (batched torch ops) or raise `--workers`.
+2. **Cheaper worker output** — DONE 2026-09-12. Profiled after (1): a
+   worker spent ~6 ms/sample, of which 3.9 ms was `np.random.normal`
+   drawing float64 noise and 0.6 ms the float32 normalize, and then shipped
+   a 921 KB float tensor through Windows shared memory + pin_memory. Now:
+   float32 `Generator.standard_normal` (3.7 -> 2.0 ms), workers return
+   uint8 HWC (`raw_uint8=True`) and `dataset.normalize_batch` runs on the
+   GPU, loss running-sums stay on-device (no per-step `.item()` syncs),
+   `cudnn.benchmark` on. Loader ceiling at 8 workers: 852 -> 1065 img/s.
+   `train/check_fast_path.py` proves the uint8 path is bit-identical to the
+   float path every other tool still uses.
+3. Only if still starved after (2): move photometric augmentation (color,
+   white balance, noise, blur - all trivially batched torch ops) to the GPU,
+   leaving workers only the geometric ops + JPEG at ~2 ms/sample. That is
+   the step that lets `--workers 4` match today's 8. `train/bench_local.py`
+   measures the GPU-side levers (channels_last, batch 128, compile) once the
+   loader is no longer the limit - run it when no generator is using the GPU.
 
 **Resource etiquette:** this is the user's daily-driver PC — keep it usable
 while jobs run. Don't raise `--workers` beyond ~half the CPU threads (the
