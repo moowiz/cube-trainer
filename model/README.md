@@ -116,26 +116,27 @@ supply. Source-px error is the honest number and it fell 2-3x across the
 board; the far bin, the case this design was for, fell 3.2x and lost its
 misses.
 
-| stage 1 on the whole frame (`bbox_measure.py`, 91 frames with a cube + 5 without) | before: box6 (landscape) | box9 (portrait, no batch 7) | **box10** (portrait + batch 7 + side bands) |
-|---|---|---|---|
-| mean / median IoU | 0.733 / 0.839 | 0.730 / 0.843 | **0.833 / 0.868** |
-| IoU < 0.7 | 27.5% | 33.0% | **13.2%** |
-| misses (obj < 0.5) | 1 | 3 | 2 |
-| cube-less frames, max objectness | 0.23 | 0.03 | 0.05 |
-| batch 7 (54 clip frames) mean IoU / < 0.7 | 0.656 / 39% | 0.653 / 46% | **0.827 / 15%** |
-| batches 1-6 (37 photos) mean IoU | 0.846 | 0.841 | 0.841 |
-| far 0.133-0.188 (6) / mid (13) / near (68) | 0.32 / 0.73 / 0.81 | 0.43 / 0.65 / 0.80 | **0.79 / 0.76 / 0.85** |
-| median w/t, h/t | 1.02, 0.98 | 1.01, 0.98 | 1.02, 1.00 |
-| per-edge sd (L T R B) | 0.36 0.24 0.27 0.35 | 0.18 0.24 0.22 0.23 | **0.10 0.08 0.07 0.10** |
-| log `real_iou` (its own val set) | 0.846 (42 photos) | 0.845 (42 photos) | 0.837 (96 frames) |
+| stage 1 on the whole frame (`bbox_measure.py`, 91 frames with a cube + 5 without) | before: box6 (landscape) | box9 (portrait, no batch 7) | box10 (+ batch 7 + side bands) | **box11** (real `*80`) |
+|---|---|---|---|---|
+| mean / median IoU | 0.733 / 0.839 | 0.730 / 0.843 | 0.833 / 0.868 | **0.852 / 0.878** |
+| IoU < 0.7 | 27.5% | 33.0% | 13.2% | **7.7%** |
+| misses (obj < 0.5) | 1 | 3 | 2 | **1** |
+| cube-less frames, max objectness | 0.23 | 0.03 | 0.05 | 0.04 |
+| batch 7 (54 clip frames) mean IoU / < 0.7 | 0.656 / 39% | 0.653 / 46% | 0.827 / 15% | **0.844 / 7%** |
+| batches 1-6 (37 photos) mean IoU | 0.846 | 0.841 | 0.841 | **0.864** |
+| far 0.133-0.188 (6) / mid (13) / near (68) | 0.32 / 0.73 / 0.81 | 0.43 / 0.65 / 0.80 | 0.79 / 0.76 / 0.85 | **0.81 / 0.81 / 0.86** |
+| median w/t, h/t | 1.02, 0.98 | 1.01, 0.98 | 1.02, 1.00 | 1.00, 0.99 |
+| per-edge sd (L T R B) | 0.36 0.24 0.27 0.35 | 0.18 0.24 0.22 0.23 | 0.10 0.08 0.07 0.10 | **0.06 0.04 0.06 0.09** |
+| log `real_iou` (its own val set) | 0.846 (42 photos) | 0.845 (42 photos) | 0.837 (96 frames) | 0.853 (96 frames) |
 
 box9 vs box10 is the batch-7 effect: identical recipe, the clip frames in
 training (216 of 373 real photos, `*40`) plus the side-band augmentation.
 The old photo batches did not move; the clip frames went from a 46% tail to
 15%, the far bin from 0.43 to 0.79, and the 2.4x-oversized boxes on far
-cubes are gone (w/t 1.05). The two misses left are batch-2's dim
-dead-on-against-a-monitor photo (obj 0.15, the open regression since
-box5) and one batch-6 frame at obj 0.18.
+cubes are gone (w/t 1.05). box11 doubles the real oversampling (`*80`,
+real ~28% of the mixture) and lifts everything again, old batches included
+(0.841 -> 0.864); the one miss left is batch-2's dim dead-on-against-a-
+monitor photo, now at obj 0.37 (was 0.15; the open regression since box5).
 
 **Stage-2 recipe ablations, same night** (`diagnose.py` on the 96-frame
 val, pad 0.45; log `real_px` is the fine-tune's own selection metric):
@@ -145,15 +146,17 @@ val, pad 0.45; log `real_px` is the fine-tune's own selection metric):
 | kp1 → kpft1 | scratch on data_v5 only, then `data_real*150` ft | 3.55 | 3.54 / 3.33 | 0.972 | 4 / 6 | 3.67, 1 | 9.95 / 15.8 / 18.4 |
 | kp1 → kpft2 | same, ft with `data_real*60` | 3.69 | - | - | - | - | - |
 | kp2 → **kpft3** | scratch on `data_v5,data_real*20`, then `*150` ft | **3.33** | **3.33 / 3.04** | 0.961 | 4 / 10 | **3.45, 0** | 10.2 / 14.1 / 16.2 |
+| kp3 → kpft4 | scratch on `data_v5,data_real*40`, then `*150` ft | 3.39 | - | - | - | - | - |
 
 Real photos in the from-scratch mix help: kp2 alone (no fine-tune) already
 reached 3.52 on the val, kp1 needed its fine-tune for 3.55, and kp2's
-synthetic val_px is better too (2.69 vs 2.77). The lighter fine-tune mix
+synthetic val_px is better too (2.69 vs 2.77). Doubling that weight (kp3,
+`*40`) changes nothing (3.51 / 2.77, ft 3.39). The lighter fine-tune mix
 (`*60`) is worse than `*150`. kpft3 trades four more false positives at
 score 0.5 (the tracker and seam veto absorb those) for 6% lower corner
 error and a clean batch 7.
 
-Deployed 2026-09-13: `cubebox` = box10, `facekp` = **kpft3** (fp32; the int8
+Deployed 2026-09-13: `cubebox` = **box11**, `facekp` = **kpft3** (fp32; the int8
 gate still fails at 8 px mean shift). `web/test/fixtures/facekp-maps-square.json`
 is dumped from kpft3.
 
@@ -512,7 +515,8 @@ scanning range above) dominate the raw mean; report the in-range number too.
 | box7 | dense | same | peak-normalised Gaussian, 80 ep (overfits synthetic) | 0.895 | 0.835 | 8.1% | 3.4% | 0.21 |
 | box8 | dense | same | + darkening aug to 0.45× (no measured benefit) | 0.891 | 0.828 | 10.8% | 0.0% | 0.18 |
 | box9 | dense | **120x160 portrait**, data_v5 + data_real (157) | PORTRAIT-DESIGN.md; frame cache pooled 2x; `_bars` p 0.15 | 0.890 | 0.845 (42 photos) | 33.0%† | 29.9%† | 0.08† |
-| **box10** | dense | same + batch 7 (`data_real` 373) | `_side_bars` p 0.10; **deployed 2026-09-13** | 0.885 | 0.837 (96 frames) | 13.2%† | 12.6%† | 0.15† |
+| box10 | dense | same + batch 7 (`data_real` 373) | `_side_bars` p 0.10 | 0.885 | 0.837 (96 frames) | 13.2%† | 12.6%† | 0.15† |
+| **box11** | dense | same, `data_real*80` | real photos at double weight; **deployed 2026-09-13** | 0.883 | 0.853 (96 frames) | 7.7%† | 7%† | 0.37† |
 
 † measured with `bbox_measure.py` on the 96-frame val (91 with a cube); the
 earlier rows are on the 37-photo set. Full before/after tables: "Always
