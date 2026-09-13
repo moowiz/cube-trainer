@@ -117,7 +117,12 @@ const FINAL_WARP = 96;
  * recomputed once at FINAL_WARP (96) for a faithful report.
  */
 export function refineQuad(img: ImageDataLike, quad: Quad, opts: { maxEvals?: number } = {}): { quad: Quad; seam: SeamResult } {
-  const maxEvals = opts.maxEvals ?? 160;
+  // DECISION 2026-09-13: 100 evaluations, down from 160 - the smallest
+  // budget that still recovers the +/-4 px per-corner perturbation of
+  // gridfit.test.ts to within 2 px (64 and 80 do not). Coordinate descent
+  // at steps 3 then 1 px over 4 corners is 32 trials per sweep, and this
+  // runs per face per detection frame on the phone.
+  const maxEvals = opts.maxEvals ?? 100;
   let current: Array<[number, number]> = quad.map((p) => [p[0], p[1]]);
   let evals = 0;
   let bestScore = -Infinity;
