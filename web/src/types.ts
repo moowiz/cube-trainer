@@ -21,8 +21,16 @@ export interface CellSample {
   rgb: [number, number, number];
 }
 
+/**
+ * The six colour words a user thinks in. The detector layer (identify.ts)
+ * surfaces this — not FaceId — as the primary user-visible label: a face
+ * letter asserts a cube orientation the app has not established yet, but
+ * "this is the white face" is just a fact about a center sticker's color.
+ */
+export type ColorName = 'white' | 'yellow' | 'red' | 'orange' | 'green' | 'blue';
+
 /** Default scheme names, for UI prompts only — centers define the real scheme. */
-export const DEFAULT_SCHEME_NAMES: Record<FaceId, string> = {
+export const DEFAULT_SCHEME_NAMES: Record<FaceId, ColorName> = {
   U: 'white',
   R: 'red',
   F: 'green',

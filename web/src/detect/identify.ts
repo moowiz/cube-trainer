@@ -20,8 +20,13 @@
 import { isFaceBlownOut, isFaceTooDark, labDistance, labMedian, sampleGridCells, srgbToLab } from '../color';
 import { warpQuad, type ImageDataLike } from '../rectify';
 import { CENTER_MIN_DIST, CLUSTER_L_WEIGHT, normalizeFaceCells } from '../state';
-import type { FaceId, Lab } from '../types';
-import { DEFAULT_SCHEME_HEX, FACE_ORDER } from '../types';
+import type { ColorName, FaceId, Lab } from '../types';
+import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
+
+/** The colour word a face id means under the (possibly measured) scheme. */
+function colorOf(face: FaceId): ColorName {
+  return DEFAULT_SCHEME_NAMES[face];
+}
 
 /** Faces that can never be co-visible: naming both in one frame is a bug. */
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
@@ -34,6 +39,15 @@ const OBS_RESERVOIR = 15;
 export interface NamedQuad {
   /** null when the quad could not be named; `reason` says why. */
   face: FaceId | null;
+  /**
+   * The colour word this quad's center actually matched — first-class, not
+   * an intermediate thrown away on the way to `face`. Set whenever a best
+   * candidate was computed, even if `face` ended up null (lost a tie-break,
+   * or rejected as a duplicate/opposite): the app still knows what colour it
+   * saw, and that is what the user should read, not the cubejs letter. Null
+   * only when no color match was attempted at all (too dark, blown out).
+   */
+  color: ColorName | null;
   reason: string;
   /** 1 - d1/d2 against the runner-up exemplar, clamped to [0,1]. */
   nameConf: number;
@@ -171,7 +185,7 @@ export function nameQuads(
     rgb: [number, number, number];
     score: number;
   }
-  const out: NamedQuad[] = quads.map(() => ({ face: null, reason: 'unprocessed', nameConf: 0 }));
+  const out: NamedQuad[] = quads.map(() => ({ face: null, color: null, reason: 'unprocessed', nameConf: 0 }));
   const cands: Cand[] = [];
 
   quads.forEach((quad, i) => {
@@ -179,11 +193,11 @@ export function nameQuads(
     const samples = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 });
     const cells = samples.map((s) => s.lab);
     if (isFaceTooDark(cells)) {
-      out[i] = { face: null, reason: 'too dark', nameConf: 0 };
+      out[i] = { face: null, color: null, reason: 'too dark', nameConf: 0 };
       return;
     }
     if (isFaceBlownOut(cells)) {
-      out[i] = { face: null, reason: 'glare: face blown out', nameConf: 0 };
+      out[i] = { face: null, color: null, reason: 'glare: face blown out', nameConf: 0 };
       return;
     }
     const center = normalizeFaceCells(cells)[4]!;
@@ -194,7 +208,8 @@ export function nameQuads(
     const nameConf = second.d > 0 ? Math.max(0, Math.min(1, 1 - best.d / second.d)) : 0;
     cands.push({ i, face: best.f, dist: best.d, nameConf, center, cells,
                  rgb: samples[4]!.rgb, score: scores?.[i] ?? 1 });
-    out[i] = { face: null, reason: 'lost a tie-break', nameConf, center, cells, rgb: samples[4]!.rgb };
+    out[i] = { face: null, color: colorOf(best.f), reason: 'lost a tie-break', nameConf, center, cells,
+               rgb: samples[4]!.rgb };
   });
 
   // Rule 3, before assignment: two quads that look the same cannot both be
@@ -208,8 +223,8 @@ export function nameQuads(
       if (labDistance(ca.center, cb.center) < CENTER_MIN_DIST) {
         const loser = ca.score >= cb.score ? cb : ca;
         dropped.add(loser.i);
-        out[loser.i] = { face: null, reason: 'center matches another quad', nameConf: loser.nameConf,
-                         center: loser.center };
+        out[loser.i] = { face: null, color: colorOf(loser.face), reason: 'center matches another quad',
+                         nameConf: loser.nameConf, center: loser.center };
       }
     }
   }
@@ -222,7 +237,8 @@ export function nameQuads(
     if (dropped.has(c.i)) continue;
     const held = taken.get(c.face);
     if (held) {
-      out[c.i] = { face: null, reason: `${c.face} already claimed`, nameConf: c.nameConf, center: c.center };
+      out[c.i] = { face: null, color: colorOf(c.face), reason: `${colorOf(c.face)} already claimed (${c.face})`,
+                   nameConf: c.nameConf, center: c.center };
       continue;
     }
     taken.set(c.face, c);
@@ -234,12 +250,13 @@ export function nameQuads(
     if (!opp || !taken.has(face)) continue;
     const loser = c.score >= opp.score ? opp : c;
     taken.delete(loser.face);
-    out[loser.i] = { face: null, reason: `${face}/${OPPOSITE[face]} cannot be co-visible`,
+    out[loser.i] = { face: null, color: colorOf(loser.face),
+                     reason: `${colorOf(face)}/${colorOf(OPPOSITE[face])} cannot be co-visible (${face}/${OPPOSITE[face]})`,
                      nameConf: loser.nameConf, center: loser.center };
   }
 
   for (const [face, c] of taken) {
-    out[c.i] = { face, reason: 'ok', nameConf: c.nameConf, center: c.center,
+    out[c.i] = { face, color: colorOf(face), reason: 'ok', nameConf: c.nameConf, center: c.center,
                  cells: c.cells, rgb: c.rgb };
   }
   return out;
