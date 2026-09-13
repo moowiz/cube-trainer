@@ -389,7 +389,20 @@ class CubeKeypointDataset(Dataset):
         if stale:
             _build_cache(self.root, all_files, cw, ch, cdir, view, workers=cache_workers)
         self._imgs_path = cdir / "imgs.npy"
-        self._imgs = None  # opened lazily per process (a pickled memmap would ship the whole array)
+        # Samples are read with explicit file reads, not through a memmap: a
+        # memmap's touched pages stay in the worker's working set, and with
+        # 8-12 workers over 12-17 GB caches that adds up to the machine's RAM
+        # (2026-09-13: the OS killed both runs). A plain read leaves the pages
+        # to the OS file cache, which is reclaimable.
+        self._fh = None  # (pid, file handle), opened lazily per process
+        with open(self._imgs_path, "rb") as fh:
+            version = np.lib.format.read_magic(fh)
+            reader = {(1, 0): np.lib.format.read_array_header_1_0,
+                      (2, 0): np.lib.format.read_array_header_2_0}[tuple(version)]
+            shape, _, _ = reader(fh)
+            self._data_offset = fh.tell()
+        assert tuple(shape[1:]) == (ch, cw, 3), (shape, (ch, cw))
+        self._sample_bytes = ch * cw * 3
         targets = np.load(cdir / "targets.npz")
         conf_all, corners_all, valid_all = targets["conf"], targets["corners"], targets["valid"]
         geom_all = targets["geom"]
@@ -412,6 +425,16 @@ class CubeKeypointDataset(Dataset):
     def __len__(self):
         return len(self.indices)
 
+    def _read_image(self, i: int) -> np.ndarray:
+        """Cached image `i` (cache index, not sample index) as (H,W,3) uint8."""
+        if self._fh is None or self._fh[0] != os.getpid():
+            self._fh = (os.getpid(), open(self._imgs_path, "rb", buffering=0))
+        fh = self._fh[1]
+        fh.seek(self._data_offset + i * self._sample_bytes)
+        buf = fh.read(self._sample_bytes)
+        cw, ch = self.cache_wh
+        return np.frombuffer(buf, dtype=np.uint8).reshape(ch, cw, 3)
+
     def _pads(self, rng):
         p = self.crop_pad
         if isinstance(p, (tuple, list)):
@@ -424,14 +447,12 @@ class CubeKeypointDataset(Dataset):
         in input pixels can be reported in source pixels and a face's size
         as a fraction of the source frame height (the range floor's units).
         Randomness (re-crop pads, augmentation) is per call."""
-        if self._imgs is None:
-            self._imgs = np.load(self._imgs_path, mmap_mode="r")
         if self._rng is None or self._rng[0] != os.getpid():
             # keyed on the pid: a Generator made in the main process before
             # the DataLoader spawned would be pickled into every worker with
             # an identical stream (see augment._rng)
             self._rng = (os.getpid(), np.random.default_rng())
-        arr = np.asarray(self._imgs[self.indices[idx]])
+        arr = self._read_image(int(self.indices[idx]))
         conf = self.conf[idx].copy()
         valid = self.valid[idx].copy()
         cw, ch = self.cache_wh
