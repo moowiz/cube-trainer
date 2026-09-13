@@ -11,6 +11,7 @@ burning a real run.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import time
 from pathlib import Path
@@ -19,7 +20,8 @@ import torch
 from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from augment import augment_sample
-from dataset import CubeKeypointDataset, normalize_batch
+from dataset import CubeKeypointDataset, normalize01, normalize_batch, to_float01
+from gpu_augment import photometric_batch
 from model import (HEADS, build_model, center_loss, center_metrics, conf_accuracy, count_params,
                    f1_from_counts, keypoint_loss, pixel_error)
 from targets import build_center_targets, dataset_target_stats
@@ -123,20 +125,27 @@ def main():
         ds = concat("all", None)
         train_ds = val_ds = Subset(ds, range(min(args.overfit, len(ds))))
     else:
-        train_ds = concat("train", augment_sample)
+        # Workers do geometry + JPEG + erasing; the photometric half runs
+        # batched on the GPU in the loop below (gpu_augment.py has the why).
+        train_ds = concat("train", functools.partial(augment_sample, photometric=False))
         val_ds = concat("val", None)
     # Workers hand back uint8 HWC; normalize_batch runs on the GPU after the
     # copy. Measured 2026-09-12: the per-sample float path cost 0.63 ms of
     # worker CPU and quadrupled the bytes through pin_memory and PCIe.
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
-                          pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
-    val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=0)
+                          pin_memory=(device == "cuda"), persistent_workers=args.workers > 0,
+                          prefetch_factor=4 if args.workers else None)
+    # Eval is unaugmented (~1 ms/sample) but was single-process: ~5-8 s of
+    # every epoch. Two workers, not eight - it is a small fraction of the run.
+    val_workers = min(2, args.workers)
+    val_dl = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=val_workers,
+                        persistent_workers=val_workers > 0)
     real_dl = None
     if args.real_val:
         rv = CubeKeypointDataset(args.real_val, split="all", input_size=INPUT_WH, augment=None,
                                  raw_uint8=True)
         if len(rv):
-            real_dl = DataLoader(rv, batch_size=args.batch, shuffle=False, num_workers=0)
+            real_dl = DataLoader(rv, batch_size=args.batch, shuffle=False, num_workers=0)  # 42 images
     print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}"
           + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
@@ -202,7 +211,10 @@ def main():
         n = 0
         for x, conf, corners, valid in train_dl:
             x, conf, corners, valid = x.to(device, non_blocking=True), conf.to(device), corners.to(device), valid.to(device)
-            x = normalize_batch(x)
+            x = to_float01(x)
+            if not args.overfit:   # overfit runs are unaugmented end to end
+                x = photometric_batch(x)
+            x = normalize01(x)
             opt.zero_grad(set_to_none=True)
             targets = (build_center_targets(conf, corners, valid, grid_hw)
                        if args.head == "center" else None)

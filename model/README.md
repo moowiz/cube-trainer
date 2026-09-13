@@ -339,12 +339,20 @@ Fix, in order of payoff:
    `cudnn.benchmark` on. Loader ceiling at 8 workers: 852 -> 1065 img/s.
    `train/check_fast_path.py` proves the uint8 path is bit-identical to the
    float path every other tool still uses.
-3. Only if still starved after (2): move photometric augmentation (color,
-   white balance, noise, blur - all trivially batched torch ops) to the GPU,
-   leaving workers only the geometric ops + JPEG at ~2 ms/sample. That is
-   the step that lets `--workers 4` match today's 8. `train/bench_local.py`
-   measures the GPU-side levers (channels_last, batch 128, compile) once the
-   loader is no longer the limit - run it when no generator is using the GPU.
+3. **Photometric augmentation on the GPU** — DONE 2026-09-12.
+   `train/gpu_augment.py` runs color jitter, white balance, Gaussian and
+   motion blur and noise batched on the device (`photometric_batch`, ~8 ms
+   per batch of 64 while sharing the GPU); workers run `augment_sample(...,
+   photometric=False)` = geometry + JPEG + erasing + portrait bars at
+   1.7 ms/sample (was 4.7). Loader ceiling at 8 workers: 1098 -> 2298 img/s;
+   4 workers now do 1414, more than the original code did with 8. The GPU
+   ops reproduce PIL to >=99% bit-exact pixels (`check_gpu_augment.py`; PIL
+   truncates instead of rounding, deliberately not copied - see
+   `color_jitter`). Exact-114 padding pixels are restored after the ops so
+   letterbox/pillar bars stay pristine as they are live.
+4. Training is now GPU-bound. `train/bench_local.py` measures the GPU-side
+   levers (channels_last, batch 128, compile) - run it when no generator is
+   using the GPU, and only then decide on them.
 
 **Resource etiquette:** this is the user's daily-driver PC — keep it usable
 while jobs run. Don't raise `--workers` beyond ~half the CPU threads (the

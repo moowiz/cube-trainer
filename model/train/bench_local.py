@@ -23,7 +23,8 @@ EPOCHS = 150
 
 
 def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, steps=30, dev='cuda'):
-    from dataset import normalize_batch
+    from dataset import normalize01, to_float01
+    from gpu_augment import photometric_batch
     from model import build_model, center_loss
     from targets import build_center_targets
 
@@ -49,7 +50,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
 
     def step():
         x, c, co, v = nxt()
-        x = normalize_batch(x.to(dev, non_blocking=True))
+        x = normalize01(photometric_batch(to_float01(x.to(dev, non_blocking=True))))
         if channels_last:
             x = x.to(memory_format=torch.channels_last)
         tg = build_center_targets(c.to(dev), co.to(dev), v.to(dev), (15, 20))
@@ -87,6 +88,7 @@ def main():
     ap.add_argument('--workers', default='4,8,12,16')
     args = ap.parse_args()
 
+    import functools
     from augment import augment_sample
     from dataset import CubeKeypointDataset
     from model import count_params, build_model
@@ -96,8 +98,8 @@ def main():
     print('cpu threads:', os.cpu_count(), flush=True)
     print('params: %.2fM' % (count_params(build_model('center', pretrained=False)) / 1e6), flush=True)
 
-    ds = CubeKeypointDataset(args.data, split='all', input_size=INPUT_WH, augment=augment_sample,
-                             raw_uint8=True)
+    ds = CubeKeypointDataset(args.data, split='all', input_size=INPUT_WH,
+                             augment=functools.partial(augment_sample, photometric=False), raw_uint8=True)
     print('dataset:', len(ds), 'images from', args.data, flush=True)
 
     print('--- data pipeline: how many workers to feed the GPU? ---', flush=True)
