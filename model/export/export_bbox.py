@@ -29,6 +29,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default="../train/runs/box9/best.pt")
     ap.add_argument("--out", default="out")
+    ap.add_argument("--no-deploy", action="store_true", help="write --out only; leave web/public/models alone")
     args = ap.parse_args()
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
@@ -60,8 +61,10 @@ def main():
     print(f"onnx vs torch max abs diff: {diff:.2e}")
     assert diff < 1e-4, "export mismatch"
 
-    WEB_MODELS.mkdir(parents=True, exist_ok=True)
-    (WEB_MODELS / "cubebox.onnx").write_bytes(onnx_path.read_bytes())
+    dest = out if args.no_deploy else WEB_MODELS
+    dest.mkdir(parents=True, exist_ok=True)
+    if dest != out:
+        (dest / "cubebox.onnx").write_bytes(onnx_path.read_bytes())
     meta = {
         "input": {"name": "image", "shape": [1, 3, h, w], "layout": "NCHW rgb",
                   "mean": NORM_MEAN.tolist(), "std": NORM_STD.tolist(),
@@ -80,9 +83,9 @@ def main():
         "checkpoint": Path(args.ckpt).name,
         "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
-    (WEB_MODELS / "cubebox.json").write_text(json.dumps(meta, indent=2))
-    size_kb = (WEB_MODELS / "cubebox.onnx").stat().st_size // 1024
-    print(f"wrote {WEB_MODELS / 'cubebox.onnx'} ({size_kb} KB) and cubebox.json")
+    (dest / "cubebox.json").write_text(json.dumps(meta, indent=2))
+    size_kb = (dest / "cubebox.onnx").stat().st_size // 1024
+    print(f"wrote {dest / 'cubebox.onnx'} ({size_kb} KB) and cubebox.json")
 
 
 if __name__ == "__main__":

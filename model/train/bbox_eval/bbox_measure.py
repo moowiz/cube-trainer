@@ -11,10 +11,10 @@ import sys
 
 import numpy as np
 
-from common import ROOT, Localizer, iou_table, labelled_rows, range_bin
+from common import ROOT, Localizer, iou_table, labelled_rows, localizer_args, range_bin
 
 root = ROOT / sys.argv[1]
-loc = Localizer(sys.argv[2] if len(sys.argv) > 2 else None)
+loc = Localizer(*localizer_args(sys.argv[2] if len(sys.argv) > 2 else None))
 rows = labelled_rows(root, loc, negatives=True)
 pos = [r for r in rows if r["iou"] is not None]
 neg = [r for r in rows if r["iou"] is None]
