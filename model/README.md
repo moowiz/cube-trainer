@@ -534,7 +534,8 @@ the keyboard, far and static.
   so the old 42-photo numbers stay comparable.
 - **Cube-less frames**: 21 were exported with no faces. 12 are real
   negatives (bed, wall, mousepad, wristwatch, bottle, keyboard) and were
-  imported with `--keep-negatives` (stage 1 objectness 0). The other 9
+  imported as negatives (stage 1 objectness 0; the importer default since
+  this batch, `--drop-negatives` opts out). The other 9
   (`v00012 x00002 x00007 x00008 x00011 x00031 x00037 x00047 x00065`) have
   a cube in them — mid-turn with the layers misaligned, or cut off at the
   frame edge — and were **skipped**, not imported: training objectness 0

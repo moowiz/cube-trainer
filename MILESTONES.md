@@ -265,7 +265,8 @@ wrapper; `test/helpers.ts` replaces the duplicated synthetic-cube
 projection and LCG in the vitest suites; `scan.html` replaces four camera
 pages (`detect/models.ts`, `debug/dump.ts`, `debug/selftest.ts` hold what
 each page used to carry); `check_targets.py` no longer samples overlapping
-quads (decode dedup merged them by design).
+quads (decode dedup merged them by design); `import_labels.py` keeps
+cube-less labels as negatives by default (`--drop-negatives` opts out).
 
 Flagged, not fixed (each needs a decision or is out of scope for a night):
 
@@ -284,10 +285,6 @@ Flagged, not fixed (each needs a decision or is out of scope for a night):
   the proven fallback, so not done unattended.
 - `bbox_eval/roboflow_audit.py` needs a full-frame stage-2 checkpoint; kept
   as the record of the audit, will not run against the crop model.
-- `import_labels.py` drops cube-less labels unless `--keep-negatives`, and
-  the summary line lumps them with "unchanged". Both stage-1 training and
-  the labeling convention now want negatives; the flag should flip to
-  default-on with a `--drop-negatives` escape.
 - `check_labels.py` flags opposite faces both visible as a *problem*; with
   the anonymous head it is only a slot-naming slip. Downgrade to a note.
 - `facekp-decode.test.ts` is coupled to the deployed model: the fixture is

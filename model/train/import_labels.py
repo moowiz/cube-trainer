@@ -57,9 +57,12 @@ def main():
     ap.add_argument("--labels", required=True)
     ap.add_argument("--images", required=True, help="directory holding the original photos")
     ap.add_argument("--out", default="../data_real")
-    ap.add_argument("--keep-negatives", action="store_true",
-                    help="import entries with NO visible faces as real hard negatives "
-                         "(all-invisible labels train the conf head on cube-less scenes)")
+    ap.add_argument("--drop-negatives", action="store_true",
+                    help="skip entries with NO visible faces. Default is to import them as real "
+                         "hard negatives (stage 1 objectness 0, stage 2 conf 0 on cube-less scenes); "
+                         "drop them only for a batch where the cube-less frames were unlabelled cubes")
+    # the old default-off flag; keeping negatives is the default now
+    ap.add_argument("--keep-negatives", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -78,7 +81,7 @@ def main():
         except ValueError:
             pass
     n_have = max_idx
-    imported = updated = skipped = missing = 0
+    imported = updated = skipped = missing = dropped = 0
     for entry in load_entries(Path(args.labels)):
         src_name = entry["image"]
         if src_name in existing:
@@ -100,8 +103,8 @@ def main():
             print(f"  missing image, skipped: {src_name}")
             missing += 1
             continue
-        if not any(f["visible"] for f in entry["faces"].values()) and not args.keep_negatives:
-            skipped += 1
+        if not any(f["visible"] for f in entry["faces"].values()) and args.drop_negatives:
+            dropped += 1
             continue
         idx = n_have + imported + 1
         stem = f"img_real{idx:06d}"
@@ -120,8 +123,8 @@ def main():
         }
         (out / "labels" / (stem + ".json")).write_text(json.dumps(label, indent=1))
         imported += 1
-    print(f"imported {imported}, updated {updated}, skipped {skipped} (unchanged or empty), "
-          f"{missing} missing images -> {out}")
+    print(f"imported {imported}, updated {updated}, skipped {skipped} (already imported, unchanged), "
+          f"dropped {dropped} cube-less, {missing} missing images -> {out}")
 
 
 if __name__ == "__main__":
