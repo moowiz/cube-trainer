@@ -336,6 +336,82 @@ silently deleted the data we went out of our way to generate.
 The trim is small, because the generator was already nearly right: 2.4% of
 `data` faces and 3.9% of `data_real_val` faces fall below the floor.
 
+## Stage-1 cube localizer (`cubebox`, 2026-09-12, runs/box*)
+
+`train_bbox.py` trains the tiny bbox+objectness net that `web/src/detect/cubebox.ts`
+runs at 160x120 to find the cube before stage 2 looks at the crop. Full
+investigation write-up: `BBOX-HANDOFF.md`. The short version:
+
+**"The box is too small" was variance, not bias.** Against `data_real_val`
+(truth = axis-aligned hull of all visible faces' corners = the silhouette),
+the original `box3` had median w/true 0.997, h/true 0.985, per-edge inset
+within ±0.02 — but per-edge **sd 0.14–0.20** of the box, so mean IoU 0.790
+vs median 0.888. Four measured causes, each in `BBOX-HANDOFF.md` §1:
+
+1. **GAP head** (5 convs → global-average-pool → MLP): throws away *where*.
+   Ceiling on clean synthetic val with no occluder: IoU 0.833, 12.9% < 0.7.
+   Primary cause. Fixed with `--head dense` (stride-16 grid, per-cell box +
+   objectness, soft-argmax read-out). Clean ablation `box5gap` vs `box4`:
+   real_iou 0.810 vs 0.834.
+2. **Roboflow COCO boxes are a different convention** — ~16% wide, median
+   IoU 0.756 vs our silhouette, and mostly just sloppy (`bbox_eval/roboflow_audit.py`).
+   They were ~29% of the mix at `--coco-rep 8`. Now `--coco-rep 4` and
+   objectness-only (`--coco-box` off, `box_valid=0`).
+3. **Train/inference downscale mismatch**: `bbox_data` decimated the 320x240
+   cache with `[::2, ::2]` (aliased); the browser's `drawImage` is smooth.
+   Feeding box3 an aliased input moved its real median IoU 0.888 → 0.959,
+   i.e. it was trained on sharper images than it ever sees. Now `avg_pool2d`.
+4. **No portrait pillarbox in the synthetic half** (app feeds 480x640 →
+   90x120 content + 35 px grey bars; every render is landscape). Controlled
+   A/B on the same val images: ~4% width shrink. Now a pillarbox augmentation
+   (p=0.45) plus zoom/translate.
+
+Hands cost ~0.075 IoU and double the bad-frame rate but do **not** pull the
+box in to the fingers (median insets identical with/without hands) — it is
+noise, consistent with cause 1. Out-of-range cubes (< 32 px at 160x120, see
+scanning range above) dominate the raw mean; report the in-range number too.
+
+| run | head | data | change | val_iou | real_iou | real <0.7 | in-range <0.7 | min obj |
+|---|---|---|---|---|---|---|---|---|
+| box3 | gap | data_v3 + coco×8 | was deployed; data_v3 is gone, not reproducible | 0.822* | 0.790 | 32.4% | 20.7% | 0.91 |
+| box4 | dense | data_v4 + real×40 + coco×4 | dense head, new aug, coco obj-only | 0.892 | 0.834 | 13.5% | 3.4% | 0.54 |
+| box5gap | gap | same | ablation: old head, everything else new | 0.850 | 0.810 | 13.5% | 3.4% | 0.48 |
+| **box6** | dense | same | Gaussian cell target (**deployed**) | 0.886 | **0.846** | 10.8% | 3.4% | 0.07 |
+| box7 | dense | same | peak-normalised Gaussian, 80 ep (overfits synthetic) | 0.895 | 0.835 | 8.1% | 3.4% | 0.21 |
+| box8 | dense | same | + darkening aug to 0.45× (no measured benefit) | 0.891 | 0.828 | 10.8% | 0.0% | 0.18 |
+
+\* on the data_v3 split; not comparable. box4/6/7/8 are within noise of each
+other (37 photos). `real_iou`/`real_bad` are printed every epoch and
+`--select real` (default) picks `best.pt` on them. Per-edge sd under box6:
+top 0.082, right 0.083, bottom 0.110, left 0.139. Median dropped slightly
+(0.888 → 0.875): easy close-ups each gave up a little for the tail.
+
+**Open regression:** `img_real000053` (dim, dead-on, single face, landscape,
+against a lit monitor) went objectness 0.99 → 0.07 — the one outright miss.
+box5gap shows it too, so it is the data/augmentation, not the head; the
+darkening aug (box8) did not fix it. `box4` has no misses (min obj 0.54) at
+−0.011 IoU, within noise, and is a defensible alternative deploy.
+
+Things not to do: don't add a scale-up fudge (median size is right, and
+`autoscan-main.ts` already pads the crop 0.45); don't run 80 epochs; `train_bbox.py`
+has no `--resume`/`--init` — 50 epochs is ~18 min, just rerun.
+
+Evaluation scripts live in `train/bbox_eval/` (edit the hardcoded `ROOT` if
+the repo moves): `bbox_measure.py` (per-edge error + IoU of the deployed onnx
+on a labelled root), `bbox_rows.py` (per-photo rows + size bins, takes an
+onnx path), `bbox_vs_faces.py` (unlabelled frames, keypoint hull as truth,
+contact sheet), `sheet_val.py` (annotated sheet), `occl_test.py`
+(hands/clutter/shadow split on synthetic val), `aspect_test.py`
+(landscape vs portrait A/B), `roboflow_audit.py` (COCO convention audit).
+
+```
+cd train
+..\.venv\Scripts\python train_bbox.py --data "../data_v4,../data_real*40" --coco ../roboflow --coco-rep 4 ^
+    --head dense --epochs 50 --workers 8 --out runs/box9 > runs/box9-console.log 2>&1
+cd ..\export
+..\.venv\Scripts\python export_bbox.py --ckpt ../train/runs/box9/best.pt   # -> web/public/models/cubebox.onnx + .json
+```
+
 ## M5 labeling workflow
 
 Conventions (settled with the user on the first labeled photo, 2026-09-11):
@@ -496,7 +572,8 @@ augment.py adds portrait pillarbox simulation, JPEG round-trips, directional
 motion blur, and white-balance channel gains at train time (those four cover
 the video-pipeline look and retrofit every existing tranche for free).
 
-**Two-stage architecture (decided 2026-09-12, in progress):** stage 1
+**Two-stage architecture (decided 2026-09-12; stage 1 shipped as `cubebox`, see
+its section above):** stage 1
 localizes the cube (bbox; tiny NN at low res - classical edge/chroma first
 passes were measured and rejected: white-on-white faces have no edges, the
 user's couch blanket defeats chroma blobs), stage 2 runs corner regression
@@ -636,6 +713,7 @@ next) — this is the M3 "labels visualize correctly" check.
 gen/      generator (Node + three + puppeteer)   <- M3, done
 data/     generated images + labels              <- gitignored
 train/    keypoint model + training              <- M4 (dataset/augment/model/train)
+          train_bbox.py + bbox_eval/               stage-1 localizer + its measurement scripts
 export/   torch -> onnx -> int8 quantize         <- M4 (export_onnx.py)
 .venv/    Python 3.13 venv                       <- gitignored
 ```
