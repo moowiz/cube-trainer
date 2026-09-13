@@ -59,6 +59,12 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   `-1789315824514`: no blue cluster all session - the blue face's centre read
   (-0.3, -19.7), 16 from the white centroid, and joined white (sameCluster
   now never puts a b < -14 reading with a b > -8 one when either is neutral).
+  `-1789317142821`: ten clusters, no green after 484 ticks on a green face:
+  the 5 deg hue split fragmented blue (10 deg apart) and yellow (6 deg), the
+  ceiling then forced green into the nearest cluster, and clusters() had
+  memoized names over centroids frozen at the last birth (perf pass). Hue
+  split is warm-only now, the ceiling evicts the thinnest cluster, and every
+  reading bumps the version.
 - `session-0913/scan-debug-*.json` — six captures of one afternoon on one
   cube (state pinned by the 08:06 lock, confirmed by photos). Three stalled
   with a colour-count error at 49-53/54 correct: a shadowed blue read as
