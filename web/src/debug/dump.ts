@@ -73,7 +73,7 @@ export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; 
 }
 
 /** Everything the naming layer saw for this detection, as a plain object. */
-export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
+export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: HTMLVideoElement,
                               history: readonly TickSummary[] = [], extra: Record<string, unknown> = {}): unknown {
   const ex = detector.exemplars;
   return {
@@ -82,14 +82,14 @@ export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: 
     model: detector.modelId,
     ep: detector.ep,
     input: { w: video.videoWidth, h: video.videoHeight },
-    inferMs: res.inferMs,
-    totalMs: res.totalMs,
+    inferMs: res?.inferMs ?? null,
+    totalMs: res?.totalMs ?? null,
     exemplars: ex.status().map((e) => ({ ...e, color: DEFAULT_SCHEME_NAMES[e.face] })),
     exemplarRejects: ex.rejected,
     exemplarHistory: ex.history,
     ticks: history,
-    quads: res.quads.map((q, i) => {
-      const n = res.named?.[i];
+    quads: (res?.quads ?? []).map((q, i) => {
+      const n = res!.named?.[i];
       return {
         i,
         conf: q.conf,
@@ -108,7 +108,7 @@ export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: 
 }
 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
-export async function captureDebug(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
+export async function captureDebug(res: DetectResult | null, detector: FaceDetector, video: HTMLVideoElement,
                                    prefix = 'detect-debug', history: readonly TickSummary[] = [],
                                    extra: Record<string, unknown> = {}): Promise<string> {
   const stamp = Date.now();

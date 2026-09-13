@@ -2,7 +2,7 @@
 // read as the wrong colour makes an impossible piece; flipping it to its
 // runner-up restores a legal cube.
 import { describe, expect, it } from 'vitest';
-import { PIECE_AMBIGUOUS_CONF, resolveByPieces, validateState, type AssembledState } from '../src/state';
+import { PIECE_AMBIGUOUS_CONF, resolveByPieces, resolveByRotation, validateState, type AssembledState } from '../src/state';
 import { FACE_ORDER } from '../src/types';
 import type { FaceId } from '../src/types';
 
@@ -56,5 +56,38 @@ describe('resolveByPieces', () => {
     const s = state(bad, (i, f) => (i === 9 ? 'R' : OPP[f]), []); // nothing below the threshold
     expect(s.confidences[9]).toBeGreaterThan(PIECE_AMBIGUOUS_CONF);
     expect(resolveByPieces(s).facelets).toBe(bad);
+  });
+});
+
+// The screenshot session of 2026-09-13 08:06: every colour right, nine per
+// face, invalid pieces - L was a quarter turn off and B a half turn. The
+// piece constraints pin the rotations uniquely among 4^6.
+describe('resolveByRotation', () => {
+  const faces = ['LRFLUFLBU', 'BLDLRRRRF', 'DDRUFDUFD', 'FDBUDFRDL', 'BFLBLLBUU', 'FRDBBUUBR'];
+  const facelets = faces.join('');
+  const fake = (s: string): AssembledState => ({
+    facelets: s,
+    stickerFaces: s.split('') as FaceId[],
+    confidences: Array.from({ length: 54 }, () => 1),
+    centroids: {} as AssembledState['centroids'],
+    secondFaces: s.split('') as FaceId[],
+  });
+
+  it('turns L by one and B by two quarter turns and the state validates', () => {
+    expect(validateState(facelets).ok).toBe(false);
+    const fixed = resolveByRotation(fake(facelets));
+    expect(fixed.turned).toEqual([0, 0, 0, 0, 1, 2]);
+    expect(validateState(fixed.facelets).ok).toBe(true);
+    // colours are untouched: each face still holds the same nine stickers
+    for (let f = 0; f < 6; f++) {
+      expect([...fixed.facelets.slice(f * 9, f * 9 + 9)].sort().join('')).toBe([...faces[f]!].sort().join(''));
+    }
+  });
+
+  it('leaves a valid state alone and a wrong colour count alone', () => {
+    const solved = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+    expect(resolveByRotation(fake(solved)).turned).toBeUndefined();
+    const bad = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBU';
+    expect(resolveByRotation(fake(bad)).facelets).toBe(bad);
   });
 });
