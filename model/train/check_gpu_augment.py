@@ -126,6 +126,19 @@ def main():
     ok &= good
     print(f"{'padding restore (20 random passes)':34s} {bad} bad pixels  {'OK' if good else 'FAIL'}")
 
+    # --- neutral parameters: with every op "off" the batch must come back
+    # bit-identical (photometric_batch runs the elementwise ops on all samples
+    # with factor 1 / gain 1 / sigma 0 instead of skipping them)
+    saved = (G.P_COLOR, G.P_WB, G.P_BLUR, G.P_MOTION, G.P_NOISE)
+    G.P_COLOR = G.P_WB = G.P_BLUR = G.P_MOTION = G.P_NOISE = 0.0
+    try:
+        same = all(torch.equal(G.photometric_batch(x.clone()), x) for _ in range(10))
+    finally:
+        G.P_COLOR, G.P_WB, G.P_BLUR, G.P_MOTION, G.P_NOISE = saved
+    ok &= same
+    print(f"{'all ops off -> identity (10 passes)':34s} {'bit-exact' if same else 'DIFFERS'}  "
+          f"{'OK' if same else 'FAIL'}")
+
     # --- timing on a real-size batch
     xb = x.repeat(math.ceil(64 / n), 1, 1, 1)[:64]
     for _ in range(3):

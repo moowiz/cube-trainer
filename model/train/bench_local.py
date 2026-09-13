@@ -3,7 +3,7 @@
 MUST keep the __main__ guard: Windows spawns DataLoader workers by re-importing
 this module, so top-level work would recurse into a process bomb.
 
-    ..\.venv\Scripts\python bench_local.py --data ../data_v4
+    ../.venv/Scripts/python bench_local.py --data ../data --workers 4,6,8
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
         model = model.to(memory_format=torch.channels_last)
     if compile_model:
         model = torch.compile(model)
-    opt = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4, fused=(dev == 'cuda'))
     scaler = torch.amp.GradScaler(enabled=(dev == 'cuda'))
     dl = DataLoader(ds, batch_size=batch, shuffle=True, num_workers=workers,
                     pin_memory=(dev == 'cuda'), persistent_workers=workers > 0,
@@ -49,11 +49,11 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
             return next(it)
 
     def step():
-        x, c, co, v = nxt()
-        x = normalize01(photometric_batch(to_float01(x.to(dev, non_blocking=True))))
+        x, c, co, v = (t.to(dev, non_blocking=True) for t in nxt())   # same as train.py
+        x = normalize01(photometric_batch(to_float01(x)))
         if channels_last:
             x = x.to(memory_format=torch.channels_last)
-        tg = build_center_targets(c.to(dev), co.to(dev), v.to(dev), (15, 20))
+        tg = build_center_targets(c, co, v, (15, 20))
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast('cuda', enabled=(dev == 'cuda')):
             loss, _, _ = center_loss(model(x), tg)

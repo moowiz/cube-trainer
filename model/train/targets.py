@@ -23,6 +23,8 @@ from dataclasses import dataclass
 
 import torch
 
+from gpu_augment import const
+
 # Offsets are supervised wherever the Gaussian is at least this high. Below
 # it the splat is mostly there to shape the heatmap, and regressing corners
 # from a cell that far off-center only adds noise.
@@ -129,7 +131,7 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     H, W = grid_hw
     B = conf.shape[0]
     dev = corners.device
-    scale = torch.tensor([W, H], dtype=corners.dtype, device=dev)
+    scale = const([W, H], dev, corners.dtype)   # cached: torch.tensor(...) would sync
     cells = corners * scale                       # (B,6,4,2) in cell units
     center = quad_centers(cells)                  # (B,6,2)
     area = quad_areas(cells)                      # (B,6)
@@ -164,7 +166,12 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     bi = torch.arange(B, device=dev).view(B, 1).expand(B, 6)
     fi = torch.arange(6, device=dev).view(1, 6).expand(B, 6)
     g[bi, fi, ci, cj] = pos.to(g.dtype)
-    ignore[bi[out_of_range], ci[out_of_range], cj[out_of_range]] = True
+    # Not `ignore[bi[out_of_range], ...] = True`: indexing with a bool mask
+    # calls nonzero(), a device sync every step. scatter_add over all 6 faces
+    # with the mask as the value is sync-free and deterministic on collisions.
+    hits = torch.zeros(B, H * W, dtype=torch.int32, device=dev)
+    hits.scatter_add_(1, (ci * W + cj), out_of_range.to(torch.int32))
+    ignore |= hits.view(B, H, W) > 0
 
     heat = g.amax(dim=1)                          # (B,H,W), max-merged
 
