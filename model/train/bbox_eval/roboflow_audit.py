@@ -1,4 +1,7 @@
-"""Are the Roboflow COCO boxes the cube silhouette, or tighter?
+"""NOTE 2026-09-13: one-off audit (its findings are in bbox_data.py); it needs a FULL-FRAME
+stage-2 checkpoint (runs/v4ft1), which the two-stage design no longer trains.
+
+Are the Roboflow COCO boxes the cube silhouette, or tighter?
 
 Reference = hull of the stage-2 keypoint model's detected quads (same
 silhouette convention as the synthetic/hand labels). Only images where the
@@ -6,18 +9,17 @@ keypoint model finds >=2 faces are used, so the reference really is the
 silhouette and not one face.
 """
 import json
-import pathlib
 import sys
 
 import numpy as np
 import torch
 from PIL import Image
 
-sys.path.insert(0, r"C:\Users\moowi\Documents\GitHub\cube_stuff\model\train")
+from common import ROOT
+
+sys.path.insert(0, str(ROOT / "train"))
 from dataset import letterbox_image, normalize_batch
 from model import build_model, decode_maps
-
-ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")
 from shapes import KP_WH as KP
 
 ck = torch.load(ROOT/"train"/"runs"/"v4ft1"/"best.pt", map_location="cpu", weights_only=True)

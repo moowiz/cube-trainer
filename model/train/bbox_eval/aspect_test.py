@@ -6,38 +6,16 @@ but 35 px grey pillar bars each side - exactly what the app's 480x640 frames
 produce.  So any IoU gap between the two columns is the pillarbox, not scale.
 """
 import json
-import pathlib
 import sys
 import zlib
 
 import numpy as np
-import onnxruntime as ort
 from PIL import Image
 
-ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")
-WEB = ROOT.parent / "web" / "public" / "models"
-MODEL = pathlib.Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else WEB/"cubebox.onnx"
-meta = json.loads((WEB/"cubebox.json").read_text())
-_, _, IH, IW = meta["input"]["shape"]
-mean = np.array(meta["input"]["mean"], np.float32); std = np.array(meta["input"]["std"], np.float32)
-sess = ort.InferenceSession(str(MODEL), providers=["CPUExecutionProvider"])
-sig = lambda v: 1/(1+np.exp(-v))
+from common import ROOT, Localizer, iou
 
-def predict(im):
-    sw, sh = im.size
-    s = min(IW/sw, IH/sh); dx, dy = (IW-sw*s)/2, (IH-sh*s)/2
-    c = Image.new("RGB", (IW, IH), (114,114,114))
-    c.paste(im.resize((round(sw*s), round(sh*s)), Image.BILINEAR), (round(dx), round(dy)))
-    x = (np.asarray(c, np.float32)/255 - mean)/std
-    y = sess.run(None, {"image": x.transpose(2,0,1)[None]})[0][0]
-    cx, cy, w, h = (float(sig(v)) for v in y[1:5])
-    cx, w, cy, h = cx*IW, w*IW, cy*IH, h*IH
-    return float(sig(y[0])), [((cx-w/2)-dx)/s, ((cy-h/2)-dy)/s, ((cx+w/2)-dx)/s, ((cy+h/2)-dy)/s], s
-
-def iou(gt, pb):
-    ix0,iy0,ix1,iy1 = max(gt[0],pb[0]),max(gt[1],pb[1]),min(gt[2],pb[2]),min(gt[3],pb[3])
-    inter = max(0,ix1-ix0)*max(0,iy1-iy0)
-    return inter/((gt[2]-gt[0])*(gt[3]-gt[1])+(pb[2]-pb[0])*(pb[3]-pb[1])-inter+1e-9)
+loc = Localizer(sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None)
+IW, IH = loc.iw, loc.ih
 
 root = ROOT/sys.argv[1]
 N = int(sys.argv[3]) if len(sys.argv) > 3 else 400
@@ -57,11 +35,11 @@ for lf in sorted((root/"labels").glob("*.json")):
     x0 = (W-cw)//2
     if gt[0] < x0+2 or gt[2] > x0+cw-2:   # cube must fit inside the crop
         continue
-    _, pb, s = predict(im)
+    _, pb, s = loc.predict(im)
     res["landscape"].append((iou(gt, pb), (pb[2]-pb[0])/(gt[2]-gt[0]), (pb[3]-pb[1])/(gt[3]-gt[1]), max(gt[2]-gt[0], gt[3]-gt[1])*s))
     imc = im.crop((x0, 0, x0+cw, H))
     gtc = [gt[0]-x0, gt[1], gt[2]-x0, gt[3]]
-    _, pbc, sc = predict(imc)
+    _, pbc, sc = loc.predict(imc)
     res["portrait"].append((iou(gtc, pbc), (pbc[2]-pbc[0])/(gtc[2]-gtc[0]), (pbc[3]-pbc[1])/(gtc[3]-gtc[1]), max(gtc[2]-gtc[0], gtc[3]-gtc[1])*sc))
     n += 1
     if n >= N: break
