@@ -117,13 +117,74 @@ rounds on an idle box: webgpu 6.6 vs 5.9 ms, wasm 17.0 vs 14.6 ms), so the
 60 fps should hold - re-verify on the phone via `/autoscan.html`.
 Depthwise-separable fuse convs in the neck are the lever if it ever misses.
 
+**Update (2026-09-13) — the full data_v4 run, and the accuracy bar is MET.**
+`runs/v4base`, 150 epochs from scratch on the 54k `data_v4` (45 min local,
+16 s/epoch - the cloud was never needed): **val_px 2.58**, real_px 3.89,
+detection F1 0.979. The "done when" bar is mean corner error < 3 px, so it
+is met - but read it with its caveat: `val_px` for this head is the mean over
+*matched* faces, and 3.4% of in-range faces were not detected at all, which
+shows up in F1 rather than in the mean.
+
+Then `runs/v4ft1` (15 epochs, lr 5e-5, real photos x150, `--select real`):
+**3.31 px mean / 3.03 median on `data_real_val`**, 4 missed faces of 73, zero
+false positives. Deployed - see M5.
+
+**A decode bug was worth more than any of it.** Two thirds of every miss
+(126 of 201) was a face the model HAD found and the decoder threw away: the
+3x3 max-pool NMS keeps a cell only if it is the brightest within one cell of
+itself, a radius frozen at 16 px however big the cube is, while the spacing
+between a cube's three face centres shrinks with the cube. At 43 px per face
+the centres sit ~1.8 cells apart and the stronger face's Gaussian is still
+rising as it crosses the weaker face's own centre cell. Deduplicating on the
+decoded quads instead, with a radius of half the kept quad's mean edge:
+**missed 201 -> 77, F1 0.979 -> 0.989**, no retraining. `train/viz_nms.py`
+draws the mechanism; `train/dump_failures.py` draws the failures themselves.
+
+Foreshortening remains the weakest class (21.6% missed below 1/4 aspect,
+down from 28.5%) and is the thing to attack next in M5/M8, not corner
+accuracy.
+
 ---
 
-## M5 — Real-data fine-tune
+## M5 — Real-data fine-tune  🔶 (fine-tuned and DEPLOYED 2026-09-13; the deploy gate was overridden - read below)
 
 Hand-label 200–400 real frames (your two GANs, several rooms, both scheme orientations). Fine-tune. Re-export.
 
 **Done when:** the detector finds faces on the M2 fixture frames without manual alignment.
+
+**Status (2026-09-13):** 199 hand-labelled real frames exist (157 train /
+42 held-out val, zero overlapping source photos - verified). `runs/v4ft1` is
+exported and deployed to `web/public/models/` (fp32, 4.66 MB, replacing the
+legacy `ft7`).
+
+**THE DEPLOY GATE WAS NOT MET AS WRITTEN, AND SHIPPING ANYWAY WAS A
+DELIBERATE CALL (user, 2026-09-13).** The gate was "per-batch `real_px` no
+worse than `ft7` on any batch". Mean px per batch on `data_real_val`:
+
+| batch | ft7 (was deployed) | v4ft1 (now deployed) |
+|---|---|---|
+| batch1 | 2.91 | 3.51 |
+| batch2 | 2.62 | 2.57 |
+| batch3 | 3.34 | 2.67 |
+| batch4 | 2.77 | 3.73 |
+| batch5 | 43.57 | **2.95** |
+| batch6 | 17.73 | **3.66** |
+
+It regresses 0.6 px on batch1 and 1.0 px on batch4 while removing ft7's
+catastrophic tail on batch5/6 (that tail is the legacy head's diamond
+failure; ft7's p90 on real photos is 34 px against v4ft1's 4.9). Do not
+"fix" this discrepancy by re-running the gate and reverting - it was
+examined and accepted.
+
+Investigated, so nobody re-derives it: batch1's regression is a single
+outlier face (+6.58 px, a quad drawn 19% too large on a partly occluded
+face); its median delta is -0.02, i.e. a tie. batch4's is real but uniform,
++0.90 median over 8 faces from 3 photos, quads drawn 3-7% too small. Ruled
+out: memorisation by ft7 (train->val gap is comparable for both models),
+file type, face size, and foreshortening. Most likely just the training
+mix - batch4 is 11 of 157 real training photos while batch6 is 73, and the
+fine-tune oversamples real data 150x. More batch4-like photos is the lever,
+not a model change.
 
 ---
 
