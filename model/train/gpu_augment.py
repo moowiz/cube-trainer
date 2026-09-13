@@ -70,11 +70,6 @@ P_MOTION, MOTION_LEN = 0.18, (2, 7)
 P_NOISE, NOISE_SIGMA = 0.5, (2.0, 10.0)
 
 
-def _u(n: int, lo: float, hi: float, device) -> torch.Tensor:
-    """n uniform draws in [lo,hi) on `device`, shaped (n,1,1,1)."""
-    return (torch.rand(n, device=device) * (hi - lo) + lo).view(n, 1, 1, 1)
-
-
 def _luma(x: torch.Tensor) -> torch.Tensor:
     """(B,3,H,W) -> (B,1,H,W)."""
     w = const(_LUMA, x.device, x.dtype).view(1, 3, 1, 1)

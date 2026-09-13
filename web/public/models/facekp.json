@@ -4,8 +4,8 @@
     "shape": [
       1,
       3,
-      240,
-      320
+      256,
+      256
     ],
     "layout": "NCHW rgb",
     "mean": [
@@ -26,21 +26,25 @@
     "shape": [
       1,
       9,
-      15,
-      20
+      16,
+      16
     ],
     "stride": 16,
     "channels": "0: face-center heatmap logit (sigmoid me); 1..8: corner offsets x0,y0..x3,y3 in cells, relative to the cell center",
     "decode": "corner = ((j+0.5+offx)*stride/W, (i+0.5+offy)*stride/H); candidates are every cell >= threshold, strongest first (ties to the lower cell index), then drop a quad whose center is within 0.5 x an already-kept quad's mean edge (floor 8 px), keep 6; NOT a 3x3 max-pool - that dropped a face on small cubes. Quads are ANONYMOUS - name them by center color",
     "cornerOrder": "cyclic, winding consistent; starting corner arbitrary"
   },
-  "trainedEpoch": 6,
-  "valPx": 2.7571275349396407,
+  "trainedEpoch": 15,
+  "valPx": 2.92715029311902,
+  "realPx": 3.549036894378991,
   "precision": "fp32",
-  "run": "v4ft1",
+  "run": "kpft1",
   "checkpoint": "best.pt",
-  "exported": "2026-09-12 19:49",
-  "cropTrained": false,
+  "exported": "2026-09-13 01:46",
+  "cropTrained": true,
+  "view": "crop",
+  "cropPad": 0.45,
+  "minFaceEdgeFrac": 0.133,
   "head": "center-v1",
   "anonymous": true
 }
