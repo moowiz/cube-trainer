@@ -59,6 +59,9 @@ export interface DetectResult {
   heat?: HeatMap;
   /** Quads that were dropped by naming, with the reason (debug view). */
   unnamed: { quad: DetectedQuad; reason: string }[];
+  /** center-v1 only: the naming result per quad, parallel to `quads`, with the
+   *  sampled cells and the exemplar ranking it decided from. Debug/capture. */
+  named?: NamedQuad[];
   /** Pure session.run time, ms. */
   inferMs: number;
   /** Preprocess + run + decode (+ naming), ms. */
@@ -237,7 +240,11 @@ export class FaceDetector {
       if (n.face) faces.push({ face: n.face, conf: quad.conf, corners: quad.corners, nameConf: n.nameConf });
       else unnamed.push({ quad, reason: n.reason });
     });
-    return { ...run.result, faces, unnamed, totalMs: performance.now() - run.t0 };
+    // `named` is parallel to `quads` and carries the evidence each naming
+    // decision was made from. Passing it straight through costs nothing (it is
+    // already built) and is the only way a debug view can show the numbers the
+    // app used rather than numbers something else recomputed.
+    return { ...run.result, faces, unnamed, named, totalMs: performance.now() - run.t0 };
   }
 
   /** Anonymous quads only - no color sampling, no naming. center-v1 only. */

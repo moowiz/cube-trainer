@@ -8,7 +8,9 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { FaceDetector, type DetectResult, type Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
-import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES } from './types';
+import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
+import type { FaceId, Lab } from './types';
+import { labDistance } from './color';
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
@@ -29,6 +31,14 @@ app.innerHTML = `
     #swatches .sw.seed { opacity: 0.35; border-style: dashed; }
     label { display: flex; gap: 5px; align-items: center; }
     a { color: #7aa2ff; }
+    #cells { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+    #cells .face { background: #1a1e26; border-radius: 8px; padding: 8px 10px; }
+    #cells .hd { font: 11px ui-monospace, monospace; color: #8b93a6; margin-bottom: 6px; white-space: pre-line; }
+    #cells .g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
+    #cells .c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
+                justify-content: center; font: 10px/1.15 ui-monospace, monospace; border: 1px solid #0005; }
+    #cells .c.mid { outline: 2px solid #e8eaf0; outline-offset: 1px; }
+    #cells .c b { font-size: 10px; font-weight: 600; }
   </style>
   <div id="wrap">
     <h1>Face detector test (M4)</h1>
@@ -41,10 +51,13 @@ app.innerHTML = `
       </select>
       <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
       <label id="heatLbl" style="display:none"><input type="checkbox" id="heat"> heatmap</label>
+      <label id="cellsLbl" style="display:none"><input type="checkbox" id="cellsChk"> per-sticker readout</label>
+      <button id="capture" disabled title="Download this frame's naming evidence as JSON, plus the raw frame">Capture debug</button>
       <span id="epUsed"></span>
     </div>
     <div id="stage"><canvas id="view"></canvas></div>
     <div id="swatches"></div>
+    <div id="cells"></div>
     <div id="stats">model: loading…</div>
     <div id="msg"></div>
   </div>
@@ -56,6 +69,10 @@ const stats = document.getElementById('stats')!;
 const msg = document.getElementById('msg')!;
 const startBtn = document.getElementById('start') as HTMLButtonElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
+const captureBtn = document.getElementById('capture') as HTMLButtonElement;
+const cellsChk = document.getElementById('cellsChk') as HTMLInputElement;
+const cellsLbl = document.getElementById('cellsLbl')!;
+const cellsEl = document.getElementById('cells')!;
 const epSel = document.getElementById('ep') as HTMLSelectElement;
 const epUsed = document.getElementById('epUsed')!;
 const heatChk = document.getElementById('heat') as HTMLInputElement;
@@ -99,6 +116,7 @@ async function doLoadDetector(): Promise<void> {
           .join(', ')})`
       : `${detector.modelId} · using ${detector.ep}`;
     heatLbl.style.display = detector.anonymous ? 'flex' : 'none';
+    cellsLbl.style.display = detector.anonymous ? 'flex' : 'none';
     swatchEl.style.display = detector.anonymous ? 'flex' : 'none';
     stats.textContent = `model: ${detector.modelId}, ready in ${(performance.now() - t0).toFixed(0)} ms `
       + `(${detector.ep}${detector.anonymous ? ', anonymous quads' : ''})`;
@@ -107,6 +125,90 @@ async function doLoadDetector(): Promise<void> {
     lastLoadError = String(err instanceof Error ? err.message : err);
     msg.textContent = lastLoadError;
   }
+}
+
+// The per-sticker readout and the capture file are both built from
+// `res.named`, which is what nameQuads actually decided from - the same cell
+// samples and the same exemplar ranking. Nothing here re-derives a colour
+// decision; the one derived value is each cell's nearest exemplar, which
+// naming never computes because only the centre names a face, and it is
+// computed with the app's own labDistance against the app's own live
+// exemplars so it cannot drift from what the centre decision would say.
+let lastNamed: DetectResult | null = null;
+
+function cellPick(lab: Lab): { face: FaceId; d: number; second: number } {
+  const ranked = FACE_ORDER
+    .map((f) => ({ f, d: labDistance(lab, detector!.exemplars.get(f)) }))
+    .sort((a, b) => a.d - b.d);
+  return { face: ranked[0]!.f, d: ranked[0]!.d, second: ranked[1]!.d };
+}
+
+function renderCells(res: DetectResult): void {
+  if (!cellsChk.checked || !res.named) { cellsEl.textContent = ''; return; }
+  cellsEl.textContent = '';
+  res.named.forEach((n, i) => {
+    if (!n.cellsNorm || !n.cellRgb) return;
+    const box = document.createElement('div');
+    box.className = 'face';
+    const hd = document.createElement('div');
+    hd.className = 'hd';
+    const best = n.ranked?.[0];
+    hd.textContent =
+      `quad ${i} · ${res.quads[i] ? res.quads[i]!.conf.toFixed(2) : '?'} · ${n.reason}
+` +
+      (best ? `centre ${n.color ?? '—'} d ${best.d.toFixed(1)} · conf ${n.nameConf.toFixed(2)}` : 'not named');
+    const g = document.createElement('div');
+    g.className = 'g';
+    n.cellsNorm.forEach((lab, k) => {
+      const p = cellPick(lab);
+      const rgb = n.cellRgb![k]!;
+      const c = document.createElement('div');
+      c.className = 'c' + (k === 4 ? ' mid' : '');
+      c.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+      c.style.color = p.d > 35 ? '#fff' : '#000';
+      c.innerHTML = `<b>${DEFAULT_SCHEME_NAMES[p.face].slice(0, 3)}</b><span>${p.d.toFixed(0)}</span>`;
+      g.append(c);
+    });
+    box.append(hd, g);
+    cellsEl.append(box);
+  });
+}
+
+/** Everything the naming layer saw this frame, as a plain object. */
+function debugSnapshot(res: DetectResult, video: HTMLVideoElement): unknown {
+  return {
+    captured: new Date().toISOString(),
+    model: detector!.modelId,
+    ep: detector!.ep,
+    input: { w: video.videoWidth, h: video.videoHeight },
+    inferMs: res.inferMs,
+    totalMs: res.totalMs,
+    exemplars: FACE_ORDER.map((f) => ({
+      face: f, color: DEFAULT_SCHEME_NAMES[f],
+      measured: detector!.exemplars.isMeasured(f),
+      lab: detector!.exemplars.get(f),
+    })),
+    quads: res.quads.map((q, i) => {
+      const n = res.named?.[i];
+      return {
+        i,
+        conf: q.conf,
+        cornersSourcePx: q.corners,
+        named: n && {
+          face: n.face, color: n.color, reason: n.reason, nameConf: n.nameConf,
+          centreNorm: n.center, centreRgb: n.rgb,
+          ranked: n.ranked,
+          cells: n.cellsNorm?.map((lab, k) => ({
+            k,
+            rgb: n.cellRgb?.[k],
+            lab: n.cells?.[k],
+            labNorm: lab,
+            nearest: cellPick(lab),
+          })),
+        },
+      };
+    }),
+  };
 }
 
 async function loop(): Promise<void> {
@@ -134,6 +236,8 @@ async function loop(): Promise<void> {
                `${DEFAULT_SCHEME_NAMES[f.face]} ${f.conf.toFixed(2)}`, f.conf >= 0.5 ? 4 : 1.5);
     }
     if (detector.anonymous) exemplarSwatches(swatchEl, detector.exemplars);
+    lastNamed = res;
+    renderCells(res);
     fps.tick();
     stats.textContent =
       `ep ${detector.ep}   input ${video.videoWidth}x${video.videoHeight}\n` +
@@ -155,6 +259,7 @@ startBtn.addEventListener('click', () => {
       camera.stop();
       startBtn.textContent = 'Start camera';
       saveBtn.disabled = true;
+      captureBtn.disabled = true;
       return;
     }
     msg.textContent = '';
@@ -163,6 +268,7 @@ startBtn.addEventListener('click', () => {
       running = true;
       startBtn.textContent = 'Stop camera';
       saveBtn.disabled = false;
+      captureBtn.disabled = false;
       void loop();
     } catch (err) {
       msg.textContent = String(err instanceof Error ? err.message : err);
@@ -189,6 +295,37 @@ saveBtn.addEventListener('click', () => {
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     msg.textContent = `saved ${a.download}`;
   }, 'image/png');
+});
+
+// Capture: the JSON and the RAW frame at the same instant, under the same
+// timestamp, so the numbers can be replayed against the pixels that produced
+// them. Two files rather than one because the frame must stay a clean PNG -
+// the same rule as Save frame, no overlay ever written to a training image.
+captureBtn.addEventListener('click', () => {
+  if (!lastNamed || !detector) return;
+  const video = camera.video;
+  const stamp = Date.now();
+  const dl = (blob: Blob, name: string) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  dl(new Blob([JSON.stringify(debugSnapshot(lastNamed, video), null, 1)], { type: 'application/json' }),
+     `detect-debug-${stamp}.json`);
+  if (video.videoWidth > 0) {
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext('2d')!.drawImage(video, 0, 0);
+    c.toBlob((b) => b && dl(b, `detect-debug-${stamp}.png`), 'image/png');
+  }
+  msg.textContent = `captured detect-debug-${stamp}.{json,png}`;
+});
+
+cellsChk.addEventListener('change', () => {
+  if (!cellsChk.checked) cellsEl.textContent = '';
 });
 
 epSel.addEventListener('change', () => void loadDetector());
