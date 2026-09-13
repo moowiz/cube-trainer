@@ -121,6 +121,10 @@ cd model && make export      # writes web/public/models/facekp.onnx
   model, exact 9-per-colour decoder). Verdict: keep our per-face
   architecture; port the separable pieces (exact decoder, quality gates,
   wasm threads). Read it before redesigning the colour lock or the tracker.
+- `docs/colour-pipeline-postmortem.md` — what one day of phone testing taught
+  about the colour half (centre-cluster identity, ordinal naming, per-cell
+  voting): the failure log, why it is structurally fragile, what to keep,
+  and the redesign options. The colour pipeline is being replaced; start there.
 
 ## Known hard cases (don't be surprised)
 
