@@ -137,9 +137,25 @@ cubes are gone (w/t 1.05). The two misses left are batch-2's dim
 dead-on-against-a-monitor photo (obj 0.15, the open regression since
 box5) and one batch-6 frame at obj 0.18.
 
-Deployed 2026-09-13: `cubebox` = box10, `facekp` = kpft1 (fp32; the int8
+**Stage-2 recipe ablations, same night** (`diagnose.py` on the 96-frame
+val, pad 0.45; log `real_px` is the fine-tune's own selection metric):
+
+| run | recipe | log real_px | mean / median px | F1 | missed / FP | batch 7 mean, missed | far / mid / near src px |
+|---|---|---|---|---|---|---|---|
+| kp1 → kpft1 | scratch on data_v5 only, then `data_real*150` ft | 3.55 | 3.54 / 3.33 | 0.972 | 4 / 6 | 3.67, 1 | 9.95 / 15.8 / 18.4 |
+| kp1 → kpft2 | same, ft with `data_real*60` | 3.69 | - | - | - | - | - |
+| kp2 → **kpft3** | scratch on `data_v5,data_real*20`, then `*150` ft | **3.33** | **3.33 / 3.04** | 0.961 | 4 / 10 | **3.45, 0** | 10.2 / 14.1 / 16.2 |
+
+Real photos in the from-scratch mix help: kp2 alone (no fine-tune) already
+reached 3.52 on the val, kp1 needed its fine-tune for 3.55, and kp2's
+synthetic val_px is better too (2.69 vs 2.77). The lighter fine-tune mix
+(`*60`) is worse than `*150`. kpft3 trades four more false positives at
+score 0.5 (the tracker and seam veto absorb those) for 6% lower corner
+error and a clean batch 7.
+
+Deployed 2026-09-13: `cubebox` = box10, `facekp` = **kpft3** (fp32; the int8
 gate still fails at 8 px mean shift). `web/test/fixtures/facekp-maps-square.json`
-is dumped from kpft1.
+is dumped from kpft3.
 
 ## Architecture: anonymous-quad head (center-v1, 2026-09-12)
 
