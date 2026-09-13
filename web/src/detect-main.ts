@@ -8,7 +8,7 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { FaceDetector, type DetectResult, type Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
-import { DEFAULT_SCHEME_HEX } from './types';
+import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES } from './types';
 
 const app = document.getElementById('app')!;
 app.innerHTML = `
@@ -40,7 +40,7 @@ app.innerHTML = `
         <option value="wasm">EP: wasm</option>
       </select>
       <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
-      <label id="heatLbl" style="display:none"><input type="checkbox" id="heat" checked> heatmap</label>
+      <label id="heatLbl" style="display:none"><input type="checkbox" id="heat"> heatmap</label>
       <span id="epUsed"></span>
     </div>
     <div id="stage"><canvas id="view"></canvas></div>
@@ -127,15 +127,20 @@ async function loop(): Promise<void> {
     if (res.heat && heatChk.checked) drawHeatmap(ctx, res.heat);
     for (const u of res.unnamed) drawQuad(ctx, u.quad.corners, '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5);
     for (const f of res.faces) {
+      // Colour word leads — that's what the user is looking for on the cube,
+      // not the cubejs letter, which asserts an orientation the app has not
+      // established yet (CLAUDE.md: the letter is internal-only notation).
       drawQuad(ctx, f.corners, DEFAULT_SCHEME_HEX[f.face],
-               `${f.face} ${f.conf.toFixed(2)}`, f.conf >= 0.5 ? 4 : 1.5);
+               `${DEFAULT_SCHEME_NAMES[f.face]} ${f.conf.toFixed(2)}`, f.conf >= 0.5 ? 4 : 1.5);
     }
     if (detector.anonymous) exemplarSwatches(swatchEl, detector.exemplars);
     fps.tick();
     stats.textContent =
       `ep ${detector.ep}   input ${video.videoWidth}x${video.videoHeight}\n` +
       `inference ${inferEma.toFixed(1)} ms   end-to-end ${fps.fps.toFixed(1)} fps\n` +
-      `faces: ${res.faces.map((f) => `${f.face} ${f.conf.toFixed(2)}`).join('  ') || '—'}` +
+      // Debug line: colour word leads, cubejs letter shown small/secondary in
+      // parens for correlating against state.ts's facelet string.
+      `faces: ${res.faces.map((f) => `${DEFAULT_SCHEME_NAMES[f.face]} (${f.face}) ${f.conf.toFixed(2)}`).join('  ') || '—'}` +
       (detector.anonymous
         ? `\nquads ${res.quads.length}   dropped: ${res.unnamed.map((u) => u.reason).join(', ') || '—'}`
         : '');
