@@ -12,11 +12,29 @@
 // because only the centre names a face, and it is computed with the app's
 // own labDistance against the app's own live exemplars so it cannot drift
 // from what the centre decision would say.
-import { labDistance } from '../color';
 import type { DetectResult, FaceDetector } from '../detect/facekp';
 import type { CenterExemplars } from '../detect/identify';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { FaceId, Lab } from '../types';
+
+/** One detection tick, as the scan page keeps it for the capture's history. */
+export interface TickSummary {
+  t: number;
+  obj: number;
+  quads: number;
+  named: { face: FaceId; conf: number; nameConf: number }[];
+  refused: string[];
+}
+
+/** Compact record of a tick for the history ring buffer. */
+export function summarizeTick(t: number, obj: number, res: DetectResult | null): TickSummary {
+  return {
+    t, obj: +obj.toFixed(2), quads: res?.quads.length ?? 0,
+    named: (res?.named ?? []).flatMap((n, i) => n.face
+      ? [{ face: n.face, conf: +(res!.quads[i]?.conf ?? 0).toFixed(2), nameConf: +n.nameConf.toFixed(2) }] : []),
+    refused: (res?.unnamed ?? []).map((u) => u.reason),
+  };
+}
 
 export function downloadBlob(blob: Blob, name: string): void {
   const a = document.createElement('a');
@@ -47,13 +65,14 @@ export async function saveRawFrame(video: HTMLVideoElement, prefix: string, stam
 
 export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; d: number; second: number } {
   const ranked = FACE_ORDER
-    .map((f) => ({ f, d: labDistance(lab, exemplars.get(f)) }))
+    .map((f) => ({ f, d: exemplars.distance(lab, f) }))
     .sort((a, b) => a.d - b.d);
   return { face: ranked[0]!.f, d: ranked[0]!.d, second: ranked[1]!.d };
 }
 
 /** Everything the naming layer saw for this detection, as a plain object. */
-export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement): unknown {
+export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
+                              history: readonly TickSummary[] = []): unknown {
   const ex = detector.exemplars;
   return {
     captured: new Date().toISOString(),
@@ -62,9 +81,10 @@ export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: 
     input: { w: video.videoWidth, h: video.videoHeight },
     inferMs: res.inferMs,
     totalMs: res.totalMs,
-    exemplars: FACE_ORDER.map((f) => ({
-      face: f, color: DEFAULT_SCHEME_NAMES[f], measured: ex.isMeasured(f), lab: ex.get(f),
-    })),
+    exemplars: ex.status().map((e) => ({ ...e, color: DEFAULT_SCHEME_NAMES[e.face] })),
+    exemplarRejects: ex.rejected,
+    exemplarHistory: ex.history,
+    ticks: history,
     quads: res.quads.map((q, i) => {
       const n = res.named?.[i];
       return {
@@ -86,9 +106,9 @@ export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: 
 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
 export async function captureDebug(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
-                                   prefix = 'detect-debug'): Promise<string> {
+                                   prefix = 'detect-debug', history: readonly TickSummary[] = []): Promise<string> {
   const stamp = Date.now();
-  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video), null, 1)], { type: 'application/json' }),
+  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video, history), null, 1)], { type: 'application/json' }),
                `${prefix}-${stamp}.json`);
   await saveRawFrame(video, prefix, stamp);
   return `${prefix}-${stamp}`;

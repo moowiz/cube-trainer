@@ -27,7 +27,7 @@ import { warpQuad, type ImageDataLike } from '../rectify';
 // SAME face have near-identical relative-L profiles, so their distance is
 // still chroma-dominated (~6 on the calibration fixtures), while two genuinely
 // different faces only move FURTHER apart once lightness counts fully.
-import { CENTER_MIN_DIST, NAME_L_WEIGHT, normalizeFaceCells } from '../state';
+import { CENTER_MIN_DIST, CLUSTER_L_WEIGHT, NAME_L_WEIGHT, normalizeFaceCells } from '../state';
 import type { ColorName, FaceId, Lab } from '../types';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 
@@ -149,6 +149,14 @@ export class CenterExemplars {
   private prior: Record<FaceId, Lab> | null = null;
   /** Observations refused by the drift / nearest-face guards (debug stat). */
   rejected = 0;
+  /** The last EXEMPLAR_LOG events (accepted and refused observations), oldest first. */
+  readonly history: ExemplarEvent[] = [];
+
+  private log(kind: ExemplarEvent['kind'], face: FaceId, own: number, other?: FaceId, otherD?: number): void {
+    this.history.push({ t: Date.now(), kind, face, own: +own.toFixed(1),
+                        ...(other ? { other, otherD: +(otherD ?? 0).toFixed(1) } : {}) });
+    if (this.history.length > EXEMPLAR_LOG) this.history.shift();
+  }
 
   constructor() {
     const labs = FACE_ORDER.map((f) => hexToLab(DEFAULT_SCHEME_HEX[f]));
@@ -168,51 +176,66 @@ export class CenterExemplars {
     return this.prior[face];
   }
 
+  /** True once this face has a real observed exemplar. */
+  isMeasured(face: FaceId): boolean {
+    return (this.obs.get(face)?.length ?? 0) > 0;
+  }
+
   /**
    * The nominal scheme colours are what a cube looks like in a render; a real
-   * room desaturates them and shifts them all the same way (warm light: +b,
-   * and the camera's white balance on top). Fit that - one chroma scale and
-   * one shift, plus a lightness shift - from the faces that HAVE been
-   * measured, and predict the rest through it. From the captured failure
-   * above: nominal blue sat 55 from the real blue centre, the fitted prior
-   * sits 34, and green (the wrong answer) 62. With one measured face only
-   * the shift is known, so the scale falls back to a typical indoor value.
+   * room drains their chroma. Estimate how much, per axis, from the faces
+   * that HAVE been measured and predict the rest through it.
+   *
+   * Model (DECISION 2026-09-13): prior = (ka * a_nominal, kb * b_nominal),
+   * ka/kb the median ratio measured/nominal over chromatic faces, clamped to
+   * [0.3, 1] - a room never makes a sticker MORE saturated than the render -
+   * plus a lightness shift. No additive chroma shift: warm light moves a
+   * neutral a long way in +b but a saturated sticker much less, so any shift
+   * fitted from white over-predicts the chromatic faces (white alone put the
+   * red prior at b 65 against a measured red at 25), and a shift fitted from
+   * yellow/orange (which LOSE b) sends blue the wrong way (a least-squares
+   * scale+shift on green/yellow/orange, scan-debug-1789291701546, put blue at
+   * b -102). Checked against the fully measured session
+   * scan-debug-1789291642684: from {green, yellow, orange} the predicted
+   * white/red/blue priors are each nearest their own real exemplar.
    */
   private fitPriors(): Record<FaceId, Lab> {
     const measured = FACE_ORDER.filter((f) => this.isMeasured(f));
     const out = { ...this.seed };
     if (measured.length === 0) return out;
-    const ms = measured.map((f) => labMedian(this.obs.get(f)!));
-    const ss = measured.map((f) => this.seed[f]);
-    const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
-    const sa = mean(ss.map((c) => c.a));
-    const sb = mean(ss.map((c) => c.b));
-    const ma = mean(ms.map((c) => c.a));
-    const mb = mean(ms.map((c) => c.b));
-    let k = PRIOR_SCALE_ONE_FACE;
-    if (measured.length >= 2) {
-      let num = 0;
-      let den = 0;
-      ss.forEach((c, i) => {
-        num += (c.a - sa) * (ms[i]!.a - ma) + (c.b - sb) * (ms[i]!.b - mb);
-        den += (c.a - sa) ** 2 + (c.b - sb) ** 2;
-      });
-      if (den > 0) k = Math.max(PRIOR_SCALE_MIN, Math.min(PRIOR_SCALE_MAX, num / den));
-    }
-    const ta = ma - k * sa;
-    const tb = mb - k * sb;
-    const tL = mean(ms.map((c, i) => c.L - ss[i]!.L));
+    const m = new Map(measured.map((f) => [f, labMedian(this.obs.get(f)!)]));
+    const med = (xs: number[]) => { const t = [...xs].sort((x, y) => x - y); return t[t.length >> 1]!; };
+    const ratio = (axis: 'a' | 'b') => {
+      const rs = measured.filter((f) => Math.abs(this.seed[f][axis]) > 15).map((f) => m.get(f)![axis] / this.seed[f][axis]);
+      return rs.length ? Math.max(PRIOR_SCALE_MIN, Math.min(PRIOR_SCALE_MAX, med(rs))) : PRIOR_SCALE_ONE_FACE;
+    };
+    const ka = ratio('a');
+    const kb = ratio('b');
+    const tL = med(measured.map((f) => m.get(f)!.L - this.seed[f].L));
     for (const f of FACE_ORDER) {
       if (this.isMeasured(f)) continue;
       const c = this.seed[f];
-      out[f] = { L: c.L + tL, a: k * c.a + ta, b: k * c.b + tb };
+      out[f] = { L: c.L + tL, a: ka * c.a, b: kb * c.b };
     }
     return out;
   }
 
-  /** True once this face has a real observed exemplar. */
-  isMeasured(face: FaceId): boolean {
-    return (this.obs.get(face)?.length ?? 0) > 0;
+  /**
+   * Distance from a normalized centre to a face's exemplar. Lightness in the
+   * naming space is relative to the face's OWN median, so it depends on which
+   * eight stickers surround the centre: a red exemplar learned on a face where
+   * red was the darkest sticker carries L -27, and a red sticker on a face
+   * where it is the median sits at 0 (scan-debug-1789291642684: red cells
+   * ranked orange 23 vs red 29 for exactly this reason). Against a MEASURED
+   * exemplar the L term is therefore mostly scramble noise and is weighted
+   * like the clustering space; against a nominal prior it is the only thing
+   * that separates a dark, chroma-drained blue from white (naming-space.test)
+   * and keeps its full weight.
+   */
+  distance(center: Lab, face: FaceId): number {
+    const e = this.get(face);
+    const w = this.isMeasured(face) ? MEASURED_L_WEIGHT : 1;
+    return Math.hypot((center.L - e.L) * w, center.a - e.a, center.b - e.b);
   }
 
   /**
@@ -227,11 +250,17 @@ export class CenterExemplars {
     // Guards (DECISION 2026-09-13, see MAX_OBS_DRIFT): a track keeps its face
     // id while the cube turns, so the reading it hands in can be a different
     // sticker. That reading must not teach this face a new colour.
-    const own = labDistance(center, this.get(face));
-    if (this.isMeasured(face) && own > MAX_OBS_DRIFT) { this.rejected++; return false; }
+    const own = this.distance(center, face);
+    if (this.isMeasured(face) && own > MAX_OBS_DRIFT) { this.rejected++; this.log('reject', face, own); return false; }
+    // Only measured faces can veto: a prior is an estimate, not evidence.
     for (const other of FACE_ORDER) {
-      if (other !== face && labDistance(center, this.get(other)) < own) { this.rejected++; return false; }
+      if (other !== face && this.isMeasured(other) && this.distance(center, other) < own) {
+        this.rejected++;
+        this.log('reject', face, own, other, this.distance(center, other));
+        return false;
+      }
     }
+    this.log('observe', face, own);
     const list = this.obs.get(face) ?? [];
     list.push(center);
     this.prior = null;
@@ -259,22 +288,81 @@ export class CenterExemplars {
     return out;
   }
 
+  /** For the debug panel: what each face's exemplar is and how it got there. */
+  status(): { face: FaceId; measured: boolean; n: number; lab: Lab }[] {
+    return FACE_ORDER.map((f) => ({ face: f, measured: this.isMeasured(f), n: this.obs.get(f)?.length ?? 0, lab: this.get(f) }));
+  }
+
   reset(): void {
     this.obs.clear();
     this.raw.clear();
     this.prior = null;
     this.rejected = 0;
+    this.history.length = 0;
   }
 }
 
-// Prior fit: chroma scale bounds, and the scale assumed with one measured face.
-const PRIOR_SCALE_MIN = 0.4;
-const PRIOR_SCALE_MAX = 1.2;
+export interface ExemplarEvent {
+  t: number;
+  kind: 'observe' | 'reject';
+  face: FaceId;
+  /** Distance of the reading to this face's exemplar. */
+  own: number;
+  /** For a reject by the nearest-face guard: the face that was nearer, and how near. */
+  other?: FaceId;
+  otherD?: number;
+}
+const EXEMPLAR_LOG = 200;
+// L weight against a measured exemplar (see CenterExemplars.distance); the
+// clustering space uses the same value for the same reason.
+const MEASURED_L_WEIGHT = CLUSTER_L_WEIGHT;
+
+// Prior fit: per-axis chroma ratio bounds, and the ratio assumed when no
+// measured face says anything about that axis.
+const PRIOR_SCALE_MIN = 0.3;
+const PRIOR_SCALE_MAX = 1.0;
 const PRIOR_SCALE_ONE_FACE = 0.8;
 
 function med(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   return Math.round(s[s.length >> 1]!);
+}
+
+// A reading further than this from EVERY measured exemplar is not one of the
+// colours seen so far (same colour under drift stays within MAX_OBS_DRIFT; a
+// different colour is 40-60 away).
+export const FAR_FROM_MEASURED = 35;
+
+/**
+ * Which face a centre reading names, with the margin it names it by.
+ *
+ * The six colours are mutually exclusive, and measured exemplars are evidence
+ * while priors are guesses, so the decision goes in two steps: if the nearest
+ * exemplar is measured and clearly nearer than the runner-up, that is it. If
+ * the reading is far from every measured colour it must be one of the
+ * unmeasured ones, and the priors only have to separate those among
+ * themselves - on scan-debug-1789290604959 the real blue sat 47 from the
+ * fitted blue prior and 52 from measured white (a 10% margin, refused if the
+ * priors competed with the evidence) but 70 from the next unmeasured prior.
+ */
+export function pickFace(ranked: readonly { f: FaceId; d: number }[], exemplars: CenterExemplars):
+    { ok: boolean; best: { f: FaceId; d: number }; second: { f: FaceId; d: number }; nameConf: number } {
+  const conf = (a: { d: number }, b: { d: number }) => (b.d > 0 ? Math.max(0, Math.min(1, 1 - a.d / b.d)) : 0);
+  const best = ranked[0]!;
+  const second = ranked[1] ?? { f: best.f, d: Infinity };
+  const overall = conf(best, second);
+  if (exemplars.isMeasured(best.f) || ranked.every((r) => !exemplars.isMeasured(r.f))) {
+    return { ok: overall >= MIN_NAME_CONF, best, second, nameConf: overall };
+  }
+  const measured = ranked.filter((r) => exemplars.isMeasured(r.f));
+  const priors = ranked.filter((r) => !exemplars.isMeasured(r.f));
+  if (measured[0]!.d < FAR_FROM_MEASURED) {
+    // near a measured colour but nearer a prior: not decidable
+    return { ok: false, best, second, nameConf: overall };
+  }
+  const p2 = priors[1] ?? { f: priors[0]!.f, d: Infinity };
+  const among = conf(priors[0]!, p2);
+  return { ok: among >= MIN_NAME_CONF, best: priors[0]!, second: p2, nameConf: among };
 }
 
 /**
@@ -370,15 +458,15 @@ export function nameQuads(
     const cellsNorm = normalizeFaceCells(cells, NAME_L_WEIGHT);
     const center = cellsNorm[4]!;
     const ranked = FACE_ORDER
-      .map((f) => ({ f, d: labDistance(center, exemplars.get(f)) }))
+      .map((f) => ({ f, d: exemplars.distance(center, f) }))
       .sort((a, b) => a.d - b.d);
-    const [best, second] = ranked as [{ f: FaceId; d: number }, { f: FaceId; d: number }];
-    const nameConf = second.d > 0 ? Math.max(0, Math.min(1, 1 - best.d / second.d)) : 0;
     const cellRgb = samples.map((s) => s.rgb);
-    if (nameConf < MIN_NAME_CONF) {
+    const pick = pickFace(ranked, exemplars);
+    const { best, nameConf } = pick;
+    if (!pick.ok) {
       out[i] = { face: null, color: null, nameConf, center, rgb: samples[4]!.rgb, minEdgePx: minEdge,
                  cells, cellsNorm, cellRgb, ranked: ranked.map((r) => ({ face: r.f, d: r.d })),
-                 reason: `${AMBIGUOUS_REASON} (${colorOf(best.f)} ${best.d.toFixed(0)} vs ${colorOf(second.f)} ${second.d.toFixed(0)})` };
+                 reason: `${AMBIGUOUS_REASON} (${colorOf(best.f)} ${best.d.toFixed(0)} vs ${colorOf(pick.second.f)} ${pick.second.d.toFixed(0)})` };
       return;
     }
     // `dbg` is the evidence this decision was made from, carried out verbatim

@@ -42,3 +42,4 @@ details#debug summary { cursor: pointer; color: #8b93a3; }
 #grid { display: none; background: #eceef2; color: #1b222c; border-radius: 8px; padding: 12px; }
 body.grid #grid { display: block; }
 body.grid .auto { display: none !important; }
+#exemplars { font: 11px ui-monospace, monospace; white-space: pre; color: #c8ccd6; background: #1a1e26; border-radius: 8px; padding: 8px 10px; margin-top: 8px; overflow-x: auto; }

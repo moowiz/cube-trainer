@@ -25,4 +25,6 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
 - `scan-debug-<ts>.json` — **Capture debug** on scan.html: the naming
   evidence for one detection tick (exemplars, each quad's centre/cells in the
   naming space, the ranked distances). `-1789290592829` / `-1789290604959` are
-  the blue-named-green lock-in that exemplar-guard.test.ts pins down.
+  the blue-named-green lock-in that exemplar-guard.test.ts pins down;
+  `-1789291642684` (all six measured) / `-1789291701546` (fresh session, three
+  measured) are the red-as-orange readout and the runaway prior fit.
