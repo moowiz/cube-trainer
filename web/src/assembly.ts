@@ -107,6 +107,19 @@ export class StickerVoter {
     return this.samples.get(`${cluster}:${i}`) ?? [];
   }
 
+  /** All samples of one cell across every cluster mapped to the face (a colour may be split over clusters). */
+  private faceCellSamples(face: FaceId, faceMap: ReadonlyMap<number, FaceId>, i: number): Lab[] {
+    const out: Lab[] = [];
+    for (const [cluster, f] of faceMap) if (f === face) out.push(...this.cellSamples(cluster, i));
+    return out;
+  }
+
+  private faceFill(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): number {
+    let have = 0;
+    for (let i = 0; i < 9; i++) have += Math.min(this.faceCellSamples(face, faceMap, i).length, MIN_SAMPLES);
+    return have / (9 * MIN_SAMPLES);
+  }
+
   private clusterIds(): number[] {
     const ids = new Set<number>();
     for (const key of this.samples.keys()) ids.add(Number(key.split(':')[0]));
@@ -122,12 +135,10 @@ export class StickerVoter {
   /** Try to lock with the given binding; the caller may call this after a re-binding without new samples. */
   tryLock(faceMap: ReadonlyMap<number, FaceId>): void {
     if (this.locked) return;
-    const byFace = new Map<FaceId, number>();
-    for (const [cluster, face] of faceMap) if (this.fill(cluster) >= 1) byFace.set(face, cluster);
-    for (const f of FACE_ORDER) if (!byFace.has(f)) return;
+    for (const f of FACE_ORDER) if (this.faceFill(f, faceMap) < 1) return;
     const captures = FACE_ORDER.map((face) => ({
       face,
-      cells: Array.from({ length: 9 }, (_, i) => labMedian(this.cellSamples(byFace.get(face)!, i))),
+      cells: Array.from({ length: 9 }, (_, i) => labMedian(this.faceCellSamples(face, faceMap, i))),
     }));
     try {
       const assembled = resolveByPieces(assembleState(captures));
@@ -147,22 +158,16 @@ export class StickerVoter {
     const faceFill = {} as Record<FaceId, number>;
     for (const f of FACE_ORDER) faceFill[f] = 0;
     const unboundFill: Record<number, number> = {};
-    for (const cluster of this.clusterIds()) {
-      const face = faceMap.get(cluster);
-      if (face) faceFill[face] = Math.max(faceFill[face], this.fill(cluster));
-      else unboundFill[cluster] = this.fill(cluster);
-    }
+    for (const f of FACE_ORDER) faceFill[f] = this.faceFill(f, faceMap);
+    for (const cluster of this.clusterIds()) if (!faceMap.has(cluster)) unboundFill[cluster] = this.fill(cluster);
     const lowConfidence: number[] = [];
     if (this.locked) {
       // dispersion of each cell's reservoir around its median, worst first
-      const clusterOf = new Map<FaceId, number>();
-      for (const [cluster, face] of faceMap) clusterOf.set(face, cluster);
       const spread: Array<[number, number]> = [];
       FACE_ORDER.forEach((face, fi) => {
-        const cluster = clusterOf.get(face);
-        if (cluster === undefined) return;
         for (let i = 0; i < 9; i++) {
-          const r = this.cellSamples(cluster, i);
+          const r = this.faceCellSamples(face, faceMap, i);
+          if (!r.length) continue;
           const med = labMedian(r);
           const d = r.reduce((s, x) => s + labDistance(x, med), 0) / Math.max(r.length, 1);
           spread.push([fi * 9 + i, d]);

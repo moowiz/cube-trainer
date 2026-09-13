@@ -131,9 +131,18 @@ const fps = new FpsCounter();
 const tracker = new QuadTracker();
 const voter = new StickerVoter();
 const clusters = new ColorClusters();
-clusters.onMerge = (from, into) => voter.mergeClusters(from, into);
 const trackCluster = new Map<number, number>();   // track id -> session colour cluster
-const rotations = new Map<number, number>();      // track id -> resolved sticker-layout rotation
+clusters.onMerge = (from, into) => {
+  voter.mergeClusters(from, into);
+  for (const [t, c] of trackCluster) if (c === from) trackCluster.set(t, into);
+  for (const [t, r] of rotations) if (r.cluster === from) rotations.set(t, { rot: r.rot, cluster: into });
+};
+// track id -> resolved sticker-layout rotation, valid only while the track
+// still reads as the cluster it was resolved for: a track that slides onto a
+// different physical face during a cube turn (geometry association) must not
+// carry the old face's rotation, or every neighbour it then "identifies" is
+// wrong (scan-debug-1789308171326).
+const rotations = new Map<number, { rot: number; cluster: number }>();
 let adjacencyBinds = 0;
 let oppositeConflicts = 0;
 const work = document.createElement('canvas');
@@ -213,6 +222,17 @@ function faceOfTrack(t: TrackedQuad): FaceId | null {
   return c === undefined ? null : clusters.faceOf(c);
 }
 
+/** A track's remembered rotation, if it was resolved for the cluster the track reads as now. */
+function rotationOf(id: number): number | undefined {
+  const r = rotations.get(id);
+  return r && trackCluster.get(id) === r.cluster ? r.rot : undefined;
+}
+
+function setRotation(id: number, rot: number): void {
+  const cluster = trackCluster.get(id);
+  if (cluster !== undefined) rotations.set(id, { rot, cluster });
+}
+
 /** 9 Lab cells of a quad, sampled from the native-resolution frame. */
 function sampleFace(frame: ImageDataLike, quad: [number, number][]): Lab[] {
   const warped = warpQuad(frame, quad, 90);
@@ -239,7 +259,7 @@ function drawOverlay(tracks: TrackedQuad[]): void {
     const strong = t.conf >= SAMPLE_CONF;
     const face = faceOfTrack(t);
     const cl = trackCluster.get(t.id);
-    const rot = rotations.get(t.id);
+      const rot = rotationOf(t.id);
     ctx.globalAlpha = strong ? 1 : 0.5;
     const label = `${face ? DEFAULT_SCHEME_NAMES[face] : cl !== undefined ? `cluster ${cl}?` : '?'}${rot === undefined ? ' ↻?' : ''} ${t.conf.toFixed(2)}`;
     drawQuad(ctx, t.corners, face ? DEFAULT_SCHEME_HEX[face] : '#cfd3dc', label, strong ? 4 : 1.5);
@@ -255,10 +275,10 @@ function isQualityRefusal(reason: string): boolean {
 /** Live cluster table: the session's colours, how each was named, and which track is which. */
 function renderClusters(tracks: TrackedQuad[]): void {
   const rows = clusters.clusters().map((c) =>
-    `cluster ${c.id}  ${(c.color ?? '?').padEnd(7)} ${c.bound ? 'bound ' : 'ordinal'} x${String(c.n).padStart(2)}  `
+    `cluster ${c.id}  ${(c.color ?? '?').padEnd(7)} ${(c.aliasOf !== null ? `alias of ${c.aliasOf}` : c.bound && c.bound === c.color ? 'bound' : c.bound ? `ordinal (adj says ${c.bound})` : 'ordinal').padEnd(7)} x${String(c.n).padStart(2)}  `
     + `a ${c.centroid.a.toFixed(0).padStart(4)} b ${c.centroid.b.toFixed(0).padStart(4)} hue ${hueDeg(c.centroid).toFixed(0).padStart(3)}  `
     + `tracks ${tracks.filter((t) => trackCluster.get(t.id) === c.id).map((t) => `#${t.id}`).join(' ') || '—'}`);
-  exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   opposite conflicts ${oppositeConflicts}`;
+  exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   rejected ${clusters.rejectedBinds}   opposite conflicts ${oppositeConflicts}`;
 }
 
 function updateFillUI(): void {
@@ -352,16 +372,18 @@ async function loop(ts: number): Promise<void> {
       const distinct = lettered.filter((x, i) => lettered.findIndex((y) => y.face === x.face) === i);
       if (distinct.length >= 2) {
         const res = resolveOrientations(distinct.map((x) => ({ face: x.face, corners: x.t.corners })));
-        for (const x of distinct) { const k = res.rotations[x.face]; if (k !== undefined) rotations.set(x.t.id, k); }
+        for (const x of distinct) { const k = res.rotations[x.face]; if (k !== undefined) setRotation(x.t.id, k); }
       }
 
       // 3. adjacency: an undecided face sharing an edge with an oriented,
       //    lettered neighbour IS the face on that side of the neighbour -
-      //    bind its cluster's colour (a lone warm face becomes red or
-      //    orange from geometry). Two lettered faces sharing an edge that
-      //    are opposites cannot both be right: neither votes this frame.
-      const oriented = distinct.filter((x) => rotations.has(x.t.id))
-        .map((x) => ({ face: x.face, corners: orientQuad(x.t.corners, rotations.get(x.t.id)!), conf: x.t.conf, t: x.t }));
+      //    one frame of evidence for its cluster's colour (a lone warm face
+      //    becomes red or orange from geometry once enough frames agree).
+      //    Two lettered faces sharing an edge that are opposites cannot
+      //    both be right: neither votes this frame, and whichever of them
+      //    owes its letter to adjacency loses some of that evidence.
+      const oriented = distinct.filter((x) => rotationOf(x.t.id) !== undefined)
+        .map((x) => ({ face: x.face, corners: orientQuad(x.t.corners, rotationOf(x.t.id)!), conf: x.t.conf, t: x.t }));
       const conflicted = new Set<number>();
       for (const known of oriented) {
         for (const other of confident) {
@@ -372,11 +394,18 @@ async function loop(ts: number): Promise<void> {
           if (!id) continue;
           const otherFace = clusters.faceOf(cl);
           if (!otherFace) {
-            if (clusters.bind(cl, DEFAULT_SCHEME_NAMES[id.face])) { adjacencyBinds++; rotations.set(other.id, id.rotation); }
+            const wasBound = clusters.bindingOf(cl) !== null;
+            if (clusters.suggest(cl, DEFAULT_SCHEME_NAMES[id.face]) === 'bound') {
+              if (!wasBound) adjacencyBinds++;
+              setRotation(other.id, id.rotation);
+            }
           } else if (otherFace === OPPOSITE[known.face]) {
             conflicted.add(other.id);
             conflicted.add(known.t.id);
             oppositeConflicts++;
+            clusters.contradict(cl);
+            const kc = trackCluster.get(known.t.id);
+            if (kc !== undefined) clusters.contradict(kc);
           }
         }
       }
@@ -469,8 +498,8 @@ captureBtn.addEventListener('click', () => {
   if (!lastTick?.result || !models) { msgEl.textContent = 'nothing to capture: no stage-2 result on the last tick'; return; }
   const extra = {
     clusters: clusters.clusters().map((c) => ({ ...c, hue: +hueDeg(c.centroid).toFixed(1) })),
-    tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotations.get(id) ?? null })),
-    adjacencyBinds, oppositeConflicts,
+    tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotationOf(id) ?? null })),
+    adjacencyBinds, rejectedBinds: clusters.rejectedBinds, oppositeConflicts,
     progress: voter.progress(clusters.faceMap()),
   };
   void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory, extra)

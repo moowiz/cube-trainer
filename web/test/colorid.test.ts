@@ -2,8 +2,9 @@
 // phone measurements, cluster birth/merge, adjacency bindings.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BIRTH_DIST, ColorClusters, hueDeg, nameClusters } from '../src/detect/colorid';
-import { FACE_ORDER } from '../src/types';
+import { BIND_MIN_VOTES, BIRTH_DIST, ColorClusters, couldBe, hueDeg, nameClusters, sameCluster } from '../src/detect/colorid';
+import { labDistance } from '../src/color';
+import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../src/types';
 import type { ColorName, FaceId, Lab } from '../src/types';
 
 // The fully measured session scan-debug-1789291642684 (warm room light):
@@ -80,12 +81,18 @@ describe('ColorClusters (online)', () => {
     expect(map.size).toBe(6);
   });
 
-  it('never grows past six: a seventh colour joins its nearest cluster', () => {
+  it('a seventh colour gets its own cluster, takes no rank, and aliases to the face it could be', () => {
     const cc = new ColorClusters();
     for (const f of FACE_ORDER) cc.observe(cellsWithCentre(MEASURED[f]));
-    const id = cc.observe(cellsWithCentre({ L: 0, a: 20, b: 80 })); // an odd yellow-orange
-    expect(cc.size()).toBe(6);
-    expect(cc.faceOf(id)).not.toBeNull(); // it joined an existing, named cluster
+    const id = cc.observe(cellsWithCentre({ L: 0, a: 0, b: 80 })); // an odd bright yellow, 28 from yellow
+    expect(cc.size()).toBe(7);
+    const c = cc.clusters().find((x) => x.id === id)!;
+    expect(c.aliasOf).not.toBeNull();
+    expect(c.color).toBe('yellow');
+    for (const f of FACE_ORDER) expect(cc.faceOf(f === 'D' ? id : cc.clusters().find((x) => x.color === DEFAULT_SCHEME_NAMES[f] && x.aliasOf === null)!.id)).toBe(f);
+    const junk = cc.observe(cellsWithCentre({ L: 0, a: 35, b: -15 })); // no rank of its own, nothing it could be within ALIAS_DIST
+    expect(cc.faceOf(junk)).toBeNull();
+    expect(cc.faceMap().size).toBe(7);
   });
 
   it('merges two clusters that drift together and reports the merge', () => {
@@ -108,5 +115,149 @@ describe('ColorClusters (online)', () => {
     expect(cc.bind(r, 'red')).toBe(true);
     expect(cc.bind(l, 'red')).toBe(false);
     expect(cc.colorOf(l)).toBe('orange');
+  });
+});
+
+// scan-debug-1789308171326: a stale rotation on a swapped track bound the
+// yellow cluster "orange" and the orange cluster "blue" (one frame each,
+// permanent), and the real blue was left with no name. Ordinal rank must
+// win over a binding, and such bindings must never be admitted.
+describe('adjacency bindings vs ordinal rank', () => {
+  const cascade = JSON.parse(readFileSync(new URL('scan-debug-1789308171326.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null }[];
+  };
+  const byId = (id: number) => cascade.clusters.find((c) => c.id === id)!.centroid;
+  const RIGHT: Record<number, ColorName> = { 1: 'blue', 2: 'green', 3: 'white', 5: 'yellow', 6: 'red', 7: 'orange' };
+
+  it('names the six clusters of the cascade capture by rank despite its bindings', () => {
+    const named = nameClusters(cascade.clusters);
+    for (const [id, col] of Object.entries(RIGHT)) expect(named.get(Number(id))).toBe(col);
+  });
+
+  it('couldBe refuses the impossible bindings of the capture and admits the possible one', () => {
+    expect(couldBe(byId(5), 'orange')).toBe(false); // a = -9: not warm
+    expect(couldBe(byId(7), 'blue')).toBe(false); // b = +34: not cool
+    expect(couldBe(byId(6), 'red')).toBe(true);
+    expect(couldBe(byId(1), 'blue')).toBe(true);
+    expect(couldBe(byId(3), 'white')).toBe(true);
+  });
+
+  it('suggest() rejects impossible colours outright and counts rejections', () => {
+    const cc = new ColorClusters();
+    const y = cc.observe(cellsWithCentre(byId(5)));
+    expect(cc.suggest(y, 'orange')).toBe('rejected');
+    expect(cc.rejectedBinds).toBe(1);
+    expect(cc.bindingOf(y)).toBeNull();
+  });
+
+  it('a binding needs BIND_MIN_VOTES agreeing frames and erodes under contradiction', () => {
+    const cc = new ColorClusters();
+    const r = cc.observe(cellsWithCentre(MEASURED.R)); // lone warm: undecidable by rank
+    expect(cc.colorOf(r)).toBeNull();
+    for (let i = 1; i < BIND_MIN_VOTES; i++) expect(cc.suggest(r, 'red')).toBe('pending');
+    expect(cc.colorOf(r)).toBeNull();
+    expect(cc.suggest(r, 'red')).toBe('bound');
+    expect(cc.colorOf(r)).toBe('red');
+    // a long-standing binding survives one contradicting frame, not a run of them
+    for (let i = 0; i < 4; i++) cc.suggest(r, 'red');
+    cc.contradict(r);
+    expect(cc.colorOf(r)).toBe('red');
+    for (let i = 0; i < 3; i++) cc.contradict(r);
+    expect(cc.colorOf(r)).toBeNull();
+  });
+
+  it('a split vote never binds: the lead must double the runner-up', () => {
+    const cc = new ColorClusters();
+    const r = cc.observe(cellsWithCentre(MEASURED.R));
+    for (let i = 0; i < BIND_MIN_VOTES; i++) { cc.suggest(r, 'red'); cc.suggest(r, 'orange'); }
+    expect(cc.bindingOf(r)).toBeNull();
+  });
+
+  it('rank overrules a binding once the second warm cluster shows up', () => {
+    const cc = new ColorClusters();
+    const l = cc.observe(cellsWithCentre(MEASURED.L));
+    expect(cc.bind(l, 'red')).toBe(true); // wrong, but admissible while it is the only warm cluster
+    expect(cc.colorOf(l)).toBe('red');
+    const r = cc.observe(cellsWithCentre(MEASURED.R));
+    expect(cc.colorOf(r)).toBe('red'); // lower hue
+    expect(cc.colorOf(l)).toBe('orange');
+  });
+});
+
+// scan-debug-1789308736891: green split into two clusters (chroma 62 on the
+// lit side, 40 in shadow, 22 apart), which used up the sixth slot; the white
+// centre was forced into the dim green, and adjacency then bound that
+// cluster "white", the blue "yellow" and the yellow "blue".
+describe('a colour split over two clusters', () => {
+  const split = JSON.parse(readFileSync(new URL('scan-debug-1789308736891.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null }[];
+  };
+  const RIGHT: Record<number, ColorName> = { 1: 'red', 2: 'green', 3: 'orange', 5: 'blue', 6: 'yellow' };
+
+  it('ranks name five and leave the dim green unnamed; the three cascade bindings are impossible', () => {
+    const named = nameClusters(split.clusters);
+    for (const [id, col] of Object.entries(RIGHT)) expect(named.get(Number(id))).toBe(col);
+    expect(named.get(4)).toBeUndefined();
+    for (const c of split.clusters) if (c.bound && c.id !== 1) expect(couldBe(c.centroid, c.bound)).toBe(false); // 1 is the one honest binding (red)
+  });
+
+  it('the dim green aliases to green and a late white centre still gets its own cluster', () => {
+    const cc = new ColorClusters();
+    const ids = new Map<number, number>();
+    for (const c of split.clusters) ids.set(c.id, cc.observe(cellsWithCentre(c.centroid)));
+    expect(cc.size()).toBe(6);
+    const dim = cc.clusters().find((x) => x.id === ids.get(4))!;
+    expect(dim.color).toBe('green');
+    expect(dim.aliasOf).toBe(ids.get(2));
+    const white = cc.observe(cellsWithCentre({ L: 0, a: 1, b: 9 }));
+    expect(cc.size()).toBe(7);
+    expect(cc.faceOf(white)).toBe('U');
+    expect(cc.faceOf(ids.get(4)!)).toBe('F');
+    expect(cc.faceMap().size).toBe(7);
+  });
+});
+
+describe('warm clusters: red/orange by hue gap', () => {
+  const warm = (hue: number, c = 65): Lab => ({ L: 0, a: c * Math.cos((hue * Math.PI) / 180), b: c * Math.sin((hue * Math.PI) / 180) });
+
+  it('daylight red and orange 16 apart in ab are born as two clusters (hue 13 apart)', () => {
+    const split = JSON.parse(readFileSync(new URL('scan-debug-1789308736891.json', dir), 'utf8')) as { clusters: { id: number; centroid: Lab }[] };
+    const red = split.clusters.find((c) => c.id === 1)!.centroid;
+    const orange = split.clusters.find((c) => c.id === 3)!.centroid;
+    expect(labDistance(red, orange)).toBeLessThan(BIRTH_DIST);
+    expect(sameCluster(red, orange, labDistance(red, orange))).toBe(false);
+    const cc = new ColorClusters();
+    const r = cc.observe(cellsWithCentre(red));
+    const o = cc.observe(cellsWithCentre(orange));
+    expect(o).not.toBe(r);
+    expect(cc.colorOf(r)).toBe('red');
+    expect(cc.colorOf(o)).toBe('orange');
+  });
+
+  it('a red seen twice (4 deg apart) plus orange: the gap splits them 2 + 1', () => {
+    const named = nameClusters([{ id: 1, centroid: warm(30) }, { id: 2, centroid: warm(34) }, { id: 3, centroid: warm(47) }]);
+    expect(named.get(1)).toBe('red');
+    expect(named.get(2)).toBe('red');
+    expect(named.get(3)).toBe('orange');
+  });
+
+  it('two warm clusters 4 deg apart are one colour seen twice, not red and orange', () => {
+    expect(nameClusters([{ id: 1, centroid: warm(30) }, { id: 2, centroid: warm(34) }]).size).toBe(0);
+    // bound red on one: the other is red too (alias), never the remaining orange
+    const bound = nameClusters([{ id: 1, centroid: warm(30), bound: 'red' }, { id: 2, centroid: warm(34) }]);
+    expect(bound.get(1)).toBe('red');
+    expect(bound.get(2)).toBeUndefined();
+    const cc = new ColorClusters();
+    const a = cc.observe(cellsWithCentre(warm(30)));
+    const b = cc.observe(cellsWithCentre(warm(34, 40))); // same hue band, shadow side: 25 away in ab
+    expect(b).not.toBe(a);
+    expect(cc.bind(a, 'red')).toBe(true);
+    expect(cc.colorOf(b)).toBe('red');
+    expect(cc.clusters().find((c) => c.id === b)!.aliasOf).toBe(a);
+  });
+
+  it('a lone dim green is never yellow (hue 145 is past the yellow band)', () => {
+    expect(nameClusters([{ id: 1, centroid: { L: 0, a: -33, b: 23 } }]).get(1)).toBe('green');
+    expect(couldBe({ L: 0, a: -33, b: 23 }, 'yellow')).toBe(false);
   });
 });
