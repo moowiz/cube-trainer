@@ -68,7 +68,7 @@ for (const ep of ['webgpu', 'wasm']) {
       // would read as a failure when the model is in fact fine.
       const found = (result.anonymous ? `quads=${result.quads} named=${result.faces}` : `faces=${result.faces}`)
         + `  stage1=${result.stage1 ? (result.stage1.box ? `box obj ${result.stage1.obj}` : `miss obj ${result.stage1.obj}`) : 'n/a'}`;
-      console.log(`OK  ep=${result.ep}  avg ${result.avgMs.toFixed(1)} ms/inference  (${result.fps.toFixed(1)}/s desktop-headless)  ${found}  [${result.model}${result.anonymous ? ', anonymous' : ''}]`);
+      console.log(`OK  ep=${result.ep}${result.offThread ? " (worker)" : ""} x${result.threads}  avg ${result.avgMs.toFixed(1)} ms/inference  (${result.fps.toFixed(1)}/s desktop-headless)  ${found}  [${result.model}${result.anonymous ? ', anonymous' : ''}]`);
       if (process.env.CHECK_FRAME) {
         console.log(`    scores ${JSON.stringify(result.scores)}  names ${JSON.stringify(result.names)}`);
         console.log(`    first quad corners ${JSON.stringify(result.corner0)}`);

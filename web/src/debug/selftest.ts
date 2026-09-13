@@ -48,7 +48,7 @@ export function installDetectSelfTest(host: SelfTestHost): void {
       const ms = (performance.now() - t0) / iters;
       const r = last!.result;
       return {
-        ok: true, ep: m.detector.ep, avgMs: ms, fps: 1000 / ms,
+        ok: true, ep: m.detector.ep, offThread: m.detector.proxied, threads: m.detector.threads, avgMs: ms, fps: 1000 / ms,
         stage1: { obj: +last!.obj.toFixed(3), box: last!.box?.box.map((v) => Math.round(v)) ?? null },
         faces: r?.faces.length ?? 0, quads: r?.quads.length ?? 0,
         anonymous: m.detector.anonymous, model: `${m.localizer.modelId} -> ${m.detector.modelId}`,
