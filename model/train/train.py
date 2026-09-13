@@ -110,6 +110,14 @@ def main():
     torch.backends.cudnn.benchmark = True
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    # watch.py reads this for the ETA: the log lines alone never say how many
+    # epochs the run is aiming at. Written before epoch 1 so a run is
+    # projectable from its first line, and rewritten on --resume.
+    (out / "meta.json").write_text(json.dumps({
+        "epochs": args.epochs, "data": args.data, "batch": args.batch,
+        "workers": args.workers, "head": args.head, "lr": args.lr,
+        "started": time.time(),
+    }, indent=1))
 
     roots = []
     for spec in args.data.split(","):

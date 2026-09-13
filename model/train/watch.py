@@ -7,6 +7,10 @@ Parses every runs/*-console.log (and runs/<name>/log.txt) into per-epoch
 numbers and serves a single page with charts per run (val_px, train+val
 loss combined, conf accuracy), 5 newest runs, ~1 min auto-refresh, synced
 hover readout across a run's charts. Local only by default.
+
+Total epochs (for the progress bar and ETA) come from runs/<name>/meta.json,
+which train.py writes before epoch 1; runs without one still chart, just
+without a projection.
 """
 from __future__ import annotations
 
@@ -34,6 +38,13 @@ def parse_runs():
         ]
         if rows and (name not in out or len(rows) > len(out[name]["rows"])):
             out[name] = {"mtime": lf.stat().st_mtime, "rows": rows}
+    for name, rec in out.items():
+        meta = RUNS / name / "meta.json"
+        if meta.exists():
+            try:
+                rec["epochs"] = int(json.loads(meta.read_text())["epochs"])
+            except (ValueError, KeyError, OSError):
+                pass  # a half-written or hand-made meta just costs the ETA
     return out
 
 
@@ -64,6 +75,10 @@ table { border-collapse:collapse; font-variant-numeric:tabular-nums; margin-top:
 td,th { padding:0.15rem 0.8rem 0.15rem 0; text-align:right; color:#aab2c0; }
 th { color:#e8eaf0; }
 .now { color:#7ce38b; }
+.eta { color:#e0a458; }
+.stale { color:#e06c75; }
+.bar { height:4px; background:#242830; border-radius:3px; overflow:hidden; margin:0.15rem 0 0; }
+.bar i { display:block; height:100%; background:#7aa2ff; transition:width 0.4s; }
 </style>
 <main>
 <h1>Cube detector &mdash; training dashboard</h1>
@@ -83,6 +98,52 @@ const METRICS = [
     desc:'How often the model correctly says which faces are visible. Healthy: climbs to ~0.97+ and sticks. Drops here usually mean something structural broke, not noise.' },
 ];
 const PADL = 52, PADR = 14, PADT = 24, PADB = 20;
+const ETA_WINDOW = 20;   // epochs of history the rate estimate is built from
+
+function fmtDur(s) {
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m} min`;
+}
+function fmtClock(d) {
+  const t = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? t : d.toLocaleDateString([], { weekday:'short' }) + ' ' + t;
+}
+
+// Projection from the recent epoch times. Two independent things make the
+// finish time uncertain and both are folded in: the epoch-to-epoch scatter
+// (k epochs of it add in quadrature, so it grows as sqrt(k)) and the fact
+// that the rate itself is only measured from a short window (that error is
+// systematic - it scales with k). Epoch 1 is excluded throughout: it carries
+// the torch.compile warm-up and is not a sample of the steady state.
+function project(rows, total, mtime) {
+  const last = rows[rows.length - 1];
+  if (!total) return null;
+  const w = rows.filter(r => r.epoch > 1 && r.sec > 0).slice(-ETA_WINDOW).map(r => r.sec);
+  if (last.epoch >= total) return { done:true, frac:1 };
+  if (!w.length) return { frac: last.epoch / total };
+  const sorted = [...w].sort((a, b) => a - b);
+  const med = sorted.length % 2
+    ? sorted[(sorted.length - 1) / 2]
+    : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+  const mean = w.reduce((a, b) => a + b, 0) / w.length;
+  const sd = w.length > 1
+    ? Math.sqrt(w.reduce((a, b) => a + (b - mean) ** 2, 0) / (w.length - 1)) : 0;
+  const k = total - last.epoch;
+  const left = k * med;
+  // Epoch seconds are logged rounded to 1 s, so a run whose epochs all read
+  // "16s" shows sd 0 while really varying up to half a second. Add the
+  // rounding's own variance (1/12 s^2) so the band never collapses to zero.
+  const sdq = Math.sqrt(sd * sd + 1 / 12);
+  const band = 1.96 * Math.sqrt(k * sdq * sdq + (k * sdq / Math.sqrt(w.length)) ** 2);
+  // No epoch line for several epochs' worth of wall clock = it is not running.
+  const age = Date.now() / 1000 - mtime;
+  return { frac: last.epoch / total, med, sd, left, band,
+           at: new Date(Date.now() + left * 1000),
+           stale: age > 3 * med + 60 ? age : 0 };
+}
 
 function drawChart(cv, rows, m, hoverI) {
   const ctx = cv.getContext('2d'), dpr = devicePixelRatio;
@@ -148,9 +209,23 @@ async function tick() {
   for (const name of names) {
     const { mtime, rows } = runs[name];
     const n = rows.length, last = rows[n - 1];
+    const p = project(rows, runs[name].epochs, mtime);
     const h = document.createElement('h2');
-    h.innerHTML = `${name} — epoch ${last.epoch} (${last.sec}s/epoch) <small>last log write ${new Date(mtime * 1000).toLocaleString()}</small>`;
+    let head = `${name} — epoch ${last.epoch}${p ? '/' + runs[name].epochs : ''} (${last.sec}s/epoch)`;
+    if (p && p.done) head += ` <span class="now">· finished</span>`;
+    else if (p && p.stale) head += ` <span class="stale">· stalled, no epoch for ${fmtDur(p.stale)}</span>`;
+    else if (p && p.left != null) head += ` <span class="eta">· ${fmtDur(p.left)} left,`
+      + ` done ~${fmtClock(p.at)} ±${fmtDur(p.band)}</span>`
+      + ` <small>${p.med.toFixed(1)}±${p.sd.toFixed(1)} s/epoch over the last`
+      + ` ${Math.min(ETA_WINDOW, rows.filter(r => r.epoch > 1).length)}</small>`;
+    h.innerHTML = head + ` <small>last log write ${new Date(mtime * 1000).toLocaleString()}</small>`;
     root.append(h);
+    if (p) {
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.innerHTML = `<i style="width:${(p.frac * 100).toFixed(1)}%"></i>`;
+      root.append(bar);
+    }
     const charts = [];
     const redraw = (hoverI) => { for (const c of charts) drawChart(c.cv, rows, c.m, hoverI); };
     for (const m of METRICS) {
