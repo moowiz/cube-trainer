@@ -119,10 +119,31 @@ export class FaceStabilizer {
 // strongly in a/b anyway.
 export const CLUSTER_L_WEIGHT = 0.15;
 
-/** Map one face's 9 cells into the space assembleState clusters in. */
-export function normalizeFaceCells(cells: readonly Lab[]): Lab[] {
+/**
+ * Lightness weight for naming a face against fixed exemplars.
+ *
+ * MEASURED: CLUSTER_L_WEIGHT is right for its own job — clustering all 54
+ * stickers RELATIVE to each other, where crushing L cancels auto-exposure
+ * drift between captures and lets chroma do the separating. Reusing it to
+ * match against an absolute exemplar throws away the one dimension that
+ * separates white from a dark color: white sits at a*~0 b*~0, so any weakly
+ * chromatic sample lands nearest it. On a phone capture a blue center at
+ * L* 18 a* +2 b* -28 (face median L 18) ranked white 29.4 / blue 41.8 at
+ * weight 0.15, and white 43.3 / blue 45.7 at weight 1.0 — the crush, not the
+ * color, is what named it white. Naming keeps the median-L subtraction (still
+ * exposure-invariant) but pays full price for lightness.
+ */
+export const NAME_L_WEIGHT = 1.0;
+
+/**
+ * Map one face's 9 cells into a normalized space: subtract the face's own
+ * median lightness (this is what cancels exposure drift) and scale what is
+ * left. Default weight is the clustering one assembleState uses; naming
+ * passes NAME_L_WEIGHT.
+ */
+export function normalizeFaceCells(cells: readonly Lab[], lWeight = CLUSTER_L_WEIGHT): Lab[] {
   const medL = labMedian(cells).L;
-  return cells.map((c) => ({ L: (c.L - medL) * CLUSTER_L_WEIGHT, a: c.a, b: c.b }));
+  return cells.map((c) => ({ L: (c.L - medL) * lWeight, a: c.a, b: c.b }));
 }
 
 // DECISION: two capture centers closer than this in the normalized space are

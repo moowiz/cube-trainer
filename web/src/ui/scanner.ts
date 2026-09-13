@@ -237,7 +237,9 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
 
     const rect = gridRect();
     const img = ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
-    const cells = sampleGridCells(img, { x: 0, y: 0, w: rect.w, h: rect.h }, PATCH_SIZE);
+    // No plan passed: this rect is in source pixels, so sampleGridCells sizes
+    // the patches from the grid's own cell size.
+    const cells = sampleGridCells(img, { x: 0, y: 0, w: rect.w, h: rect.h });
     const { stable, progress, moved } = stabilizer.push(cells.map((c) => c.lab), now);
 
     if (needMotion) {
@@ -486,7 +488,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       return;
     }
     const rect = gridRectFor(img.width, img.height);
-    const cells = sampleGridCells(img, rect, PATCH_SIZE);
+    const cells = sampleGridCells(img, rect);
     const c = document.createElement('canvas');
     c.width = img.width;
     c.height = img.height;

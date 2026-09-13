@@ -17,9 +17,17 @@
 // Out of scope: non-standard color schemes (e.g. white opposite blue). The
 // default prior assumes the standard arrangement — the same assumption the
 // trained model has always made.
-import { isFaceBlownOut, isFaceTooDark, labDistance, labMedian, sampleGridCells, srgbToLab } from '../color';
+import {
+  facePlan, isFaceBlownOut, isFaceTooDark, labDistance, labMedian, MIN_FACE_EDGE_PX,
+  sampleGridCells, srgbToLab,
+} from '../color';
 import { warpQuad, type ImageDataLike } from '../rectify';
-import { CENTER_MIN_DIST, CLUSTER_L_WEIGHT, normalizeFaceCells } from '../state';
+// CENTER_MIN_DIST was calibrated in the clustering space, but it survives the
+// move to NAME_L_WEIGHT unchanged in the safe direction: two readings of the
+// SAME face have near-identical relative-L profiles, so their distance is
+// still chroma-dominated (~6 on the calibration fixtures), while two genuinely
+// different faces only move FURTHER apart once lightness counts fully.
+import { CENTER_MIN_DIST, NAME_L_WEIGHT, normalizeFaceCells } from '../state';
 import type { ColorName, FaceId, Lab } from '../types';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 
@@ -27,6 +35,13 @@ import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 function colorOf(face: FaceId): ColorName {
   return DEFAULT_SCHEME_NAMES[face];
 }
+
+/**
+ * Prefix of the refusal reason for a face too small to sample. Exported so a
+ * debug view can style this refusal differently from a naming failure: it is
+ * not that the color was unreadable, it is that the app declined to guess.
+ */
+export const TOO_SMALL_REASON = 'face too small';
 
 /** Faces that can never be co-visible: naming both in one frame is a bug. */
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
@@ -70,6 +85,10 @@ export interface NamedQuad {
    *  The app ranks only the center; per-cell rankings are a debug-time
    *  derivation, not something naming computes. */
   ranked?: { face: FaceId; d: number }[];
+  /** Shortest edge of the source quad, in the pixels naming sampled from.
+   *  Set whenever the quad was measured at all — including on the refusal,
+   *  so a debug view can say how far under the limit the face was. */
+  minEdgePx?: number;
 }
 
 function hexToLab(hex: string): Lab {
@@ -98,7 +117,7 @@ export class CenterExemplars {
     this.seed = {} as Record<FaceId, Lab>;
     FACE_ORDER.forEach((f, i) => {
       const c = labs[i]!;
-      this.seed[f] = { L: (c.L - medL) * CLUSTER_L_WEIGHT, a: c.a, b: c.b };
+      this.seed[f] = { L: (c.L - medL) * NAME_L_WEIGHT, a: c.a, b: c.b };
     });
   }
 
@@ -122,7 +141,7 @@ export class CenterExemplars {
   observe(face: FaceId, cells: readonly Lab[], rgb?: [number, number, number]): void {
     if (cells.length !== 9) return;
     const list = this.obs.get(face) ?? [];
-    list.push(normalizeFaceCells(cells)[4]!);
+    list.push(normalizeFaceCells(cells, NAME_L_WEIGHT)[4]!);
     if (list.length > OBS_RESERVOIR) list.shift();
     this.obs.set(face, list);
     if (rgb) {
@@ -201,18 +220,34 @@ export function nameQuads(
   const cands: Cand[] = [];
 
   quads.forEach((quad, i) => {
+    // Rule 0: the rectified canvas is always 90x90, so it says nothing about
+    // how many real pixels the face covered. Size the sampling from the SOURCE
+    // quad, and refuse outright when the detector's corner error would be a
+    // large fraction of a sticker (see color.ts facePlan).
+    let minEdge = Infinity;
+    for (let k = 0; k < 4; k++) {
+      const [ax, ay] = quad[k]!;
+      const [bx, by] = quad[(k + 1) % 4]!;
+      minEdge = Math.min(minEdge, Math.hypot(bx - ax, by - ay));
+    }
+    const plan = facePlan(minEdge / 3);
+    if (!plan) {
+      out[i] = { face: null, color: null, nameConf: 0, minEdgePx: minEdge,
+                 reason: `${TOO_SMALL_REASON} (${minEdge.toFixed(0)}px edge, need ${MIN_FACE_EDGE_PX})` };
+      return;
+    }
     const warped = warpQuad(frame, quad, 90);
-    const samples = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 });
+    const samples = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 }, plan);
     const cells = samples.map((s) => s.lab);
     if (isFaceTooDark(cells)) {
-      out[i] = { face: null, color: null, reason: 'too dark', nameConf: 0 };
+      out[i] = { face: null, color: null, reason: 'too dark', nameConf: 0, minEdgePx: minEdge };
       return;
     }
     if (isFaceBlownOut(cells)) {
-      out[i] = { face: null, color: null, reason: 'glare: face blown out', nameConf: 0 };
+      out[i] = { face: null, color: null, reason: 'glare: face blown out', nameConf: 0, minEdgePx: minEdge };
       return;
     }
-    const cellsNorm = normalizeFaceCells(cells);
+    const cellsNorm = normalizeFaceCells(cells, NAME_L_WEIGHT);
     const center = cellsNorm[4]!;
     const ranked = FACE_ORDER
       .map((f) => ({ f, d: labDistance(center, exemplars.get(f)) }))
@@ -231,7 +266,7 @@ export function nameQuads(
     cands.push({ i, face: best.f, dist: best.d, nameConf, center, cells,
                  rgb: samples[4]!.rgb, score: scores?.[i] ?? 1 });
     out[i] = { face: null, color: colorOf(best.f), reason: 'lost a tie-break', nameConf, center,
-               rgb: samples[4]!.rgb, ...dbg };
+               rgb: samples[4]!.rgb, minEdgePx: minEdge, ...dbg };
   });
 
   // Rule 3, before assignment: two quads that look the same cannot both be

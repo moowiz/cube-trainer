@@ -8,6 +8,7 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { FaceDetector, type DetectResult, type Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
+import { TOO_SMALL_REASON } from './detect/identify';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 import { labDistance } from './color';
@@ -227,7 +228,16 @@ async function loop(): Promise<void> {
     // colors (what the app decided). Seeing all three at once is how a
     // naming bug is told apart from a detection bug.
     if (res.heat && heatChk.checked) drawHeatmap(ctx, res.heat);
-    for (const u of res.unnamed) drawQuad(ctx, u.quad.corners, '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5);
+    for (const u of res.unnamed) {
+      // A face refused for size is a different event from one the namer tried
+      // and failed on: the model found it, and the app declined to guess at a
+      // scale where its own corner error is a large fraction of a sticker.
+      // Dashed amber says "seen, deliberately skipped"; solid grey says
+      // "tried, could not name".
+      const tooSmall = u.reason.startsWith(TOO_SMALL_REASON);
+      drawQuad(ctx, u.quad.corners, tooSmall ? '#d98a1f' : '#8b93a3',
+               `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5, tooSmall);
+    }
     for (const f of res.faces) {
       // Colour word leads — that's what the user is looking for on the cube,
       // not the cubejs letter, which asserts an orientation the app has not
@@ -334,7 +344,7 @@ void loadDetector();
 
 // Headless self-test hook (web/scripts/check-detect.mjs drives this in CI-ish
 // checks): runs the detector N times on a synthetic frame, no camera needed.
-(window as unknown as Record<string, unknown>).__detectSelfTest = async (iters = 30, ep?: string) => {
+(window as unknown as Record<string, unknown>).__detectSelfTest = async (iters = 30, ep?: string, imgUrl?: string) => {
   if (ep) {
     epSel.value = ep;
     await loadDetector();
@@ -342,18 +352,35 @@ void loadDetector();
   if (!detector) await loadDetector();
   if (!detector) return { ok: false, reason: lastLoadError || 'no model deployed' };
   const c = document.createElement('canvas');
-  c.width = 640;
-  c.height = 480;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#555';
-  g.fillRect(0, 0, 640, 480);
-  g.fillStyle = '#c41e3a';
-  g.fillRect(220, 140, 200, 200); // face-ish red square, content irrelevant
+  if (imgUrl) {
+    // A real frame, so the check can compare what each EP actually decodes.
+    // The synthetic rectangle below produces zero detections on every EP,
+    // which is correct behaviour and therefore blind to a broken EP.
+    const img = new Image();
+    img.src = imgUrl;
+    await img.decode();
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    g.drawImage(img, 0, 0);
+  } else {
+    c.width = 640;
+    c.height = 480;
+    g.fillStyle = '#555';
+    g.fillRect(0, 0, 640, 480);
+    g.fillStyle = '#c41e3a';
+    g.fillRect(220, 140, 200, 200); // face-ish red square, content irrelevant
+  }
   await detector.detect(c); // warmup
   const t0 = performance.now();
   let last = null;
   for (let i = 0; i < iters; i++) last = await detector.detect(c);
   const ms = (performance.now() - t0) / iters;
   return { ok: true, ep: detector.ep, avgMs: ms, fps: 1000 / ms, faces: last!.faces.length,
-           quads: last!.quads.length, anonymous: detector.anonymous, model: detector.modelId };
+           quads: last!.quads.length, anonymous: detector.anonymous, model: detector.modelId,
+           // enough to tell "this EP decoded nothing" from "this EP decoded
+           // something different" without eyeballing an overlay
+           scores: last!.quads.map((q) => +q.conf.toFixed(3)),
+           names: last!.faces.map((f) => f.face),
+           corner0: last!.quads[0]?.corners.map((c) => c.map((v) => Math.round(v))) };
 };

@@ -46,10 +46,12 @@ export function drawQuad(
   color: string,
   label?: string,
   width = 3,
+  dashed = false,
 ): void {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
+  if (dashed) ctx.setLineDash([6, 5]);
   ctx.beginPath();
   ctx.moveTo(corners[0]![0], corners[0]![1]);
   for (let k = 1; k < corners.length; k++) ctx.lineTo(corners[k]![0], corners[k]![1]);
