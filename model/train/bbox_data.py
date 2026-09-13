@@ -141,6 +141,11 @@ def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = Tr
             x, box = _zoom_translate(x, box)
         if not barred and random.random() < 0.45:
             x, box = _pillarbox(x, box)
+    elif geometry and not _has_bars(x) and random.random() < 0.45:
+        # negatives see the portrait bars too: an empty phone frame is the
+        # most common "no cube" the app will ever show the model
+        left = random.randint(0, BOX_WH[0] - PORTRAIT_W)
+        x = _paste(BOX_WH, x[:, :, left:left + PORTRAIT_W], PORTRAIT_X, 0)
     if random.random() < 0.7:  # brightness/contrast in normalized space
         # The downward reach matters: data_v4's auto-exposure floor re-renders
         # near-black scenes brighter (5.4% of them), so the synthetic set has
@@ -176,6 +181,33 @@ class SynthBBox(Dataset):
         else:
             box = torch.zeros(4)
             obj = 0.0
+        if self.augment:
+            x, obj, box = _augment(x, obj, box)
+        return (x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32),
+                torch.tensor(1.0, dtype=torch.float32))
+
+
+class NegDir(Dataset):
+    """A flat directory of photos with no cube in them (e.g. COCO val2017 via
+    fetch_negatives.py): objectness 0, box unused. Teaches "no cube anywhere"
+    on real-world scenes the renderer never produces - people, rooms, hands,
+    keyboards, tiled floors."""
+
+    EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+
+    def __init__(self, root: str | Path, augment: bool):
+        self.files = sorted(p for p in Path(root).iterdir() if p.suffix.lower() in self.EXTS)
+        self.augment = augment
+
+    def __len__(self) -> int:
+        return len(self.files)
+
+    def __getitem__(self, i: int):
+        img = Image.open(self.files[i]).convert("RGB")
+        arr = np.asarray(letterbox_image(img, *BOX_WH), dtype=np.float32) / 255.0
+        x = torch.from_numpy(((arr - NORM_MEAN) / NORM_STD).transpose(2, 0, 1).copy())
+        box = torch.zeros(4)
+        obj = 0.0
         if self.augment:
             x, obj, box = _augment(x, obj, box)
         return (x.contiguous(), torch.tensor(obj, dtype=torch.float32), box.to(torch.float32),
