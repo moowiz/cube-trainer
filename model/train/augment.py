@@ -140,7 +140,12 @@ def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
     return out, rel + np.array([pad, 0], dtype=corners.dtype), conf
 
 
-def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
+def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray,
+                   photometric: bool = True):
+    """photometric=False skips the pixel-wise block (color jitter, white
+    balance, blur, motion blur, noise) - train.py applies the identical ops
+    batched on the GPU via gpu_augment.photometric_batch instead. The
+    geometry, JPEG, erasing and portrait simulation always run here."""
     w, h = img.size
     # Stage-2 (two-stage detector) mix: mostly crop-normalized views (what a
     # localizer or the tracker's previous quads will feed it), but keep a
@@ -162,6 +167,8 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
             if conf[i] > 0 and not _center_in_frame(corners[i], w, h):
                 conf[i] = 0.0
 
+    if not photometric:
+        return _codec_and_occlusion(img, corners, conf)
     if random.random() < 0.8:
         img = ImageEnhance.Brightness(img).enhance(random.uniform(0.6, 1.4))
         img = ImageEnhance.Contrast(img).enhance(random.uniform(0.7, 1.3))
@@ -184,6 +191,13 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
         # expensive op in this function (~1/3 of the whole per-sample cost).
         arr += _rng().standard_normal(arr.shape, dtype=np.float32) * random.uniform(2, 10)
         img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
+    return _codec_and_occlusion(img, corners, conf)
+
+
+def _codec_and_occlusion(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
+    """The tail of augment_sample: JPEG, erasing, portrait bars. Split out so
+    the GPU-photometric path can run it without the block above."""
+    w, h = img.size
     if random.random() < 0.35:
         # video/JPEG compression: blocky chroma like a phone camera stream
         buf = io.BytesIO()
