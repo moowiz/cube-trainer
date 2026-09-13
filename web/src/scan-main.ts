@@ -210,6 +210,7 @@ syncSel.addEventListener('change', () => tracker.configure({ posAlpha: syncSel.v
 let log: EvidenceLog = emptyLog();
 let detFrame = 0;                                  // detection-frame index (log.frames)
 const lastCorners = new Map<number, { corners: [number, number][]; t: number }>();
+const lastOffset = new Map<number, [number, number][]>();   // track -> last refinement offset (warm start)
 const nthOf = new Map<number, number>();           // track -> detections so far
 let knownTracks = new Set<number>();
 let solution: Solution | null = null;
@@ -446,6 +447,7 @@ sampler.onSampled = (r) => {
   log.quads.push(...r.quads);
   for (const p of pairs) log.pairings.push({ frame: r.frame, ...p });
   sampledQuads = r.refined;
+  for (const q of r.refined) lastOffset.set(q.track, q.offset);
   // mirror to the worker before trimming so both logs trim identically
   solver.sync(log);
   const dropped = trimLog(log);
@@ -607,6 +609,7 @@ function loop(ts: number, gen: number): void {
       const last = lastCorners.get(id);
       if (last) log.events.push({ frame: detFrame, t: Date.now(), track: id, kind: 'died', at: centroid(last.corners) });
       lastCorners.delete(id);
+      lastOffset.delete(id);
       nthOf.delete(id);
     }
     for (const t of tracks) {
@@ -648,7 +651,7 @@ function loop(ts: number, gen: number): void {
           lastCorners.set(t.id, { corners, t: src.ts });
           const nth = (nthOf.get(t.id) ?? 0) + 1;
           nthOf.set(t.id, nth);
-          return { id: t.id, corners, conf: t.conf, speed, nth };
+          return { id: t.id, corners, conf: t.conf, speed, nth, warm: lastOffset.get(t.id) };
         });
         // letter-free pairings: two quads sharing an image-space edge. Which
         // cube edge it is, and hence every rotation, is the solver's job.
@@ -772,6 +775,7 @@ $('reset').addEventListener('click', () => {
   log = emptyLog();
   detFrame = 0;
   lastCorners.clear();
+  lastOffset.clear();
   nthOf.clear();
   knownTracks = new Set();
   solution = null;
