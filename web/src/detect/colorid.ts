@@ -55,13 +55,18 @@ const RESERVOIR = 40;
 const MAX_CLUSTERS = 10;
 /** An unnamed cluster this close to a named one it could be joins that face. */
 export const ALIAS_DIST = 2 * BIRTH_DIST;
-/** White: the least chromatic cluster, and it must actually be low-chroma. */
-const WHITE_MAX_CHROMA = 30;
+/** White: the least chromatic cluster, and it must actually be low-chroma (measured 7-18; skin starts at 23). */
+const WHITE_MAX_CHROMA = 20;
 /** Blue needs this much negative b; green this much negative a. */
 const BLUE_MAX_B = -8;
 const GREEN_MAX_A = -12;
-/** The warm/yellow side: b > 0 with real chroma; yellow is the high-hue end of it. */
-const WARM_MIN_CHROMA = 15;
+/**
+ * The warm/yellow side: b > 0 with real chroma; yellow is the high-hue end
+ * of it. Sticker reds/oranges/yellows measure chroma 45-80 in every capture
+ * (a dim red 48); skin and a wooden desk sit at 20-28 and were twice grouped
+ * into "red" by hue (scan-debug-1789310783346, -1789311565144).
+ */
+const WARM_MIN_CHROMA = 30;
 const YELLOW_MIN_HUE = 78;
 /** Green starts well above this (measured 143-155); yellow reads 88-102. */
 const YELLOW_MAX_HUE = 120;
@@ -135,7 +140,9 @@ export function sameCluster(reading: Lab, centroid: Lab, d: number): boolean {
 
 export function couldBe(c: Lab, color: ColorName): boolean {
   switch (color) {
-    case 'white': return isNeutral(c);
+    // a cool near-neutral is a dark blue, never white (the ranks leave the
+    // pair undecided; an alias must not decide it the wrong way)
+    case 'white': return isNeutral(c) && !isCool(c);
     case 'blue': return isCool(c);
     case 'green': return c.a < GREEN_MAX_A;
     case 'yellow': return isYellowish(c);

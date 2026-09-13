@@ -53,11 +53,13 @@ describe('nameClusters (ordinal)', () => {
     expect(named.get(9)).toBe('red');
   });
 
-  it('a lone dark blue (nearly neutral) is not called white; it names once white appears', () => {
+  it('a lone dark blue (chroma 27) is blue, never white; a paler cool cluster waits for the pair', () => {
     const noWhite = nameClusters((['R', 'F', 'D', 'L', 'B'] as FaceId[]).map((f, i) => ({ id: i, centroid: MEASURED[f] })));
     expect([...noWhite.values()]).not.toContain('white');
-    expect(noWhite.get(4)).toBeUndefined(); // the blue: white-or-blue until the other shows up
-    expect(noWhite.size).toBe(4);
+    expect(noWhite.get(4)).toBe('blue');
+    expect(noWhite.size).toBe(5);
+    const pale = nameClusters([{ id: 1, centroid: { L: 0, a: 2, b: -15 } }, { id: 2, centroid: MEASURED.F }]);
+    expect(pale.get(1)).toBeUndefined(); // white-or-blue until the other shows up
     const all = nameClusters(FACE_ORDER.map((f, i) => ({ id: i, centroid: MEASURED[f] })));
     expect(all.get(5)).toBe('blue');
     expect(all.get(0)).toBe('white');
@@ -259,5 +261,45 @@ describe('warm clusters: red/orange by hue gap', () => {
   it('a lone dim green is never yellow (hue 145 is past the yellow band)', () => {
     expect(nameClusters([{ id: 1, centroid: { L: 0, a: -33, b: 23 } }]).get(1)).toBe('green');
     expect(couldBe({ L: 0, a: -33, b: 23 }, 'yellow')).toBe(false);
+  });
+});
+
+// scan-debug-1789311565144: no yellow cluster after a minute on the yellow
+// face - junk and split clusters reached six first and the alien gate then
+// refused every yellow frame (scan-main). In the clusters themselves: a
+// chroma-23 skin cluster grouped into red, and a dark blue aliased to white.
+describe('junk clusters take no rank', () => {
+  const cap = JSON.parse(readFileSync(new URL('scan-debug-1789311565144.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null }[];
+  };
+  const byId = (id: number) => cap.clusters.find((c) => c.id === id)!.centroid;
+
+  it('a warm cluster at chroma 23 is neither red nor orange, and aliases to nothing', () => {
+    expect(nameClusters(cap.clusters).get(9)).toBeUndefined();
+    expect(couldBe(byId(9), 'red')).toBe(false);
+    expect(couldBe(byId(9), 'orange')).toBe(false);
+    expect(couldBe(byId(9), 'white')).toBe(false); // chroma 23: skin, not a pale white
+    const cc = new ColorClusters();
+    for (const id of [1, 4, 5, 6, 7]) cc.observe(cellsWithCentre(byId(id)));
+    const skin = cc.observe(cellsWithCentre(byId(9)));
+    expect(cc.colorOf(skin)).toBeNull();
+  });
+
+  it('a cool near-neutral (dark blue) never aliases to white', () => {
+    expect(couldBe(byId(10), 'white')).toBe(false);
+    const cc = new ColorClusters();
+    for (const id of [1, 4, 5, 6, 7]) cc.observe(cellsWithCentre(byId(id)));
+    const dark = cc.observe(cellsWithCentre(byId(10)));
+    expect(cc.colorOf(dark)).not.toBe('white');
+  });
+
+  it('the five real colours of the capture keep their names', () => {
+    const named = nameClusters(cap.clusters);
+    expect(named.get(1)).toBe('blue');
+    expect(named.get(4)).toBe('red');
+    expect(named.get(5)).toBe('white');
+    expect(named.get(6)).toBe('green');
+    expect(named.get(7)).toBe('orange');
+    expect([...named.values()]).not.toContain('yellow');
   });
 });

@@ -44,3 +44,8 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   clusters, one of them skin at chroma 28 grouped into red by a hairline hue
   gap) with 30 inliers, U 40 frames with 16 - the consensus is now seeded by
   support and frames with cells of no known colour are dropped at the source.
+  `-1789311565144` has no yellow cluster after a minute on the yellow face:
+  the alien-face gate keyed on "six clusters exist" and junk/split clusters
+  got there first (gate now keys on six NAMED colours); also a chroma-23
+  skin cluster grouped into red and a dark blue aliased to white (warm needs
+  chroma 30, white 20 and never cool).
