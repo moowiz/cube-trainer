@@ -41,6 +41,7 @@ import { HintState, hintFor } from './ui/hint';
 import { matchSharedEdge } from './detect/orient';
 import { refineQuad } from './detect/gridfit';
 import { mapUV, squareToQuad, warpQuad, type ImageDataLike } from './rectify';
+import { randomScramble, scrambleState } from './scramble';
 import { solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
@@ -81,6 +82,7 @@ app.innerHTML = `
       <small id="status" class="auto">model loading…</small>
       <small id="build" title="git hash · build time">build ${__BUILD__.hash} · ${__BUILD__.time}</small>
     </h1>
+    <div id="scramble" class="auto" title="Apply this to a solved cube before scanning: the capture then carries the true state and becomes a regression fixture on its own"></div>
     <div id="bar" class="auto">
       <button id="start">Start camera</button>
       <button id="reset">Reset scan</button>
@@ -127,6 +129,15 @@ app.innerHTML = `
 `;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// A fresh scramble per session (and per Reset): scanned from a solved cube
+// it gives every capture a known truth.
+let scramble = '';
+function newScramble(): void {
+  scramble = randomScramble();
+  $('scramble').innerHTML = `<b>Scramble</b> <span>${scramble}</span> <small>(from solved; new one on Reset)</small>`;
+}
+newScramble();
 const view = $<HTMLCanvasElement>('view');
 const ctx = view.getContext('2d')!;
 const statusEl = $('status');
@@ -529,7 +540,10 @@ async function loop(ts: number): Promise<void> {
         const frame = frameImageData();
         sampledQuads = [];
         const observed: TrackedQuad[] = [];
-        for (const t of confident) if (observeQuad(frame, t, v.videoHeight, ts)) observed.push(t);
+        // only tracks with a detection THIS frame: a coasting track is the
+        // same pixels under a stale quad, and beside its own replacement it
+        // reads as a second face in the frame
+        for (const t of confident) if (t.sinceDetectMs === 0 && observeQuad(frame, t, v.videoHeight, ts)) observed.push(t);
         // letter-free pairings: two quads sharing an image-space edge. Which
         // cube edge it is, and hence every rotation, is the solver's job.
         for (let i = 0; i < observed.length; i++) {
@@ -629,6 +643,7 @@ startBtn.addEventListener('click', () => {
 });
 
 $('reset').addEventListener('click', () => {
+  newScramble();
   tracker.reset();
   log = emptyLog();
   detFrame = 0;
@@ -662,6 +677,8 @@ captureBtn.addEventListener('click', () => {
   if (!models) { msgEl.textContent = 'nothing to capture: models not loaded'; return; }
   const sol = locked ?? solution;
   const extra = {
+    scramble,
+    scrambleTruth: scrambleState(scramble),
     evidenceLog: log,
     solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
     params: DEFAULT_PARAMS,

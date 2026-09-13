@@ -11,6 +11,9 @@ button, select { background: #2a2f3a; color: inherit; border: 1px solid #3a4150;
 button:disabled { opacity: 0.5; }
 button.on { background: #3a4a6a; border-color: #5a7ab0; }
 #bar, .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+#scramble { background: #1a1e26; border: 1px solid #3a4150; border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 15px; }
+#scramble span { font: 600 17px/1.4 ui-monospace, monospace; letter-spacing: 0.02em; }
+#scramble small { color: #8b93a3; }
 #modes { display: inline-flex; gap: 4px; }
 #fill { display: flex; gap: 6px; margin: 8px 0; }
 .f { flex: 1; text-align: center; border-radius: 6px; padding: 4px 0; background: #1a1e26; border: 1px solid #3a4150; }

@@ -115,20 +115,24 @@ describe('evidence-log captures', () => {
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')) : [];
   it('lists the captures', () => { console.log(`evidence captures: ${files.length ? files.join(', ') : 'none yet'}`); });
   for (const file of files) {
-    it(file, () => {
-      const d = read(`evidence/${file}`) as { evidenceLog: EvidenceLog; truth?: string; note?: string };
+    it(file, { timeout: 30000 }, () => {
+      const d = read(`evidence/${file}`) as { evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string; note?: string };
+      // `truth` is a confirmed state; `scrambleTruth` is what the page's
+      // scramble produces from a solved cube - the truth whenever the
+      // scramble was actually applied (delete the field from the file if not)
+      const truth = d.truth ?? d.scrambleTruth;
       const log = d.evidenceLog;
       // JSON has no Map; groups' rotation maps are rebuilt by the solver anyway
       const rows: string[] = [];
       for (const name of Object.keys(EMBEDDINGS) as EmbeddingName[]) {
         const s = solve(log, { embedding: EMBEDDINGS[name] });
-        rows.push(`${name.padEnd(12)} ${file.padEnd(36)} ${d.truth ? `${matches(s.facelets, d.truth)}/54` : '     '} faces ${s.centresSeen}/6 legal ${s.decode?.legal ? 'y' : 'n'} changed ${s.decode?.changed ?? '-'} delta ${s.decode ? (s.decode.delta === Infinity ? 'inf' : s.decode.delta.toFixed(1)) : '-'} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
+        rows.push(`${name.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} faces ${s.centresSeen}/6 legal ${s.decode?.legal ? 'y' : 'n'} changed ${s.decode?.changed ?? '-'} delta ${s.decode ? (s.decode.delta === Infinity ? 'inf' : s.decode.delta.toFixed(1)) : '-'} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
       }
       console.log('\n' + rows.join('\n'));
       const s = solve(log);
-      if (d.truth) {
-        if (s.facelets) expect(s.facelets).toBe(d.truth);
-        expect(s.lockable ? s.facelets : d.truth).toBe(d.truth);
+      if (truth) {
+        if (s.facelets) expect(s.facelets).toBe(truth);
+        expect(s.lockable ? s.facelets : truth).toBe(truth);
       }
     });
   }

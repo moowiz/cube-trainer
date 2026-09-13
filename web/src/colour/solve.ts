@@ -15,7 +15,7 @@ import { FACE_ORDER } from '../types';
 import { DEFAULT_EMBEDDING, type Embedding } from './colorspace';
 import { coloursToFacelets, decode } from './decode';
 import { aggregateTracks, coVisible } from './evidence';
-import { groupTracks } from './faces';
+import { groupTracks, reconcileRotations } from './faces';
 import { fitFrameGains, type Gains } from './illum';
 import { assignLetters, ordinalNames } from './naming';
 import { farthestPointSeeds, fitPalette, memberships, studentLogLik } from './palette';
@@ -74,10 +74,12 @@ function slotMap(groups: readonly FaceGroup[], sigs: readonly TrackSignature[]):
     for (const t of g.tracks) {
       const s = sigOf.get(t)!;
       const k = g.rotation.get(t)!;
-      // cell index j of the track lands at layout index: rotateCells maps
-      // out[i] = in[ROT3[k][i]], so the layout position of a raw cell is the
-      // inverse image; build it by rotating the index list.
-      const idx = rotateCells(rotateCells([0, 1, 2, 3, 4, 5, 6, 7, 8], k), K);
+      // A track paired in some frame knows its own absolute rotation and
+      // uses it; an unpaired one is carried by the group (merge offset plus
+      // the group's rotation). rotateCells maps out[i] = in[ROT3[k][i]], so
+      // rotating the index list gives, per layout slot, the raw cell in it.
+      const own = g.trackAbs.get(t);
+      const idx = own !== undefined ? rotateCells([0, 1, 2, 3, 4, 5, 6, 7, 8], own) : rotateCells(rotateCells([0, 1, 2, 3, 4, 5, 6, 7, 8], k), K);
       for (let i = 0; i < 9; i++) {
         const raw = idx[i]!;
         const slot = fi * 9 + i;
@@ -170,6 +172,9 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
   let nEff: number[] = new Array<number>(54).fill(0);
   let slotLab: (Lab | null)[] = new Array<Lab | null>(54).fill(null);
   let balancedFacelets: string | null = null;
+  // absolute rotations the previous round's pairings established, so the
+  // next grouping aligns paired tracks by geometry rather than by colour
+  let knownAbs = new Map<number, number>();
 
   for (let round = 0; round < P.rounds; round++) {
     const last = round === P.rounds - 1;
@@ -196,8 +201,11 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     const member = (x: Vec3 | null) => (x ? memberships(x, palette, P.nu) : null);
 
     // 2. faces
-    groups = groupTracks({ signatures: sigs, member, coVisible: covis, mergeMin: P.mergeMin });
+    groups = groupTracks({ signatures: sigs, member, coVisible: covis, mergeMin: P.mergeMin, absRot: knownAbs });
     assignLetters(groups, log.pairings, (g) => member(g.cells[4]!.value), ordinalNames(palette.lab));
+    reconcileRotations(groups, sigs, member);
+    knownAbs = new Map();
+    for (const g of groups) for (const [t, k] of g.trackAbs) knownAbs.set(t, k);
 
     // 3. costs and decode; the legality search only on the final round -
     //    rotation does not change which colour an aggregate is, only which
@@ -209,7 +217,11 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     // fewer, most rows are free and the search burns its whole budget on a
     // flat cost surface (13 s on a one-quad log). Before that the balanced
     // optimum is the answer and the reason says how many faces are missing.
-    const complete = groups.filter((g) => g.letter).length === 6;
+    // ... and with every slot carrying at least some evidence: on the first
+    // phone session the search ran 400-900 ms per solve for 260 frames
+    // while two faces had barely been shown, and "no legal cube" was the
+    // wrong hint - the reason below names the face to show instead.
+    const complete = groups.filter((g) => g.letter).length === 6 && Math.min(...cm.nEff) >= 1;
     if (last && !opts.quick && complete) {
       const balanced = decode(cm.cost, legalAll);
       balancedFacelets = balanced.colours ? coloursToFacelets(balanced.colours) : null;
@@ -265,12 +277,25 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     [4, 13, 22, 31, 40, 49].forEach((slot, fi) => { colourLetter[result!.colours![slot]!] = FACE_ORDER[fi]!; });
   }
   const minN = Math.min(...nEff);
+  const weakest = FACE_ORDER[Math.floor(nEff.indexOf(minN) / 9)]!;
+  // the colour word for a letter: from the decode when there is one, else
+  // from the group's centre against the palette
+  const weakestName = (() => {
+    let c = colourLetter.indexOf(weakest);
+    if (c < 0) {
+      const g = groups.find((x) => x.letter === weakest);
+      const m = g?.cells[4]!.value ? memberships(g.cells[4]!.value, palette, P.nu) : null;
+      if (m) c = m.indexOf(Math.max(...m));
+    }
+    return (c >= 0 ? ordinalNames(palette.lab)[c] : null) ?? weakest;
+  })();
   const minMargin = result ? Math.min(...result.margins) : 0;
   let reason = 'ok';
   if (!result) reason = 'no evidence';
   else if (lettered.length < 6) reason = `${lettered.length}/6 faces seen`;
+  else if (minN < 1) reason = `show the ${weakestName} face (${weakest}): ${minN.toFixed(1)} evidence`;
   else if (!result.legal) reason = 'no legal cube within budget';
-  else if (minN < P.nMin) reason = `weakest sticker has ${minN.toFixed(1)} of ${P.nMin} evidence`;
+  else if (minN < P.nMin) reason = `weakest sticker (${weakestName} face) has ${minN.toFixed(1)} of ${P.nMin} evidence`;
   else if (result.changed > P.kMax) reason = `${result.changed} stickers moved from their nearest colour (max ${P.kMax})`;
   else if (result.delta < P.deltaMin) reason = `runner-up cube only ${result.delta.toFixed(1)} worse (need ${P.deltaMin})`;
   else if (minMargin < P.marginMin) reason = `a sticker is within ${minMargin.toFixed(1)} of another colour (need ${P.marginMin})`;

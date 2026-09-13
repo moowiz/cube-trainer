@@ -140,7 +140,11 @@ export interface FaceGroup {
   letter: FaceId | null;
   /** Quarter turns from the reference order to the letter's sticker layout (null if never paired). */
   absRotation: number | null;
-  /** How many pairings supported / contradicted the chosen rotation. */
+  /** Per member track: its absolute cell rotation (layout = rotateCells(raw, k)) once reconciled; absent when the face has no geometry at all. */
+  trackAbs: Map<number, number>;
+  /** Per member track: its own pairings' votes for its absolute rotation. */
+  trackVotes: Map<number, [number, number, number, number]>;
+  /** Votes for the group's absRotation, one per paired track weighted by its pairings; contradictions mean a wrong merge. */
   rotationVotes: [number, number, number, number];
 }
 
