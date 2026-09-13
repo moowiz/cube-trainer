@@ -203,6 +203,9 @@ def main():
                     help="crop view: per-side padding U(PAD_VAL-J, PAD_VAL+J) instead of exactly "
                          "PAD_VAL, simulating localizer error")
     ap.add_argument("--seed", type=int, default=0, help="for --jitter")
+    ap.add_argument("--pad", type=float, default=None,
+                    help="crop pad per side instead of shapes.PAD_VAL (the app's padBox); training re-crops "
+                         "span -0.1..0.45 so tighter pads are in-distribution - a tighter crop is more cube px")
     ap.add_argument("--dump", default=None,
                     help="write every model input as PNG plus dump.json (pred/gt quads in input px, "
                          "corner-aligned) to this dir - the web refine bench reads it")
@@ -230,7 +233,8 @@ def main():
     model.eval()
     npts = ckpt.get("npts", 4)
     perms = cyclic_perms(npts).numpy()
-    pad = (PAD_VAL - args.jitter, PAD_VAL + args.jitter) if args.jitter else PAD_VAL
+    base_pad = PAD_VAL if args.pad is None else args.pad
+    pad = (base_pad - args.jitter, base_pad + args.jitter) if args.jitter else base_pad
     print(f"head={head}  view={view} {INPUT_WH[0]}x{INPUT_WH[1]}  points={npts}  ckpt={args.ckpt}  "
           f"data={args.data} ({args.split})" + (f"  crop pad {pad}" if view == "crop" else ""))
 
