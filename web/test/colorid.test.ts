@@ -375,3 +375,52 @@ describe('a dark blue centre never joins a white cluster', () => {
     expect(sameCluster(cast, white, labDistance(white, cast))).toBe(true);
   });
 });
+
+// scan-debug-1789317142821: ten clusters (blue x3 at hues 268-279, yellow x3
+// at 94-107 - the 5 deg hue split kept them apart), no green after 484 ticks
+// on a green face (the ceiling forced its centre into the nearest cluster),
+// and every name computed from centroids frozen at the last birth (the
+// clusters() memo only saw structural changes).
+describe('cluster ceiling and the reach of the hue split', () => {
+  const cap = JSON.parse(readFileSync(new URL('scan-debug-1789317142821.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null }[];
+  };
+  const byId = (id: number) => cap.clusters.find((c) => c.id === id)!.centroid;
+
+  it('blue 10 deg apart and yellow 6 deg apart are one cluster each', () => {
+    expect(sameCluster(byId(1), byId(7), labDistance(byId(1), byId(7)))).toBe(true);
+    expect(sameCluster(byId(2), byId(6), labDistance(byId(2), byId(6)))).toBe(true);
+    const cc = new ColorClusters();
+    for (const id of [1, 7, 5, 2, 6, 3]) cc.observe(cellsWithCentre(byId(id)));
+    expect(cc.size()).toBeLessThanOrEqual(4);
+  });
+
+  it('a green centre at the ceiling evicts the thinnest cluster and is named green', () => {
+    const cc = new ColorClusters();
+    const dropped: number[] = [];
+    cc.onDrop = (id) => dropped.push(id);
+    // nine well-fed clusters spread around ab, then one stray reading
+    const seeds: Lab[] = [
+      { L: 0, a: -1, b: -34 }, { L: 0, a: -7, b: 35 }, { L: 0, a: 0, b: -2 }, { L: 0, a: 52, b: 51 },
+      { L: 0, a: 39, b: 52 }, { L: 0, a: 68, b: 68 }, { L: 0, a: 30, b: -60 }, { L: 0, a: -40, b: -40 },
+      { L: 0, a: 10, b: 80 },
+    ];
+    for (const c of seeds) for (let i = 0; i < 3; i++) cc.observe(cellsWithCentre(c));
+    const thin = cc.observe(cellsWithCentre({ L: 0, a: -30, b: 5 }));
+    expect(cc.size()).toBe(10);
+    const green = cc.observe(cellsWithCentre({ L: -4.3, a: -55.8, b: 52.4 }));
+    expect(cc.size()).toBe(10);
+    expect(dropped.length).toBe(1);
+    expect(dropped[0]).toBe(thin);
+    expect(cc.colorOf(green)).toBe('green');
+  });
+
+  it('names follow the medians as readings arrive, without a birth or merge', () => {
+    const cc = new ColorClusters();
+    const id = cc.observe(cellsWithCentre({ L: 0, a: -9, b: 30 })); // a dim yellow
+    expect(cc.colorOf(id)).toBe('yellow');
+    for (let i = 0; i < 4; i++) cc.observe(cellsWithCentre({ L: 0, a: -6, b: 12 }));
+    expect(cc.size()).toBe(1);
+    expect(cc.colorOf(id)).toBe('white');
+  });
+});

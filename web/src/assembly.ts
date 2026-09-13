@@ -202,6 +202,11 @@ export class StickerVoter {
     if (++this.sinceAttempt >= LOCK_EVERY) this.tryLock(faceMap);
   }
 
+  /** Forget a cluster's votes (the clusterer evicted it). */
+  dropCluster(id: number): void {
+    if (this.obs.delete(id)) this.version++;
+  }
+
   /** Merge one cluster's votes into another (the clusterer merged them). */
   mergeClusters(from: number, into: number): void {
     const src = this.obs.get(from);

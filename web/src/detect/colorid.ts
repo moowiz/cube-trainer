@@ -51,7 +51,13 @@ export const BIRTH_DIST = 2 * CENTER_MIN_DIST;
 /** Two centroids closer than this are the same colour: merge. */
 export const MERGE_DIST = CENTER_MIN_DIST;
 const RESERVOIR = 40;
-/** Hard ceiling on session clusters (junk protection only; six are named, the rest alias or idle). */
+/**
+ * Hard ceiling on session clusters (junk protection only; six are named, the
+ * rest alias or idle). At the ceiling a reading that belongs nowhere evicts
+ * the thinnest cluster rather than being forced into the nearest one: forcing
+ * a green centre into a yellow cluster 50 away poisons that cluster, and
+ * refusing it means green never parses (scan-debug-1789317142821).
+ */
 const MAX_CLUSTERS = 10;
 /** An unnamed cluster this close to a named one it could be joins that face. */
 export const ALIAS_DIST = 2 * BIRTH_DIST;
@@ -84,6 +90,13 @@ const YELLOW_MAX_A = 25;
  */
 const HUE_SPLIT_DEG = 5;
 const HUE_SPLIT_MIN_CHROMA = 30;
+/**
+ * The split is for red vs orange only. Blue read 10 deg apart at chroma 35
+ * and yellow 6 deg apart at chroma 31 in scan-debug-1789317142821, which the
+ * split kept as separate clusters until the cap was full - no colour a blue
+ * or yellow could be confused with lies within 20 ab of it.
+ */
+const HUE_SPLIT_MAX_HUE = 90;
 /** Among the warm clusters, the largest hue gap separates red from orange only if it is at least this wide. */
 const WARM_MIN_GAP_DEG = 8;
 /** Agreeing adjacency frames before a binding applies (and the lead it needs over the runner-up). */
@@ -153,7 +166,9 @@ export function sameCluster(reading: Lab, centroid: Lab, d: number): boolean {
   // (-5.6, -6.3), joined white and blue was never parsed.
   if ((isNeutral(reading) || isNeutral(centroid))
     && Math.min(reading.b, centroid.b) < COOL_SPLIT_B && Math.max(reading.b, centroid.b) > BLUE_MAX_B) return false;
-  return !(chroma(reading) > HUE_SPLIT_MIN_CHROMA && chroma(centroid) > HUE_SPLIT_MIN_CHROMA && hueGap(reading, centroid) > HUE_SPLIT_DEG);
+  return !(chroma(reading) > HUE_SPLIT_MIN_CHROMA && chroma(centroid) > HUE_SPLIT_MIN_CHROMA
+    && hueDeg(reading) < HUE_SPLIT_MAX_HUE && hueDeg(centroid) < HUE_SPLIT_MAX_HUE
+    && hueGap(reading, centroid) > HUE_SPLIT_DEG);
 }
 
 export function couldBe(c: Lab, color: ColorName): boolean {
@@ -182,6 +197,8 @@ export class ColorClusters {
   version = 0;
   /** Called when two clusters merge (from -> into), so vote reservoirs can follow. */
   onMerge?: (from: number, into: number) => void;
+  /** Called when a cluster is evicted at the ceiling, so its votes and tracks are dropped. */
+  onDrop?: (id: number) => void;
 
   reset(): void {
     this.reservoirs.clear();
@@ -206,15 +223,17 @@ export class ColorClusters {
       const d = labDistance(c, cen);
       if (d < bestD) { bestD = d; best = id; }
     }
-    if (best < 0 || (!sameCluster(c, this.centroids.get(best)!, bestD) && this.centroids.size < MAX_CLUSTERS)) {
+    if (best < 0 || !sameCluster(c, this.centroids.get(best)!, bestD)) {
+      if (this.centroids.size >= MAX_CLUSTERS) this.evictThinnest();
       best = this.nextId++;
       this.reservoirs.set(best, []);
-      this.version++;
     }
     const r = this.reservoirs.get(best)!;
     r.push(c);
     if (r.length > RESERVOIR) r.shift();
     this.centroids.set(best, labMedian(r));
+    // every reading moves a median, and the names are ranks over the medians
+    this.version++;
     this.mergeClose();
     return best;
   }
@@ -234,6 +253,20 @@ export class ColorClusters {
       if (x < d) { second = d; d = x; id = cid; } else if (x < second) second = x;
     }
     return id < 0 ? null : { id, d, second };
+  }
+
+  /** Drop the cluster with the fewest readings (the youngest on a tie). */
+  private evictThinnest(): void {
+    let victim = -1;
+    let fewest = Infinity;
+    for (const [id, r] of this.reservoirs) {
+      if (r.length < fewest || (r.length === fewest && id > victim)) { fewest = r.length; victim = id; }
+    }
+    if (victim < 0) return;
+    this.reservoirs.delete(victim);
+    this.centroids.delete(victim);
+    this.evidence.delete(victim);
+    this.onDrop?.(victim);
   }
 
   private mergeClose(): void {

@@ -184,6 +184,10 @@ clusters.onMerge = (from, into) => {
   for (const [t, c] of trackCluster) if (c === from) trackCluster.set(t, into);
   for (const [t, r] of rotations) if (r.cluster === from) rotations.set(t, { counts: r.counts, cluster: into });
 };
+clusters.onDrop = (id) => {
+  voter.dropCluster(id);
+  for (const [t, c] of trackCluster) if (c === id) { trackCluster.delete(t); rotations.delete(t); }
+};
 // track id -> VOTES for its sticker-layout rotation (one per frame with a
 // shared-edge pairing; the majority is the rotation), valid only while the
 // track still reads as the cluster they were cast for: a track that slides
