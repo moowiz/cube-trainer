@@ -1,6 +1,7 @@
 // Tests for the grid-prior seam scorer and refiner (M6, thirds-prior).
 // See model/train/grid_check.py for the algorithm this ports.
 import { describe, expect, it } from 'vitest';
+import { shiftQuad } from './helpers';
 import { refineQuad, seamScore } from '../src/detect/gridfit';
 import type { ImageDataLike, Quad } from '../src/rectify';
 
@@ -53,9 +54,6 @@ function faceQuad(size: number, x0 = FACE_X0, y0 = FACE_Y0): Quad {
   return [[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size]] as const;
 }
 
-function shiftQuad(q: Quad, dx: number, dy: number): Quad {
-  return q.map(([x, y]) => [x + dx, y + dy] as const);
-}
 
 describe('seamScore', () => {
   const SIZE = 96; // face square side == default warpSize, so warping is ~1:1

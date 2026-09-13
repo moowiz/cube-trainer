@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { makeLcg } from './helpers';
 import {
   srgbToLab,
   labDistance,
@@ -18,13 +19,6 @@ import type { Lab } from '../src/types';
 
 // ---------- deterministic noise: tiny hand-rolled LCG (no Math.random) ----------
 
-function makeLcg(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
 
 /** Uniform noise in [-amplitude, amplitude]. */
 function noise(rand: () => number, amplitude: number): number {

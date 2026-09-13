@@ -5,31 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import { fuseSharedCorners, type Corner } from '../src/detect/orient';
 import type { FaceId } from '../src/types';
-
-const LAYOUT: Record<FaceId, [number, number, number][]> = {
-  U: [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]],
-  R: [[1, 1, 1], [1, 1, -1], [1, -1, -1], [1, -1, 1]],
-  F: [[-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]],
-  D: [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]],
-  L: [[-1, 1, -1], [-1, 1, 1], [-1, -1, 1], [-1, -1, -1]],
-  B: [[1, 1, -1], [-1, 1, -1], [-1, -1, -1], [1, -1, -1]],
-};
-const NORMALS: Record<FaceId, [number, number, number]> = {
-  U: [0, 1, 0], R: [1, 0, 0], F: [0, 0, 1], D: [0, -1, 0], L: [-1, 0, 0], B: [0, 0, -1],
-};
-type V3 = [number, number, number];
-const rotX = (v: V3, a: number): V3 => [v[0], v[1] * Math.cos(a) - v[2] * Math.sin(a), v[1] * Math.sin(a) + v[2] * Math.cos(a)];
-const rotY = (v: V3, a: number): V3 => [v[0] * Math.cos(a) + v[2] * Math.sin(a), v[1], -v[0] * Math.sin(a) + v[2] * Math.cos(a)];
-const project = (v: V3): [number, number] => [160 + 100 * v[0], 160 - 100 * v[1]];
+import { visibleFaces } from './helpers';
 
 function view(ax: number, ay: number) {
-  const out: { face: FaceId; corners: [number, number][] }[] = [];
-  for (const f of Object.keys(LAYOUT) as FaceId[]) {
-    const n = rotX(rotY(NORMALS[f], ay), ax);
-    if (n[2] <= 0.12) continue;
-    out.push({ face: f, corners: LAYOUT[f].map((c) => project(rotX(rotY(c, ay), ax))) });
-  }
-  return out;
+  return visibleFaces(ax, ay).map((v) => ({ face: v.face, corners: v.quad }));
 }
 
 // deterministic "noise"
