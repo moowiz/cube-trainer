@@ -46,6 +46,24 @@ export const TOO_SMALL_REASON = 'face too small';
 /** Prefix of the refusal reason for a center sticker with something on it. */
 export const OBSCURED_REASON = 'center obscured';
 
+/** Prefix of the refusal reason when the two nearest exemplars are too close to call. */
+export const AMBIGUOUS_REASON = 'ambiguous centre';
+
+// DECISION 2026-09-13: a name needs a margin. nameConf = 1 - best/second;
+// below this the frame contributes nothing rather than a coin flip. Taken
+// from a captured failure (scan-debug-1789290604959): a blue centre under
+// warm room light sat 54.5 from the measured green exemplar and 55.1 from
+// the nominal blue prior (nameConf 0.01), was named green, and then taught
+// the green exemplar to be blue - after which every blue read as green at
+// nameConf 0.97. Real names in the same session ran at 0.5-0.98.
+export const MIN_NAME_CONF = 0.25;
+
+// An observation may not move a face's exemplar by more than this (naming
+// space units) once the face has been measured, and may never be nearer to
+// another face's exemplar than to its own. Ordinary exposure drift between
+// frames is a few units; a different sticker colour is 40-60.
+export const MAX_OBS_DRIFT = 25;
+
 /** Faces that can never be co-visible: naming both in one frame is a bug. */
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
 
@@ -127,6 +145,10 @@ export class CenterExemplars {
   private obs = new Map<FaceId, Lab[]>();
   private raw = new Map<FaceId, [number, number, number][]>();
   private readonly seed: Record<FaceId, Lab>;
+  /** Priors for the unmeasured faces, re-fitted whenever a measurement lands. */
+  private prior: Record<FaceId, Lab> | null = null;
+  /** Observations refused by the drift / nearest-face guards (debug stat). */
+  rejected = 0;
 
   constructor() {
     const labs = FACE_ORDER.map((f) => hexToLab(DEFAULT_SCHEME_HEX[f]));
@@ -138,10 +160,54 @@ export class CenterExemplars {
     });
   }
 
-  /** Normalized-space exemplar for one face: observed median, else the seed. */
+  /** Normalized-space exemplar for one face: observed median, else the scene-adapted prior. */
   get(face: FaceId): Lab {
     const seen = this.obs.get(face);
-    return seen && seen.length ? labMedian(seen) : this.seed[face];
+    if (seen && seen.length) return labMedian(seen);
+    this.prior ??= this.fitPriors();
+    return this.prior[face];
+  }
+
+  /**
+   * The nominal scheme colours are what a cube looks like in a render; a real
+   * room desaturates them and shifts them all the same way (warm light: +b,
+   * and the camera's white balance on top). Fit that - one chroma scale and
+   * one shift, plus a lightness shift - from the faces that HAVE been
+   * measured, and predict the rest through it. From the captured failure
+   * above: nominal blue sat 55 from the real blue centre, the fitted prior
+   * sits 34, and green (the wrong answer) 62. With one measured face only
+   * the shift is known, so the scale falls back to a typical indoor value.
+   */
+  private fitPriors(): Record<FaceId, Lab> {
+    const measured = FACE_ORDER.filter((f) => this.isMeasured(f));
+    const out = { ...this.seed };
+    if (measured.length === 0) return out;
+    const ms = measured.map((f) => labMedian(this.obs.get(f)!));
+    const ss = measured.map((f) => this.seed[f]);
+    const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length;
+    const sa = mean(ss.map((c) => c.a));
+    const sb = mean(ss.map((c) => c.b));
+    const ma = mean(ms.map((c) => c.a));
+    const mb = mean(ms.map((c) => c.b));
+    let k = PRIOR_SCALE_ONE_FACE;
+    if (measured.length >= 2) {
+      let num = 0;
+      let den = 0;
+      ss.forEach((c, i) => {
+        num += (c.a - sa) * (ms[i]!.a - ma) + (c.b - sb) * (ms[i]!.b - mb);
+        den += (c.a - sa) ** 2 + (c.b - sb) ** 2;
+      });
+      if (den > 0) k = Math.max(PRIOR_SCALE_MIN, Math.min(PRIOR_SCALE_MAX, num / den));
+    }
+    const ta = ma - k * sa;
+    const tb = mb - k * sb;
+    const tL = mean(ms.map((c, i) => c.L - ss[i]!.L));
+    for (const f of FACE_ORDER) {
+      if (this.isMeasured(f)) continue;
+      const c = this.seed[f];
+      out[f] = { L: c.L + tL, a: k * c.a + ta, b: k * c.b + tb };
+    }
+    return out;
   }
 
   /** True once this face has a real observed exemplar. */
@@ -155,10 +221,20 @@ export class CenterExemplars {
    * the face's own median lightness — that is what cancels auto-exposure
    * drift between frames, and it needs all nine.
    */
-  observe(face: FaceId, cells: readonly Lab[], rgb?: [number, number, number]): void {
-    if (cells.length !== 9) return;
+  observe(face: FaceId, cells: readonly Lab[], rgb?: [number, number, number]): boolean {
+    if (cells.length !== 9) return false;
+    const center = normalizeFaceCells(cells, NAME_L_WEIGHT)[4]!;
+    // Guards (DECISION 2026-09-13, see MAX_OBS_DRIFT): a track keeps its face
+    // id while the cube turns, so the reading it hands in can be a different
+    // sticker. That reading must not teach this face a new colour.
+    const own = labDistance(center, this.get(face));
+    if (this.isMeasured(face) && own > MAX_OBS_DRIFT) { this.rejected++; return false; }
+    for (const other of FACE_ORDER) {
+      if (other !== face && labDistance(center, this.get(other)) < own) { this.rejected++; return false; }
+    }
     const list = this.obs.get(face) ?? [];
-    list.push(normalizeFaceCells(cells, NAME_L_WEIGHT)[4]!);
+    list.push(center);
+    this.prior = null;
     if (list.length > OBS_RESERVOIR) list.shift();
     this.obs.set(face, list);
     if (rgb) {
@@ -167,6 +243,7 @@ export class CenterExemplars {
       if (r.length > OBS_RESERVOIR) r.shift();
       this.raw.set(face, r);
     }
+    return true;
   }
 
   /** CSS colors for the debug panel's six swatches. */
@@ -185,8 +262,15 @@ export class CenterExemplars {
   reset(): void {
     this.obs.clear();
     this.raw.clear();
+    this.prior = null;
+    this.rejected = 0;
   }
 }
+
+// Prior fit: chroma scale bounds, and the scale assumed with one measured face.
+const PRIOR_SCALE_MIN = 0.4;
+const PRIOR_SCALE_MAX = 1.2;
+const PRIOR_SCALE_ONE_FACE = 0.8;
 
 function med(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -290,13 +374,20 @@ export function nameQuads(
       .sort((a, b) => a.d - b.d);
     const [best, second] = ranked as [{ f: FaceId; d: number }, { f: FaceId; d: number }];
     const nameConf = second.d > 0 ? Math.max(0, Math.min(1, 1 - best.d / second.d)) : 0;
+    const cellRgb = samples.map((s) => s.rgb);
+    if (nameConf < MIN_NAME_CONF) {
+      out[i] = { face: null, color: null, nameConf, center, rgb: samples[4]!.rgb, minEdgePx: minEdge,
+                 cells, cellsNorm, cellRgb, ranked: ranked.map((r) => ({ face: r.f, d: r.d })),
+                 reason: `${AMBIGUOUS_REASON} (${colorOf(best.f)} ${best.d.toFixed(0)} vs ${colorOf(second.f)} ${second.d.toFixed(0)})` };
+      return;
+    }
     // `dbg` is the evidence this decision was made from, carried out verbatim
     // - nothing here is recomputed for the debug view, it is the same arrays
     // and the same `ranked` the winner was picked from.
     const dbg = {
       cells,
       cellsNorm,
-      cellRgb: samples.map((s) => s.rgb),
+      cellRgb,
       ranked: ranked.map((r) => ({ face: r.f, d: r.d })),
     };
     cands.push({ i, face: best.f, dist: best.d, nameConf, center, cells,
