@@ -355,3 +355,116 @@ function farthestPointInit(samples: readonly Lab[], k: number): Lab[] {
 export function rgbCss(rgb: readonly [number, number, number]): string {
   return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
 }
+
+// ---------- balanced assignment ----------
+//
+// DECISION 2026-09-13: a finished cube shows EXACTLY nine stickers of each
+// color, and that is evidence the classifier was throwing away. Fifty-four
+// independent nearest-centroid calls have no way to express it, so under a
+// color cast the nearest centroid wins ties in one direction and a color ends
+// up with fourteen members while another gets four. Solving it as an
+// assignment instead - 54 stickers into 6 colors x 9 slots, minimizing total
+// distance - makes "looks red, but red already has nine better candidates"
+// resolve to orange on its own. See web/src/color-notes.md item 3.
+//
+// The same argument is why the white bias on dim frames is not fixable by
+// tuning a threshold: white is the only exemplar on the neutral axis, so
+// every washed-out sample is nearest to it, and only a global constraint can
+// say "nine of you at most".
+
+const FORBIDDEN = 1e6; // finite, not Infinity: the solver subtracts potentials
+
+/**
+ * Hungarian algorithm (O(n^3), e-maxx potentials form) on a square cost
+ * matrix. Returns row -> column. Costs must be finite.
+ */
+export function solveAssignment(cost: readonly (readonly number[])[]): number[] {
+  const n = cost.length;
+  const m = n === 0 ? 0 : cost[0]!.length;
+  if (n !== m) throw new Error(`solveAssignment: expected a square matrix, got ${n}x${m}`);
+  const u = new Array<number>(n + 1).fill(0);
+  const v = new Array<number>(m + 1).fill(0);
+  const p = new Array<number>(m + 1).fill(0);
+  const way = new Array<number>(m + 1).fill(0);
+
+  for (let i = 1; i <= n; i++) {
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Array<number>(m + 1).fill(Infinity);
+    const used = new Array<boolean>(m + 1).fill(false);
+    do {
+      used[j0] = true;
+      const i0 = p[j0]!;
+      let delta = Infinity;
+      let j1 = 0;
+      for (let j = 1; j <= m; j++) {
+        if (used[j]) continue;
+        const cur = cost[i0 - 1]![j - 1]! - u[i0]! - v[j]!;
+        if (cur < minv[j]!) {
+          minv[j] = cur;
+          way[j] = j0;
+        }
+        if (minv[j]! < delta) {
+          delta = minv[j]!;
+          j1 = j;
+        }
+      }
+      for (let j = 0; j <= m; j++) {
+        if (used[j]) {
+          u[p[j]!]! += delta;
+          v[j]! -= delta;
+        } else {
+          minv[j]! -= delta;
+        }
+      }
+      j0 = j1;
+    } while (p[j0] !== 0);
+    do {
+      const j1 = way[j0]!;
+      p[j0] = p[j1]!;
+      j0 = j1;
+    } while (j0);
+  }
+
+  const rowToCol = new Array<number>(n).fill(-1);
+  for (let j = 1; j <= m; j++) if (p[j]) rowToCol[p[j]! - 1] = j - 1;
+  return rowToCol;
+}
+
+/**
+ * Label `samples` with cluster indices so that every cluster gets exactly
+ * `perCluster` of them, minimizing total Lab distance to `centroids`.
+ *
+ * `pinned` forces a sample to a cluster (the center stickers: a face's center
+ * defines its color by construction, so it must never be reassigned).
+ * samples.length must equal centroids.length * perCluster.
+ */
+export function assignBalanced(
+  samples: readonly Lab[],
+  centroids: readonly Lab[],
+  perCluster: number,
+  pinned?: ReadonlyMap<number, number>,
+): number[] {
+  const k = centroids.length;
+  const n = samples.length;
+  if (n !== k * perCluster) {
+    throw new Error(`assignBalanced: ${n} samples cannot fill ${k} clusters x ${perCluster}`);
+  }
+  // Expand each cluster into `perCluster` interchangeable columns.
+  const cost: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row = new Array<number>(n);
+    const force = pinned?.get(i);
+    for (let c = 0; c < k; c++) {
+      // Squared distance, not distance: the cost is then a Gaussian
+      // log-likelihood, so the solver pays quadratically to drag a sticker
+      // away from a color it sits close to and prefers to rebalance using the
+      // genuinely ambiguous ones.
+      const raw = labDistance(samples[i]!, centroids[c]!);
+      const d = force === undefined ? raw * raw : force === c ? 0 : FORBIDDEN;
+      for (let s = 0; s < perCluster; s++) row[c * perCluster + s] = d;
+    }
+    cost.push(row);
+  }
+  return solveAssignment(cost).map((col) => Math.floor(col / perCluster));
+}

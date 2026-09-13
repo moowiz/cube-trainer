@@ -7,7 +7,13 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
-import { labDistance, labMean, labMedian, kmeans, nearestCentroid } from './color';
+import {
+  labDistance,
+  labMean,
+  labMedian,
+  kmeans,
+  nearestCentroid,
+} from './color';
 import { FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 
@@ -197,18 +203,44 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
   // collapse two faces into one.
   const anchors = FACE_ORDER.map((face) => centerIndex[face]);
   const seeds = anchors.map((i) => normalized[i]!);
+  // `labels` comes straight from kmeans because it honours `anchors`: a center
+  // cell stays pinned to its own cluster. Recomputing labels by nearest
+  // centroid afterwards looks equivalent and is not - it lets a center be
+  // relabelled, which costs a sticker on the monitor-cast fixture.
   const { centroids, labels } = kmeans(normalized, 6, seeds, 32, anchors);
 
-  const clusterToFace = new Map<number, FaceId>();
-  FACE_ORDER.forEach((face, i) => clusterToFace.set(i, face));
-
-  const stickerFaces: FaceId[] = labels.map((l) => clusterToFace.get(l)!);
+  // Everything from here to the very end works in CLUSTER indices - "the six
+  // colors this cube shows" - never in face letters. A cluster is not a face:
+  // it becomes one only in the mapping below, and only because each capture
+  // told us which face its center belonged to. Keeping the two apart is what
+  // lets a cube with a non-standard color scheme assemble at all.
+  // MEASURED 2026-09-13, and the reason the nine-per-color constraint is NOT
+  // applied here: `assignBalanced` (color.ts) solves exactly the assignment
+  // color-notes.md item 3 proposes, and on the fixtures it is a wash - the
+  // monitor-cast scan goes 43 -> 44 of 54, but the matte-cube scan goes
+  // 52 -> 50, swapping two near-tie pairs (R<->L, F<->U). Squared cost, which
+  // makes the solver pay quadratically to move a confident sticker, gives
+  // byte-identical results. So the binding limit is the CENTROIDS, not the
+  // absence of the constraint: when a cast smears two clusters together,
+  // forcing nine-per-color just redistributes the same confusion. The right
+  // next lever is color-notes item 2 (classify against same-frame center
+  // exemplars) and item 4 (project onto the axis between the two rival
+  // centers); revisit the constraint once those land, because it should
+  // compose well with better centroids. The solver stays tested in color.ts.
 
   const confidences: number[] = normalized.map((s) => {
     const { dist, secondDist } = nearestCentroid(s, centroids);
     if (secondDist <= 0) return dist === 0 ? 1 : 0;
     return Math.min(1, Math.max(0, 1 - dist / secondDist));
   });
+
+  // THE BINDING, and the only place it happens: cluster -> face letter. Each
+  // capture's center defines its cluster, so the letter a sticker ends up with
+  // is "the letter of the face whose center is this color", never "the letter
+  // white is supposed to have". cubejs needs U R F D L B and gets it here.
+  const clusterToFace = new Map<number, FaceId>();
+  FACE_ORDER.forEach((face, cluster) => clusterToFace.set(cluster, face));
+  const stickerFaces: FaceId[] = labels.map((l) => clusterToFace.get(l)!);
 
   // Report centroids in the original (un-normalized) Lab space — they are the
   // measured face colors, meant for display and debugging.
