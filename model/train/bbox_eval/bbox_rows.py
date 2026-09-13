@@ -1,6 +1,10 @@
 """Per-photo rows + size binning for the deployed cubebox on a labelled root."""
-import json, pathlib, sys
-import numpy as np, onnxruntime as ort
+import json
+import pathlib
+import sys
+
+import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")

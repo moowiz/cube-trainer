@@ -1,6 +1,10 @@
 """Contact sheet of data_real_val: green = GT silhouette box, red = cubebox."""
-import json, pathlib, sys
-import numpy as np, onnxruntime as ort
+import json
+import pathlib
+import sys
+
+import numpy as np
+import onnxruntime as ort
 from PIL import Image, ImageDraw
 
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")

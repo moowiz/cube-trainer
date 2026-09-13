@@ -20,11 +20,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 
-from shapes import KP_WH
-
 from dataset import normalize01, to_float01
 from gpu_augment import photometric_batch
 from model import build_model, center_loss
+from shapes import KP_WH
 from targets import build_center_targets
 
 torch.backends.cudnn.benchmark = True
@@ -76,7 +75,7 @@ def main():
             torch.cuda.synchronize()
             print(f"  {mode:30s} first step {time.perf_counter() - t0:6.1f}s", flush=True)
             print(f"  {mode:30s} {timeit(step):7.2f} ms/step", flush=True)
-        except Exception as e:  # noqa: BLE001 - report and keep going
+        except Exception as e:
             print(f"  {mode:30s} FAILED: {str(e)[:400]}", flush=True)
 
     try:
@@ -89,7 +88,7 @@ def main():
         aug()
         torch.cuda.synchronize()
         print(f"  {'photometric compiled':30s} {timeit(aug):7.2f} ms", flush=True)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print("  photometric compile FAILED:", str(e)[:300])
 
 

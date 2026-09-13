@@ -1,0 +1,26 @@
+# python lint for model/ (train, export, gen helpers). Run:
+#   .venv/Scripts/ruff check .        (add --fix for the safe autofixes)
+line-length = 120
+target-version = "py313"
+extend-exclude = [".venv", "data*", "runs", "roboflow", "negatives", "backgrounds"]
+src = ["train", "export", "train/bbox_eval"]  # so isort knows dataset/shapes/... are first-party
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF100"]
+ignore = [
+    "E402",  # module level import not at top: scripts insert sys.path first
+    "E731",  # lambda assignment: the eval one-liners use it deliberately
+    "E741",  # ambiguous variable name (l, I, O)
+    "B905",  # zip() without strict=
+    "B028",  # warnings.warn without stacklevel
+    "B023",  # closures over loop variables: every one here is called inside the same iteration
+]
+
+[lint.per-file-ignores]
+# throwaway measurement scripts: one-liners and long lines are the style
+"train/bbox_eval/*.py" = ["E501", "E701", "E702", "E703"]
+# ruff reads the `del dl, it, model, opt` at the end of run() as making the
+# closures above it unbound (F821); the closures run before the del
+"train/bench_local.py" = ["F821"]
+# embedded dashboard HTML/JS
+"train/watch.py" = ["E501"]

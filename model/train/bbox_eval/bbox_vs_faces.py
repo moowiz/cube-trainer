@@ -4,9 +4,15 @@ The keypoint model is accurate to ~3 px on real photos, so the bounding box of
 its detected quads is a good stand-in for the true cube silhouette - good
 enough to say whether the localizer box is too small, and on which side.
 """
-import json, pathlib, sys
-import numpy as np, onnxruntime as ort, torch
+import json
+import pathlib
+import sys
+
+import numpy as np
+import onnxruntime as ort
+import torch
 from PIL import Image, ImageDraw
+
 sys.path.insert(0, r"C:\Users\moowi\Documents\GitHub\cube_stuff\model\train")
 from dataset import letterbox_image, normalize_batch
 from model import build_model, decode_maps
@@ -19,6 +25,7 @@ mean = np.array(meta["input"]["mean"], np.float32); std = np.array(meta["input"]
 sess = ort.InferenceSession(str(WEB / "cubebox.onnx"), providers=["CPUExecutionProvider"])
 sig = lambda v: 1 / (1 + np.exp(-v))
 from shapes import KP_WH
+
 ck = torch.load(ROOT / "train" / "runs" / "v4ft1" / "best.pt", map_location="cpu", weights_only=True)
 kp = build_model("center", pretrained=False, input_hw=(KP_WH[1], KP_WH[0])); kp.load_state_dict(ck["model"]); kp.eval()
 

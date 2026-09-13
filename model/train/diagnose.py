@@ -223,7 +223,6 @@ def main():
     rows = [r for r in rows if not r["far"]]
     hit = [r for r in rows if r["err"] is not None]
     errs = np.array([r["err"] for r in hit])
-    sizes = np.array([r["size"] for r in hit])
     print(f"\nground-truth visible faces: {len(rows)}")
     if head == "center":
         tp, fn = len(hit), len(rows) - len(hit)

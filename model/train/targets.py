@@ -52,7 +52,7 @@ OFF_SUPERVISE_MIN = 0.5
 # valuable pose we have (see --cornerBias in the generator). An area-based
 # floor would have quietly deleted exactly the data we went out of our way to
 # generate.
-from shapes import MIN_FACE_EDGE_FRAC, min_face_edge_px  # noqa: E402  (re-exported)
+from shapes import MIN_FACE_EDGE_FRAC, min_face_edge_px
 
 
 def min_edge_cells(grid_hw: tuple[int, int]) -> float:

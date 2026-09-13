@@ -19,19 +19,22 @@ import argparse
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt          # noqa: E402
-import numpy as np                        # noqa: E402
-import torch                              # noqa: E402
-import torch.nn.functional as F           # noqa: E402
-from matplotlib.patches import Polygon, Rectangle   # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+import torch.nn.functional as F
+from matplotlib.patches import Polygon, Rectangle
 
-from dataset import CubeKeypointDataset, normalize_batch          # noqa: E402
-from model import MATCH_CENTROID_FRAC, build_model, decode_maps   # noqa: E402
-from shapes import min_face_edge_px                             # noqa: E402
-from targets import quad_centers                                  # noqa: E402
+from dataset import CubeKeypointDataset, normalize_batch
+from model import MATCH_CENTROID_FRAC, build_model, decode_maps
+from shapes import (
+    KP_WH,
+    min_face_edge_px,
+)
+from targets import quad_centers
 
-from shapes import KP_WH
 INPUT_WH, STRIDE, THRESH = KP_WH, 16, 0.5
 KEPT, DROPPED, GT = "#2ecc71", "#e74c3c", "#f5f5f5"
 
@@ -75,7 +78,8 @@ def scan(ds, model, device, want, limit):
                     continue
                 if dist > MATCH_CENTROID_FRAC * edges(gt_q[f]).mean():
                     continue
-                used_d.add(d); used_g[f] = d
+                used_d.add(d)
+                used_g[f] = d
             cells = {f: (int(np.clip(c[1] / STRIDE, 0, heat.shape[1] - 1)),
                          int(np.clip(c[0] / STRIDE, 0, heat.shape[2] - 1)))
                      for f, c in gt_c.items()}
@@ -122,13 +126,15 @@ def draw_row(axes, rec, title, note):
             ax0.annotate("dropped", c + np.array([6, -8]), color=DROPPED, fontsize=8, weight="bold")
     ax0.set_title(title, fontsize=10, loc="left")
     ax0.set_xlabel(note, fontsize=8)
-    ax0.set_xticks([]); ax0.set_yticks([])
+    ax0.set_xticks([])
+    ax0.set_yticks([])
 
     im = ax1.imshow(rec["heat"], cmap="magma", vmin=0, vmax=1, interpolation="nearest")
     ax1.set_xticks(np.arange(-.5, W, 1), minor=True)
     ax1.set_yticks(np.arange(-.5, H, 1), minor=True)
     ax1.grid(which="minor", color="#ffffff", lw=.25, alpha=.35)
-    ax1.set_xticks([]); ax1.set_yticks([])
+    ax1.set_xticks([])
+    ax1.set_yticks([])
     for f, (ci, cj) in rec["cells"].items():
         kept = f in rec["used_g"]
         ax1.add_patch(Rectangle((cj - .5, ci - .5), 1, 1, fill=False,
@@ -159,7 +165,8 @@ def draw_row(axes, rec, title, note):
             continue
         ax2.add_patch(Rectangle((oj - x0 - .5, oi - y0 - .5), 1, 1, fill=False,
                                 edgecolor=KEPT if f in rec["used_g"] else DROPPED, lw=1.6))
-    ax2.set_xticks([]); ax2.set_yticks([])
+    ax2.set_xticks([])
+    ax2.set_yticks([])
     ax2.set_title("the same cells, up close", fontsize=10, loc="left")
     win = rec["heat"][max(ci - 1, 0):ci + 2, max(cj - 1, 0):cj + 2]
     ax2.set_xlabel(f"solid box: this face's true middle ({rec['heat'][ci, cj]:.2f})\n"
@@ -181,7 +188,8 @@ def main():
     global INPUT_WH
     INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
     model = build_model("center", pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
-    model.load_state_dict(ckpt["model"]); model.eval()
+    model.load_state_dict(ckpt["model"])
+    model.eval()
     ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, raw_uint8=True,
                              view=ckpt.get("view", "frame"))
 

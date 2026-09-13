@@ -25,8 +25,8 @@ import numpy as np
 import torch
 
 from dataset import CubeKeypointDataset, normalize_batch
-
 from shapes import KP_WH
+
 INPUT_WH = KP_WH
 
 
@@ -79,10 +79,10 @@ def main():
 
 def step_has_no_sync() -> bool:
     """One train.py step with torch's sync debug mode set to raise."""
+    from dataset import normalize01, to_float01
     from gpu_augment import photometric_batch
     from model import build_model, center_loss
     from targets import build_center_targets
-    from dataset import normalize01, to_float01
 
     torch.backends.cudnn.benchmark = True
     dev = "cuda"
@@ -91,7 +91,8 @@ def step_has_no_sync() -> bool:
     scaler = torch.amp.GradScaler()
     b = 8
     raw = torch.randint(0, 256, (b, INPUT_WH[1], INPUT_WH[0], 3), dtype=torch.uint8).pin_memory()
-    conf = torch.zeros(b, 6); conf[:, :2] = 1
+    conf = torch.zeros(b, 6)
+    conf[:, :2] = 1
     corners = (torch.rand(b, 6, 4, 2) * 0.5 + 0.25)
     corners[0, 0] *= 0.02      # one face below the range floor: exercises the ignore path
     valid = torch.ones(b, 6)

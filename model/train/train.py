@@ -27,8 +27,17 @@ from torch.utils.data import ConcatDataset, DataLoader, Subset
 from augment import augment_sample
 from dataset import CubeKeypointDataset, normalize01, normalize_batch, to_float01
 from gpu_augment import disable_compile, enable_compile, photometric_batch
-from model import (HEADS, build_model, center_loss, center_metrics, conf_accuracy, count_params,
-                   f1_from_counts, keypoint_loss, pixel_error)
+from model import (
+    HEADS,
+    build_model,
+    center_loss,
+    center_metrics,
+    conf_accuracy,
+    count_params,
+    f1_from_counts,
+    keypoint_loss,
+    pixel_error,
+)
 from shapes import FRAME_CACHE_WH, KP_WH
 from targets import build_center_targets, dataset_target_stats
 
@@ -247,7 +256,7 @@ def main():
         nonlocal run, compiled
         try:
             return run(x)
-        except Exception as e:  # noqa: BLE001 - compile backend failure, first step only
+        except Exception as e:
             if not compiled or args.compile == "on":
                 raise
             print(f"torch.compile failed, continuing eager: {str(e).splitlines()[0][:160]}", flush=True)

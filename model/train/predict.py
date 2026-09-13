@@ -73,7 +73,7 @@ def main():
         x = (np.asarray(lb, dtype=np.float32) / 255.0 - NORM_MEAN) / NORM_STD
         with torch.no_grad():
             y = localizer(torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device))[0].cpu().numpy()
-        sig = lambda v: 1 / (1 + np.exp(-v))  # noqa: E731
+        sig = lambda v: 1 / (1 + np.exp(-v))
         obj = float(sig(y[0]))
         if obj < 0.5:
             return None
@@ -107,7 +107,7 @@ def main():
         with torch.no_grad():
             pred = model(xt)
 
-        def to_source(u, v):
+        def to_source(u, v, dx=dx, dy=dy, scale=scale, window=window):
             return ((u * INPUT_WH[0] - dx) / scale + window[0], (v * INPUT_WH[1] - dy) / scale + window[1])
 
         lines = []

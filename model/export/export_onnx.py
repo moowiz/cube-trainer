@@ -39,10 +39,9 @@ import torch
 from onnxruntime.quantization import CalibrationDataReader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
-from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset  # noqa: E402
-from model import (CENTER_DEDUPE_FRAC, CENTER_MIN_DEDUPE_PX, CENTER_STRIDE,  # noqa: E402
-                   build_model)
-from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL  # noqa: E402
+from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset
+from model import CENTER_DEDUPE_FRAC, CENTER_MIN_DEDUPE_PX, CENTER_STRIDE, build_model
+from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 INPUT_WH = KP_WH   # overwritten from the checkpoint in main()

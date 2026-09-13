@@ -38,7 +38,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import ConcatDataset, DataLoader
 
-from bbox_data import BOX_WH, CocoBBox, SynthBBox, NegDir
+from bbox_data import BOX_WH, CocoBBox, NegDir, SynthBBox
 
 OFFSET_RANGE = 0.5      # how far (in frame widths) a cell may point
 

@@ -27,7 +27,8 @@ import numpy as np
 import torch
 
 from model import CENTER_STRIDE, build_model, decode_to_list
-from shapes import KP_WH, grid_hw
+from shapes import KP_WH
+from shapes import grid_hw as shapes_grid_hw
 
 INPUT_WH = KP_WH
 FIXTURE = Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "facekp-maps-square.json"
@@ -43,7 +44,7 @@ def _write_quad(maps, i, j, cx, cy, half, stride=CENTER_STRIDE):
         maps[0, 2 + 2 * c, i, j] = y / stride - (i + 0.5)
 
 
-def synthetic_maps(grid_hw=grid_hw(KP_WH), seed: int = 7) -> torch.Tensor:
+def synthetic_maps(grid_hw=None, seed: int = 7) -> torch.Tensor:
     """Deterministic stand-in carrying the cases a trained map almost never
     produces but the decoder must get right. Since 2026-09-12 deduplication is
     on the decoded quads (see model.py::decode_maps), so what matters is no
@@ -58,6 +59,8 @@ def synthetic_maps(grid_hw=grid_hw(KP_WH), seed: int = 7) -> torch.Tensor:
       D  a sub-threshold peak                            -> dropped
       E  offsets putting corners outside the frame       -> kept as-is
     """
+    if grid_hw is None:
+        grid_hw = shapes_grid_hw(KP_WH)
     g = torch.Generator().manual_seed(seed)
     H, W = grid_hw
     maps = torch.full((1, 9, H, W), -4.0)

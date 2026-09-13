@@ -1,7 +1,12 @@
 """IoU of the deployed cubebox on data_v4 val, split by the generator's own
 occlusion metadata (hasHands / hasPalm / nFingers / hasClutter)."""
-import json, pathlib, sys, zlib
-import numpy as np, onnxruntime as ort
+import json
+import pathlib
+import sys
+import zlib
+
+import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")

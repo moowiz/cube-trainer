@@ -40,7 +40,8 @@ def main() -> None:
         print(f"downloading {URL} -> {zpath}")
         def hook(n, bs, total):
             if n % 200 == 0:
-                sys.stdout.write(f"\r  {n * bs / 1e6:7.0f} / {total / 1e6:.0f} MB"); sys.stdout.flush()
+                sys.stdout.write(f"\r  {n * bs / 1e6:7.0f} / {total / 1e6:.0f} MB")
+                sys.stdout.flush()
         urllib.request.urlretrieve(URL, zpath, hook)
         print()
     n = 0

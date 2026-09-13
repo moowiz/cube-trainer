@@ -4,8 +4,12 @@ Ground truth for a convex cube: the axis-aligned bounding box of every visible
 face's corners. Positive error = the predicted edge is INSIDE the true box
 (i.e. the prediction is too small on that side).
 """
-import json, pathlib, sys
-import numpy as np, onnxruntime as ort
+import json
+import pathlib
+import sys
+
+import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")
@@ -34,7 +38,7 @@ rows = []
 for lf in sorted((root / "labels").glob("*.json")):
     m = json.loads(lf.read_text())
     pts = []
-    for f, v in m["faces"].items():
+    for v in m["faces"].values():
         if v.get("visible") and v.get("corners"):
             pts.extend(v["corners"])
     if not pts:

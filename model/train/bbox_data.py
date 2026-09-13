@@ -28,7 +28,12 @@ the model ever sees at runtime are the desktop case (a 640x480 webcam
 letterboxed into 120x160 gets 35 px top/bottom bars), which `_bars`
 simulates at p 0.15; the 10 landscape real photos arrive barred already.
 COCO negatives get a random 3:4 crop at p 0.6 so they look like empty phone
-frames instead of barred landscape ones.
+frames instead of barred landscape ones. Batch-7 real frames are 720x1280
+video (16:9 from the same sensor width as the app's 4:3), so the frame cache
+pillarboxes them: 90 px of content between 15 px grey side bands at BOX_WH.
+Nothing at runtime has side bands, but 96% of the barred samples hold a cube,
+so `_side_bars` puts the same bands on synthetic positives AND negatives at
+p 0.10 to keep "side bands" from becoming an objectness shortcut.
 
 Train-time augmentation (all of it lives here): isotropic zoom + translate,
 `_bars`, hflip, brightness/contrast, noise.
@@ -53,7 +58,7 @@ import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
 
-from dataset import CubeKeypointDataset, NORM_MEAN, NORM_STD, letterbox_image, letterbox_params
+from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset, letterbox_image, letterbox_params
 from shapes import BOX_WH, FRAME_CACHE_WH
 
 # rgb(114,114,114) in the normalized space the model sees - the letterbox pad.
@@ -62,6 +67,10 @@ PAD = torch.tensor((114.0 / 255.0 - NORM_MEAN) / NORM_STD, dtype=torch.float32).
 BARS_H = round(BOX_WH[0] * 3 / 4)
 BARS_Y = (BOX_WH[1] - BARS_H) // 2
 P_BARS = 0.15
+# 720x1280 video letterboxed into 120x160: a 90x160 window centred at x=15
+SIDE_W = round(BOX_WH[1] * 9 / 16)
+SIDE_X = (BOX_WH[0] - SIDE_W) // 2
+P_SIDE_BARS = 0.10
 P_NEG_PORTRAIT_CROP = 0.6
 
 
@@ -75,6 +84,12 @@ def _has_bars(x: torch.Tensor) -> bool:
     """True if this sample is already letterboxed (a landscape real photo:
     the top row is all pad)."""
     return bool(torch.allclose(x[:, 0, :], PAD.view(3, 1).expand(3, x.shape[2]), atol=1e-3))
+
+
+def _has_side_bars(x: torch.Tensor) -> bool:
+    """True if this sample is pillarboxed (a 16:9 video frame: the left
+    column is all pad)."""
+    return bool(torch.allclose(x[:, :, 0], PAD.view(3, 1).expand(3, x.shape[1]), atol=1e-3))
 
 
 def _xyxy(box: torch.Tensor, w: int, h: int):
@@ -137,6 +152,25 @@ def _bars(x: torch.Tensor, box: torch.Tensor | None):
     return _paste(BOX_WH, x[:, top:top + BARS_H, :], 0, BARS_Y), None
 
 
+def _side_bars(x: torch.Tensor, box: torch.Tensor | None):
+    """Cut a 9:16 window out of the canvas and re-centre it between grey
+    left/right bands: the geometry a 720x1280 video frame gets. The window
+    keeps the box (if any) inside it."""
+    W, H = BOX_WH
+    if box is not None:
+        x0, _, x1, _ = _xyxy(box, W, H)
+        lo = max(0, math.ceil(x1) - SIDE_W)
+        hi = min(math.floor(x0), W - SIDE_W)
+        if lo > hi:
+            return x, box  # cube wider than the window; leave it alone
+        left = random.randint(lo, hi)
+        _, y0, _, y1 = _xyxy(box, W, H)
+        return (_paste(BOX_WH, x[:, :, left:left + SIDE_W], SIDE_X, 0),
+                _from_xyxy(x0 - left + SIDE_X, y0, x1 - left + SIDE_X, y1, W, H))
+    left = random.randint(0, W - SIDE_W)
+    return _paste(BOX_WH, x[:, :, left:left + SIDE_W], SIDE_X, 0), None
+
+
 def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = True):
     if random.random() < 0.5:  # hflip
         x = torch.flip(x, dims=[2])
@@ -149,9 +183,15 @@ def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = Tr
             x, box = _zoom_translate(x, box)
         if not barred and random.random() < P_BARS:
             x, box = _bars(x, box)
-    elif geometry and not _has_bars(x) and random.random() < P_BARS:
-        # negatives see the desktop bars too
-        x, _ = _bars(x, None)
+        elif not barred and not _has_side_bars(x) and random.random() < P_SIDE_BARS:
+            x, box = _side_bars(x, box)
+    elif geometry and not _has_bars(x) and not _has_side_bars(x):
+        # negatives see the desktop and video bars too
+        r = random.random()
+        if r < P_BARS:
+            x, _ = _bars(x, None)
+        elif r < P_BARS + P_SIDE_BARS:
+            x, _ = _side_bars(x, None)
     if random.random() < 0.7:  # brightness/contrast in normalized space
         # The downward reach matters: data_v4's auto-exposure floor re-renders
         # near-black scenes brighter (5.4% of them), so the synthetic set has

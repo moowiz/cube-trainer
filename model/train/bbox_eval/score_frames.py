@@ -1,10 +1,18 @@
 """Score every dense frame with the deployed cubebox + facekp; write a csv."""
-import json, pathlib, sys, csv
-import numpy as np, onnxruntime as ort, torch
+import csv
+import json
+import pathlib
+import sys
+
+import numpy as np
+import onnxruntime as ort
+import torch
 from PIL import Image
+
 sys.path.insert(0, r"C:\Users\moowi\Documents\GitHub\cube_stuff\model\train")
 from dataset import letterbox_image, normalize_batch
 from model import build_model, decode_maps
+
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model"); WEB = ROOT.parent/"web"/"public"/"models"
 meta = json.loads((WEB/"cubebox.json").read_text()); _,_,IH,IW = meta["input"]["shape"]
 mean = np.array(meta["input"]["mean"],np.float32); std = np.array(meta["input"]["std"],np.float32)
