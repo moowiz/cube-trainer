@@ -47,7 +47,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from dataset import FACE_ORDER, CubeKeypointDataset
+from dataset import FACE_ORDER, NORM_MEAN, NORM_STD, CubeKeypointDataset
+from PIL import Image
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps, f1_from_counts
 from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL, min_face_edge_px
 from targets import GRID_N, cyclic_perms, quad_centers, quad_grid_points
@@ -156,6 +157,35 @@ def group_table(rows, key, label, width=11):
     print(f"  ({label})")
 
 
+def dump_native_window(photo: Path, meta: dict, sample, input_wh, k: int, out: Path) -> None:
+    """The model's input window, cut from the native photo at k x the input size.
+    The input is a uniform scale + offset of the photo (letterbox), so the map is
+    fitted from one visible face's corners in both frames - no dataset internals."""
+    _, conf, corners, valid, _ = sample
+    wh = np.array(input_wh, dtype=np.float32)
+    for f in range(6):
+        if conf[f] < 0.5 or valid[f] < 0.5:
+            continue
+        nat = meta["faces"][FACE_ORDER[f]].get("corners")
+        if not nat:
+            continue
+        a = corners[f].numpy() * wh          # input px
+        b = np.array(nat, dtype=np.float64)  # native px (any cyclic order - centroid/scale suffice)
+        scale = np.linalg.norm(b - b.mean(0), axis=1).mean() / max(np.linalg.norm(a - a.mean(0), axis=1).mean(), 1e-9)
+        off = b.mean(0) - a.mean(0) * scale  # native = input * scale + off
+        img = Image.open(photo).convert("RGB")
+        x0, y0 = off
+        x1, y1 = off + wh * scale
+        # PIL crops outside the image with black; the letterbox pads grey
+        canvas = Image.new("RGB", (int(round(x1 - x0)), int(round(y1 - y0))), (114, 114, 114))
+        bx0, by0 = max(0, int(round(x0))), max(0, int(round(y0)))
+        bx1, by1 = min(img.width, int(round(x1))), min(img.height, int(round(y1)))
+        if bx1 > bx0 and by1 > by0:
+            canvas.paste(img.crop((bx0, by0, bx1, by1)), (bx0 - int(round(x0)), by0 - int(round(y0))))
+        canvas.resize((int(input_wh[0]) * k, int(input_wh[1]) * k), Image.BILINEAR).save(out)
+        return
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", default="runs/base/best.pt")
@@ -173,6 +203,13 @@ def main():
                     help="crop view: per-side padding U(PAD_VAL-J, PAD_VAL+J) instead of exactly "
                          "PAD_VAL, simulating localizer error")
     ap.add_argument("--seed", type=int, default=0, help="for --jitter")
+    ap.add_argument("--dump", default=None,
+                    help="write every model input as PNG plus dump.json (pred/gt quads in input px, "
+                         "corner-aligned) to this dir - the web refine bench reads it")
+    ap.add_argument("--dump-scale", type=int, default=1,
+                    help="with --dump, also write the same window cut from the NATIVE photo at this "
+                         "multiple of the input size (the phone frame shows a face 1.5-2.5x bigger than "
+                         "the 256 input does) as NNNNxK.png; quads scale by K")
     ap.add_argument("--fit", choices=list(FIT_SUBSETS), default="all",
                     help="grid checkpoints: which points the cell-centre homography is fitted to")
     args = ap.parse_args()
@@ -203,6 +240,10 @@ def main():
     batches = batch_index(Path(args.photos))
     rows = []          # one per ground-truth visible face
     false_pos = 0
+    dump_dir = Path(args.dump) if args.dump else None
+    dump_rows = []
+    if dump_dir:
+        dump_dir.mkdir(parents=True, exist_ok=True)
     wh = np.array(INPUT_WH, dtype=np.float32)
     with torch.no_grad():
         for start in range(0, len(ds), 64):
@@ -222,6 +263,12 @@ def main():
                 p = pred.cpu().numpy()
             for j, i in enumerate(idxs):
                 meta = json.loads(ds.files[i].read_text())
+                if dump_dir:
+                    arr = (x[j].cpu().numpy().transpose(1, 2, 0) * NORM_STD + NORM_MEAN) * 255
+                    Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8)).save(dump_dir / f"{i:04d}.png")
+                    if args.dump_scale > 1:
+                        dump_native_window(ds.files[i].parent.parent / meta["image"], meta, batch[j], INPUT_WH,
+                                           args.dump_scale, dump_dir / f"{i:04d}x{args.dump_scale}.png")
                 style = meta.get("style", "?")
                 batch_name = batches.get(meta.get("source", ""), "-")
                 _, conf, corners, valid, geom = batch[j]
@@ -274,6 +321,10 @@ def main():
                         rows.append({**base, "err": errs[r], "gridErr": grid_err, "cellErr": cell_err,
                                      "rot": abs(rotation_deg(quads_px[j, d], shifts[r])),
                                      "score": float(scores[j, d])})
+                        if dump_dir:
+                            dump_rows.append({"image": f"{i:04d}.png", "face": FACE_ORDER[f], "range": base["range"],
+                                              "far": base["far"], "src": src, "err": errs[r],
+                                              "pred": quads_px[j, d].tolist(), "gt": shifts[r].tolist()})
                 else:
                     for f in gts:
                         pd = p[j, f, 1:].reshape(4, 2) * wh
@@ -288,6 +339,10 @@ def main():
                                      "range": next((n for n, lo, hi in RANGE_BINS if lo <= frac < hi), "out"),
                                      "squash": float(e.min() / max(e.max(), 1e-9)),
                                      "far": bool(e.max() < args.min_edge)})
+
+    if dump_dir:
+        (dump_dir / "dump.json").write_text(json.dumps({"inputWh": list(INPUT_WH), "faces": dump_rows}))
+        print(f"dumped {len(dump_rows)} faces to {dump_dir}")
 
     out_of_range = [r for r in rows if r["far"]]
     if out_of_range:
