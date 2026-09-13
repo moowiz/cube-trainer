@@ -133,6 +133,12 @@ def conf_accuracy(pred: torch.Tensor, conf_t: torch.Tensor):
 
 HEADS = ("legacy", "center")
 CENTER_STRIDE = 16
+# Decode deduplication (2026-09-12, replaces the 3x3 max-pool NMS - see
+# decode_maps). Suppression radius is a fraction of the KEPT quad's mean edge,
+# so it shrinks with the cube instead of being frozen at one cell.
+CENTER_DEDUPE_FRAC = 0.5
+CENTER_MIN_DEDUPE_PX = 8.0     # floor, for degenerate near-zero-area quads
+CENTER_MAX_CANDIDATES = 32     # cells decoded per image before deduplication
 CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)
 # CenterNet's prior-probability bias: start the heatmap at p=0.1 so the first
 # epochs are not dominated by the ~299 negative cells per positive.
@@ -259,22 +265,65 @@ def decode_maps(maps: torch.Tensor, input_wh=(320, 240), k: int = 6, thresh: flo
     Quads are ANONYMOUS: corner order is cyclic with consistent winding, the
     starting corner is arbitrary, and nothing here says which face it is.
     Entries below `thresh` come back with score 0 and are to be ignored.
+
+    DECISION 2026-09-12: deduplicate on the DECODED QUADS, not with a 3x3
+    max-pool over the heatmap. The old NMS kept a cell only if it was the
+    brightest within one cell of itself, i.e. a suppression radius frozen at
+    one stride (16 px) whatever the cube's size on screen. The spacing between
+    the three face centres of a cube is NOT fixed: on a cube 43 px per face the
+    centres sit ~1.8 cells apart, so the strongest face's blob is still rising
+    as it crosses the weaker face's own centre cell, and that face is dropped
+    with the model 0.83 confident in it. Measured on data_v4 val, this was 63%
+    of ALL misses (126 of 201) and the discarded faces were not even
+    foreshortened (median squash 0.72). Deduplicating by distance relative to
+    the kept quad's own mean edge scales the radius with the cube:
+    misses 201 -> 75, F1 0.979 -> 0.988 on the same checkpoint, no retraining.
+
+    Candidates are every cell at or above `thresh`, strongest first (ties go to
+    the lower cell index, as torch.topk on a 1-D view does), capped at
+    CENTER_MAX_CANDIDATES; a candidate is dropped when its centre falls within
+    CENTER_DEDUPE_FRAC of an already-kept quad's mean edge length.
     """
     B, _, H, W = maps.shape
     heat = torch.sigmoid(maps[:, 0])
-    # 3x3 max-pool NMS: keep only cells that are their own neighbourhood max.
-    peak = nn.functional.max_pool2d(heat.unsqueeze(1), 3, stride=1, padding=1).squeeze(1)
-    scores = torch.where(heat >= peak, heat, torch.zeros_like(heat))
-    top_v, top_i = scores.view(B, -1).topk(min(k, H * W), dim=1)
+    cand = min(CENTER_MAX_CANDIDATES, H * W)
+    # Strongest first, ties to the LOWER cell index. A stable descending sort
+    # says that outright; torch.topk does not promise it (measured: it returned
+    # the higher cell first for an exact tie) and the TypeScript mirror sorts
+    # by (score desc, cell asc), so the two must be pinned here.
+    flat = heat.view(B, -1)
+    top_i = torch.argsort(flat, dim=1, descending=True, stable=True)[:, :cand]
+    top_v = flat.gather(1, top_i)
     ci = torch.div(top_i, W, rounding_mode="floor")
     cj = top_i % W
     off = maps[:, 1:].reshape(B, 4, 2, H * W)
-    gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, 4, 2, top_i.shape[1]))
-    gx = (cj.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 0]) * stride / input_wh[0]
-    gy = (ci.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 1]) * stride / input_wh[1]
-    quads = torch.stack([gx, gy], dim=-1).permute(0, 2, 1, 3)   # (B,k,4,2)
-    top_v = torch.where(top_v >= thresh, top_v, torch.zeros_like(top_v))
-    return top_v, quads
+    gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, 4, 2, cand))
+    px = (cj.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 0]) * stride
+    py = (ci.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 1]) * stride
+    quads_px = torch.stack([px, py], dim=-1).permute(0, 2, 1, 3)      # (B,cand,4,2)
+    centres = quads_px.mean(dim=2)                                    # (B,cand,2)
+    edge = (quads_px - quads_px.roll(-1, dims=2)).norm(dim=-1).mean(dim=2)  # (B,cand)
+    radius = torch.clamp(CENTER_DEDUPE_FRAC * edge, min=CENTER_MIN_DEDUPE_PX)  # (B,cand)
+
+    # Greedy, strongest first. Only a candidate that is still alive suppresses,
+    # so a quad killed by a stronger one cannot go on to kill a third.
+    alive = top_v >= thresh
+    for i in range(cand - 1):
+        d = (centres[:, i + 1:] - centres[:, i:i + 1]).norm(dim=-1)   # (B,cand-i-1)
+        hit = (d < radius[:, i:i + 1]) & alive[:, i:i + 1]
+        alive[:, i + 1:] &= ~hit
+
+    # Take the first k survivors in CANDIDATE order, not by a second topk: the
+    # candidates are already strongest-first with ties resolved by cell index,
+    # and topk does not promise to preserve that order for equal scores (two
+    # tied quads came back swapped against the TypeScript mirror). Sorting a
+    # boolean stably keeps the survivors in their original order.
+    kk = min(k, cand)
+    order = torch.argsort(~alive, dim=1, stable=True)[:, :kk]
+    sel_v = top_v.gather(1, order) * alive.gather(1, order).to(top_v.dtype)
+    quads = quads_px.gather(1, order.view(B, kk, 1, 1).expand(B, kk, 4, 2))
+    quads = quads / torch.tensor(input_wh, dtype=quads.dtype, device=quads.device)
+    return sel_v, quads
 
 
 def decode_to_list(maps: torch.Tensor, **kw) -> list[list[dict]]:
