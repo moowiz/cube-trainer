@@ -1,24 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import { makeLcg, shiftQuad } from './helpers';
 import { FaceTracker } from '../src/detect/tracker';
 import type { DetectedFace } from '../src/detect/facekp';
 
 // ---------- deterministic noise: tiny hand-rolled LCG (no Math.random) ----------
 
-function makeLcg(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-}
 
 // ---------- quad helpers ----------
 
 type Quad = [number, number][];
 
-function shiftQuad(quad: Quad, dx: number, dy: number): Quad {
-  return quad.map(([x, y]) => [x + dx, y + dy]);
-}
 
 function rollQuad(quad: Quad, n: number): Quad {
   const len = quad.length;

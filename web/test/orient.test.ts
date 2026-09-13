@@ -2,45 +2,7 @@
 // edges, tested against a synthetic cube projection with known ground truth.
 import { describe, expect, it } from 'vitest';
 import { orientQuad, resolveOrientations, type OrientableFace } from '../src/detect/orient';
-import type { FaceId } from '../src/types';
-
-// sticker-layout corner tables (mirror of scene.mjs FACE_DATA / orient.ts)
-const LAYOUT: Record<FaceId, [number, number, number][]> = {
-  U: [[-1, 1, -1], [1, 1, -1], [1, 1, 1], [-1, 1, 1]],
-  R: [[1, 1, 1], [1, 1, -1], [1, -1, -1], [1, -1, 1]],
-  F: [[-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1]],
-  D: [[-1, -1, 1], [1, -1, 1], [1, -1, -1], [-1, -1, -1]],
-  L: [[-1, 1, -1], [-1, 1, 1], [-1, -1, 1], [-1, -1, -1]],
-  B: [[1, 1, -1], [-1, 1, -1], [-1, -1, -1], [1, -1, -1]],
-};
-const NORMALS: Record<FaceId, [number, number, number]> = {
-  U: [0, 1, 0], R: [1, 0, 0], F: [0, 0, 1], D: [0, -1, 0], L: [-1, 0, 0], B: [0, 0, -1],
-};
-
-type V3 = [number, number, number];
-function rotX(v: V3, a: number): V3 {
-  const [x, y, z] = v;
-  return [x, y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
-}
-function rotY(v: V3, a: number): V3 {
-  const [x, y, z] = v;
-  return [x * Math.cos(a) + z * Math.sin(a), y, -x * Math.sin(a) + z * Math.cos(a)];
-}
-
-/** Orthographic camera at +z looking -z; screen y grows downward. */
-function project(v: V3): [number, number] {
-  return [160 + 100 * v[0], 160 - 100 * v[1]];
-}
-
-function visibleFaces(ax: number, ay: number): { face: FaceId; quad: [number, number][]; }[] {
-  const out: { face: FaceId; quad: [number, number][] }[] = [];
-  for (const f of Object.keys(LAYOUT) as FaceId[]) {
-    const n = rotX(rotY(NORMALS[f], ay), ax);
-    if (n[2] <= 0.12) continue; // facing away from the camera
-    out.push({ face: f, quad: LAYOUT[f].map((c) => project(rotX(rotY(c, ay), ax))) });
-  }
-  return out;
-}
+import { visibleFaces } from './helpers';
 
 describe('resolveOrientations', () => {
   it('recovers arbitrary cyclic rotations on a 3-face view', () => {

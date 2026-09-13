@@ -6,7 +6,7 @@
 // found. A missing model means the app has NO detection path (there is no
 // full-frame stage 2): callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
-import { letterbox, type Box } from './geometry';
+import { letterbox, type Box, type Letterbox } from './geometry';
 
 interface CubeboxMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
@@ -82,19 +82,27 @@ export class CubeLocalizer {
     const out = await this.session.run({
       image: new ort.Tensor('float32', x, [1, 3, this.ih, this.iw]),
     });
-    const y = out.box.data as Float32Array;
-    const sig = (v: number) => 1 / (1 + Math.exp(-v));
-    const obj = sig(y[0]);
-    this.lastObj = obj;
-    if (obj < OBJ_THRESHOLD) return null;
-    const cx = sig(y[1]) * this.iw;
-    const cy = sig(y[2]) * this.ih;
-    const w = sig(y[3]) * this.iw;
-    const h = sig(y[4]) * this.ih;
-    const [x0, y0] = lb.toSource(cx - w / 2, cy - h / 2);
-    const [x1, y1] = lb.toSource(cx + w / 2, cy + h / 2);
-    return { obj, box: [x0, y0, x1, y1] };
+    const hit = decodeBox(out.box.data as Float32Array, this.iw, this.ih, lb);
+    this.lastObj = hit.obj;
+    return hit.obj < OBJ_THRESHOLD ? null : hit;
   }
+}
+
+/**
+ * The exported head emits 5 logits [obj, cx, cy, w, h]; cx/cy/w/h are
+ * sigmoids in model-input units and come back here in source px through the
+ * letterbox inverse. Pure, so the mapping is unit-tested without a session.
+ */
+export function decodeBox(y: ArrayLike<number>, iw: number, ih: number, lb: Letterbox): CubeBox {
+  const sig = (v: number) => 1 / (1 + Math.exp(-v));
+  const obj = sig(y[0]);
+  const cx = sig(y[1]) * iw;
+  const cy = sig(y[2]) * ih;
+  const w = sig(y[3]) * iw;
+  const h = sig(y[4]) * ih;
+  const [x0, y0] = lb.toSource(cx - w / 2, cy - h / 2);
+  const [x1, y1] = lb.toSource(cx + w / 2, cy + h / 2);
+  return { obj, box: [x0, y0, x1, y1] };
 }
 
 export { padBox } from './geometry';

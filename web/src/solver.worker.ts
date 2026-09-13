@@ -21,7 +21,7 @@ interface SolveRequest {
   warm?: boolean;
 }
 
-const ctx = self as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const ctx = self as any;  
 
 ctx.onmessage = (ev: MessageEvent) => {
   const { id, facelets, warm } = ev.data as SolveRequest;
