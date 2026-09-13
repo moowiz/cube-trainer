@@ -15,9 +15,11 @@ import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation } from './assembly';
 import { sampleGridCells } from './color';
 import { FaceDetector, type DetectResult } from './detect/facekp';
+import { MIN_FACE_EDGE_PX } from './color';
 import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
 import { CubeLocalizer, padBox } from './detect/cubebox';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
+import { HintState, hintFor } from './ui/hint';
 import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
@@ -46,6 +48,8 @@ app.innerHTML = `
     h1 { font-size: 18px; margin: 4px 0 10px; }
     #stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
     #view { width: 100%; display: block; }
+    #hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; text-align: center;
+            font-size: 16px; font-weight: 600; color: #fff; background: #c0392bd9; }
     button { background: #2a2f3a; color: inherit; border: 1px solid #3a4150; border-radius: 6px; padding: 8px 14px; font: inherit; }
     #bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
     #fill { display: flex; gap: 6px; margin: 8px 0; }
@@ -69,7 +73,7 @@ app.innerHTML = `
       <label id="heatLbl" style="display:none"><input type="checkbox" id="heat"> heatmap</label>
       <span id="status">model loading…</span>
     </div>
-    <div id="stage"><canvas id="view"></canvas></div>
+    <div id="stage"><canvas id="view"></canvas><div id="hint" hidden></div></div>
     <div id="fill">${FACE_ORDER.map((f) => `<div class="f" id="fill-${f}" style="color:${DEFAULT_SCHEME_HEX[f]}"><b>${f}</b><span>0%</span></div>`).join('')}</div>
     <div id="fallback">Having trouble? The <a href="scanner.html">grid scanner</a> always works.</div>
     <div id="swatches" style="display:none"></div>
@@ -84,6 +88,7 @@ const statusEl = document.getElementById('status')!;
 const resultEl = document.getElementById('result')!;
 const fallbackEl = document.getElementById('fallback')!;
 const statsEl = document.getElementById('stats')!;
+const hintEl = document.getElementById('hint')!;
 const swatchEl = document.getElementById('swatches')!;
 const heatChk = document.getElementById('heat') as HTMLInputElement;
 const heatLbl = document.getElementById('heatLbl')!;
@@ -108,6 +113,8 @@ let lastDetect: DetectResult | null = null;
 let lastTs = 0;
 let rotations: Partial<Record<FaceId, number>> = {};
 let lastGoodDetectionTs = 0;
+const hintState = new HintState();
+let cubeTooSmall = false;  // localizer found a cube whose silhouette is under the face floor
 let solved = false;
 let vetoedCount = 0; // faces skipped by the seam veto (debug stat)
 
@@ -216,6 +223,10 @@ async function loop(ts: number): Promise<void> {
             } else if (localizer) {
               const hit = await localizer.locate(v, v.videoWidth, v.videoHeight);
               if (hit) roi = padBox(hit.box, 0.45, v.videoWidth, v.videoHeight);
+              // A face edge can't exceed the cube's silhouette, so a silhouette
+              // under MIN_FACE_EDGE_PX at the detector's scale is too far, full stop.
+              const scale = Math.min(detector!.iw / v.videoWidth, detector!.ih / v.videoHeight);
+              cubeTooSmall = !!hit && Math.max(hit.box[2] - hit.box[0], hit.box[3] - hit.box[1]) * scale < MIN_FACE_EDGE_PX;
             }
           }
           const res = await detector!.detect(v, roi);
@@ -270,6 +281,12 @@ async function loop(ts: number): Promise<void> {
     }
 
     drawOverlay(tracks);
+    // Banner for refusals the user can fix (too far, too dark, glare).
+    // Reasons come from the same list the grey debug quads show.
+    const hint = hintState.update(
+      hintFor(lastDetect?.unnamed.map((u) => u.reason) ?? [], confident.length > 0, cubeTooSmall), ts);
+    hintEl.hidden = !hint;
+    if (hint) hintEl.textContent = hint.text;
     if (detector?.anonymous) exemplarSwatches(swatchEl, detector.exemplars);
     updateFillUI();
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
@@ -310,4 +327,5 @@ document.getElementById('reset')!.addEventListener('click', () => {
   solved = false;
   lastDetect = null;
   resultEl.textContent = '';
+  hintEl.hidden = true;
 });

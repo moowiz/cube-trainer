@@ -123,8 +123,9 @@ export class FaceDetector {
   readonly exemplars = new CenterExemplars();
   private outputName: string;
   private stride: number;
-  private iw: number;
-  private ih: number;
+  /** Model input size; the letterbox scale for a frame is min(iw/w, ih/h). */
+  readonly iw: number;
+  readonly ih: number;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
