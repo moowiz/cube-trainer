@@ -28,3 +28,11 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   the blue-named-green lock-in that exemplar-guard.test.ts pins down;
   `-1789291642684` (all six measured) / `-1789291701546` (fresh session, three
   measured) are the red-as-orange readout and the runaway prior fit.
+  `-1789308171326` (evening, phone) is the adjacency cascade: a stale
+  rotation on a swapped track bound the yellow cluster "orange" and the
+  orange cluster "blue" from one frame each, leaving the real blue with no
+  name; `-1789308736891` (daylight) is the split green (lit vs shadowed side,
+  22 apart) that ate the sixth cluster slot and forced the white centre into
+  it - both pinned by colorid.test.ts (bindings need a vote quorum and a
+  chromatically possible colour, ranks beat bindings, leftover clusters
+  alias, red/orange split by hue gap).
