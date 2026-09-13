@@ -97,17 +97,79 @@ export function gridCellCenters(rect: Rect): Array<[number, number]> {
 }
 
 /**
- * Robust cell sample: five patches (center + four diagonals at ±25% of the
- * cell size), component-median of their Lab and rgb. The median rejects a
- * contaminated minority — a center-cap logo, a glare speck, a tile edge
- * clipping one corner. Derived from fixture cube-frame-D-1789100811627,
- * where the GAN logo covers the entire center of the white tile and any
- * single center patch reads solid blue; the tile's corners are honest.
+ * How far a sample may stray from a cell's center, as fractions of one cell.
+ * `half` is the patch's half-width; `off` is the radius of the ring of extra
+ * patches (0 = no ring, a single patch at the center).
  */
-export function sampleCellRobust(img: ImageData, cx: number, cy: number, cellSize: number, patchSize = 12): CellSample {
-  // DECISION: 25% offset — far enough that sub-patches escape a big center
-  // logo, close enough to stay inside the tile when alignment is imperfect.
-  const off = cellSize * 0.25;
+export interface CellPlan {
+  half: number;
+  off: number;
+}
+
+/** Median corner error of the deployed detector, in 320x240 letterbox px. */
+export const CORNER_ERR_PX = 3.0;
+
+/**
+ * Below this the model never saw a positive face at all — the trainer buries
+ * anything smaller in the ignore region (model/train/targets.py
+ * MIN_FACE_EDGE_PX). Naming a face this small asks the detector for a
+ * precision it was never trained to have.
+ */
+export const MIN_FACE_EDGE_PX = 32;
+
+/**
+ * Sampling geometry for a face with `cellPx` pixels per sticker, or null if
+ * the face is too small to sample at all.
+ *
+ * MEASURED (model/data_real_val, 74 labelled faces, deployed v4ft1): the
+ * detector's corner error is nearly flat in pixels — 3.9 px on the smallest
+ * faces, 2.1 px on the largest — but as a fraction of a sticker it runs from
+ * 0.91 down to 0.06. The grid displacement, not the color, is what breaks
+ * glancing faces.
+ *
+ * So the budget between a cell's center and its seam (half a cell) is spent
+ * as: 0.5, less the expected displacement, less 5% slack. Patch half-width is
+ * paid first (capped at 0.15 — wider buys no averaging worth the reach), and
+ * only the remainder funds a ring.
+ */
+export function facePlan(cellPx: number): CellPlan | null {
+  if (cellPx * 3 < MIN_FACE_EDGE_PX) return null;
+  const budget = 0.45 - CORNER_ERR_PX / Math.max(cellPx, 1e-6);
+  if (budget <= 0.02) return null;
+  const half = Math.min(0.15, budget);
+  return { half, off: Math.max(0, budget - half) };
+}
+
+/** The plan a caller gets when it does not supply one: today's fixed geometry. */
+const LEGACY_PLAN: CellPlan = { half: 0.2, off: 0.25 };
+
+/**
+ * Robust cell sample. A ring of four extra patches is sampled only when the
+ * plan funds one, and the result is the MEDOID of the patches — the single
+ * patch closest to all the others.
+ *
+ * MEASURED: the ring exists to dodge the center-cap logo (fixture
+ * cube-frame-D-1789100811627, where the logo covers the whole center of the
+ * white tile). On full-resolution photos with hand-labelled geometry the gap
+ * between a sticker's middle and its own ±25% ring is 8.3 Lab for the face
+ * center and 1.6–2.8 for all eight others — the logo lives in exactly one
+ * cell, so only that cell should pay the ring's reach out toward the seam.
+ *
+ * The medoid replaces a component-wise median, which picked each channel
+ * independently and could return a color present in none of the patches
+ * (observed on a phone capture: red from one sub-patch, green and blue from
+ * another, naming a blue sticker white).
+ */
+export function sampleCellRobust(
+  img: ImageData,
+  cx: number,
+  cy: number,
+  cellSize: number,
+  plan: CellPlan = LEGACY_PLAN,
+): CellSample {
+  const patchSize = Math.max(2, Math.round(2 * plan.half * cellSize));
+  if (plan.off < 0.02) return samplePatch(img, cx, cy, patchSize);
+  const off = cellSize * plan.off;
   const points: Array<[number, number]> = [
     [cx, cy],
     [cx - off, cy - off],
@@ -116,20 +178,36 @@ export function sampleCellRobust(img: ImageData, cx: number, cy: number, cellSiz
     [cx + off, cy + off],
   ];
   const parts = points.map(([x, y]) => samplePatch(img, x, y, patchSize));
-  const med = (xs: number[]) => {
-    const s = [...xs].sort((a, b) => a - b);
-    return s[s.length >> 1]!;
-  };
-  return {
-    lab: labMedian(parts.map((p) => p.lab)),
-    rgb: [med(parts.map((p) => p.rgb[0])), med(parts.map((p) => p.rgb[1])), med(parts.map((p) => p.rgb[2]))],
-  };
+  let best = 0;
+  let bestSum = Infinity;
+  for (let i = 0; i < parts.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < parts.length; j++) sum += labDistance(parts[i]!.lab, parts[j]!.lab);
+    if (sum < bestSum) {
+      bestSum = sum;
+      best = i;
+    }
+  }
+  return parts[best]!;
 }
 
-/** Sample the 9 sticker cells of a face grid, row-major. */
-export function sampleGridCells(img: ImageData, rect: Rect, patchSize = 12): CellSample[] {
+/**
+ * Sample the 9 sticker cells of a face grid, row-major.
+ *
+ * `plan` must be supplied whenever `rect` is a rectified canvas, because the
+ * canvas size says nothing about how many real pixels the face occupied —
+ * derive it with facePlan() from the source quad. When omitted the rect is
+ * assumed to be in source pixels and the plan comes from its own cell size.
+ *
+ * Only cell 4 gets the ring: see sampleCellRobust.
+ */
+export function sampleGridCells(img: ImageData, rect: Rect, plan?: CellPlan): CellSample[] {
   const cellSize = Math.min(rect.w, rect.h) / 3;
-  return gridCellCenters(rect).map(([cx, cy]) => sampleCellRobust(img, cx, cy, cellSize, patchSize));
+  const p = plan ?? facePlan(cellSize) ?? { half: 0.15, off: 0 };
+  const flat: CellPlan = { half: p.half, off: 0 };
+  return gridCellCenters(rect).map(([cx, cy], i) =>
+    sampleCellRobust(img, cx, cy, cellSize, i === 4 ? p : flat),
+  );
 }
 
 /** Component-wise mean. */

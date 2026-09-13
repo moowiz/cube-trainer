@@ -187,7 +187,7 @@ describe('sampling: samplePatch / gridCellCenters / sampleGridCells', () => {
 
   it('sampleGridCells returns the 9 cells in row-major order matching the painted blocks', () => {
     const img = paintedImage();
-    const samples = sampleGridCells(img, { x: 0, y: 0, w: SIZE, h: SIZE }, 12);
+    const samples = sampleGridCells(img, { x: 0, y: 0, w: SIZE, h: SIZE });
     expect(samples).toHaveLength(9);
     samples.forEach((s, i) => {
       expect(s.rgb[0]).toBeCloseTo(COLORS[i]![0], 6);
