@@ -72,9 +72,10 @@ export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; 
 
 /** Everything the naming layer saw for this detection, as a plain object. */
 export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
-                              history: readonly TickSummary[] = []): unknown {
+                              history: readonly TickSummary[] = [], extra: Record<string, unknown> = {}): unknown {
   const ex = detector.exemplars;
   return {
+    ...extra,
     captured: new Date().toISOString(),
     model: detector.modelId,
     ep: detector.ep,
@@ -106,9 +107,10 @@ export function debugSnapshot(res: DetectResult, detector: FaceDetector, video: 
 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
 export async function captureDebug(res: DetectResult, detector: FaceDetector, video: HTMLVideoElement,
-                                   prefix = 'detect-debug', history: readonly TickSummary[] = []): Promise<string> {
+                                   prefix = 'detect-debug', history: readonly TickSummary[] = [],
+                                   extra: Record<string, unknown> = {}): Promise<string> {
   const stamp = Date.now();
-  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video, history), null, 1)], { type: 'application/json' }),
+  downloadBlob(new Blob([JSON.stringify(debugSnapshot(res, detector, video, history, extra), null, 1)], { type: 'application/json' }),
                `${prefix}-${stamp}.json`);
   await saveRawFrame(video, prefix, stamp);
   return `${prefix}-${stamp}`;

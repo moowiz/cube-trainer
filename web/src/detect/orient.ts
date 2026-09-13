@@ -122,6 +122,42 @@ export function resolveOrientations(
   return { rotations, pairsUsed, conflicts };
 }
 
+/**
+ * Identify a face from its neighbour (adjacency, 2026-09-13). Given a face
+ * whose letter AND rotation are known (corners in sticker-layout order) and
+ * an anonymous quad that shares an image-space edge with it, the shared edge
+ * is a specific cube edge, and the face across that edge is fixed by the
+ * cube's geometry: a quad on the right of an oriented white (U) face is R
+ * whatever colour it reads. This is how a lone warm face becomes red or
+ * orange before the second warm colour has been seen. Returns the neighbour's
+ * letter and its rotation, or null when the quads share no edge.
+ */
+export function identifyNeighbour(
+  known: { face: FaceId; corners: ReadonlyArray<Corner> },
+  unknown: ReadonlyArray<Corner>,
+  tolFrac = 0.22,
+): { face: FaceId; rotation: number } | null {
+  const tol = tolFrac * ((faceSize(known.corners) + faceSize(unknown)) / 2);
+  let best: { i: number; j: number; cost: number } | null = null;
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      const cost = dist(known.corners[i], unknown[(j + 1) % 4]) + dist(known.corners[(i + 1) % 4], unknown[j]);
+      if (!best || cost < best.cost) best = { i, j, cost };
+    }
+  }
+  if (!best || best.cost > 2 * tol) return null;
+  // known's layout edge (i, i+1) as cube corner ids; the face across it is
+  // the other face whose layout holds both ids
+  const p = LAYOUT[known.face][best.i]!;
+  const q = LAYOUT[known.face][(best.i + 1) % 4]!;
+  for (const f of FACE_ORDER) {
+    if (f === known.face) continue;
+    const jb = LAYOUT[f].findIndex((c, k) => c === q && LAYOUT[f][(k + 1) % 4] === p);
+    if (jb >= 0) return { face: f, rotation: ((best.j - jb) % 4 + 4) % 4 };
+  }
+  return null;
+}
+
 /** Apply a resolved rotation: result[t] is sticker-layout corner t. */
 /**
  * Geometry constraint (tier 1): up to 3 visible faces yield 12 corner

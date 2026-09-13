@@ -21,8 +21,13 @@ function noisy(base: Lab, seed: number): Lab {
   return { L: base.L + j(1) * 0.7, a: base.a + j(2) * 0.7, b: base.b + j(3) * 0.7 };
 }
 
-function solvedObservation(face: FaceId, seed: number): FaceObservation {
-  return { face, conf: 0.95, cells: Array.from({ length: 9 }, (_, i) => noisy(PALETTE[face], seed + i)) };
+// Cluster ids stand in for face letters: cluster 1 = U, 2 = R, ... (the
+// scan page binds clusters to letters from colour; the voter never sees letters)
+const CLUSTER_OF: Record<FaceId, number> = { U: 1, R: 2, F: 3, D: 4, L: 5, B: 6 };
+const FACE_MAP = new Map<number, FaceId>(FACE_ORDER.map((f) => [CLUSTER_OF[f], f]));
+
+function solvedObservation(face: FaceId, seed: number): FaceObservation & { face: FaceId } {
+  return { face, cluster: CLUSTER_OF[face], conf: 0.95, cells: Array.from({ length: 9 }, (_, i) => noisy(PALETTE[face], seed + i)) };
 }
 
 describe('StickerVoter', () => {
@@ -32,16 +37,16 @@ describe('StickerVoter', () => {
       // two faces per frame, cycling - never all at once (any-order scanning)
       const a = FACE_ORDER[frame % 6]!;
       const b = FACE_ORDER[(frame + 3) % 6]!;
-      v.addFrame([solvedObservation(a, frame), solvedObservation(b, frame + 50)]);
+      v.addFrame([solvedObservation(a, frame), solvedObservation(b, frame + 50)], FACE_MAP);
     }
     // not yet: some faces have < MIN_SAMPLES
-    expect(v.progress().locked).toBeNull();
-    for (let frame = 8; frame < 40 && !v.progress().locked; frame++) {
+    expect(v.progress(FACE_MAP).locked).toBeNull();
+    for (let frame = 8; frame < 40 && !v.progress(FACE_MAP).locked; frame++) {
       const a = FACE_ORDER[frame % 6]!;
       const b = FACE_ORDER[(frame + 3) % 6]!;
-      v.addFrame([solvedObservation(a, frame), solvedObservation(b, frame + 50)]);
+      v.addFrame([solvedObservation(a, frame), solvedObservation(b, frame + 50)], FACE_MAP);
     }
-    const p = v.progress();
+    const p = v.progress(FACE_MAP);
     expect(p.locked).not.toBeNull();
     expect(p.locked!.facelets).toBe('UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB');
     expect(p.validationError).toBeNull();
@@ -51,9 +56,9 @@ describe('StickerVoter', () => {
     const v = new StickerVoter();
     for (let frame = 0; frame < 60; frame++) {
       const a = FACE_ORDER[frame % 5]!; // B never observed
-      v.addFrame([solvedObservation(a, frame)]);
+      v.addFrame([solvedObservation(a, frame)], FACE_MAP);
     }
-    const p = v.progress();
+    const p = v.progress(FACE_MAP);
     expect(p.locked).toBeNull();
     expect(p.faceFill.B).toBe(0);
     expect(p.faceFill.U).toBe(1);
@@ -63,13 +68,13 @@ describe('StickerVoter', () => {
     expect(isGlareSample({ L: 99, a: 1, b: 2 })).toBe(true);
     expect(isGlareSample({ L: 90, a: 0, b: 4 })).toBe(false); // plain white sticker keeps its chroma-free look but L is lower
     const v = new StickerVoter();
-    for (let frame = 0; frame < 40 && !v.progress().locked; frame++) {
+    for (let frame = 0; frame < 40 && !v.progress(FACE_MAP).locked; frame++) {
       const obs = [solvedObservation(FACE_ORDER[frame % 6]!, frame), solvedObservation(FACE_ORDER[(frame + 3) % 6]!, frame + 9)];
       // every R-face frame additionally reports cell 0 as blown-out glare
       if (obs[0].face === 'R') obs[0].cells[0] = { L: 99.5, a: 0.5, b: 1 };
-      v.addFrame(obs);
+      v.addFrame(obs, FACE_MAP);
     }
-    const p = v.progress();
+    const p = v.progress(FACE_MAP);
     expect(p.locked).not.toBeNull();
     expect(p.locked!.facelets[9]).toBe('R'); // R cell 0 classified from the clean samples only
   });
@@ -77,9 +82,45 @@ describe('StickerVoter', () => {
   it('ignores low-confidence observations', () => {
     const v = new StickerVoter();
     for (let frame = 0; frame < 60; frame++) {
-      v.addFrame(FACE_ORDER.map((f) => ({ ...solvedObservation(f, frame), conf: 0.2 })));
+      v.addFrame(FACE_ORDER.map((f) => ({ ...solvedObservation(f, frame), conf: 0.2 })), FACE_MAP);
     }
-    expect(v.progress().locked).toBeNull();
-    expect(v.progress().faceFill.U).toBe(0);
+    expect(v.progress(FACE_MAP).locked).toBeNull();
+    expect(v.progress(FACE_MAP).faceFill.U).toBe(0);
+  });
+});
+
+describe('StickerVoter with late bindings', () => {
+  it('holds votes for an unbound cluster and locks once it is bound', () => {
+    const v = new StickerVoter();
+    const partial = new Map(FACE_MAP);
+    partial.delete(CLUSTER_OF.L); // orange undecided until late
+    for (let frame = 0; frame < 40; frame++) {
+      const a = FACE_ORDER[frame % 6]!;
+      const b = FACE_ORDER[(frame + 3) % 6]!;
+      v.addFrame([solvedObservation(a, frame), solvedObservation(b, frame + 50)], partial);
+    }
+    const p = v.progress(partial);
+    expect(p.locked).toBeNull();
+    expect(p.faceFill.L).toBe(0);
+    expect(p.unboundFill[CLUSTER_OF.L]).toBe(1);
+    v.tryLock(FACE_MAP);
+    expect(v.progress(FACE_MAP).locked!.facelets).toBe('UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB');
+  });
+
+  it('merges a duplicate cluster into the surviving one', () => {
+    const v = new StickerVoter();
+    const map = new Map(FACE_MAP);
+    map.set(7, 'B'); // a second blue cluster born early
+    for (let frame = 0; frame < 40; frame++) {
+      const a = FACE_ORDER[frame % 6]!;
+      const b = FACE_ORDER[(frame + 3) % 6]!;
+      const obs = [solvedObservation(a, frame), solvedObservation(b, frame + 50)];
+      for (const o of obs) if (o.face === 'B' && frame % 2) o.cluster = 7;
+      v.addFrame(obs, map);
+    }
+    v.mergeClusters(7, CLUSTER_OF.B);
+    map.delete(7);
+    v.tryLock(map);
+    expect(v.progress(map).locked).not.toBeNull();
   });
 });

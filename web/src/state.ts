@@ -159,6 +159,10 @@ export interface AssembledState {
   stickerFaces: FaceId[]; // length 54, classification of each sticker
   confidences: number[]; // length 54, in [0,1]: 1 - dist/secondDist to cluster centroids, clamped
   centroids: Record<FaceId, Lab>; // measured color of each face's cluster
+  /** length 54: each sticker's runner-up colour (the second-nearest cluster), for piece resolution */
+  secondFaces: FaceId[];
+  /** facelet indices whose colour was flipped to its runner-up by resolveByPieces */
+  flipped?: number[];
 }
 
 /**
@@ -263,8 +267,8 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
   // when the remaining errors are near-ties it can actually arbitrate. The
   // solver stays tested in color.ts.
 
-  const confidences: number[] = normalized.map((s) => {
-    const { dist, secondDist } = nearestCentroid(s, centroids);
+  const nearest = normalized.map((s) => nearestCentroid(s, centroids));
+  const confidences: number[] = nearest.map(({ dist, secondDist }) => {
     if (secondDist <= 0) return dist === 0 ? 1 : 0;
     return Math.min(1, Math.max(0, 1 - dist / secondDist));
   });
@@ -290,7 +294,55 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     stickerFaces,
     confidences,
     centroids: centroidsByFace,
+    secondFaces: nearest.map((n) => clusterToFace.get(n.secondIndex >= 0 ? n.secondIndex : n.index)!),
   };
+}
+
+/** A sticker below this confidence may be flipped to its runner-up colour by resolveByPieces. */
+export const PIECE_AMBIGUOUS_CONF = 0.35;
+const PIECE_MAX_FLIPS = 10;
+
+/**
+ * Piece-uniqueness resolution (2026-09-13). Every corner of a cube is a
+ * unique colour triple and every edge a unique pair, and validateState
+ * knows the full set. Rather than failing an assembly that reads (white,
+ * red, green) twice, try flipping the least confident stickers to their
+ * runner-up colour - red/orange and white/yellow near-ties are exactly the
+ * ones that produce impossible pieces - and keep the cheapest combination
+ * that validates. Centres are never flipped. Returns the input untouched
+ * when it already validates or when no combination does.
+ */
+export function resolveByPieces(state: AssembledState, maxFlips = PIECE_MAX_FLIPS): AssembledState {
+  if (validateState(state.facelets).ok) return state;
+  const candidates = state.confidences
+    .map((c, i) => ({ i, c }))
+    .filter(({ i, c }) => !CENTER_INDICES.includes(i) && c < PIECE_AMBIGUOUS_CONF && state.secondFaces[i] !== state.stickerFaces[i])
+    .sort((a, b) => a.c - b.c)
+    .slice(0, maxFlips);
+  if (!candidates.length) return state;
+  const base = state.stickerFaces.slice();
+  let best: { faces: FaceId[]; flipped: number[]; cost: number } | null = null;
+  const n = candidates.length;
+  for (let mask = 1; mask < (1 << n); mask++) {
+    const faces = base.slice();
+    const flipped: number[] = [];
+    let cost = 0;
+    for (let k = 0; k < n; k++) {
+      if (!(mask & (1 << k))) continue;
+      const { i, c } = candidates[k]!;
+      faces[i] = state.secondFaces[i]!;
+      flipped.push(i);
+      cost += 1 + c; // prefer fewer flips, then the least confident ones
+    }
+    if (best && cost >= best.cost) continue;
+    // cheap filter before the full check: nine of each colour
+    const counts: Record<string, number> = {};
+    for (const f of faces) counts[f] = (counts[f] ?? 0) + 1;
+    if (FACE_ORDER.some((f) => counts[f] !== 9)) continue;
+    if (validateState(faces.join('')).ok) best = { faces, flipped, cost };
+  }
+  if (!best) return state;
+  return { ...state, facelets: best.faces.join(''), stickerFaces: best.faces, flipped: best.flipped };
 }
 
 // ---------- validateState ----------

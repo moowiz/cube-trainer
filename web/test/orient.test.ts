@@ -1,7 +1,7 @@
 // Orientation resolution (M6): recover per-face cyclic rotation from shared
 // edges, tested against a synthetic cube projection with known ground truth.
 import { describe, expect, it } from 'vitest';
-import { orientQuad, resolveOrientations, type OrientableFace } from '../src/detect/orient';
+import { identifyNeighbour, orientQuad, resolveOrientations, type OrientableFace } from '../src/detect/orient';
 import { visibleFaces } from './helpers';
 
 describe('resolveOrientations', () => {
@@ -50,5 +50,33 @@ describe('resolveOrientations', () => {
     const moved = input[1].corners.map(([x, y]) => [x + 500, y] as [number, number]);
     const res = resolveOrientations([input[0], { face: input[1].face, corners: moved }]);
     expect(res.pairsUsed).toBe(0);
+  });
+});
+
+describe('identifyNeighbour (adjacency identity)', () => {
+  it('names the third face at a corner from an oriented neighbour, with its rotation', () => {
+    // this view shows F, D and L; every quad in layout order (rotation 0),
+    // then rolled by a known amount to check the rotation comes back
+    const vis = visibleFaces(-0.5, 0.6);
+    expect(vis.map((v) => v.face).sort()).toEqual(['D', 'F', 'L']);
+    const byFace = Object.fromEntries(vis.map((v) => [v.face, v.quad])) as Record<string, [number, number][]>;
+    for (const [known, unknown] of [['F', 'D'], ['F', 'L'], ['D', 'L'], ['D', 'F'], ['L', 'F'], ['L', 'D']] as const) {
+      for (let roll = 0; roll < 4; roll++) {
+        const rolled = orientQuad(byFace[unknown]!, roll); // rolled[t] = layout corner (t + roll)
+        const id = identifyNeighbour({ face: known, corners: byFace[known]! }, rolled);
+        expect(id, `${known} -> ${unknown} roll ${roll}`).not.toBeNull();
+        expect(id!.face).toBe(unknown);
+        // orientQuad(rolled, id.rotation) must restore layout order
+        const restored = orientQuad(rolled, id!.rotation);
+        restored.forEach((c, t) => { expect(c[0]).toBeCloseTo(byFace[unknown]![t]![0], 6); expect(c[1]).toBeCloseTo(byFace[unknown]![t]![1], 6); });
+      }
+    }
+  });
+
+  it('returns null for quads that share no edge', () => {
+    const vis = visibleFaces(-0.5, 0.6);
+    const f = vis.find((v) => v.face === 'F')!.quad;
+    const far = f.map(([x, y]) => [x + 400, y + 400] as [number, number]);
+    expect(identifyNeighbour({ face: 'F', corners: f }, far)).toBeNull();
   });
 });

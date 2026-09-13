@@ -21,23 +21,26 @@ import './ui/scan.css';
 import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation } from './assembly';
+import { ColorClusters, hueDeg } from './detect/colorid';
 import { minFaceEdgePx, sampleGridCells } from './color';
-import type { DetectedFace, Ep } from './detect/facekp';
+import type { Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
 import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
 import { installDetectSelfTest } from './debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from './detect/models';
 import { detectTwoStage, type TwoStageResult } from './detect/twostage';
-import { FaceTracker, type TrackedFace } from './detect/tracker';
-import { TOO_SMALL_REASON } from './detect/identify';
+import { QuadTracker, type QuadDetection, type TrackedQuad } from './detect/tracker';
+import { OBSCURED_REASON, TOO_SMALL_REASON } from './detect/identify';
 import { HintState, hintFor } from './ui/hint';
-import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
+import { resolveOrientations, orientQuad, fuseSharedCorners, identifyNeighbour } from './detect/orient';
 import { refineQuad, seamScore } from './detect/gridfit';
 import { warpQuad, type ImageDataLike } from './rectify';
 import { solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
-import type { FaceId } from './types';
+import type { FaceId, Lab } from './types';
+
+const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
 
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute color samples
 const REFINE = true;         // grid-prior corner refinement before sampling
@@ -67,6 +70,7 @@ app.innerHTML = `
     </div>
     <div id="stage" class="auto"><canvas id="view"></canvas><div id="hint" hidden></div></div>
     <div id="fill" class="auto">${FACE_ORDER.map((f) => `<div class="f" id="fill-${f}" style="color:${DEFAULT_SCHEME_HEX[f]}"><b>${f}</b><span>0%</span></div>`).join('')}</div>
+    <div id="unbound" class="auto"></div>
     <div id="fallback" class="auto">Having trouble? The <a href="#" id="toGrid">grid scanner</a> always works.</div>
     <div id="result" class="auto"></div>
     <div id="stats" class="auto"></div>
@@ -87,7 +91,7 @@ app.innerHTML = `
         <label id="heatLbl" hidden><input type="checkbox" id="heat"> heatmap</label>
         <label><input type="checkbox" id="stage2off"> stage 2 off (localizer only)</label>
         <label id="cellsLbl" hidden><input type="checkbox" id="cellsChk"> per-sticker readout</label>
-        <label><input type="checkbox" id="exChk"> exemplars</label>
+        <label><input type="checkbox" id="exChk"> clusters</label>
         <button id="capture" disabled title="Download this tick's naming evidence + the last ${TICK_HISTORY} ticks as JSON, plus the raw frame">Capture debug</button>
       </div>
       <div id="msg"></div>
@@ -124,8 +128,14 @@ const exEl = $('exemplars');
 
 const camera = new Camera();
 const fps = new FpsCounter();
-const tracker = new FaceTracker();
+const tracker = new QuadTracker();
 const voter = new StickerVoter();
+const clusters = new ColorClusters();
+clusters.onMerge = (from, into) => voter.mergeClusters(from, into);
+const trackCluster = new Map<number, number>();   // track id -> session colour cluster
+const rotations = new Map<number, number>();      // track id -> resolved sticker-layout rotation
+let adjacencyBinds = 0;
+let oppositeConflicts = 0;
 const work = document.createElement('canvas');
 const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
@@ -133,12 +143,12 @@ let models: TwoStageModels | null = null;
 let running = false;
 let frameNo = 0;
 let inferBusy = false;
-let pendingDetections: DetectedFace[] | null = null;
+let pendingDetections: QuadDetection[] | null = null;
+let pendingRefused = new Set<number>();
 // The most recent detection tick, kept for the debug overlay and the banner:
 // the pipeline itself consumes `pendingDetections` once and drops it.
 let lastTick: TwoStageResult | null = null;
 let lastTs = 0;
-let rotations: Partial<Record<FaceId, number>> = {};
 let lastGoodDetectionTs = 0;
 const hintState = new HintState();
 let cubeTooSmall = false;  // localizer found a cube whose silhouette is under the face floor
@@ -197,52 +207,74 @@ async function tick(v: HTMLVideoElement, m: TwoStageModels): Promise<TwoStageRes
   return { result: null, box, roi: null, obj: m.localizer.lastObj, locateMs: performance.now() - t0 };
 }
 
-function drawOverlay(tracks: TrackedFace[]): void {
+/** A track's face letter, from its colour cluster (null while undecided). */
+function faceOfTrack(t: TrackedQuad): FaceId | null {
+  const c = trackCluster.get(t.id);
+  return c === undefined ? null : clusters.faceOf(c);
+}
+
+/** 9 Lab cells of a quad, sampled from the native-resolution frame. */
+function sampleFace(frame: ImageDataLike, quad: [number, number][]): Lab[] {
+  const warped = warpQuad(frame, quad, 90);
+  return sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 }).map((c) => c.lab);
+}
+
+function drawOverlay(tracks: TrackedQuad[]): void {
   // Debug layering, back to front: stage 1's box and ROI, heatmap, then the
   // raw anonymous quads in grey (what the model actually said), then the
-  // tracked+named ones in scheme colors (what the app decided). Seeing them
-  // all at once is how a naming bug is told apart from a detection bug, and
-  // a stage-1 miss from a stage-2 one. Dashed amber = seen but deliberately
-  // skipped for size; solid grey = tried, could not name.
+  // tracked quads in the colour their cluster resolved to (what the app
+  // decided). Seeing them all at once is how a naming bug is told apart from
+  // a detection bug, and a stage-1 miss from a stage-2 one. Dashed amber =
+  // seen but deliberately skipped for size; solid grey = a quality refusal.
   if (lastTick?.result?.heat && heatChk.checked) drawHeatmap(ctx, lastTick.result.heat);
   if (lastTick && stageChk.checked) drawStage1(ctx, lastTick.box?.box ?? null, lastTick.roi, lastTick.obj);
   if (lastTick?.result) {
     for (const u of lastTick.result.unnamed) {
+      if (!isQualityRefusal(u.reason)) continue;
       const tooSmall = u.reason.startsWith(TOO_SMALL_REASON);
       drawQuad(ctx, u.quad.corners, tooSmall ? '#d98a1f' : '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5, tooSmall);
     }
   }
   for (const t of tracks) {
     const strong = t.conf >= SAMPLE_CONF;
-    const rot = rotations[t.face];
+    const face = faceOfTrack(t);
+    const cl = trackCluster.get(t.id);
+    const rot = rotations.get(t.id);
     ctx.globalAlpha = strong ? 1 : 0.5;
-    drawQuad(ctx, t.corners, DEFAULT_SCHEME_HEX[t.face], `${t.face}${rot === undefined ? '?' : ''} ${t.conf.toFixed(2)}`, strong ? 4 : 1.5);
+    const label = `${face ? DEFAULT_SCHEME_NAMES[face] : cl !== undefined ? `cluster ${cl}?` : '?'}${rot === undefined ? ' ↻?' : ''} ${t.conf.toFixed(2)}`;
+    drawQuad(ctx, t.corners, face ? DEFAULT_SCHEME_HEX[face] : '#cfd3dc', label, strong ? 4 : 1.5);
     ctx.globalAlpha = 1;
   }
 }
 
-/** Live exemplar table: what each face's colour is believed to be, and how that belief was built. */
-function renderExemplars(m: TwoStageModels): void {
-  const ex = m.detector.exemplars;
-  const recent = ex.history.slice(-8).reverse()
-    .map((e) => `${e.kind === 'observe' ? '+' : '×'} ${DEFAULT_SCHEME_NAMES[e.face]} d${e.own}${e.other ? ` (nearer ${DEFAULT_SCHEME_NAMES[e.other]} ${e.otherD})` : ''}`)
-    .join('   ');
-  exEl.textContent = ex.status()
-    .map((e) => `${DEFAULT_SCHEME_NAMES[e.face].padEnd(6)} ${e.measured ? `measured x${e.n}` : 'prior     '}  L ${e.lab.L.toFixed(0).padStart(4)} a ${e.lab.a.toFixed(0).padStart(4)} b ${e.lab.b.toFixed(0).padStart(4)}`)
-    .join('\n') + `\nrejected ${ex.rejected}   last: ${recent || '—'}`;
+/** A refusal about the sample itself (not about naming): the quad is tracked but must not vote this tick. */
+function isQualityRefusal(reason: string): boolean {
+  return reason.startsWith(TOO_SMALL_REASON) || reason === 'too dark' || reason.startsWith('glare') || reason.startsWith(OBSCURED_REASON);
+}
+
+/** Live cluster table: the session's colours, how each was named, and which track is which. */
+function renderClusters(tracks: TrackedQuad[]): void {
+  const rows = clusters.clusters().map((c) =>
+    `cluster ${c.id}  ${(c.color ?? '?').padEnd(7)} ${c.bound ? 'bound ' : 'ordinal'} x${String(c.n).padStart(2)}  `
+    + `a ${c.centroid.a.toFixed(0).padStart(4)} b ${c.centroid.b.toFixed(0).padStart(4)} hue ${hueDeg(c.centroid).toFixed(0).padStart(3)}  `
+    + `tracks ${tracks.filter((t) => trackCluster.get(t.id) === c.id).map((t) => `#${t.id}`).join(' ') || '—'}`);
+  exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   opposite conflicts ${oppositeConflicts}`;
 }
 
 function updateFillUI(): void {
-  const p = voter.progress();
+  const p = voter.progress(clusters.faceMap());
   for (const f of FACE_ORDER) {
     document.querySelector(`#fill-${f} span`)!.textContent = `${Math.round(p.faceFill[f] * 100)}%`;
   }
+  const unbound = Object.entries(p.unboundFill).map(([c, v]) => `cluster ${c} ${Math.round(v * 100)}%`).join('  ');
+  $('unbound').textContent = unbound ? `unresolved: ${unbound}` : '';
   if (p.locked && !solved) {
     solved = true;
-    resultEl.textContent = `LOCKED\n${p.locked.facelets}\nsolving…`;
+    const flipped = p.locked.flipped?.length ? `\n(${p.locked.flipped.length} sticker(s) resolved by piece uniqueness)` : '';
+    resultEl.textContent = `LOCKED\n${p.locked.facelets}${flipped}\nsolving…`;
     void solveState(p.locked.facelets)
-      .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}\n\nSolution: ${sol}`; })
-      .catch((e) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}\n\nsolver failed: ${e}`; });
+      .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
+      .catch((e) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nsolver failed: ${e}`; });
   } else if (!p.locked && p.validationError) {
     resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)`;
   }
@@ -275,7 +307,10 @@ async function loop(ts: number): Promise<void> {
           if (!t.box) stage1Misses++;
           locateEma = locateEma === 0 ? t.locateMs : 0.1 * t.locateMs + 0.9 * locateEma;
           if (t.result) inferEma = inferEma === 0 ? t.result.inferMs : 0.1 * t.result.inferMs + 0.9 * inferEma;
-          pendingDetections = t.result?.faces ?? [];
+          // anonymous quads feed the tracker; quality refusals are remembered per quad
+          pendingDetections = (t.result?.quads ?? []).map((q) => ({ corners: q.corners, conf: q.conf }));
+          pendingRefused = new Set((t.result?.unnamed ?? []).filter((u) => isQualityRefusal(u.reason))
+            .map((u) => t.result!.quads.indexOf(u.quad)));
           lastTick = t;
           noCube = !t.box;
           // A face edge can't exceed the cube's silhouette, so a silhouette
@@ -286,72 +321,97 @@ async function loop(ts: number): Promise<void> {
           tickHistory.push(summarizeTick(Date.now(), t.obj, t.result));
           if (tickHistory.length > TICK_HISTORY) tickHistory.shift();
           if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars);
-          if (exChk.checked) renderExemplars(m);
         } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
       })();
     }
 
     const dets = pendingDetections;
+    const refused = dets ? pendingRefused : new Set<number>();
     pendingDetections = null;
     const tracks = tracker.update(dets, dt);
+    for (const id of [...trackCluster.keys()]) if (!tracks.some((t) => t.id === id)) { trackCluster.delete(id); rotations.delete(id); }
     if (tracks.some((t) => t.conf >= SAMPLE_CONF)) lastGoodDetectionTs = ts;
 
-    // orientation: shared edges when 2+ confident faces are co-visible;
-    // otherwise each face keeps its previously resolved rotation
-    const confident = tracks.filter((t) => t.conf >= SAMPLE_CONF);
-    if (confident.length >= 2) {
-      const res = resolveOrientations(confident.map((t) => ({ face: t.face, corners: t.corners })));
-      for (const [f, k] of Object.entries(res.rotations)) rotations[f as FaceId] = k;
-    }
-    for (const f of FACE_ORDER) {
-      if (rotations[f] !== undefined && !tracks.some((t) => t.face === f)) delete rotations[f];
-    }
-
-    // rectify + sample + vote (native-resolution reads)
+    const confident = tracks.filter((t) => t.conf >= SAMPLE_CONF && !(t.detIndex >= 0 && refused.has(t.detIndex)));
     if (confident.length && !solved) {
       const frame = frameImageData();
-      const observations: FaceObservation[] = [];
-      // tier-1 geometry constraint: adjacent faces share physical vertices,
-      // so fuse near-agreeing shared-corner estimates before sampling
-      const oriented = confident
-        .filter((t) => rotations[t.face] !== undefined)
-        .map((t) => ({ face: t.face, corners: orientQuad(t.corners, rotations[t.face]!), conf: t.conf }));
-      const { fused } = fuseSharedCorners(oriented);
-      for (const t of oriented) {
-        let quad = fused.get(t.face)!.map((c) => [c[0], c[1]]) as [number, number][];
-        if (seamScore(frame, quad).score < SEAM_VETO_SCORE) { vetoedCount++; continue; }
-        if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
-        const warped = warpQuad(frame, quad, 90);
-        const cells = sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 });
-        observations.push({ face: t.face, cells: cells.map((c) => c.lab), conf: t.conf });
-        // This face passed the seam veto and is being trusted for color
-        // votes, so its center is a free labeled exemplar: hand it to the
-        // namer, which until now has only had the default-scheme prior.
-        // Full-resolution sampling, unlike the namer's own letterboxed read.
-        m?.detector.observeCenter(t.face, cells.map((c) => c.lab), cells[4]!.rgb);
+
+      // 1. colour: every confident face's centre goes into the session
+      //    clusters, in the track's own corner order (the centre is
+      //    rotation-free). Identity follows from the cluster, not the frame.
+      for (const t of confident) {
+        const cells = sampleFace(frame, t.corners);
+        if (seamScore(frame, t.corners).score < SEAM_VETO_SCORE) { vetoedCount++; continue; }
+        trackCluster.set(t.id, clusters.observe(cells));
       }
-      if (observations.length) voter.addFrame(observations);
+
+      // 2. orientation among the faces that have a letter: shared edges
+      //    pin rotations; a face keeps its last rotation on lone frames.
+      const lettered = confident.flatMap((t) => { const face = faceOfTrack(t); return face ? [{ t, face }] : []; });
+      const distinct = lettered.filter((x, i) => lettered.findIndex((y) => y.face === x.face) === i);
+      if (distinct.length >= 2) {
+        const res = resolveOrientations(distinct.map((x) => ({ face: x.face, corners: x.t.corners })));
+        for (const x of distinct) { const k = res.rotations[x.face]; if (k !== undefined) rotations.set(x.t.id, k); }
+      }
+
+      // 3. adjacency: an undecided face sharing an edge with an oriented,
+      //    lettered neighbour IS the face on that side of the neighbour -
+      //    bind its cluster's colour (a lone warm face becomes red or
+      //    orange from geometry). Two lettered faces sharing an edge that
+      //    are opposites cannot both be right: neither votes this frame.
+      const oriented = distinct.filter((x) => rotations.has(x.t.id))
+        .map((x) => ({ face: x.face, corners: orientQuad(x.t.corners, rotations.get(x.t.id)!), conf: x.t.conf, t: x.t }));
+      const conflicted = new Set<number>();
+      for (const known of oriented) {
+        for (const other of confident) {
+          if (other.id === known.t.id) continue;
+          const cl = trackCluster.get(other.id);
+          if (cl === undefined) continue;
+          const id = identifyNeighbour({ face: known.face, corners: known.corners }, other.corners);
+          if (!id) continue;
+          const otherFace = clusters.faceOf(cl);
+          if (!otherFace) {
+            if (clusters.bind(cl, DEFAULT_SCHEME_NAMES[id.face])) { adjacencyBinds++; rotations.set(other.id, id.rotation); }
+          } else if (otherFace === OPPOSITE[known.face]) {
+            conflicted.add(other.id);
+            conflicted.add(known.t.id);
+            oppositeConflicts++;
+          }
+        }
+      }
+
+      // 4. rectify + sample + vote (native-resolution reads), keyed by cluster
+      const votable = oriented.filter((x) => !conflicted.has(x.t.id));
+      const { fused } = fuseSharedCorners(votable);
+      const observations: FaceObservation[] = [];
+      for (const x of votable) {
+        let quad = fused.get(x.face)!.map((c) => [c[0], c[1]]) as [number, number][];
+        if (REFINE) quad = refineQuad(frame, quad).quad as [number, number][];
+        observations.push({ cluster: trackCluster.get(x.t.id)!, cells: sampleFace(frame, quad), conf: x.conf });
+      }
+      if (observations.length) voter.addFrame(observations, clusters.faceMap());
+      else voter.tryLock(clusters.faceMap());
     }
 
     drawOverlay(tracks);
     // Banner for refusals the user can fix (too far, too dark, glare).
-    // Reasons come from the same list the grey debug quads show.
-    const hint = hintState.update(
-      hintFor(lastTick?.result?.unnamed.map((u) => u.reason) ?? [], confident.length > 0, cubeTooSmall, noCube), ts);
+    const reasons = lastTick?.result?.unnamed.map((u) => u.reason).filter(isQualityRefusal) ?? [];
+    const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube), ts);
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
     if (m?.detector.anonymous) exemplarSwatches(swatchEl, m.detector.exemplars);
+    if (exChk.checked) renderClusters(tracks);
     updateFillUI();
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
     statsEl.textContent =
-      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}   vetoed ${vetoedCount}\n`
+      `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   clusters ${clusters.size()}   oriented ${rotations.size}   vetoed ${vetoedCount}\n`
       + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}   ` : '')
       + (lastTick
         ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
           + (lastTick.result
-            ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}  unnamed ${lastTick.result.unnamed.length}  exemplar rejects ${m?.detector.exemplars.rejected ?? 0}`
+            ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}`
             : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
         : '');
   }
@@ -387,13 +447,15 @@ startBtn.addEventListener('click', () => {
 $('reset').addEventListener('click', () => {
   voter.reset();
   tracker.reset();
+  clusters.reset();
+  trackCluster.clear();
+  rotations.clear();
   models?.detector.exemplars.reset();
-  rotations = {};
   solved = false;
   lastTick = null;
   resultEl.textContent = '';
   hintEl.hidden = true;
-  vetoedCount = stage1Misses = ticks = 0;
+  vetoedCount = stage1Misses = ticks = adjacencyBinds = oppositeConflicts = 0;
   tickHistory.length = 0;
 });
 
@@ -405,11 +467,17 @@ saveBtn.addEventListener('click', () => {
 });
 captureBtn.addEventListener('click', () => {
   if (!lastTick?.result || !models) { msgEl.textContent = 'nothing to capture: no stage-2 result on the last tick'; return; }
-  void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory)
+  const extra = {
+    clusters: clusters.clusters().map((c) => ({ ...c, hue: +hueDeg(c.centroid).toFixed(1) })),
+    tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotations.get(id) ?? null })),
+    adjacencyBinds, oppositeConflicts,
+    progress: voter.progress(clusters.faceMap()),
+  };
+  void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory, extra)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
-exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; if (exChk.checked && models) renderExemplars(models); });
+exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; });
 
 // ---- modes ----------------------------------------------------------------
 
