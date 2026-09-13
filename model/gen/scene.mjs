@@ -880,15 +880,17 @@ window.renderSample = async function renderSample(opts) {
   const closeUp = rnd() < 0.4;
   // DECISION 2026-09-12 (user): never render the cube further away than a
   // person can physically hold one. `fill` is the cube's bounding-sphere
-  // radius as a fraction of the half frame height, so a face's longest edge
-  // lands at ~138.5 * fill px at the 320x240 model input. Measured on a photo
-  // of the user holding a cube at full arm's reach, that edge is 36.8 px,
-  // i.e. fill 0.27 - and the old floor of 0.22 was rendering cubes ~20%
-  // further than anyone will ever scan from. Those frames cost capacity and
-  // dragged every recall number for a distance the app does not have to
-  // serve. The matching "don't score it either" floor is
-  // train/targets.py MIN_FACE_EDGE_PX (32 px = fill 0.23), deliberately a
-  // little lower so nothing we generate sits in the ignored band.
+  // radius as a fraction of the half frame height - defined on the VERTICAL
+  // fov, so the size distribution is the same for a 480x640 portrait render
+  // as it was for 640x480 - and a face's longest edge lands at ~0.577 * fill
+  // of the frame height. Measured on a photo of the user holding a cube at
+  // full arm's reach, that edge is 0.153 of the frame height, i.e. fill 0.27
+  // - and the old floor of 0.22 was rendering cubes ~20% further than anyone
+  // will ever scan from. Those frames cost capacity and dragged every recall
+  // number for a distance the app does not have to serve. The matching
+  // "don't score it either" floor is train/shapes.py MIN_FACE_EDGE_FRAC
+  // (0.133 of the frame height = fill 0.23), deliberately a little lower so
+  // nothing we generate sits in the ignored band.
   const fill = closeUp ? 0.55 + rnd() * 0.5 : 0.27 + rnd() * 0.37;
   const dist = R / (fill * Math.tan(THREE.MathUtils.degToRad(fov / 2)));
   let dirV;

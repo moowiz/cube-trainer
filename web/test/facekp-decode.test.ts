@@ -7,10 +7,10 @@
 // the cube and nowhere else — so fixtures pin them together.
 //
 // Two fixtures, because neither alone is enough:
-//   facekp-maps.json            real maps from a trained checkpoint. The
-//                               honest end-to-end case, with the near-tie
-//                               peaks and out-of-frame corners a real cube
-//                               produces.
+//   facekp-maps-square.json     real maps from the trained 256x256 crop
+//                               checkpoint. The honest end-to-end case, with
+//                               the near-tie peaks and out-of-frame corners
+//                               a real cube produces.
 //   facekp-maps-synthetic.json  fabricated maps carrying the awkward cases a
 //                               trained model almost never emits — two cells
 //                               drawing the SAME quad (must collapse), two
@@ -19,7 +19,7 @@
 //                               sub-threshold peak, and corners off-frame.
 //
 // Regenerate with:
-//   cd model/train && python dump_decode_fixture.py --ckpt runs/<run>/best.pt
+//   cd model/train && python dump_decode_fixture.py --ckpt runs/<run>/best.pt --data ../data_v5
 //   cd model/train && python dump_decode_fixture.py --synthetic \
 //       --out ../../web/test/fixtures/facekp-maps-synthetic.json
 import { describe, expect, it } from 'vitest';
@@ -41,7 +41,7 @@ const load = (name: string) =>
   JSON.parse(readFileSync(join(__dirname, 'fixtures', name), 'utf8')) as Fixture;
 
 const fixtures: [string, Fixture][] = [
-  ['trained checkpoint', load('facekp-maps.json')],
+  ['trained checkpoint', load('facekp-maps-square.json')],
   ['synthetic edge cases', load('facekp-maps-synthetic.json')],
 ];
 
@@ -51,8 +51,11 @@ describe.each(fixtures)('decodeMaps vs Python decode_maps (%s)', (_name, fixture
   const run = (k = 6, thresh = fixture.thresh) =>
     decodeMaps(Float32Array.from(fixture.maps), gh, gw, fixture.stride, iw, ih, k, thresh);
 
-  it('reads a 9-channel map at the exported grid size', () => {
+  it('reads a 9-channel map at the exported square grid size', () => {
     expect(ch).toBe(9);
+    expect(iw).toBe(ih);            // stage 2 is square (PORTRAIT-DESIGN.md 0)
+    expect(gh).toBe(ih / fixture.stride);
+    expect(gw).toBe(iw / fixture.stride);
     expect(fixture.maps.length).toBe(ch * gh * gw);
     expect(fixture.expected.length).toBeGreaterThan(0);
   });

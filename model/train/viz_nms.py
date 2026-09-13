@@ -28,9 +28,11 @@ from matplotlib.patches import Polygon, Rectangle   # noqa: E402
 
 from dataset import CubeKeypointDataset, normalize_batch          # noqa: E402
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps   # noqa: E402
-from targets import MIN_FACE_EDGE_PX, quad_centers                # noqa: E402
+from shapes import min_face_edge_px                             # noqa: E402
+from targets import quad_centers                                  # noqa: E402
 
-INPUT_WH, STRIDE, THRESH = (320, 240), 16, 0.5
+from shapes import KP_WH
+INPUT_WH, STRIDE, THRESH = KP_WH, 16, 0.5
 KEPT, DROPPED, GT = "#2ecc71", "#e74c3c", "#f5f5f5"
 
 
@@ -59,7 +61,7 @@ def scan(ds, model, device, want, limit):
             img, conf, corners, valid = batch[j]
             gts = [f for f in range(6) if conf[f] >= 0.5 and valid[f] >= 0.5]
             gt_q = {f: corners[f].numpy() * wh for f in gts}
-            gt_q = {f: q for f, q in gt_q.items() if edges(q).max() >= MIN_FACE_EDGE_PX}
+            gt_q = {f: q for f, q in gt_q.items() if edges(q).max() >= min_face_edge_px(INPUT_WH[1])}
             if len(gt_q) < 2:
                 continue
             gt_c = {f: quad_centers(torch.from_numpy(gt_q[f])).numpy() for f in gt_q}
@@ -176,9 +178,12 @@ def main():
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
-    model = build_model("center", pretrained=False, input_hw=(240, 320)).to(device)
+    global INPUT_WH
+    INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
+    model = build_model("center", pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     model.load_state_dict(ckpt["model"]); model.eval()
-    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, raw_uint8=True)
+    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, raw_uint8=True,
+                             view=ckpt.get("view", "frame"))
 
     bad = scan(ds, model, device, wants_failure, args.limit)
     good = scan(ds, model, device, wants_clean, args.limit)

@@ -17,7 +17,8 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 
-INPUT_WH = (320, 240)
+from shapes import KP_WH
+INPUT_WH = KP_WH
 TRAIN_IMAGES = 51300      # a 54k set after the 5% val split
 EPOCHS = 150
 
@@ -32,7 +33,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
     from model import build_model, center_loss
     from targets import build_center_targets
 
-    model = build_model('center', pretrained=True, input_hw=(240, 320)).to(dev)
+    model = build_model('center', pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(dev)
     if channels_last:
         model = model.to(memory_format=torch.channels_last)
     if compile_model:

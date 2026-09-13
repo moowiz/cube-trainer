@@ -27,16 +27,18 @@ import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Small_Weights, mobilenet_v3_small
 
+from shapes import KP_WH, min_face_edge_px
+
 N_FACES = 6
 OUT_PER_FACE = 9  # conf + 4*(x,y)
 
 
 class FaceKP(nn.Module):
-    def __init__(self, pretrained: bool = True, input_hw=(240, 320)):
+    def __init__(self, pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0])):
         super().__init__()
         weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
         self.backbone = mobilenet_v3_small(weights=weights).features  # (B,576,H/32,W/32)
-        fh, fw = input_hw[0] // 32, input_hw[1] // 32  # 240x320 -> 7x10 (floor of last stride)
+        fh, fw = input_hw[0] // 32, input_hw[1] // 32  # (floor of last stride)
         # torchvision's stride chain gives ceil-ish dims; probe once to be exact
         with torch.no_grad():
             probe = self.backbone(torch.zeros(1, 3, *input_hw))
@@ -90,7 +92,7 @@ def keypoint_loss(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Ten
 
 @torch.no_grad()
 def pixel_error(pred: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
-                wh=(320, 240), valid_t: torch.Tensor | None = None):
+                wh=KP_WH, valid_t: torch.Tensor | None = None):
     """Mean corner error in pixels at `wh`, over ground-truth-visible faces.
 
     Rotation-invariant like the loss: per face, the best of the 4 cyclic
@@ -141,7 +143,7 @@ CENTER_MIN_DEDUPE_PX = 8.0     # floor, for degenerate near-zero-area quads
 CENTER_MAX_CANDIDATES = 32     # cells decoded per image before deduplication
 CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)
 # CenterNet's prior-probability bias: start the heatmap at p=0.1 so the first
-# epochs are not dominated by the ~299 negative cells per positive.
+# epochs are not dominated by the ~255 negative cells per positive.
 HEAT_PRIOR_BIAS = -2.19
 
 
@@ -153,7 +155,7 @@ def _conv_bn_act(cin: int, cout: int, k: int) -> nn.Sequential:
 class FaceKPCenter(nn.Module):
     """MobileNetV3-Small -> stride-16 neck with global context -> 9 maps.
 
-    Output (B, 9, H/16, W/16), i.e. (B,9,15,20) at the 320x240 input:
+    Output (B, 9, H/16, W/16), i.e. (B,9,16,16) at the 256x256 crop input:
       channel 0    face-center heatmap LOGIT (sigmoid at decode)
       channels 1-8 corner offsets x0,y0,..,x3,y3 in CELL units (1 cell = 16
                    input px), relative to the center of the cell they sit in.
@@ -166,7 +168,7 @@ class FaceKPCenter(nn.Module):
     stride-32 trunk into it is the cheapest way to have both.
     """
 
-    def __init__(self, pretrained: bool = True, input_hw=(240, 320), split: int = 9):
+    def __init__(self, pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]), split: int = 9):
         super().__init__()
         weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
         feats = mobilenet_v3_small(weights=weights).features
@@ -193,7 +195,7 @@ class FaceKPCenter(nn.Module):
         return self.head(self.fuse(torch.cat([s16, up], dim=1)))
 
 
-def build_model(head: str = "center", pretrained: bool = True, input_hw=(240, 320)) -> nn.Module:
+def build_model(head: str = "center", pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0])) -> nn.Module:
     """The single place that turns a checkpoint's `head` key into a module.
 
     Checkpoints written before 2026-09-12 have no `head` key, so every caller
@@ -232,7 +234,7 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     is_pos = heat_t >= 1.0
     # Cells covered by an out-of-range face are neither positive nor
     # background: the model is told nothing about them (see
-    # targets.MIN_FACE_EDGE_PX). Without this they would be trained as hard
+    # shapes.MIN_FACE_EDGE_FRAC). Without this they would be trained as hard
     # negatives, which teaches the detector to actively suppress small faces
     # rather than merely not care about them.
     keep_neg = ~is_pos & ~targets.ignore
@@ -254,7 +256,7 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
 
 
 @torch.no_grad()
-def decode_maps(maps: torch.Tensor, input_wh=(320, 240), k: int = 6, thresh: float = 0.3,
+def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 0.3,
                 stride: int = CENTER_STRIDE):
     """(B,9,H,W) raw maps -> (scores (B,k), quads (B,k,4,2) normalized).
 
@@ -360,7 +362,7 @@ def _max_edge(quad) -> float:
 
 @torch.no_grad()
 def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
-                   valid_t: torch.Tensor, wh=(320, 240), thresh: float = METRIC_SCORE_THRESH):
+                   valid_t: torch.Tensor, wh=KP_WH, thresh: float = METRIC_SCORE_THRESH):
     """Greedy centroid matching of decoded quads to visible+valid GT faces.
 
     Returns (sum_corner_err_px, n_matched, tp, fp, fn) so the caller can
@@ -369,7 +371,9 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
     """
     import numpy as np
 
-    from targets import MIN_FACE_EDGE_PX, quad_centers
+    from targets import quad_centers
+
+    min_edge = min_face_edge_px(wh[1])
 
     scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
     scale_t = torch.tensor(wh, dtype=torch.float32)
@@ -391,7 +395,7 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
         # scored: they are matched (so a detection on one is not a false
         # positive) but contribute to neither the pixel mean nor the F1.
         all_gt = [f for f in range(6) if gt_ok[b, f]]
-        in_range = {f: _max_edge(gt_q[b, f]) >= MIN_FACE_EDGE_PX for f in all_gt}
+        in_range = {f: _max_edge(gt_q[b, f]) >= min_edge for f in all_gt}
         gts = [f for f in all_gt if in_range[f]]
         pairs = sorted(((float(np.linalg.norm(det_c[b, i] - gt_c[b, f])), i, f)
                         for i in dets for f in all_gt), key=lambda t: t[0])

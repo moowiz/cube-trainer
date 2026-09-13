@@ -2,7 +2,9 @@
 
 Geometric: random rotate/scale/translate applied identically to the image and
 the corner labels (the synthetic camera already randomizes pose, so this
-mostly teaches tolerance to framing, not new poses).
+mostly teaches tolerance to framing, not new poses). The crop itself - the
+padded silhouette window stage 2 is fed at runtime - is drawn by
+dataset.recrop from the crop cache, not here (model/PORTRAIT-DESIGN.md).
 Photometric: color jitter, blur, sensor noise. Random erasing simulates
 fingers over the cube - the single most common real-world occluder.
 """
@@ -83,75 +85,16 @@ def _motion_blur(img: Image.Image) -> Image.Image:
     return Image.fromarray(np.clip(acc / length, 0, 255).astype(np.uint8))
 
 
-def _zoom_crop(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
-    """Two-stage training distribution: crop a padded box around the cube and
-    letterbox it back to full size - what stage 2 will see when a localizer
-    (or the tracker's previous quads) crops the camera frame around the cube.
-    The naive two-pass experiment failed precisely because the model never
-    trained on this distribution (batch4: median 6% -> 11.7% on crops)."""
-    vis = [i for i in range(6) if conf[i] > 0]
-    if not vis:
-        return img, corners, conf
-    w, h = img.size
-    pts = np.concatenate([corners[i] for i in vis])
-    x0, y0 = pts.min(0)
-    x1, y1 = pts.max(0)
-    bw, bh = x1 - x0, y1 - y0
-    if bw < 20 or bh < 20:
-        return img, corners, conf
-    # independent padding per side: the localizer's box won't be centered
-    x0 = max(0.0, x0 - random.uniform(0.05, 0.45) * bw)
-    x1 = min(float(w), x1 + random.uniform(0.05, 0.45) * bw)
-    y0 = max(0.0, y0 - random.uniform(0.05, 0.45) * bh)
-    y1 = min(float(h), y1 + random.uniform(0.05, 0.45) * bh)
-    cw, ch = x1 - x0, y1 - y0
-    scale = min(w / cw, h / ch)
-    nw, nh = int(cw * scale), int(ch * scale)
-    crop = img.crop((int(x0), int(y0), int(x1), int(y1))).resize((nw, nh), Image.BILINEAR)
-    out = Image.new("RGB", (w, h), (114, 114, 114))
-    dx, dy = (w - nw) // 2, (h - nh) // 2
-    out.paste(crop, (dx, dy))
-    new = (corners - [x0, y0]) * scale + [dx, dy]
-    return out, new.astype(corners.dtype), conf
-
-
-def _portrait_sim(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
-    """Simulate a portrait phone frame. The deployed model letterboxes
-    480x640 video to 180x240 content between gray pillars; the synthetic set
-    is all landscape, so without this no training image ever has bars.
-    Crop a narrow full-height window (biased to keep the cube) and re-center
-    it between (114,114,114) bars - the exact runtime geometry. Runs last so
-    the bars stay pristine, as they do live (added after camera processing).
-    """
-    w, h = img.size
-    new_w = int(w * random.uniform(0.5, 0.8))
-    vis = [i for i in range(6) if conf[i] > 0]
-    cx = float(np.mean([corners[i][:, 0].mean() for i in vis])) if vis else w / 2
-    x0 = int(min(max(cx - new_w / 2 + random.uniform(-0.15, 0.15) * new_w, 0), w - new_w))
-    crop = img.crop((x0, 0, x0 + new_w, h))
-    out = Image.new("RGB", (w, h), (114, 114, 114))
-    pad = (w - new_w) // 2
-    out.paste(crop, (pad, 0))
-    rel = corners - np.array([x0, 0], dtype=corners.dtype)
-    conf = conf.copy()
-    for i in range(6):
-        if conf[i] > 0 and not _center_in_frame(rel[i], new_w, h):
-            conf[i] = 0.0  # face center fell outside the simulated frame
-    return out, rel + np.array([pad, 0], dtype=corners.dtype), conf
-
-
 def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray,
                    photometric: bool = True):
     """photometric=False skips the pixel-wise block (color jitter, white
     balance, blur, motion blur, noise) - train.py applies the identical ops
     batched on the GPU via gpu_augment.photometric_batch instead. The
-    geometry, JPEG, erasing and portrait simulation always run here."""
+    geometry, JPEG and erasing always run here."""
     w, h = img.size
-    # Stage-2 (two-stage detector) mix: mostly crop-normalized views (what a
-    # localizer or the tracker's previous quads will feed it), but keep a
-    # full-frame minority so the app's no-stage-1 fallback path stays trained.
-    if random.random() < 0.7:
-        img, corners, conf = _zoom_crop(img, corners, conf)
+    # The crop geometry (what stage 2 sees: a padded silhouette crop) is the
+    # dataset's job - dataset.recrop draws it per sample from the cached loose
+    # crop. Everything here is shape-agnostic.
     if random.random() < 0.9:
         img, corners = _affine(
             img,
@@ -195,8 +138,8 @@ def augment_sample(img: Image.Image, corners: np.ndarray, conf: np.ndarray,
 
 
 def _codec_and_occlusion(img: Image.Image, corners: np.ndarray, conf: np.ndarray):
-    """The tail of augment_sample: JPEG, erasing, portrait bars. Split out so
-    the GPU-photometric path can run it without the block above."""
+    """The tail of augment_sample: JPEG, erasing. Split out so the
+    GPU-photometric path can run it without the block above."""
     w, h = img.size
     if random.random() < 0.35:
         # video/JPEG compression: blocky chroma like a phone camera stream
@@ -211,6 +154,4 @@ def _codec_and_occlusion(img: Image.Image, corners: np.ndarray, conf: np.ndarray
             ex, ey = random.randint(0, w - ew), random.randint(0, h - eh)
             arr[ey : ey + eh, ex : ex + ew] = [random.randint(0, 255) for _ in range(3)]
         img = Image.fromarray(arr)
-    if random.random() < 0.3:
-        img, corners, conf = _portrait_sim(img, corners, conf)
     return img, corners, conf

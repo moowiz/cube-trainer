@@ -20,6 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 
+from shapes import KP_WH
+
 from dataset import normalize01, to_float01
 from gpu_augment import photometric_batch
 from model import build_model, center_loss
@@ -46,7 +48,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--modes", default="eager,default,reduce-overhead")
     modes = ap.parse_args().modes.split(",")
-    raw = torch.randint(0, 256, (B, 240, 320, 3), dtype=torch.uint8, device=DEV)
+    raw = torch.randint(0, 256, (B, KP_WH[1], KP_WH[0], 3), dtype=torch.uint8, device=DEV)
     conf = torch.zeros(B, 6, device=DEV)
     conf[:, :3] = 1
     corners = torch.rand(B, 6, 4, 2, device=DEV) * 0.5 + 0.25
@@ -55,7 +57,7 @@ def main():
     t = build_center_targets(conf, corners, valid, (15, 20))
 
     for mode in modes:
-        model = build_model("center", pretrained=True, input_hw=(240, 320)).to(DEV).train()
+        model = build_model("center", pretrained=True, input_hw=(KP_WH[1], KP_WH[0])).to(DEV).train()
         opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4, fused=True)
         scaler = torch.amp.GradScaler()
         m = model if mode == "eager" else torch.compile(model, mode=mode)

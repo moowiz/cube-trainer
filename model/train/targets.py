@@ -31,15 +31,17 @@ from gpu_augment import const
 OFF_SUPERVISE_MIN = 0.5
 
 # DECISION 2026-09-12 (user): the app only has to work as far away as a person
-# can hold a cube. Measured on a photo of the user holding one at full arm's
-# reach, the face's LONGEST EDGE is 36.8 px at the 320x240 model input. Faces
-# smaller than that are further than anyone will ever scan from, so they are
-# neither trained nor scored - they become "ignore", not background: masked
-# out of the heatmap loss so the model is free to do whatever it likes there,
-# rather than being told there is nothing.
+# can hold a cube. Faces smaller than that are further than anyone will ever
+# scan from, so they are neither trained nor scored - they become "ignore",
+# not background: masked out of the heatmap loss so the model is free to do
+# whatever it likes there, rather than being told there is nothing.
 #
-# The floor is set below the measurement (32 px = 2.0 cells, ~15% margin) so
-# nothing a user can actually reach gets thrown away.
+# The floor is a FRACTION OF THE FRAME HEIGHT (shapes.MIN_FACE_EDGE_FRAC =
+# 0.133, ~13% under the measured arm's-reach edge of 0.153), so it is
+# orientation-free and the same number on a 480x640 phone frame (85 px), the
+# 320-tall frame cache (42.6 px) and the 256 stage-2 crop (34 px - on crops it
+# only masks the sliver of a third face at the edge of a loose crop).
+# In grid cells that is simply MIN_FACE_EDGE_FRAC * H.
 #
 # LONGEST EDGE, not sqrt(area), and this distinction matters more than the
 # threshold does. Area conflates "far away" with "steeply angled": a face seen
@@ -50,8 +52,12 @@ OFF_SUPERVISE_MIN = 0.5
 # valuable pose we have (see --cornerBias in the generator). An area-based
 # floor would have quietly deleted exactly the data we went out of our way to
 # generate.
-MIN_FACE_EDGE_PX = 32.0
-MIN_FACE_EDGE_CELLS = MIN_FACE_EDGE_PX / 16.0
+from shapes import MIN_FACE_EDGE_FRAC, min_face_edge_px  # noqa: E402  (re-exported)
+
+
+def min_edge_cells(grid_hw: tuple[int, int]) -> float:
+    """The floor in cells of a stride-16 grid `grid_hw` = (H, W)."""
+    return MIN_FACE_EDGE_FRAC * grid_hw[0]
 
 
 @dataclass
@@ -64,7 +70,7 @@ class CenterTargets:
     npos: torch.Tensor    # 0-dim: positive faces in the batch (heat-loss normalizer)
     dropped: int          # positives whose center fell outside the grid (stats=True only)
     collisions: int       # positive center cells claimed by >1 face (stats=True only)
-    too_far: int          # positives below MIN_FACE_EDGE_PX (stats=True only)
+    too_far: int          # positives below the range floor (stats=True only)
 
 
 def quad_centers(corners: torch.Tensor) -> torch.Tensor:
@@ -117,7 +123,7 @@ def gaussian_sigma(area_cells: torch.Tensor) -> torch.Tensor:
 
 def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch.Tensor,
                          grid_hw: tuple[int, int], stats: bool = False,
-                         min_edge_cells: float = MIN_FACE_EDGE_CELLS) -> CenterTargets:
+                         min_edge_cells: float | None = None) -> CenterTargets:
     """conf (B,6), corners (B,6,4,2) normalized to [0,1], valid (B,6).
 
     A face is a positive iff conf == 1 and valid == 1. Hidden faces
@@ -129,6 +135,8 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     current root has zero).
     """
     H, W = grid_hw
+    if min_edge_cells is None:
+        min_edge_cells = MIN_FACE_EDGE_FRAC * H
     B = conf.shape[0]
     dev = corners.device
     scale = const([W, H], dev, corners.dtype)   # cached: torch.tensor(...) would sync
@@ -143,7 +151,7 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     off_grid = pos & ~in_grid
     pos = pos & in_grid
     # Out of range (further than a person can hold a cube): ignore, don't
-    # demote to background. See MIN_FACE_EDGE_PX.
+    # demote to background. See MIN_FACE_EDGE_FRAC.
     out_of_range = pos & (quad_max_edge(cells) < min_edge_cells)
     pos = pos & ~out_of_range
 
@@ -218,7 +226,10 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
 def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") -> dict:
     """Label-health numbers the center head cares about, read straight off the
     cached (unaugmented) label arrays: visible-but-unlabeled faces, and
-    positive faces whose center cells collide. Printed once at startup.
+    positive faces whose center cells collide. Printed once at startup. For
+    the crop view the arrays are the LOOSE cached crops, not the re-cropped
+    inputs, so the out-of-range share reads high (faces are ~1.3x smaller in
+    the cache than after the pad-0.45 re-crop).
 
     `datasets` is anything with `.conf`/`.corners`/`.valid` numpy arrays (a
     CubeKeypointDataset), or a nest of ConcatDataset/Subset around them.
@@ -260,7 +271,7 @@ def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") 
           f"{collisions} colliding center cells ({pct:.2f}%), "
           f"{dropped} centers off-grid, {unlabeled} visible-but-unlabeled faces, "
           f"{far} ignored as out-of-range ({100 * far / max(1, npos + far):.1f}%, "
-          f"long edge < {MIN_FACE_EDGE_PX:.0f} px)", flush=True)
+          f"long edge < {min_face_edge_px(grid_hw[0] * 16):.0f} px of a {grid_hw[0] * 16}-tall input)", flush=True)
     if unlabeled:
         print("  WARNING: faces are visible with no corners - they train as background. "
               "Fix the labels (model/README.md 'M5 labeling workflow').", flush=True)

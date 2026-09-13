@@ -49,8 +49,9 @@ for r in sorted(rows, key=lambda r: r["iou"]):
     print(f"{r['name'][-9:]:>12s} {r['size']:6.1f} {r['iou']:6.3f} {r['wr']:5.2f} {r['hr']:5.2f}  {int(r['portrait'])}")
 sz = np.array([r["size"] for r in rows]); io = np.array([r["iou"] for r in rows])
 wr = np.array([r["wr"] for r in rows]); hr = np.array([r["hr"] for r in rows])
-print("\n size bin (gt long side, px at 160x120 canvas)   n   meanIoU  medIoU  med w/t  med h/t")
-for lo, hi in [(0,30),(30,45),(45,60),(60,999)]:
+print(f"\n size bin (gt long side, px at {IW}x{IH} canvas)   n   meanIoU  medIoU  med w/t  med h/t")
+# bins = fractions of the frame height (the range floor is 0.133): far 0.133-0.188, mid 0.188-0.25, near > 0.25
+for lo, hi in [(0,round(0.133*IH)),(round(0.133*IH),round(0.188*IH)),(round(0.188*IH),round(0.25*IH)),(round(0.25*IH),999)]:
     k = (sz>=lo)&(sz<hi)
     if k.sum(): print(f"  {lo:3d}-{hi:3d} px  {k.sum():4d}   {io[k].mean():.3f}   {np.median(io[k]):.3f}   {np.median(wr[k]):.3f}   {np.median(hr[k]):.3f}")
 print(f"\n  all       {len(rows):4d}   {io.mean():.3f}   {np.median(io):.3f}   {np.median(wr):.3f}   {np.median(hr):.3f}")

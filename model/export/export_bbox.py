@@ -1,6 +1,6 @@
-"""Export the stage-1 cube localizer (TinyBox) to ONNX for the browser.
+"""Export the stage-1 cube localizer (DenseBox/TinyBox) to ONNX for the browser.
 
-    python export_bbox.py --ckpt ../train/runs/box3/best.pt
+    python export_bbox.py --ckpt ../train/runs/box9/best.pt
 
 Writes web/public/models/cubebox.onnx + cubebox.json. No quantization pass:
 the model is ~0.2M params (<1 MB fp32), far below any size concern.
@@ -18,8 +18,8 @@ import onnxruntime as ort
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
-from bbox_data import BOX_WH  # noqa: E402
 from dataset import NORM_MEAN, NORM_STD  # noqa: E402
+from shapes import BOX_WH, MIN_FACE_EDGE_FRAC  # noqa: E402
 from train_bbox import build_box_model  # noqa: E402
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
@@ -27,16 +27,20 @@ WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", default="../train/runs/box4/best.pt")
+    ap.add_argument("--ckpt", default="../train/runs/box9/best.pt")
     ap.add_argument("--out", default="out")
     args = ap.parse_args()
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "gap")  # checkpoints before 2026-09-12 are all gap
+    input_wh = tuple(ckpt.get("input_wh", BOX_WH))
+    if input_wh != tuple(BOX_WH):
+        raise SystemExit(f"{args.ckpt} was trained at {input_wh}, this tree builds {BOX_WH} models - "
+                         "landscape checkpoints are not deployed (PORTRAIT-DESIGN.md 5)")
     model = build_box_model(head)
     model.load_state_dict(ckpt["model"])
     model.eval()
-    print(f"head: {head}")
+    print(f"head: {head}  input {input_wh[0]}x{input_wh[1]}")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -69,7 +73,8 @@ def main():
                                "through the letterbox like facekp corners"},
         "task": "stage-1 cube localizer (two-stage detector): single bbox + objectness",
         "head": head,
-        "valIou": ckpt.get("val_iou"), "realIou": ckpt.get("real_iou"),
+        "valIou": ckpt.get("val_iou"), "realIou": ckpt.get("real_iou"), "realBad": ckpt.get("real_bad"),
+        "minFaceEdgeFrac": MIN_FACE_EDGE_FRAC,
         "trainedEpoch": ckpt.get("epoch"),
         "run": Path(args.ckpt).resolve().parent.name,
         "checkpoint": Path(args.ckpt).name,

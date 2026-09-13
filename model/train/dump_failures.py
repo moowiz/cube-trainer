@@ -31,9 +31,11 @@ from PIL import Image, ImageDraw
 
 from dataset import CubeKeypointDataset, normalize_batch
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps
-from targets import MIN_FACE_EDGE_PX, quad_centers
+from shapes import min_face_edge_px
+from targets import quad_centers
 
-INPUT_WH = (320, 240)
+from shapes import KP_WH
+INPUT_WH = KP_WH  # overwritten from the checkpoint
 GT_OK, GT_MISS, DET_OK, DET_FP = (60, 200, 110), (235, 70, 60), (70, 150, 245), (240, 150, 40)
 
 
@@ -79,7 +81,7 @@ def main():
     ap.add_argument("--out", default="failures")
     ap.add_argument("--n", type=int, default=12, help="frames per contact sheet")
     ap.add_argument("--thresh", type=float, default=0.5)
-    ap.add_argument("--min-edge", type=float, default=MIN_FACE_EDGE_PX)
+    ap.add_argument("--min-edge", type=float, default=None, help="default: the range floor at the input height")
     ap.add_argument("--limit", type=int, default=0, help="only scan the first N frames")
     args = ap.parse_args()
 
@@ -88,11 +90,16 @@ def main():
     head = ckpt.get("head", "legacy")
     if head != "center":
         raise SystemExit(f"this tool is for the center head, checkpoint says {head!r}")
+    global INPUT_WH
+    INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
+    if args.min_edge is None:
+        args.min_edge = min_face_edge_px(INPUT_WH[1])
     model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
-    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, raw_uint8=True)
+    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, raw_uint8=True,
+                             view=ckpt.get("view", "frame"))
     n_frames = len(ds) if not args.limit else min(args.limit, len(ds))
     wh = np.array(INPUT_WH, dtype=np.float32)
     frames = []          # one record per frame that has at least one failure

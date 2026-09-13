@@ -11,7 +11,39 @@ import type { CenterExemplars } from '../detect/identify';
 import { FACE_ORDER } from '../types';
 
 /**
- * Paint the 15x20 heatmap as translucent cells over the frame.
+ * Stage 1's box (solid, with its objectness) and the padded ROI stage 2 was
+ * given (dashed). Both in source px. On a miss only the objectness is
+ * printed, in the corner, so a near-threshold miss is visible as such.
+ */
+export function drawStage1(
+  ctx: CanvasRenderingContext2D,
+  box: readonly [number, number, number, number] | null,
+  roi: readonly [number, number, number, number] | null,
+  obj: number,
+): void {
+  ctx.save();
+  ctx.font = 'bold 14px system-ui';
+  if (box) {
+    ctx.strokeStyle = '#5ee66b';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+    ctx.fillStyle = '#5ee66b';
+    ctx.fillText(`obj ${obj.toFixed(2)}`, box[0] + 4, Math.max(14, box[1] - 4));
+  } else {
+    ctx.fillStyle = '#e06a4e';
+    ctx.fillText(`stage 1: no cube (obj ${obj.toFixed(2)})`, 8, 18);
+  }
+  if (roi) {
+    ctx.strokeStyle = '#5ee66b88';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(roi[0], roi[1], roi[2] - roi[0], roi[3] - roi[1]);
+  }
+  ctx.restore();
+}
+
+/**
+ * Paint the stride-16 heatmap as translucent cells over the frame.
  *
  * Cells are drawn in source coordinates via the map's own cellToSource, so
  * this stays correct under letterboxing and under the two-stage ROI crop -

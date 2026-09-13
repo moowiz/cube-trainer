@@ -1,13 +1,19 @@
 // Stage-1 cube localizer (two-stage detector): tiny bbox+objectness net at
-// 160x120. Runs on the wasm EP only - at ~0.2M params it's ~1ms, not worth
-// a WebGPU session. Returns a box in source coordinates, or null when no
-// cube is found (or the model isn't deployed - callers must degrade to
-// full-frame stage 2).
+// the portrait input its sidecar declares (120x160: the whole 480x640 phone
+// frame at scale 0.25, no bars; a landscape webcam gets top/bottom bars).
+// Runs on the wasm EP only - at ~0.2M params it's ~1ms, not worth a WebGPU
+// session. Returns a box in source coordinates, or null when no cube is
+// found. A missing model means the app has NO detection path (there is no
+// full-frame stage 2): callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
+import { letterbox, type Box } from './geometry';
 
 interface CubeboxMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
   run?: string;
+  trainedEpoch?: number;
+  realIou?: number;
+  minFaceEdgeFrac?: number;
 }
 
 const OBJ_THRESHOLD = 0.5;
@@ -15,21 +21,23 @@ const OBJ_THRESHOLD = 0.5;
 export interface CubeBox {
   obj: number;
   /** [x0, y0, x1, y1] in source pixels, unpadded. */
-  box: [number, number, number, number];
+  box: Box;
 }
 
 export class CubeLocalizer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private iw: number;
-  private ih: number;
+  readonly iw: number;
+  readonly ih: number;
   readonly modelId: string;
+  /** Objectness of the most recent locate() call, hit or miss (debug overlay). */
+  lastObj = 0;
 
   private constructor(private session: ort.InferenceSession, private meta: CubeboxMeta) {
     const [, , h, w] = meta.input.shape;
     this.iw = w;
     this.ih = h;
-    this.modelId = meta.run ?? 'cubebox';
+    this.modelId = [meta.run ?? 'cubebox', meta.trainedEpoch != null ? `ep${meta.trainedEpoch}` : ''].filter(Boolean).join(' ');
     this.canvas = document.createElement('canvas');
     this.canvas.width = w;
     this.canvas.height = h;
@@ -56,9 +64,8 @@ export class CubeLocalizer {
   }
 
   async locate(source: CanvasImageSource, sw: number, sh: number): Promise<CubeBox | null> {
-    const scale = Math.min(this.iw / sw, this.ih / sh);
-    const dx = (this.iw - sw * scale) / 2;
-    const dy = (this.ih - sh * scale) / 2;
+    const lb = letterbox(sw, sh, this.iw, this.ih);
+    const { scale, dx, dy } = lb;
     this.ctx.fillStyle = 'rgb(114,114,114)';
     this.ctx.fillRect(0, 0, this.iw, this.ih);
     this.ctx.drawImage(source, dx, dy, sw * scale, sh * scale);
@@ -78,31 +85,16 @@ export class CubeLocalizer {
     const y = out.box.data as Float32Array;
     const sig = (v: number) => 1 / (1 + Math.exp(-v));
     const obj = sig(y[0]);
+    this.lastObj = obj;
     if (obj < OBJ_THRESHOLD) return null;
     const cx = sig(y[1]) * this.iw;
     const cy = sig(y[2]) * this.ih;
     const w = sig(y[3]) * this.iw;
     const h = sig(y[4]) * this.ih;
-    const box: [number, number, number, number] = [
-      ((cx - w / 2) - dx) / scale,
-      ((cy - h / 2) - dy) / scale,
-      ((cx + w / 2) - dx) / scale,
-      ((cy + h / 2) - dy) / scale,
-    ];
-    return { obj, box };
+    const [x0, y0] = lb.toSource(cx - w / 2, cy - h / 2);
+    const [x1, y1] = lb.toSource(cx + w / 2, cy + h / 2);
+    return { obj, box: [x0, y0, x1, y1] };
   }
 }
 
-/** Expand a box by `frac` per side and clamp to the source bounds. */
-export function padBox(
-  box: [number, number, number, number], frac: number, sw: number, sh: number,
-): [number, number, number, number] {
-  const w = box[2] - box[0];
-  const h = box[3] - box[1];
-  return [
-    Math.max(0, box[0] - frac * w),
-    Math.max(0, box[1] - frac * h),
-    Math.min(sw, box[2] + frac * w),
-    Math.min(sh, box[3] + frac * h),
-  ];
-}
+export { padBox } from './geometry';

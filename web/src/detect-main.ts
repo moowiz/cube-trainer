@@ -1,13 +1,17 @@
-// Standalone debug/benchmark page for the M4 keypoint detector.
+// Standalone debug/benchmark page for the two-stage detector (stage-1
+// localizer -> stage-2 keypoints on its padded box, model/PORTRAIT-DESIGN.md).
 //
 // The M4 exit test says "runs in the browser on a phone at >=15 fps —
 // measure, don't guess": this page IS the measurement. It shows the live
-// camera with the model's face quads drawn on top, plus execution provider,
-// inference time, and end-to-end fps.
+// camera with stage 1's box, the ROI stage 2 was given and the model's face
+// quads drawn on top, plus execution provider, per-stage inference time, and
+// end-to-end fps. bbox.html is the stage-1-only page.
 import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { FaceDetector, type DetectResult, type Ep } from './detect/facekp';
-import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
+import { CubeLocalizer } from './detect/cubebox';
+import { detectTwoStage, type TwoStageResult } from './detect/twostage';
+import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
 import { TOO_SMALL_REASON } from './detect/identify';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
@@ -42,7 +46,7 @@ app.innerHTML = `
     #cells .c b { font-size: 10px; font-weight: 600; }
   </style>
   <div id="wrap">
-    <h1>Face detector test (M4)</h1>
+    <h1>Two-stage detector test (M4)</h1>
     <div id="bar">
       <button id="start">Start camera</button>
       <select id="ep">
@@ -83,9 +87,13 @@ const swatchEl = document.getElementById('swatches')!;
 const camera = new Camera();
 const fps = new FpsCounter();
 let detector: FaceDetector | null = null;
+let localizer: CubeLocalizer | null = null;
 let running = false;
 let inferEma = 0;
+let locateEma = 0;
 let lastLoadError = '';
+let stage1Misses = 0;
+let ticks = 0;
 
 // Loads are serialized: ort-web's wasm module is not reentrant across
 // sessions, so a second load (EP switch, self-test) must wait for any
@@ -103,12 +111,27 @@ async function doLoadDetector(): Promise<void> {
   stats.textContent = 'model: loading…';
   try {
     const t0 = performance.now();
-    detector = await FaceDetector.load(epSel.value as Ep | 'auto');
-    if (!detector) {
+    const d = await FaceDetector.load(epSel.value as Ep | 'auto');
+    if (!d) {
       stats.textContent = 'model: not deployed (public/models/facekp.onnx missing)';
       msg.textContent = 'No model file — this build only has the grid scanner.';
       return;
     }
+    // Always two-stage: no localizer or no crop stamp = no detection path.
+    localizer ??= await CubeLocalizer.load();
+    if (!localizer) {
+      stats.textContent = 'model: stage-1 localizer not deployed (public/models/cubebox.onnx missing)';
+      msg.textContent = 'No cubebox model — no two-stage path; this build only has the grid scanner.';
+      d.dispose();
+      return;
+    }
+    if (!d.cropTrained) {
+      stats.textContent = `model: ${d.modelId} is not crop-trained`;
+      msg.textContent = 'facekp.json has no cropTrained stamp — the app only runs stage 2 on crops. Re-export.';
+      d.dispose();
+      return;
+    }
+    detector = d;
     const b = detector.benchMs;
     epUsed.textContent = b
       ? `${detector.modelId} · using ${detector.ep} (bench: ${(['webgpu', 'wasm'] as const)
@@ -119,7 +142,7 @@ async function doLoadDetector(): Promise<void> {
     heatLbl.style.display = detector.anonymous ? 'flex' : 'none';
     cellsLbl.style.display = detector.anonymous ? 'flex' : 'none';
     swatchEl.style.display = detector.anonymous ? 'flex' : 'none';
-    stats.textContent = `model: ${detector.modelId}, ready in ${(performance.now() - t0).toFixed(0)} ms `
+    stats.textContent = `model: ${localizer.modelId} → ${detector.modelId}, ready in ${(performance.now() - t0).toFixed(0)} ms `
       + `(${detector.ep}${detector.anonymous ? ', anonymous quads' : ''})`;
   } catch (err) {
     stats.textContent = 'model: failed to load';
@@ -213,7 +236,7 @@ function debugSnapshot(res: DetectResult, video: HTMLVideoElement): unknown {
 }
 
 async function loop(): Promise<void> {
-  if (!running || !detector) return;
+  if (!running || !detector || !localizer) return;
   const video = camera.video;
   if (video.videoWidth > 0) {
     if (view.width !== video.videoWidth) {
@@ -221,12 +244,27 @@ async function loop(): Promise<void> {
       view.height = video.videoHeight;
     }
     ctx.drawImage(video, 0, 0);
-    const res: DetectResult = await detector.detect(video);
+    const tick: TwoStageResult = await detectTwoStage(localizer, detector, video);
+    ticks++;
+    locateEma = locateEma === 0 ? tick.locateMs : 0.1 * tick.locateMs + 0.9 * locateEma;
+    // Debug layering, back to front: stage 1's box and ROI, heatmap, then the
+    // raw anonymous quads in grey (what the model actually said), then the
+    // named ones in scheme colors (what the app decided). Seeing them all at
+    // once is how a naming bug is told apart from a detection bug, and a
+    // stage-1 miss from a stage-2 one.
+    drawStage1(ctx, tick.box?.box ?? null, tick.roi, tick.obj);
+    if (!tick.result) {
+      stage1Misses++;
+      fps.tick();
+      stats.textContent =
+        `ep ${detector.ep}   input ${video.videoWidth}x${video.videoHeight}\n` +
+        `stage 1 ${locateEma.toFixed(1)} ms (no cube, obj ${tick.obj.toFixed(2)}; misses ${stage1Misses}/${ticks})   ` +
+        `stage 2 ${inferEma.toFixed(1)} ms   end-to-end ${fps.fps.toFixed(1)} fps\nfaces: —`;
+      requestAnimationFrame(() => void loop());
+      return;
+    }
+    const res: DetectResult = tick.result;
     inferEma = inferEma === 0 ? res.inferMs : 0.1 * res.inferMs + 0.9 * inferEma;
-    // Debug layering, back to front: heatmap, then the raw anonymous quads in
-    // grey (what the model actually said), then the named ones in scheme
-    // colors (what the app decided). Seeing all three at once is how a
-    // naming bug is told apart from a detection bug.
     if (res.heat && heatChk.checked) drawHeatmap(ctx, res.heat);
     for (const u of res.unnamed) {
       // A face refused for size is a different event from one the namer tried
@@ -251,7 +289,8 @@ async function loop(): Promise<void> {
     fps.tick();
     stats.textContent =
       `ep ${detector.ep}   input ${video.videoWidth}x${video.videoHeight}\n` +
-      `inference ${inferEma.toFixed(1)} ms   end-to-end ${fps.fps.toFixed(1)} fps\n` +
+      `stage 1 ${locateEma.toFixed(1)} ms (obj ${tick.obj.toFixed(2)}; misses ${stage1Misses}/${ticks})   ` +
+      `stage 2 ${inferEma.toFixed(1)} ms   end-to-end ${fps.fps.toFixed(1)} fps\n` +
       // Debug line: colour word leads, cubejs letter shown small/secondary in
       // parens for correlating against state.ts's facelet string.
       `faces: ${res.faces.map((f) => `${DEFAULT_SCHEME_NAMES[f.face]} (${f.face}) ${f.conf.toFixed(2)}`).join('  ') || '—'}` +
@@ -350,7 +389,7 @@ void loadDetector();
     await loadDetector();
   }
   if (!detector) await loadDetector();
-  if (!detector) return { ok: false, reason: lastLoadError || 'no model deployed' };
+  if (!detector || !localizer) return { ok: false, reason: lastLoadError || msg.textContent || 'no model deployed' };
   const c = document.createElement('canvas');
   const g = c.getContext('2d')!;
   if (imgUrl) {
@@ -371,16 +410,21 @@ void loadDetector();
     g.fillStyle = '#c41e3a';
     g.fillRect(220, 140, 200, 200); // face-ish red square, content irrelevant
   }
-  await detector.detect(c); // warmup
+  // Two-stage like the app. On the synthetic square stage 1 will usually
+  // miss, which is a correct answer; a real frame (imgUrl) exercises stage 2.
+  await detectTwoStage(localizer, detector, c); // warmup
   const t0 = performance.now();
-  let last = null;
-  for (let i = 0; i < iters; i++) last = await detector.detect(c);
+  let last: TwoStageResult | null = null;
+  for (let i = 0; i < iters; i++) last = await detectTwoStage(localizer, detector, c);
   const ms = (performance.now() - t0) / iters;
-  return { ok: true, ep: detector.ep, avgMs: ms, fps: 1000 / ms, faces: last!.faces.length,
-           quads: last!.quads.length, anonymous: detector.anonymous, model: detector.modelId,
+  const r = last!.result;
+  return { ok: true, ep: detector.ep, avgMs: ms, fps: 1000 / ms,
+           stage1: { obj: +last!.obj.toFixed(3), box: last!.box?.box.map((v) => Math.round(v)) ?? null },
+           faces: r?.faces.length ?? 0, quads: r?.quads.length ?? 0,
+           anonymous: detector.anonymous, model: `${localizer.modelId} -> ${detector.modelId}`,
            // enough to tell "this EP decoded nothing" from "this EP decoded
            // something different" without eyeballing an overlay
-           scores: last!.quads.map((q) => +q.conf.toFixed(3)),
-           names: last!.faces.map((f) => f.face),
-           corner0: last!.quads[0]?.corners.map((c) => c.map((v) => Math.round(v))) };
+           scores: r?.quads.map((q) => +q.conf.toFixed(3)) ?? [],
+           names: r?.faces.map((f) => f.face) ?? [],
+           corner0: r?.quads[0]?.corners.map((c) => c.map((v) => Math.round(v))) };
 };

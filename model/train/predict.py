@@ -1,9 +1,12 @@
 """Run the keypoint model on arbitrary images and draw what it sees.
 
-    python predict.py --ckpt runs/base/best.pt --images "../../web/test/fixtures/*.png" --out preds
+    python predict.py --ckpt runs/kpft1/best.pt --box-ckpt runs/box9/best.pt --images "photos/*.jpg" --out preds
 
 The sim-to-real eyeball: point it at real frames (M2 fixtures, phone photos)
-and look.
+and look. Always two-stage, like the app: `--box-ckpt` runs the stage-1
+localizer on the whole image, the box is padded by PAD_VAL per side, and
+the crop-view keypoint model runs on that crop only (a stage-1 miss draws
+nothing). Without --box-ckpt the image is assumed to BE the crop.
 
 Legacy head: faces with sigmoid confidence >= 0.5 are drawn solid in scheme
 colors with the confidence written at the first corner; 0.25..0.5 are drawn
@@ -25,10 +28,11 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 
-from dataset import FACE_ORDER, NORM_MEAN, NORM_STD, letterbox_image, letterbox_params
+from dataset import FACE_ORDER, NORM_MEAN, NORM_STD, crop_letterbox, crop_window, letterbox_image, letterbox_params
 from model import build_model, decode_to_list
+from shapes import BOX_WH, KP_WH, PAD_VAL
 
-INPUT_WH = (320, 240)
+INPUT_WH = KP_WH
 COLORS = {"U": (255, 255, 255), "R": (220, 40, 40), "F": (40, 190, 80),
           "D": (235, 220, 50), "L": (255, 140, 0), "B": (50, 90, 230)}
 QUAD_COLOR = (0, 230, 255)   # anonymous quads: one color, no identity implied
@@ -42,15 +46,40 @@ def main():
     ap.add_argument("--out", default="preds")
     ap.add_argument("--thresh", type=float, default=0.25,
                     help="center head: minimum detection score to draw")
+    ap.add_argument("--box-ckpt", default=None, help="stage-1 cubebox checkpoint (two-stage, like the app)")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "legacy")
+    global INPUT_WH
+    INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
     model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
-    print(f"head={head}  ckpt={args.ckpt}")
+    localizer = None
+    if args.box_ckpt:
+        from train_bbox import build_box_model
+        bck = torch.load(args.box_ckpt, map_location="cpu", weights_only=True)
+        localizer = build_box_model(bck.get("head", "gap")).to(device)
+        localizer.load_state_dict(bck["model"])
+        localizer.eval()
+    print(f"head={head}  view={ckpt.get('view', 'frame')} {INPUT_WH}  ckpt={args.ckpt}"
+          + (f"  stage 1 {args.box_ckpt}" if localizer else ""))
+
+    def locate(img):
+        """stage 1 on the whole image -> (obj, box in source px) or None."""
+        lb = letterbox_image(img, *BOX_WH)
+        x = (np.asarray(lb, dtype=np.float32) / 255.0 - NORM_MEAN) / NORM_STD
+        with torch.no_grad():
+            y = localizer(torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device))[0].cpu().numpy()
+        sig = lambda v: 1 / (1 + np.exp(-v))  # noqa: E731
+        obj = float(sig(y[0]))
+        if obj < 0.5:
+            return None
+        s, dx, dy = letterbox_params(img.width, img.height, *BOX_WH)
+        cx, cy, w, h = sig(y[1]) * BOX_WH[0], sig(y[2]) * BOX_WH[1], sig(y[3]) * BOX_WH[0], sig(y[4]) * BOX_WH[1]
+        return obj, (((cx - w / 2) - dx) / s, ((cy - h / 2) - dy) / s, ((cx + w / 2) - dx) / s, ((cy + h / 2) - dy) / s)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -59,17 +88,27 @@ def main():
         raise SystemExit(f"no images match {args.images}")
     for path in files:
         img = Image.open(path).convert("RGB")
-        small = letterbox_image(img, *INPUT_WH)
+        draw = ImageDraw.Draw(img)
+        window = (0.0, 0.0, float(img.width), float(img.height))
+        if localizer:
+            hit = locate(img)
+            if hit is None:
+                print(f"{Path(path).name}: stage 1 found no cube")
+                img.save(out / (Path(path).stem + ".pred.png"))
+                continue
+            obj, box = hit
+            window = crop_window(box, (PAD_VAL,) * 4, (0, 0, img.width, img.height))
+            draw.rectangle(box, outline=(90, 230, 110), width=3)
+            draw.rectangle(window, outline=(90, 230, 110), width=1)
+            draw.text((box[0] + 4, box[1] + 4), f"obj {obj:.2f}", fill=(90, 230, 110))
+        small, scale, dx, dy = crop_letterbox(img, window, *INPUT_WH)
         x = (np.asarray(small, dtype=np.float32) / 255.0 - NORM_MEAN) / NORM_STD
         xt = torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(0).to(device)
         with torch.no_grad():
             pred = model(xt)
-        draw = ImageDraw.Draw(img)
-        # predictions are normalized in the letterboxed frame -> map back
-        scale, dx, dy = letterbox_params(img.width, img.height, *INPUT_WH)
 
         def to_source(u, v):
-            return ((u * INPUT_WH[0] - dx) / scale, (v * INPUT_WH[1] - dy) / scale)
+            return ((u * INPUT_WH[0] - dx) / scale + window[0], (v * INPUT_WH[1] - dy) / scale + window[1])
 
         lines = []
         if head == "center":

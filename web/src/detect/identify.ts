@@ -18,7 +18,7 @@
 // default prior assumes the standard arrangement — the same assumption the
 // trained model has always made.
 import {
-  facePlan, isFaceBlownOut, isFaceTooDark, labDistance, labMedian, MIN_FACE_EDGE_PX,
+  facePlan, isFaceBlownOut, isFaceTooDark, labDistance, labMedian, minFaceEdgePx,
   RING_INCOHERENT_LAB, sampleGridCells, srgbToLab,
 } from '../color';
 import { warpQuad, type ImageDataLike } from '../rectify';
@@ -88,10 +88,24 @@ export interface NamedQuad {
    *  The app ranks only the center; per-cell rankings are a debug-time
    *  derivation, not something naming computes. */
   ranked?: { face: FaceId; d: number }[];
-  /** Shortest edge of the source quad, in the pixels naming sampled from.
-   *  Set whenever the quad was measured at all — including on the refusal,
-   *  so a debug view can say how far under the limit the face was. */
+  /** Shortest edge of the quad in SOURCE px (the camera frame's pixels, not
+   *  the letterboxed crop naming sampled from). Set whenever the quad was
+   *  measured at all — including on the refusal, so a debug view can say how
+   *  far under the limit the face was. */
   minEdgePx?: number;
+}
+
+/**
+ * How the frame naming samples from relates to the camera frame. Stage 2
+ * looks at a letterboxed CROP, so a quad's size in that frame says nothing
+ * about how far away the cube is; the size gate and the sampling plan are
+ * decided in source px (color.ts MIN_FACE_EDGE_FRAC, facePlan).
+ */
+export interface FrameGeom {
+  /** Source px per frame px (the inverse of the letterbox scale). */
+  srcPerPx: number;
+  /** Source frame height, px - the unit the range floor is defined in. */
+  sourceH: number;
 }
 
 function hexToLab(hex: string): Lab {
@@ -208,6 +222,8 @@ export function nameQuads(
   quads: readonly (readonly [number, number][])[],
   exemplars: CenterExemplars,
   scores?: readonly number[],
+  /** Default: `frame` IS the source (tests, full-frame callers). */
+  geom: FrameGeom = { srcPerPx: 1, sourceH: frame.height },
 ): NamedQuad[] {
   interface Cand {
     i: number;
@@ -224,19 +240,24 @@ export function nameQuads(
 
   quads.forEach((quad, i) => {
     // Rule 0: the rectified canvas is always 90x90, so it says nothing about
-    // how many real pixels the face covered. Size the sampling from the SOURCE
-    // quad, and refuse outright when the detector's corner error would be a
-    // large fraction of a sticker (see color.ts facePlan).
+    // how many real pixels the face covered, and neither does the letterboxed
+    // crop `frame` (the crop zooms every cube to about the same size). Size
+    // the sampling from the quad in SOURCE px, and refuse outright when the
+    // face is under the range floor - a fraction of the source frame height -
+    // where the detector's corner error would be a large fraction of a
+    // sticker (see color.ts facePlan).
     let minEdge = Infinity;
     for (let k = 0; k < 4; k++) {
       const [ax, ay] = quad[k]!;
       const [bx, by] = quad[(k + 1) % 4]!;
       minEdge = Math.min(minEdge, Math.hypot(bx - ax, by - ay));
     }
-    const plan = facePlan(minEdge / 3);
+    minEdge *= geom.srcPerPx;
+    const floor = minFaceEdgePx(geom.sourceH);
+    const plan = facePlan(minEdge / 3, floor);
     if (!plan) {
       out[i] = { face: null, color: null, nameConf: 0, minEdgePx: minEdge,
-                 reason: `${TOO_SMALL_REASON} (${minEdge.toFixed(0)}px edge, need ${MIN_FACE_EDGE_PX})` };
+                 reason: `${TOO_SMALL_REASON} (${minEdge.toFixed(0)}px edge, need ${floor.toFixed(0)})` };
       return;
     }
     const warped = warpQuad(frame, quad, 90);
