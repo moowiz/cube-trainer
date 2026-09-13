@@ -8,6 +8,7 @@
     ['./', 'Trainer', 'index.html'],
     ['autoscan.html', 'Auto scan'],
     ['detect.html', 'Detector'],
+    ['bbox.html', 'Cube localizer'],
     ['scanner.html', 'Grid scanner'],
     ['label.html', 'Labeler'],
   ];
