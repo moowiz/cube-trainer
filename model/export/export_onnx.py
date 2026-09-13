@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset
 from model import CENTER_DEDUPE_FRAC, CENTER_MIN_DEDUPE_PX, CENTER_STRIDE, build_model
 from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL
+from targets import GRID_CORNER_IDX
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 INPUT_WH = KP_WH   # overwritten from the checkpoint in main()
@@ -150,8 +151,8 @@ def measure_corner_shift(fp32_path, other_path, xs, head: str):
             if flat[c] < 0.3:
                 continue
             cy, cx = divmod(int(c), w)
-            a = ref[i, 1:, cy, cx].reshape(4, 2)
-            b = got[i, 1:, cy, cx].reshape(4, 2)
+            a = ref[i, 1:, cy, cx].reshape(-1, 2)   # (P,2): 4 corners or the 16-point grid
+            b = got[i, 1:, cy, cx].reshape(-1, 2)
             px.append(np.abs(a - b) * CENTER_STRIDE)
     if not px:
         print("WARNING: no fp32 heatmap peak above 0.3 on the parity frames - the "
@@ -178,6 +179,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "legacy")
+    npts = ckpt.get("npts", 4)
     global INPUT_WH, VIEW
     INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
     VIEW = ckpt.get("view", "frame")
@@ -186,7 +188,7 @@ def main():
     if not crop_trained:
         print("WARNING: a model without the cropTrained stamp is not runnable by the app "
               "(always-two-stage, PORTRAIT-DESIGN.md 3.3) - exporting anyway for tests")
-    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]), npts=ckpt.get("npts", 4))
     model.load_state_dict(ckpt["model"])
     model.eval()
     out_name = "faces" if head == "legacy" else "maps"
@@ -328,10 +330,16 @@ def main():
         # is a fraction of the SOURCE frame height (web color.ts MIN_FACE_EDGE_FRAC).
         "view": VIEW, "cropPad": PAD_VAL if VIEW == "crop" else None,
         "minFaceEdgeFrac": MIN_FACE_EDGE_FRAC,
-        "head": "legacy" if head == "legacy" else "center-v1",
+        "head": "legacy" if head == "legacy" else ("center-v1" if npts == 4 else "grid-v1"),
         # Anonymous quads carry no face identity: the app names each one from
         # its center sticker color (web/src/detect/identify.ts).
         "anonymous": head != "legacy",
+        # 2026-09-13: how many points each face's offsets carry (channels
+        # 1..2P). 4 = the corners; 16 = the 4x4 seam grid, row-major with
+        # (u,v) = (i/3, j/3) at p = j*4+i, corners at `gridCornerIdx`. The
+        # web decoder must read this rather than assume 9 channels.
+        "points": npts,
+        "gridCornerIdx": list(GRID_CORNER_IDX) if npts == 16 else None,
     }
     (WEB_MODELS / "facekp.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {WEB_MODELS / 'facekp.onnx'} and facekp.json")

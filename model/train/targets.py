@@ -64,7 +64,7 @@ def min_edge_cells(grid_hw: tuple[int, int]) -> float:
 class CenterTargets:
     """All maps are in grid-cell units; H,W are the feature-map dims."""
     heat: torch.Tensor    # (B,H,W) in [0,1], 1.0 exactly at each face's center cell
-    off: torch.Tensor     # (B,4,2,H,W) target corner offsets from the cell center
+    off: torch.Tensor     # (B,P,2,H,W) target point offsets from the cell center (P = npts)
     weight: torch.Tensor  # (B,H,W) Gaussian value where offsets are supervised, else 0
     ignore: torch.Tensor  # (B,H,W) bool: out-of-range faces - not positive, not background
     npos: torch.Tensor    # 0-dim: positive faces in the batch (heat-loss normalizer)
@@ -95,6 +95,103 @@ def quad_centers(corners: torch.Tensor) -> torch.Tensor:
     return torch.where(ok.unsqueeze(-1), inter, corners.mean(dim=-2))
 
 
+# --- the 4x4 seam grid (2026-09-13) -----------------------------------------
+#
+# A face is planar, so its 4 corners fix a homography from the unit square and
+# the 16 seam intersections (i/3, j/3) fall out of it exactly - which is the
+# same assumption rectify.ts + the cell sampler already make. With
+# `npts=16` the head regresses those instead of the 4 corners: interior
+# junctions are crisp two-colour features that a thumb rarely covers, and 16
+# points overdetermine the 8-dof warp so the app can fit it by least squares,
+# read the residual as a quality weight and drop the outliers. Grid point
+# p = j*4 + i sits at (u, v) = (i/3, j/3); the corners are GRID_CORNER_IDX.
+
+GRID_N = 4
+GRID_CORNER_IDX = (0, 3, 15, 12)   # (u,v) = (0,0), (1,0), (1,1), (0,1) = c0..c3
+
+
+def quad_homography(corners: torch.Tensor) -> torch.Tensor:
+    """Unit square -> quad. corners (...,4,2) with c0..c3 at (0,0),(1,0),(1,1),(0,1)
+    -> (...,3,3) H with [x, y, w]^T = H @ [u, v, 1]^T.
+
+    Heckbert's closed form ("Fundamentals of Texture Mapping and Image
+    Warping", 1989, 2.2.2), vectorized. A degenerate quad (three collinear
+    corners after a harsh augment) gets a finite, meaningless H rather than
+    inf/nan - the loss must never see a nan.
+    """
+    x0, x1, x2, x3 = corners[..., 0].unbind(dim=-1)
+    y0, y1, y2, y3 = corners[..., 1].unbind(dim=-1)
+    sx = x0 - x1 + x2 - x3
+    sy = y0 - y1 + y2 - y3
+    dx1, dx2 = x1 - x2, x3 - x2
+    dy1, dy2 = y1 - y2, y3 - y2
+    det = dx1 * dy2 - dx2 * dy1
+    det = torch.where(det.abs() > 1e-9, det, torch.ones_like(det))
+    g = (sx * dy2 - dx2 * sy) / det
+    h = (dx1 * sy - sx * dy1) / det
+    a = x1 - x0 + g * x1
+    b = x3 - x0 + h * x3
+    d = y1 - y0 + g * y1
+    e = y3 - y0 + h * y3
+    one = torch.ones_like(g)
+    return torch.stack([torch.stack([a, b, x0], dim=-1),
+                        torch.stack([d, e, y0], dim=-1),
+                        torch.stack([g, h, one], dim=-1)], dim=-2)
+
+
+def _unit_grid(n: int, device, dtype) -> torch.Tensor:
+    """(n*n, 3) homogeneous (u, v, 1), row-major: p = j*n + i, u = i/(n-1)."""
+    t = torch.arange(n, device=device, dtype=dtype) / (n - 1)
+    v, u = torch.meshgrid(t, t, indexing="ij")
+    return torch.stack([u.reshape(-1), v.reshape(-1), torch.ones(n * n, device=device, dtype=dtype)], dim=-1)
+
+
+def quad_grid_points(corners: torch.Tensor, n: int = GRID_N) -> torch.Tensor:
+    """corners (...,4,2) -> (...,n*n,2): the projective (i/(n-1), j/(n-1)) grid.
+    Row 0 is the c0->c1 edge, column 0 the c0->c3 edge; the centre point of an
+    odd n (or the (1.5,1.5) cell of n=4) is `quad_centers`."""
+    H = quad_homography(corners)                                   # (...,3,3)
+    uv = _unit_grid(n, corners.device, corners.dtype)              # (n*n,3)
+    p = torch.einsum("...ij,pj->...pi", H, uv)                     # (...,n*n,3)
+    w = p[..., 2:3]
+    w = torch.where(w.abs() > 1e-6, w, torch.full_like(w, 1e-6))
+    return p[..., :2] / w
+
+
+def face_points(corners: torch.Tensor, npts: int) -> torch.Tensor:
+    """The head's regression targets for a quad: the corners themselves
+    (npts=4) or the 4x4 seam grid (npts=16)."""
+    if npts == 4:
+        return corners
+    if npts == GRID_N * GRID_N:
+        return quad_grid_points(corners)
+    raise ValueError(f"npts must be 4 or {GRID_N * GRID_N}, got {npts}")
+
+
+def cyclic_perms(npts: int) -> torch.Tensor:
+    """(4, npts) long: perms[k] reorders a target point set as if the quad had
+    been labeled starting k corners later (torch.roll(corners, -k) on c0..c3).
+    The loss takes the minimum over the four - the starting corner is
+    unobservable on a lone dead-on face - so the direction is immaterial; the
+    set of four must be complete, and check_targets.py verifies the grid
+    version against a rebuild from the rolled corners.
+
+    For the grid, rolling by one moves (u, v) -> (v, 1-u): point (i', j') of the
+    rolled grid is point (i, j) = (n-1-j', i') of the original.
+    """
+    if npts == 4:
+        return torch.stack([torch.arange(4).roll(-k) for k in range(4)])
+    n = GRID_N
+    one = torch.empty(n * n, dtype=torch.long)
+    for jp in range(n):
+        for ip in range(n):
+            one[jp * n + ip] = ip * n + (n - 1 - jp)
+    perms = [torch.arange(n * n)]
+    for _ in range(3):
+        perms.append(one[perms[-1]])
+    return torch.stack(perms)
+
+
 def quad_max_edge(corners: torch.Tensor) -> torch.Tensor:
     """Longest of the quad's 4 edges. corners (...,4,2) -> (...).
 
@@ -123,8 +220,12 @@ def gaussian_sigma(area_cells: torch.Tensor) -> torch.Tensor:
 
 def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch.Tensor,
                          grid_hw: tuple[int, int], stats: bool = False,
-                         min_edge_cells: float | None = None) -> CenterTargets:
+                         min_edge_cells: float | None = None, npts: int = 4) -> CenterTargets:
     """conf (B,6), corners (B,6,4,2) normalized to [0,1], valid (B,6).
+
+    `npts` picks the regression targets: 4 = the corners, 16 = the seam grid
+    derived from them (`face_points`). Centre, area and the range floor are
+    always taken from the 4 corners, so the heatmap is identical either way.
 
     A face is a positive iff conf == 1 and valid == 1. Hidden faces
     (conf == 0) contribute nothing at all - the legacy head's `hidden_weight`
@@ -198,12 +299,14 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
     owner = pri.argmax(dim=1)                     # (B,H,W)
     supervised = covers.any(dim=1)                # (B,H,W)
 
-    idx = owner.view(B, 1, 1, 1, H, W).expand(B, 1, 4, 2, H, W)
-    corner_cells = cells.view(B, 6, 4, 2, 1, 1).expand(B, 6, 4, 2, H, W)
-    own_corners = corner_cells.gather(1, idx).squeeze(1)          # (B,4,2,H,W)
+    pts = face_points(cells, npts)                # (B,6,P,2) in cell units
+    P = pts.shape[2]
+    idx = owner.view(B, 1, 1, 1, H, W).expand(B, 1, P, 2, H, W)
+    pt_cells = pts.view(B, 6, P, 2, 1, 1).expand(B, 6, P, 2, H, W)
+    own_pts = pt_cells.gather(1, idx).squeeze(1)                  # (B,P,2,H,W)
     mx, my = torch.meshgrid(gx, gy, indexing="xy")   # both (H,W)
     cell_center = torch.stack([mx, my], dim=0)       # (2,H,W)
-    off = (own_corners - cell_center.view(1, 1, 2, H, W)) * supervised.view(B, 1, 1, H, W)
+    off = (own_pts - cell_center.view(1, 1, 2, H, W)) * supervised.view(B, 1, 1, H, W)
 
     weight = torch.where(supervised, heat, torch.zeros_like(heat))
 

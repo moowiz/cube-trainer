@@ -13,6 +13,11 @@ is exactly the class of bug that shows up later as "training won't go below
 
 Cheap and offline: no checkpoint, no GPU, a second or two. Run it after
 touching targets.py, decode_maps, or center_metrics.
+
+Both point counts are checked (4 corners and the 16-point seam grid), plus
+the grid geometry itself: the homography returns the corners and the
+diagonal centre, and `cyclic_perms(16)` agrees with rebuilding the grid from
+rolled corners - the loss's rotation invariance depends on exactly that.
 """
 from __future__ import annotations
 
@@ -21,9 +26,16 @@ import argparse
 import numpy as np
 import torch
 
-from model import center_loss, center_metrics, f1_from_counts
+from model import POINT_COUNTS, center_loss, center_metrics, decode_maps, f1_from_counts
 from shapes import KP_WH, grid_hw
-from targets import build_center_targets, quad_areas, quad_centers
+from targets import (
+    GRID_CORNER_IDX,
+    build_center_targets,
+    cyclic_perms,
+    quad_areas,
+    quad_centers,
+    quad_grid_points,
+)
 
 INPUT_WH = KP_WH
 GRID_HW = grid_hw(KP_WH)
@@ -31,10 +43,11 @@ GRID_HW = grid_hw(KP_WH)
 
 def perfect_maps(t, b: int):
     """The maps a model with zero training error would produce."""
-    maps = torch.zeros(b, 9, *GRID_HW)
+    P = t.off.shape[1]
+    maps = torch.zeros(b, 1 + 2 * P, *GRID_HW)
     maps[:, 0] = torch.where(t.heat >= 1.0, torch.full_like(t.heat, 10.0),
                              torch.full_like(t.heat, -10.0))
-    maps[:, 1:] = t.off.reshape(b, 8, *GRID_HW)
+    maps[:, 1:] = t.off.reshape(b, 2 * P, *GRID_HW)
     return maps
 
 
@@ -71,9 +84,9 @@ def random_labels(b: int, rng: np.random.Generator):
     return conf, corners, valid
 
 
-def check(conf, corners, valid, label: str) -> bool:
+def check(conf, corners, valid, label: str, npts: int = 4) -> bool:
     b = conf.shape[0]
-    t = build_center_targets(conf, corners, valid, GRID_HW, stats=True)
+    t = build_center_targets(conf, corners, valid, GRID_HW, stats=True, npts=npts)
     npos = int(t.npos.item())
     maps = perfect_maps(t, b)
 
@@ -86,12 +99,59 @@ def check(conf, corners, valid, label: str) -> bool:
     expected = npos - t.collisions
     ok = (loss.item() < 1e-4 and matched >= expected and fp == 0
           and (matched == 0 or mean_err < 1e-3))
-    print(f"[{label}] images {b}  positives {npos}  collisions {t.collisions}")
+    # the full point set must come back too, up to the cyclic rotation the
+    # target was stored in (decode has no way to know the labeled start)
+    grid_err = float("nan")
+    if npts != 4 and matched:
+        scores, pts = decode_maps(maps, input_wh=INPUT_WH, thresh=0.5, points=True)
+        gt_pts = quad_grid_points(corners)                           # (B,6,16,2) normalized
+        perms = cyclic_perms(npts)
+        gt_c = quad_centers(corners)
+        worst = 0.0
+        for i in range(b):
+            for d in range(scores.shape[1]):
+                if scores[i, d] <= 0:
+                    continue
+                c = quad_centers(pts[i, d][list(GRID_CORNER_IDX)])
+                f = int((gt_c[i] - c).norm(dim=-1).argmin())
+                e = min(float(((pts[i, d] - gt_pts[i, f][perms[k]]) * torch.tensor(INPUT_WH))
+                              .norm(dim=-1).mean()) for k in range(4))
+                worst = max(worst, e)
+        grid_err = worst
+        ok &= worst < 1e-3
+    print(f"[{label}] npts {npts}  images {b}  positives {npos}  collisions {t.collisions}")
     print(f"  loss {loss.item():.2e} (heat {heat_loss.item():.2e}  off {off_loss.item():.2e})")
     print(f"  matched {matched}/{expected}  fp {fp}  fn {fn}  F1 {f1:.3f}  "
-          f"mean corner err {mean_err:.2e} px")
+          f"mean corner err {mean_err:.2e} px"
+          + (f"  worst grid-point err {grid_err:.2e} px" if npts != 4 else ""))
     print("  " + ("OK" if ok else "FAIL"))
     return ok
+
+
+def check_grid_geometry(rng: np.random.Generator) -> bool:
+    """quad_grid_points returns the corners and the diagonal centre, and the
+    cyclic permutation of the grid equals the grid of the rolled quad."""
+    _, corners, _ = random_labels(64, rng)
+    q = corners.reshape(-1, 4, 2)
+    q = q[(q.abs().sum(dim=(1, 2)) > 0)]
+    g = quad_grid_points(q)                                          # (N,16,2)
+    ok = torch.allclose(g[:, list(GRID_CORNER_IDX)], q, atol=1e-5)
+    # centre of the unit square is (1.5, 1.5) in grid index space; sample it
+    # directly through the homography via a 3x3 grid instead
+    g3 = quad_grid_points(q, n=3)
+    ok &= torch.allclose(g3[:, 4], quad_centers(q), atol=1e-5)
+    perms = cyclic_perms(16)
+    worst = 0.0
+    for k in range(4):
+        rolled = quad_grid_points(q.roll(-k, dims=1))
+        worst = max(worst, float((rolled - g[:, perms[k]]).abs().max()))
+    ok &= worst < 1e-5
+    # the four permutations are distinct and each is a bijection
+    ok &= len({tuple(p.tolist()) for p in perms}) == 4
+    ok &= all(sorted(p.tolist()) == list(range(16)) for p in perms)
+    print(f"[grid geometry] {q.shape[0]} quads: corners/centre round-trip {'OK' if ok else 'FAIL'}, "
+          f"perm-vs-rolled worst {worst:.1e}")
+    return bool(ok)
 
 
 def main():
@@ -102,10 +162,11 @@ def main():
     args = ap.parse_args()
 
     rng = np.random.default_rng(0)
-    ok = True
+    ok = check_grid_geometry(rng)
     for i in range(args.trials):
         conf, corners, valid = random_labels(32, rng)
-        ok &= check(conf, corners, valid, f"synthetic {i + 1}/{args.trials}")
+        for npts in POINT_COUNTS:
+            ok &= check(conf, corners, valid, f"synthetic {i + 1}/{args.trials}", npts=npts)
 
     # geometry sanity that does not depend on the maps at all
     q = torch.tensor([[[[0.0, 0.0], [4.0, 1.0], [5.0, 5.0], [1.0, 4.0]]]])
@@ -118,8 +179,9 @@ def main():
         from dataset import CubeKeypointDataset
         ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH)
         n = min(args.n, len(ds))
-        ok &= check(torch.from_numpy(ds.conf[:n]), torch.from_numpy(ds.corners[:n]),
-                    torch.from_numpy(ds.valid[:n]), f"real labels from {args.data}")
+        for npts in POINT_COUNTS:
+            ok &= check(torch.from_numpy(ds.conf[:n]), torch.from_numpy(ds.corners[:n]),
+                        torch.from_numpy(ds.valid[:n]), f"real labels from {args.data}", npts=npts)
 
     print("\nALL OK" if ok else "\nFAILED - fix targets/decode before training")
     raise SystemExit(0 if ok else 1)

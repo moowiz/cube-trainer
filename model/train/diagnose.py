@@ -26,6 +26,12 @@ Center head (anonymous quads) additionally prints:
     about the face center relative to the ground truth. rot20% is the share
     of matched faces off by more than 20 degrees - the number the plan's
     ">100 px close-up class has no diamond quads" gate reads.
+  - the CELL-CENTRE error: the 9 sticker centres the colour sampler reads,
+    placed through a homography least-squares-fitted to every point the
+    model regressed (exact for a 4-corner model, overdetermined for the
+    16-point grid), against the same centres from the ground-truth corners.
+    This is the number the colour pipeline actually feels; corner error is
+    the comparable one. Grid checkpoints also print the raw 16-point error.
   - a per-batch split on real photos: photo batches are separate capture
     sessions (lighting, cube, framing), and the deploy gate is per batch.
     Batches come from which stephens_photos/<batch>/ holds the source photo,
@@ -44,7 +50,7 @@ import torch
 from dataset import FACE_ORDER, CubeKeypointDataset
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps, f1_from_counts
 from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL, min_face_edge_px
-from targets import quad_centers
+from targets import GRID_N, cyclic_perms, quad_centers, quad_grid_points
 
 INPUT_WH = KP_WH   # overwritten from the checkpoint
 DIAMOND_DEG = 20.0  # a matched quad rotated more than this is a hedge/diamond
@@ -67,6 +73,45 @@ def rotation_deg(pred, gt):
     gv = gt - gt.mean(axis=0)
     ang = np.arctan2(pv[:, 1], pv[:, 0]) - np.arctan2(gv[:, 1], gv[:, 0])
     return float(np.degrees(np.arctan2(np.sin(ang).mean(), np.cos(ang).mean())))
+
+
+def unit_points(npts: int) -> np.ndarray:
+    """(P,2) face-plane (u,v) of the model's P points: the unit-square corners
+    for 4, the (i/3, j/3) grid for 16 (targets.quad_grid_points order)."""
+    if npts == 4:
+        return np.array([[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float64)
+    t = np.arange(GRID_N) / (GRID_N - 1)
+    v, u = np.meshgrid(t, t, indexing="ij")
+    return np.stack([u.ravel(), v.ravel()], axis=1)
+
+
+CELL_UV = np.array([[(i + 0.5) / 3, (j + 0.5) / 3] for j in range(3) for i in range(3)])
+
+
+def fit_homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
+    """Least-squares DLT, src (N,2) -> dst (N,2), N >= 4. What the app would do
+    with a redundant point set: every point votes for the plane."""
+    rows = []
+    for (u, v), (x, y) in zip(src, dst):
+        rows.append([-u, -v, -1, 0, 0, 0, u * x, v * x, x])
+        rows.append([0, 0, 0, -u, -v, -1, u * y, v * y, y])
+    _, _, vt = np.linalg.svd(np.asarray(rows, dtype=np.float64))
+    H = vt[-1].reshape(3, 3)
+    return H / (H[2, 2] if abs(H[2, 2]) > 1e-12 else 1.0)
+
+
+def apply_h(H: np.ndarray, uv: np.ndarray) -> np.ndarray:
+    p = np.concatenate([uv, np.ones((len(uv), 1))], axis=1) @ H.T
+    w = np.where(np.abs(p[:, 2:3]) > 1e-9, p[:, 2:3], 1e-9)
+    return p[:, :2] / w
+
+
+def cell_centre_error(pred_pts: np.ndarray, gt_corners: np.ndarray, npts: int) -> float:
+    """Mean distance between the 9 sticker centres placed by a homography fitted
+    to ALL predicted points and those from the ground-truth corners (px)."""
+    Hp = fit_homography(unit_points(npts), pred_pts)
+    Hg = fit_homography(unit_points(4), gt_corners)
+    return float(np.linalg.norm(apply_h(Hp, CELL_UV) - apply_h(Hg, CELL_UV), axis=1).mean())
 
 
 def batch_index(photo_root: Path) -> dict[str, str]:
@@ -125,12 +170,15 @@ def main():
     view = ckpt.get("view", "frame")
     if args.min_edge is None:
         args.min_edge = min_face_edge_px(INPUT_WH[1])
-    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]),
+                        npts=ckpt.get("npts", 4)).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
+    npts = ckpt.get("npts", 4)
+    perms = cyclic_perms(npts).numpy()
     pad = (PAD_VAL - args.jitter, PAD_VAL + args.jitter) if args.jitter else PAD_VAL
-    print(f"head={head}  view={view} {INPUT_WH[0]}x{INPUT_WH[1]}  ckpt={args.ckpt}  data={args.data} ({args.split})"
-          + (f"  crop pad {pad}" if view == "crop" else ""))
+    print(f"head={head}  view={view} {INPUT_WH[0]}x{INPUT_WH[1]}  points={npts}  ckpt={args.ckpt}  "
+          f"data={args.data} ({args.split})" + (f"  crop pad {pad}" if view == "crop" else ""))
 
     ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, view=view, crop_pad=pad)
     if args.jitter:
@@ -146,11 +194,13 @@ def main():
             x = torch.stack([b[0] for b in batch]).to(device)
             pred = model(x)
             if head == "center":
-                scores, quads = decode_maps(pred, input_wh=INPUT_WH, thresh=args.thresh)
+                scores, pts = decode_maps(pred, input_wh=INPUT_WH, thresh=args.thresh, points=True)
+                _, quads = decode_maps(pred, input_wh=INPUT_WH, thresh=args.thresh)
                 scores = scores.cpu().numpy()
                 quads_px = (quads.cpu() * torch.from_numpy(wh))
                 det_c = quad_centers(quads_px).numpy()
                 quads_px = quads_px.numpy()
+                pts_px = (pts.cpu() * torch.from_numpy(wh)).numpy()
             else:
                 p = pred.cpu().numpy()
             for j, i in enumerate(idxs):
@@ -196,7 +246,15 @@ def main():
                         shifts = [np.roll(gt_q[f], r, axis=0) for r in range(4)]
                         errs = [float(np.linalg.norm(quads_px[j, d] - s, axis=1).mean()) for s in shifts]
                         r = int(np.argmin(errs))
-                        rows.append({**base, "err": errs[r],
+                        # the full point set, in the rotation the corners picked
+                        gt_pts = quad_grid_points(torch.from_numpy(gt_q[f]).double()).numpy() \
+                            if npts != 4 else gt_q[f]
+                        # np.roll(corners, r) == corners[cyclic_perms(4)[4-r]], and
+                        # the grid perms are built from the same corner roll
+                        gt_pts_r = gt_pts[perms[(4 - r) % 4]]
+                        grid_err = float(np.linalg.norm(pts_px[j, d] - gt_pts_r, axis=1).mean())
+                        cell_err = cell_centre_error(pts_px[j, d], shifts[r], npts)
+                        rows.append({**base, "err": errs[r], "gridErr": grid_err, "cellErr": cell_err,
                                      "rot": abs(rotation_deg(quads_px[j, d], shifts[r])),
                                      "score": float(scores[j, d])})
                 else:
@@ -237,6 +295,16 @@ def main():
     src_errs = np.array([r["err"] * r["src"] for r in hit])
     print(f"in SOURCE px: mean {src_errs.mean():.2f}  median {np.median(src_errs):.2f}  "
           f"p90 {np.percentile(src_errs, 90):.2f}")
+    if head == "center":
+        ce = np.array([r["cellErr"] for r in hit])
+        cs = np.array([r["cellErr"] * r["src"] for r in hit])
+        print(f"CELL-CENTRE error (9 sticker centres via a homography fitted to all {npts} points): "
+              f"mean {ce.mean():.2f} px  median {np.median(ce):.2f} px  p90 {np.percentile(ce, 90):.2f} px"
+              f"  | source px: mean {cs.mean():.2f}  median {np.median(cs):.2f}  p90 {np.percentile(cs, 90):.2f}")
+        if npts != 4:
+            ge = np.array([r["gridErr"] for r in hit])
+            print(f"raw {npts}-point error: mean {ge.mean():.2f} px  median {np.median(ge):.2f} px  "
+                  f"p90 {np.percentile(ge, 90):.2f} px  (corners alone: {errs.mean():.2f})")
 
     print("\nby range (longest edge / source frame height; the floor is "
           f"{MIN_FACE_EDGE_FRAC}):")
@@ -247,9 +315,13 @@ def main():
         h = [r for r in sel if r["err"] is not None]
         e = np.array([r["err"] for r in h]) if h else np.array([np.nan])
         se = np.array([r["err"] * r["src"] for r in h]) if h else np.array([np.nan])
+        cell = ""
+        if head == "center" and h:
+            cse = np.array([r["cellErr"] * r["src"] for r in h])
+            cell = f"  cell-centre {np.nanmean(cse):6.2f} src px"
         print(f"  {name:4s} {lo:5.3f}-{min(hi, 9.999):5.3f}: n={len(sel):5d}  "
               f"mean {np.nanmean(e):6.2f} px ({np.nanmean(se):6.2f} src px)  "
-              f"median {np.nanmedian(e):6.2f} px  missed {len(sel) - len(h)}")
+              f"median {np.nanmedian(e):6.2f} px  missed {len(sel) - len(h)}{cell}")
 
     print("\nerror by face size (sqrt of quad area, input px):")
     bins = [(0, 40), (40, 70), (70, 100), (100, 1e9)]
