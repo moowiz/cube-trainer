@@ -259,7 +259,7 @@
     <details id="helpBox" open>
       <summary>Shortcuts &amp; conventions</summary>
       <ul>
-        <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> &mdash; previous / next image</li>
+        <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> or <kbd>'</kbd> / <kbd>.</kbd> &mdash; previous / next image</li>
         <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
         <li>click 4&times; on canvas &mdash; place that face's corners going
           around the face</li>
@@ -1382,8 +1382,9 @@
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
-    if (k === 'ArrowLeft') { selectImage(state.current - 1); e.preventDefault(); }
-    else if (k === 'ArrowRight') { selectImage(state.current + 1); e.preventDefault(); }
+    // ' and . are prev/next as well: Dvorak's home-adjacent pair (QWERTY q/e)
+    if (k === 'ArrowLeft' || k === "'") { selectImage(state.current - 1); e.preventDefault(); }
+    else if (k === 'ArrowRight' || k === '.') { selectImage(state.current + 1); e.preventDefault(); }
     else if (k === 'Escape') { hideMenu(); cancelActive(); e.preventDefault(); }
     else if (k === 'Delete' || k === 'Backspace') { clearFace(); e.preventDefault(); }
     else if (k === '0') { fitImageToView(); render(); }
