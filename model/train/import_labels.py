@@ -63,6 +63,12 @@ def main():
                          "drop them only for a batch where the cube-less frames were unlabelled cubes")
     # the old default-off flag; keeping negatives is the default now
     ap.add_argument("--keep-negatives", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--source-prefix", default="",
+                    help="prepended to each entry's image name to form the 'source' key, e.g. batch8/. "
+                         "Clip batches all number their stills v00000.jpg.., so without a prefix a new "
+                         "batch is mistaken for a re-export of the old one and overwrites its labels in "
+                         "place (batch 8 did, 2026-09-13). Required whenever a bare name is already "
+                         "imported from a different image; batches 1-7 predate it and stay bare")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -83,13 +89,18 @@ def main():
     n_have = max_idx
     imported = updated = skipped = missing = dropped = 0
     for entry in load_entries(Path(args.labels)):
-        src_name = entry["image"]
+        src_name = args.source_prefix + entry["image"]
+        src = Path(args.images) / entry["image"]
         if src_name in existing:
+            lf = existing[src_name]
+            stored = json.loads(lf.read_text())
+            have = out / stored["image"]
+            if src.exists() and have.exists() and have.read_bytes() != src.read_bytes():
+                raise SystemExit(f"{src_name}: already imported from a DIFFERENT image ({have.name}). "
+                                 f"This is a new batch reusing old filenames - pass --source-prefix")
             # already imported: refresh in place if the labels were edited
             # (the labeler exports the whole set, so re-exports come through
             # here after fixing a face)
-            lf = existing[src_name]
-            stored = json.loads(lf.read_text())
             faces = normalize_winding(entry["faces"])
             if faces != stored["faces"]:
                 stored["faces"] = faces
@@ -98,7 +109,6 @@ def main():
             else:
                 skipped += 1
             continue
-        src = Path(args.images) / src_name
         if not src.exists():
             print(f"  missing image, skipped: {src_name}")
             missing += 1

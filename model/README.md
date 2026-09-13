@@ -629,7 +629,7 @@ and misplaced shared corners.
 2. `python train/check_labels.py --labels labels-all.json` — fix anything it
    flags (re-export; the importer updates edited labels in place and the
    training cache detects the edit).
-3. `python train/import_labels.py --labels labels-all.json --images <photo dir> --out data_real`
+3. `python train/import_labels.py --labels labels-all.json --images <photo dir> --out data_real --source-prefix <batch>/` (the prefix keeps clip batches, which all number stills `v00000.jpg..`, from colliding)
 4. `python train/train.py --data ../data,../data_real --init runs/long/best.pt --epochs 30 --lr 5e-5 --out runs/ft`
 5. `python export/export_onnx.py --ckpt ../train/runs/ft/best.pt`
 
@@ -667,6 +667,27 @@ the keyboard, far and static.
   frame cache pillarboxes these to 180x320 inside 240x320 (grey side bands,
   cube at its true app scale) and the crop cache cuts them natively.
 
+### Batch 8: outdoor sticker cube (2026-09-13)
+
+Two clips (43 s, `stephens_photos/video/PXL_20260913_2203*.mp4`) of a
+white-body stickered cube on a sunny sidewalk: direct sun, hard shadows,
+blown highlights on the stickers - the first daylight footage and the first
+non-GAN cube in quantity. Stills every 0.5 s (`--every 0.5 --rate 8`, 79
+frames); val is contiguous 3-second blocks (`batch8/val-picks.json`, 18),
+train 61 minus 7 mid-turn cube-less frames skipped (`--drop-negatives`).
+54 -> `data_real` (427), 18 -> `data_real_val` (114).
+
+- `check_labels.py` flags 24 "seams misaligned" faces on this cube. Checked
+  by eye: the quads are right; the seam score assumes dark seams between
+  flat stickers and this cube has bright white seams, chunky rounded
+  stickers and sun reflections. Not a labelling problem.
+- **Clip batches reuse `v00000.jpg..`, and the importer keys on the source
+  name.** The first batch-8 import silently overwrote 46 batch-7 labels in
+  place (repaired from `batch7/labels-train.json`, verified against the
+  image bytes). `import_labels.py` now takes `--source-prefix batch8/` and
+  refuses a bare name that is already imported from a different image, so
+  every clip batch from here on must be imported with its prefix.
+
 ### Real-data coverage and what to shoot next
 
 Census of `data_real` + `data_real_val` after batch 7 (frames; range bins
@@ -682,8 +703,11 @@ centre within 20% of a frame border):
 | 5 | 7 | 2 | 0 | 1 | 3 | 3 | 0 | 0 | 7 | 0 | 0 | app frames |
 | 6 | 95 | 22 | 22 | 28 | 30 | 15 | 9 | 22 | 42 | 1 | 0 | 3000x4000 photos |
 | 7 | 270 | 54 | 12 | 103 | 119 | 36 | 55 | 96 | 107 | 14 | 0 | 720x1280 clip stills |
+| 8 | 79 | 18 | 7* | 27 | 35 | 10 | 2 | 27 | 43 | 1 | 0 | 720x1280 clip stills, outdoors |
 
-469 frames, 27 of them with every face under the range floor. What is
+\* batch 8's seven cube-less frames are all mid-turn cubes, skipped, not
+negatives. 541 frames (batch 8 covers items 2 and 3 below: direct sun, hard
+shadows, a white-body sticker cube), 27 of them with every face under the range floor. What is
 covered well: the stickerless GAN cube in one person's hands, indoors under
 warm room light, bed/blanket/wood/tile/desk backgrounds, near and mid
 range, a solved and a glossy white-body cube (batch 6), the desk-with-
