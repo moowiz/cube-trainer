@@ -5,6 +5,7 @@ torch
 torchvision
 numpy
 pillow
+imageio-ffmpeg  # train/extract_frames.py only - bundled ffmpeg for pulling frames out of phone videos
 onnx
 onnxruntime
 matplotlib   # train/viz_nms.py only - the training/export path never imports it
