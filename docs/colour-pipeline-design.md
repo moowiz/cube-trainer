@@ -49,6 +49,22 @@ edges leave a legal swap), and the search reports the rest as ambiguous.
 The capture itself now refuses honestly: the red and orange centre
 readings are within 1.4 of swapping under that light.
 
+**Fourth capture (fast scan, scramble applied, 19 s):** locked correctly
+but late. Findings: sampling cost 48 ms per detection frame on the main
+thread (now a sampling worker, frames transferred, two in flight);
+detection cadence fixed at every 2nd frame (now 'auto': whenever inference
+and the sampler are free); the solver re-runs at 1.5x its own duration;
+`changed` and per-slot margins were blocking correct answers the delta
+certificate had already vouched for (now UI hints only); the completion
+verdict was ordered ahead of a found legal cube; young tracks were
+penalised 0.3/0.6 (now 0.5/0.8); the palette is seeded from the six
+lettered faces' centres. The decoder checks pieces on colour ids, expands
+only swaps touching broken pieces, and has a wall-clock cap. Replayed, the
+capture locks at 14.8 s (the moment its last stickers were seen) with no
+wrong lock at any prefix. Clip replays of the 9/12 monitor-light videos
+run through the page headlessly and refuse - that lighting remains the
+open hard case.
+
 Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.
