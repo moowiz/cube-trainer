@@ -42,7 +42,22 @@ page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 await page.goto(`http://127.0.0.1:${port}/detect.html`);
 for (const ep of ['webgpu', 'wasm']) {
   try {
-    const result = await page.evaluate((e) => window.__detectSelfTest(30, e), ep);
+    const img = process.env.CHECK_FRAME || '';
+    if (img) {
+      const probe = await page.evaluate(async (u) => {
+        const out = {};
+        for (const target of ['detect.html', u, location.origin + u]) {
+          try {
+            const r = await fetch(target);
+            out[target] = `${r.status} ${r.headers.get('content-type')} ${(await r.blob()).size}b`;
+          } catch (e) { out[target] = 'THREW ' + e.message; }
+        }
+        out.origin = location.origin;
+        return out;
+      }, img);
+      console.log(`    frame probe ${img}: ${JSON.stringify(probe)}`);
+    }
+    const result = await page.evaluate((e, u) => window.__detectSelfTest(30, e, u || undefined), ep, img);
     if (!result?.ok) {
       console.error(`self-test (${ep}) failed:`, JSON.stringify(result));
       process.exitCode = 1;
@@ -53,6 +68,10 @@ for (const ep of ['webgpu', 'wasm']) {
       // would read as a failure when the model is in fact fine.
       const found = result.anonymous ? `quads=${result.quads} named=${result.faces}` : `faces=${result.faces}`;
       console.log(`OK  ep=${result.ep}  avg ${result.avgMs.toFixed(1)} ms/inference  (${result.fps.toFixed(1)}/s desktop-headless)  ${found}  [${result.model}${result.anonymous ? ', anonymous' : ''}]`);
+      if (process.env.CHECK_FRAME) {
+        console.log(`    scores ${JSON.stringify(result.scores)}  names ${JSON.stringify(result.names)}`);
+        console.log(`    first quad corners ${JSON.stringify(result.corner0)}`);
+      }
     }
   } catch (e) {
     console.error(`self-test (${ep}) threw:`, e.message);
