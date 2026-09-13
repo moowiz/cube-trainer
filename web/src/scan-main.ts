@@ -320,7 +320,7 @@ async function loop(ts: number): Promise<void> {
             && Math.max(t.box.box[2] - t.box.box[0], t.box.box[3] - t.box.box[1]) < minFaceEdgePx(v.videoHeight);
           tickHistory.push(summarizeTick(Date.now(), t.obj, t.result));
           if (tickHistory.length > TICK_HISTORY) tickHistory.shift();
-          if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars);
+          if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars, clusters);
         } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
       })();

@@ -104,7 +104,11 @@ export class ColorClusters {
 
   /** Nearest cluster of a reading without recording it (for a face that may not vote). */
   nearest(cells: readonly Lab[]): { id: number; d: number; second: number } | null {
-    const c = ColorClusters.centreOf(cells);
+    return this.nearestLab(ColorClusters.centreOf(cells));
+  }
+
+  /** Nearest cluster of one clustering-space Lab (a single sticker, for the debug readout). */
+  nearestLab(c: Lab): { id: number; d: number; second: number } | null {
     let id = -1;
     let d = Infinity;
     let second = Infinity;
