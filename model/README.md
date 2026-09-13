@@ -147,12 +147,14 @@ val, pad 0.45; log `real_px` is the fine-tune's own selection metric):
 | kp1 → kpft2 | same, ft with `data_real*60` | 3.69 | - | - | - | - | - |
 | kp2 → **kpft3** | scratch on `data_v5,data_real*20`, then `*150` ft | **3.33** | **3.33 / 3.04** | 0.961 | 4 / 10 | **3.45, 0** | 10.2 / 14.1 / 16.2 |
 | kp3 → kpft4 | scratch on `data_v5,data_real*40`, then `*150` ft | 3.39 | - | - | - | - | - |
+| kp2 → kpft5 | as kpft3 but 30 fine-tune epochs | 3.33 | - | - | - | - | - |
 
 Real photos in the from-scratch mix help: kp2 alone (no fine-tune) already
 reached 3.52 on the val, kp1 needed its fine-tune for 3.55, and kp2's
 synthetic val_px is better too (2.69 vs 2.77). Doubling that weight (kp3,
 `*40`) changes nothing (3.51 / 2.77, ft 3.39). The lighter fine-tune mix
-(`*60`) is worse than `*150`. kpft3 trades four more false positives at
+(`*60`) is worse than `*150`, and 30 fine-tune epochs (kpft5) end exactly
+where 15 do. kpft3 trades four more false positives at
 score 0.5 (the tracker and seam veto absorb those) for 6% lower corner
 error and a clean batch 7.
 
@@ -517,6 +519,7 @@ scanning range above) dominate the raw mean; report the in-range number too.
 | box9 | dense | **120x160 portrait**, data_v5 + data_real (157) | PORTRAIT-DESIGN.md; frame cache pooled 2x; `_bars` p 0.15 | 0.890 | 0.845 (42 photos) | 33.0%† | 29.9%† | 0.08† |
 | box10 | dense | same + batch 7 (`data_real` 373) | `_side_bars` p 0.10 | 0.885 | 0.837 (96 frames) | 13.2%† | 12.6%† | 0.15† |
 | **box11** | dense | same, `data_real*80` | real photos at double weight; **deployed 2026-09-13** | 0.883 | 0.853 (96 frames) | 7.7%† | 7%† | 0.37† |
+| box12 | dense | same, `data_real*160` | past the sweet spot: synthetic val_iou drops too | 0.870 | 0.839 (96 frames) | - | - | - |
 
 † measured with `bbox_measure.py` on the 96-frame val (91 with a cube); the
 earlier rows are on the 37-photo set. Full before/after tables: "Always
