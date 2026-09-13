@@ -96,6 +96,31 @@ export class Camera {
     return { width: this.video.videoWidth, height: this.video.videoHeight };
   }
 
+  /**
+   * Play a recorded clip through the same <video> instead of the camera:
+   * the whole pipeline runs on it exactly as on live frames, which turns a
+   * phone recording into an end-to-end test that needs no hands. Resolves
+   * once metadata is loaded and playback has started; `onEnded` fires when
+   * the clip runs out (no loop - a wrap would teleport the tracker).
+   */
+  async startClip(url: string, onEnded?: () => void): Promise<CameraInfo> {
+    if (this._running) this.stop();
+    this.video.srcObject = null;
+    this.video.loop = false;
+    this.video.src = url;
+    await new Promise<void>((resolve, reject) => {
+      const onLoaded = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error(`clip failed to load: ${url}`)); };
+      const cleanup = () => { this.video.removeEventListener('loadedmetadata', onLoaded); this.video.removeEventListener('error', onError); };
+      this.video.addEventListener('loadedmetadata', onLoaded);
+      this.video.addEventListener('error', onError);
+    });
+    if (onEnded) this.video.addEventListener('ended', onEnded, { once: true });
+    await this.video.play();
+    this._running = true;
+    return { width: this.video.videoWidth, height: this.video.videoHeight };
+  }
+
   /** Stop all tracks and detach the stream. Safe to call twice. */
   stop(): void {
     this._running = false;
@@ -104,6 +129,7 @@ export class Camera {
       this.stream = null;
     }
     this.video.srcObject = null;
+    if (this.video.src) { this.video.removeAttribute('src'); this.video.load(); }
   }
 
   /** Latest frame as ImageData at capture resolution, or null before the first frame. */
