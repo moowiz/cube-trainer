@@ -99,21 +99,41 @@ export function trackFrames(log: EvidenceLog): Map<number, number[]> {
   return out;
 }
 
-/** "a,b" (a < b) for every pair of tracks that appeared in the same frame. */
+function quadCentroid(c: readonly (readonly [number, number])[]): [number, number] {
+  return [c.reduce((s, p) => s + p[0], 0) / 4, c.reduce((s, p) => s + p[1], 0) / 4];
+}
+
+function quadSize(c: readonly (readonly [number, number])[]): number {
+  let s = 0;
+  for (let i = 0; i < 4; i++) s += c[i]![0] * c[(i + 1) % 4]![1] - c[(i + 1) % 4]![0] * c[i]![1];
+  return Math.sqrt(Math.abs(s / 2));
+}
+
+/**
+ * "a,b" (a < b) for every pair of tracks that appeared in the same frame
+ * as two DIFFERENT quads. Two quads whose centroids sit within half a face
+ * of each other are the same face twice - a coasted stale track beside its
+ * replacement, or a doubled detection - and say nothing about identity;
+ * counting them as co-visible split one orange face into two groups for a
+ * whole session (scan-debug-1789321540510).
+ */
 export function coVisible(log: EvidenceLog): Set<string> {
-  const byFrame = new Map<number, number[]>();
+  const byFrame = new Map<number, QuadObs[]>();
   for (const q of log.quads) {
     let t = byFrame.get(q.frame);
     if (!t) byFrame.set(q.frame, (t = []));
-    if (!t.includes(q.track)) t.push(q.track);
+    if (!t.some((x) => x.track === q.track)) t.push(q);
   }
   const out = new Set<string>();
-  for (const tracks of byFrame.values()) {
-    for (let i = 0; i < tracks.length; i++) {
-      for (let j = i + 1; j < tracks.length; j++) {
-        const a = Math.min(tracks[i]!, tracks[j]!);
-        const b = Math.max(tracks[i]!, tracks[j]!);
-        out.add(`${a},${b}`);
+  for (const quads of byFrame.values()) {
+    for (let i = 0; i < quads.length; i++) {
+      for (let j = i + 1; j < quads.length; j++) {
+        const A = quads[i]!;
+        const B = quads[j]!;
+        const [ax, ay] = quadCentroid(A.corners);
+        const [bx, by] = quadCentroid(B.corners);
+        if (Math.hypot(ax - bx, ay - by) < 0.5 * Math.min(quadSize(A.corners), quadSize(B.corners))) continue;
+        out.add(pairKey(A.track, B.track));
       }
     }
   }

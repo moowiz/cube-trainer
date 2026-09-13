@@ -16,6 +16,22 @@ logchroma and lab-crushed 6/7 exact with the blue-monitor scan correctly
 refused, lab-rel 4/7 - logchroma ships. Multi-frame behaviour is covered
 by `test/colour-synthetic.test.ts` until phone captures exist.
 
+**First phone session (2026-09-13, two captures in `web/test/fixtures/evidence/`):**
+one lock, one stall. The stall was not colour: the page sampled coasting
+tracks, so a stale quad beside its replacement counted as two co-visible
+faces and the orange face was split into L and D for the whole session,
+leaving the yellow face without a letter. Fixes: only freshly-detected
+tracks are logged; overlapping quads are not co-visibility; the six faces
+are chosen by a full assignment (evidence-weighted "unassigned" column);
+each track's rotation is reconciled between its own pairings and its
+face-mates' colour pattern (anchored on the strongest track, absolute
+offset by geometric majority); the legality search waits for every slot to
+have evidence and the reason names the face to show. The lock's trajectory
+was never wrong at any prefix; its latency was face coverage, not the
+solver. Embedding: lab-crushed classified all 54 free on both captures
+where logchroma needed the decoder to move four orange stickers, so
+lab-crushed is the default now.
+
 Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.

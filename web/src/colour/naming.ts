@@ -63,36 +63,29 @@ export function letterOfName(name: ColorName): FaceId {
   return FACE_ORDER.find((f) => DEFAULT_SCHEME_NAMES[f] === name)!;
 }
 
-interface GroupPairing {
+interface TrackPairing {
+  /** tracks and their RAW edges, with the groups they belong to */
+  a: number;
+  b: number;
   ga: number;
   gb: number;
-  /** edges in each group's REFERENCE cell order */
   ea: number;
   eb: number;
   count: number;
 }
 
-/**
- * Pairings between tracks lifted to their groups and reference orders. A
- * raw edge i of track T is reference edge (i + k_T) mod 4, k_T being the
- * track's cell rotation into the group (orientQuad and rotateCells turn
- * opposite ways; see scan-main's sampling note).
- */
-export function groupPairings(groups: readonly FaceGroup[], pairings: readonly Pairing[]): GroupPairing[] {
+/** Pairings between tracks of two different groups, aggregated by (track, edge) pair. */
+export function trackPairings(groups: readonly FaceGroup[], pairings: readonly Pairing[]): TrackPairing[] {
   const groupOf = new Map<number, number>();
   for (const g of groups) for (const t of g.tracks) groupOf.set(t, g.id);
-  const acc = new Map<string, GroupPairing>();
+  const acc = new Map<string, TrackPairing>();
   for (const p of pairings) {
     const ga = groupOf.get(p.a);
     const gb = groupOf.get(p.b);
     if (ga === undefined || gb === undefined || ga === gb) continue;
-    const ka = groups[ga]!.rotation.get(p.a)!;
-    const kb = groups[gb]!.rotation.get(p.b)!;
-    const ea = (p.edgeA + ka) % 4;
-    const eb = (p.edgeB + kb) % 4;
-    const key = ga < gb ? `${ga},${gb},${ea},${eb}` : `${gb},${ga},${eb},${ea}`;
+    const key = `${p.a},${p.b},${p.edgeA},${p.edgeB}`;
     let e = acc.get(key);
-    if (!e) acc.set(key, (e = ga < gb ? { ga, gb, ea, eb, count: 0 } : { ga: gb, gb: ga, ea: eb, eb: ea, count: 0 }));
+    if (!e) acc.set(key, (e = { a: p.a, b: p.b, ga, gb, ea: p.edgeA, eb: p.edgeB, count: 0 }));
     e.count++;
   }
   return [...acc.values()];
@@ -108,11 +101,16 @@ export interface LetterResult {
 
 /**
  * Assign letters and absolute rotations to at most six groups. Candidates
- * are the groups with the most evidence whose centre colour is not already
- * taken. Every injective map is scored: one point per pairing frame that
- * puts non-adjacent letters on the pair or contradicts the majority
- * rotation, plus PRIOR_WEIGHT per group whose colour name disagrees with
- * the default scheme for its letter. Mutates the groups.
+ * are the groups with the most evidence; their centre colours are made
+ * distinct by assignment. Every injective map is scored: one point per
+ * pairing frame that puts non-adjacent letters on the pair or contradicts
+ * the TRACK's own majority rotation, plus PRIOR_WEIGHT per group whose
+ * colour name disagrees with the default scheme for its letter. Rotation
+ * is decided per track from its own pairings (raw edge i on layout edge ia
+ * means layout = rotateCells(raw, ia - i)); the group's rotation is the
+ * majority of what its paired tracks imply through their merge offsets,
+ * and a minority there is a wrong merge, not a wrong letter. Mutates the
+ * groups.
  */
 export function assignLetters(
   groups: FaceGroup[],
@@ -125,26 +123,36 @@ export function assignLetters(
   // scheme follows its edges, and the prior only decides what geometry left
   // open.
   const PRIOR_WEIGHT = 0.1;
-  for (const g of groups) { g.letter = null; g.absRotation = null; g.rotationVotes = [0, 0, 0, 0]; }
-  // Candidates: the six groups with the most evidence that have a centre.
-  // Their centre colours are DISTINCT by construction - a 6x6 assignment on
-  // -log membership, the same rule the decoder applies to the six centre
-  // slots - so a pale yellow next to a white never costs a face its letter.
-  const withCentre = groups.map((g) => ({ g, m: centreMembership(g) })).filter((x) => x.m !== null).slice(0, 6);
-  const cands = withCentre.map((x) => x.g);
-  const cost = withCentre.map((x) => x.m!.map((p) => -Math.log(Math.max(p, 1e-9))));
+  for (const g of groups) { g.letter = null; g.absRotation = null; g.trackAbs = new Map(); g.trackVotes = new Map(); g.rotationVotes = [0, 0, 0, 0]; }
+  // Which groups are the six faces: an assignment of ALL groups with a
+  // centre to the six colours plus "unassigned" columns, each colour taken
+  // exactly once. A group pays -log(membership) for a colour and
+  // log(1 + evidence) to stay unassigned, so a second orange-centred group
+  // yields to the bigger one instead of stealing a colour from the yellow
+  // face (scan-debug-1789321540510: six candidates were cut by evidence
+  // BEFORE the distinctness rule, and the sixth colour had no face).
+  const withCentre = groups.map((g) => ({ g, m: centreMembership(g) })).filter((x) => x.m !== null);
   const colourOf = new Map<number, number>();
-  if (cands.length) {
-    // pad to square: absent groups cost nothing anywhere
-    const n = 6;
-    const sq = Array.from({ length: n }, (_, i) => (i < cost.length ? cost[i]! : new Array<number>(n).fill(0)));
+  if (withCentre.length) {
+    const n = Math.max(withCentre.length, 6);
+    const sq: number[][] = [];
+    for (let i = 0; i < n; i++) {
+      const row = new Array<number>(n).fill(0);
+      if (i < withCentre.length) {
+        const { g, m } = withCentre[i]!;
+        for (let c = 0; c < 6; c++) row[c] = -Math.log(Math.max(m![c]!, 1e-9));
+        for (let c = 6; c < n; c++) row[c] = Math.log(1 + g.nEff);
+      }
+      sq.push(row);
+    }
     const rowToCol = solveAssignment(sq);
-    cands.forEach((g, i) => colourOf.set(g.id, rowToCol[i]!));
+    withCentre.forEach(({ g }, i) => { const c = rowToCol[i]!; if (c < 6) colourOf.set(g.id, c); });
   }
+  const cands = groups.filter((g) => colourOf.has(g.id));
   const centreColour = (g: FaceGroup): number | null => colourOf.get(g.id) ?? null;
-  const gp = groupPairings(groups, pairings);
+  const tp = trackPairings(groups, pairings);
 
-  interface Best { cost: number; letters: FaceId[]; rot: (number | null)[]; votes: number[][]; penalty: number; mismatches: number }
+  interface Best { cost: number; letters: FaceId[]; votes: Map<number, number[]>; penalty: number; mismatches: number }
   const found: { best: Best | null } = { best: null };
   let maps = 0;
   const letters: FaceId[] = [];
@@ -153,26 +161,21 @@ export function assignLetters(
     maps++;
     const letterOf = new Map<number, FaceId>();
     cands.forEach((g, i) => letterOf.set(g.id, letters[i]!));
-    const votes = cands.map(() => [0, 0, 0, 0]);
+    const votes = new Map<number, number[]>();
     let penalty = 0;
-    for (const e of gp) {
+    for (const e of tp) {
       const la = letterOf.get(e.ga);
       const lb = letterOf.get(e.gb);
       if (!la || !lb) continue;
       const se = sharedEdge(la, lb);
       if (!se) { penalty += e.count; continue; }
-      const ia = cands.findIndex((g) => g.id === e.ga);
-      const ib = cands.findIndex((g) => g.id === e.gb);
-      votes[ia]![((se.ia - e.ea) % 4 + 4) % 4] += e.count;
-      votes[ib]![((se.jb - e.eb) % 4 + 4) % 4] += e.count;
+      for (const [t, k] of [[e.a, ((se.ia - e.ea) % 4 + 4) % 4], [e.b, ((se.jb - e.eb) % 4 + 4) % 4]] as [number, number][]) {
+        let v = votes.get(t);
+        if (!v) votes.set(t, (v = [0, 0, 0, 0]));
+        v[k]! += e.count;
+      }
     }
-    const rot = votes.map((v) => {
-      const total = v.reduce((s, x) => s + x, 0);
-      if (!total) return null;
-      const top = Math.max(...v);
-      penalty += total - top;
-      return v.indexOf(top);
-    });
+    for (const v of votes.values()) penalty += v.reduce((s, x) => s + x, 0) - Math.max(...v);
     let mismatches = 0;
     cands.forEach((g, i) => {
       const c = centreColour(g);
@@ -180,7 +183,7 @@ export function assignLetters(
       if (name && DEFAULT_SCHEME_NAMES[letters[i]!] !== name) mismatches++;
     });
     const cost = penalty + PRIOR_WEIGHT * mismatches;
-    if (!found.best || cost < found.best.cost) found.best = { cost, letters: letters.slice(), rot, votes, penalty, mismatches };
+    if (!found.best || cost < found.best.cost) found.best = { cost, letters: letters.slice(), votes, penalty, mismatches };
   };
   const rec = (i: number): void => {
     if (i === cands.length) { score(); return; }
@@ -197,8 +200,20 @@ export function assignLetters(
   if (!b) return { penalty: 0, mismatches: 0, maps };
   cands.forEach((g, i) => {
     g.letter = b.letters[i]!;
-    g.absRotation = b.rot[i]!;
-    g.rotationVotes = b.votes[i] as [number, number, number, number];
+    const groupVotes: [number, number, number, number] = [0, 0, 0, 0];
+    for (const t of g.tracks) {
+      const v = b.votes.get(t);
+      if (!v) continue;
+      const top = Math.max(...v);
+      const kAbs = v.indexOf(top);
+      g.trackAbs.set(t, kAbs);
+      g.trackVotes.set(t, v as [number, number, number, number]);
+      // layout = rotate(raw, kAbs) = rotate(rotate(raw, k_T), K)  =>  K = kAbs - k_T
+      groupVotes[((kAbs - g.rotation.get(t)!) % 4 + 4) % 4] += top;
+    }
+    g.rotationVotes = groupVotes;
+    const top = Math.max(...groupVotes);
+    g.absRotation = top > 0 ? groupVotes.indexOf(top) : null;
   });
   return { penalty: b.penalty, mismatches: b.mismatches, maps };
 }

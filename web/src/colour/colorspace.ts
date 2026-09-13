@@ -100,8 +100,10 @@ export const EMBEDDINGS: Record<EmbeddingName, Embedding> = {
 // DECISION 2026-09-13: the bake-off on the seven single-frame truths
 // (test/colour-replay.test.ts) has logchroma and lab-crushed level at 6/7
 // exact (the seventh, the blue-monitor scan, is correctly refused by both)
-// and lab-rel behind at 4/7 - full-weight lightness hurts. logchroma is the
-// design's hypothesis and the only space in which the per-frame gain of
-// illum.ts is a translation, so it ships; the table is printed on every run
-// and multi-frame phone logs will decide for good.
-export const DEFAULT_EMBEDDING: Embedding = LOGCHROMA;
+// and lab-rel behind at 4/7 - full-weight lightness hurts. On the first two
+// PHONE captures lab-crushed classified all 54 free on both (changed 0,
+// delta 60) where logchroma needed the decoder to move four orange
+// stickers off red (delta 13): the soft log compresses the dark channels
+// that separate a shaded red from orange. Two real captures beat one
+// theory; lab-crushed ships, the table is printed on every run.
+export const DEFAULT_EMBEDDING: Embedding = LAB_CRUSHED;
