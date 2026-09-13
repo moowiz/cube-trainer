@@ -74,3 +74,24 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   pieces). `-154714` is a mix of two scrambles (re-scrambled mid-session);
   `-320194` / `-416187` locked on faces with 6 inliers or fit 11.6 - the lock
   gate (MIN_INLIERS 10, MAX_FIT 10) now refuses that.
+
+## Evidence logs (the colour solver's fixtures, 2026-09-13 onwards)
+
+`Capture debug` on scan.html now writes the whole **evidence log** of the
+session (`evidenceLog`: every quad's nine readings with their quality
+weights, every letter-free shared-edge pairing, track births/deaths) plus
+the solver's last `solution` and `params`. The solver
+(`web/src/colour/solve.ts`) is a pure function of that log, so the capture
+reproduces the phone exactly. To turn a capture into a regression test:
+
+1. Put the JSON in `fixtures/evidence/` (any name).
+2. Add a top-level `"truth": "<54 facelets>"` when the state is known (a
+   scramble applied from solved + cubejs, or a confirmed lock), and
+   optionally `"note"`.
+3. `colour-replay.test.ts` runs every file there, prints the bake-off table
+   for all embeddings, asserts the default embedding never answers wrong,
+   and matches `truth` when present.
+
+The older `scan-debug-*.json` / `session-0913/` captures predate the log
+and hold only per-face consensus cells; the replay test feeds those to the
+solver as six single-frame tracks (the dead-on-only path).

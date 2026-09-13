@@ -61,7 +61,7 @@ function dist(a: Corner, b: Corner): number {
 /** For adjacent faces a,b: their shared cube edge as (indexInA, indexInB)
  *  where LAYOUT[a] traverses the edge at (ia, ia+1) and LAYOUT[b] traverses
  *  it reversed at (jb, jb+1). Returns null for non-adjacent (opposite). */
-function sharedEdge(a: FaceId, b: FaceId): { ia: number; jb: number } | null {
+export function sharedEdge(a: FaceId, b: FaceId): { ia: number; jb: number } | null {
   const la = LAYOUT[a], lb = LAYOUT[b];
   for (let ia = 0; ia < 4; ia++) {
     const p = la[ia], q = la[(ia + 1) % 4];
@@ -70,6 +70,30 @@ function sharedEdge(a: FaceId, b: FaceId): { ia: number; jb: number } | null {
     }
   }
   return null;
+}
+
+/**
+ * Letter-free image-space edge match between two quads: A's edge (i, i+1)
+ * coincides with B's edge (j, j+1) traversed the other way. This is the
+ * geometric fact a Pairing records; which CUBE edge it is only follows once
+ * the faces have letters (naming.ts). Null when no edge pair is within
+ * tolerance.
+ */
+export function matchSharedEdge(
+  a: ReadonlyArray<Corner>,
+  b: ReadonlyArray<Corner>,
+  tolFrac = 0.22,
+): { i: number; j: number; cost: number; tol: number } | null {
+  const tol = tolFrac * ((faceSize(a) + faceSize(b)) / 2);
+  let best: { i: number; j: number; cost: number } | null = null;
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      const cost = dist(a[i]!, b[(j + 1) % 4]!) + dist(a[(i + 1) % 4]!, b[j]!);
+      if (!best || cost < best.cost) best = { i, j, cost };
+    }
+  }
+  if (!best || best.cost > 2 * tol) return null;
+  return { ...best, tol: 2 * tol };
 }
 
 /**

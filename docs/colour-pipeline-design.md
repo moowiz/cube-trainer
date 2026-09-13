@@ -1,6 +1,22 @@
 # Colour pipeline redesign (2026-09-13)
 
-Design only. Written against `docs/colour-pipeline-postmortem.md` (the
+**Status (2026-09-13, same day): implemented** in `web/src/colour/` - phases 1
+and 2 together, since the decoder and the evidence log turned out to be
+cheap to build side by side. What differs from the text below: the solver
+runs in a Web Worker (`solve.worker.ts` / `client.ts`) because a failing
+legality search takes ~1 s; the ordinal naming ranks the five chromatic
+colours by HUE (blue, red, orange, yellow, green) rather than by a/b -
+"largest a" mis-named red on the kitchen-evening scan; centre colours of
+the candidate groups are made distinct by a 6x6 assignment on membership
+rather than by dropping collisions; the palette is seeded from the centre
+cells only; the track-birth/death events are logged but the re-acquisition
+prior is not used yet; commit-once applies to the lock only (groups are
+recomputed every solve). Bake-off on the seven single-frame truths:
+logchroma and lab-crushed 6/7 exact with the blue-monitor scan correctly
+refused, lab-rel 4/7 - logchroma ships. Multi-frame behaviour is covered
+by `test/colour-synthetic.test.ts` until phone captures exist.
+
+Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.
 

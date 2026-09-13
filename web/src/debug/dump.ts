@@ -13,9 +13,7 @@
 // own labDistance against the app's own live exemplars so it cannot drift
 // from what the centre decision would say.
 import type { DetectResult, FaceDetector } from '../detect/facekp';
-import type { ColorClusters } from '../detect/colorid';
 import type { CenterExemplars } from '../detect/identify';
-import { normalizeFaceCells } from '../state';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { FaceId, Lab } from '../types';
 
@@ -120,19 +118,14 @@ export async function captureDebug(res: DetectResult | null, detector: FaceDetec
 
 /**
  * Per-sticker readout: one 3x3 swatch grid per quad, each cell with the
- * colour it would be classified as and the distance. With `clusters` given
- * (the scan page) that is the nearest session cluster in the clustering
- * space - the same decision the voter makes; otherwise the old exemplar
- * namer's view.
+ * colour the detector's exemplar namer would give it and the distance (the
+ * low-res debug view; the solver's own view is the six lock grids).
  */
-export function renderCellReadout(host: HTMLElement, res: DetectResult | null, exemplars: CenterExemplars,
-                                  clusters?: ColorClusters): void {
+export function renderCellReadout(host: HTMLElement, res: DetectResult | null, exemplars: CenterExemplars): void {
   host.textContent = '';
   if (!res?.named) return;
   res.named.forEach((n, i) => {
     if (!n.cellsNorm || !n.cellRgb || !n.cells) return;
-    const clusterSpace = clusters ? normalizeFaceCells(n.cells) : null;
-    const named = clusters ? new Map(clusters.clusters().map((c) => [c.id, c.color])) : null;
     const box = document.createElement('div');
     box.className = 'face';
     const hd = document.createElement('div');
@@ -143,17 +136,9 @@ export function renderCellReadout(host: HTMLElement, res: DetectResult | null, e
     const g = document.createElement('div');
     g.className = 'g';
     n.cellsNorm.forEach((lab, k) => {
-      let label: string;
-      let d: number;
-      if (clusters && clusterSpace) {
-        const near = clusters.nearestLab(clusterSpace[k]!);
-        label = near ? (named!.get(near.id) ?? `c${near.id}?`).slice(0, 3) : '—';
-        d = near?.d ?? 0;
-      } else {
-        const p = cellPick(lab, exemplars);
-        label = DEFAULT_SCHEME_NAMES[p.face].slice(0, 3);
-        d = p.d;
-      }
+      const p = cellPick(lab, exemplars);
+      const label = DEFAULT_SCHEME_NAMES[p.face].slice(0, 3);
+      const d = p.d;
       const rgb = n.cellRgb![k]!;
       const c = document.createElement('div');
       c.className = 'c' + (k === 4 ? ' mid' : '');

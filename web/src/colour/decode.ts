@@ -1,0 +1,391 @@
+// Exact constrained decoder for the colour pipeline: turns a 54x6 cost
+// matrix (per-slot -log softmax of colour evidence) into the cheapest
+// LEGAL cube, plus a confidence certificate (delta to the runner-up,
+// per-slot margins). Written from the spec in the redesign docs; it is a
+// port in spirit of the MIT rubiks-vision project's exactDecode, not a
+// transcription (no access to that source).
+//
+// Everything here is colour-name-agnostic: colours are ids 0..5, and the
+// only thing that ties an id to a face letter is which centre slot carries
+// it (coloursToFacelets, used only to call the `legal` oracle).
+
+import type { DecodeResult } from './types';
+import { FACE_ORDER } from '../types';
+import type { FaceId } from '../types';
+import { solveAssignment } from '../color';
+
+export interface DecodeOptions {
+  /** Best-first pops before giving up on legality. */
+  maxPops?: number;
+  /** Extra pops after the best legal state, looking for the runner-up. */
+  secondPops?: number;
+  /** Cheapest 2-swaps expanded per popped node. */
+  swapsPerNode?: number;
+}
+
+const N_SLOTS = 54;
+const N_COLOURS = 6;
+const CENTER_SLOTS: readonly number[] = [4, 13, 22, 31, 40, 49];
+
+const IS_CENTRE: readonly boolean[] = (() => {
+  const a = new Array<boolean>(N_SLOTS).fill(false);
+  for (const s of CENTER_SLOTS) a[s] = true;
+  return a;
+})();
+
+/**
+ * letter of each slot: colour c gets the letter of the face whose centre
+ * slot carries c. Precondition: the six centre colours are distinct.
+ */
+export function coloursToFacelets(colours: readonly number[]): string {
+  const colourLetter = new Array<FaceId | undefined>(N_COLOURS);
+  for (let k = 0; k < CENTER_SLOTS.length; k++) {
+    const c = colours[CENTER_SLOTS[k]!]!;
+    if (colourLetter[c] !== undefined) {
+      throw new Error('coloursToFacelets: centre colours are not distinct');
+    }
+    colourLetter[c] = FACE_ORDER[k]!;
+  }
+  let out = '';
+  for (let s = 0; s < colours.length; s++) out += colourLetter[colours[s]!]!;
+  return out;
+}
+
+// ---------- step 1: free per-row argmin ----------
+
+function computeArgmin(cost: readonly (readonly number[])[]): number[] {
+  const argmin = new Array<number>(N_SLOTS);
+  for (let s = 0; s < N_SLOTS; s++) {
+    let best = 0;
+    let bestVal = cost[s]![0]!;
+    for (let c = 1; c < N_COLOURS; c++) {
+      const v = cost[s]![c]!;
+      if (v < bestVal) {
+        bestVal = v;
+        best = c;
+      }
+    }
+    argmin[s] = best;
+  }
+  return argmin;
+}
+
+// ---------- step 2: centres, exactly distinct, brute force over 6! ----------
+
+function bruteForceCentres(cost: readonly (readonly number[])[]): { colours: number[]; cost: number } {
+  const perm = [0, 1, 2, 3, 4, 5];
+  let bestPerm: number[] | null = null;
+  let bestCost = Infinity;
+
+  // Standard swap-based permutation generator (Heap's algorithm variant):
+  // all 720 orderings of "colour assigned to CENTER_SLOTS[i]".
+  const permute = (k: number): void => {
+    if (k === perm.length) {
+      let total = 0;
+      for (let i = 0; i < CENTER_SLOTS.length; i++) total += cost[CENTER_SLOTS[i]!]![perm[i]!]!;
+      if (total < bestCost) {
+        bestCost = total;
+        bestPerm = perm.slice();
+      }
+      return;
+    }
+    for (let i = k; i < perm.length; i++) {
+      [perm[k], perm[i]] = [perm[i]!, perm[k]!];
+      permute(k + 1);
+      [perm[k], perm[i]] = [perm[i]!, perm[k]!];
+    }
+  };
+  permute(0);
+  return { colours: bestPerm!, cost: bestCost };
+}
+
+// ---------- step 3: the other 48 slots, exactly 8 of each colour ----------
+
+function assignRemaining48(
+  cost: readonly (readonly number[])[],
+  nonCentreSlots: readonly number[],
+): { colours: number[]; cost: number } {
+  const n = nonCentreSlots.length; // 48
+  const cost48: number[][] = new Array(n);
+  for (let r = 0; r < n; r++) {
+    const slot = nonCentreSlots[r]!;
+    const row = new Array<number>(n);
+    for (let c = 0; c < N_COLOURS; c++) {
+      const v = cost[slot]![c]!;
+      const base = c * 8;
+      for (let k = 0; k < 8; k++) row[base + k] = v;
+    }
+    cost48[r] = row;
+  }
+  const rowToCol = solveAssignment(cost48);
+  const colours = new Array<number>(n);
+  let total = 0;
+  for (let r = 0; r < n; r++) {
+    const colour = Math.floor(rowToCol[r]! / 8);
+    colours[r] = colour;
+    total += cost[nonCentreSlots[r]!]![colour]!;
+  }
+  return { colours, cost: total };
+}
+
+function buildBalanced(cost: readonly (readonly number[])[]): { colours: number[]; cost: number } {
+  const centre = bruteForceCentres(cost);
+  const nonCentreSlots: number[] = [];
+  for (let s = 0; s < N_SLOTS; s++) if (!IS_CENTRE[s]) nonCentreSlots.push(s);
+  const rest = assignRemaining48(cost, nonCentreSlots);
+
+  const colours = new Array<number>(N_SLOTS).fill(-1);
+  for (let i = 0; i < CENTER_SLOTS.length; i++) colours[CENTER_SLOTS[i]!] = centre.colours[i]!;
+  for (let i = 0; i < nonCentreSlots.length; i++) colours[nonCentreSlots[i]!] = rest.colours[i]!;
+  return { colours, cost: centre.cost + rest.cost };
+}
+
+// ---------- 2-swap search over the balanced optimum ----------
+
+/**
+ * A swap between i and j is only allowed if the six centres stay distinct
+ * afterwards: centre<->centre is always fine (it's a permutation of the
+ * same six colours); centre<->non-centre is fine only if the non-centre's
+ * colour isn't already sitting on a *different* centre.
+ */
+function isAllowedSwap(colours: readonly number[], i: number, j: number): boolean {
+  if (colours[i] === colours[j]) return false;
+  const ci = IS_CENTRE[i]!;
+  const cj = IS_CENTRE[j]!;
+  if (ci === cj) return true; // both centres, or neither: unconstrained
+  const centreSlot = ci ? i : j;
+  const incomingColour = ci ? colours[j]! : colours[i]!;
+  for (const c of CENTER_SLOTS) {
+    if (c !== centreSlot && colours[c] === incomingColour) return false;
+  }
+  return true;
+}
+
+function swapDelta(cost: readonly (readonly number[])[], colours: readonly number[], i: number, j: number): number {
+  return cost[i]![colours[j]!]! + cost[j]![colours[i]!]! - cost[i]![colours[i]!]! - cost[j]![colours[j]!]!;
+}
+
+// Scratch buffers reused across collectSwaps calls: 54 choose 2 = 1431
+// candidate pairs at most per node, no per-candidate object churn until
+// the final (capped at swapsPerNode) selection.
+const MAX_PAIRS = (N_SLOTS * (N_SLOTS - 1)) / 2;
+const candI = new Int32Array(MAX_PAIRS);
+const candJ = new Int32Array(MAX_PAIRS);
+const candDelta = new Float64Array(MAX_PAIRS);
+const candOrder = new Int32Array(MAX_PAIRS);
+
+interface Swap {
+  i: number;
+  j: number;
+  delta: number;
+}
+
+function collectSwaps(cost: readonly (readonly number[])[], colours: readonly number[], swapsPerNode: number): Swap[] {
+  let n = 0;
+  for (let i = 0; i < N_SLOTS; i++) {
+    const ci = colours[i]!;
+    const costIci = cost[i]![ci]!;
+    for (let j = i + 1; j < N_SLOTS; j++) {
+      const cj = colours[j]!;
+      if (cj === ci) continue;
+      if (!isAllowedSwap(colours, i, j)) continue;
+      candI[n] = i;
+      candJ[n] = j;
+      candDelta[n] = cost[i]![cj]! + cost[j]![ci]! - costIci - cost[j]![cj]!;
+      candOrder[n] = n;
+      n++;
+    }
+  }
+  const order = candOrder.subarray(0, n);
+  order.sort((a, b) => candDelta[a]! - candDelta[b]!);
+  const take = Math.min(swapsPerNode, n);
+  const out = new Array<Swap>(take);
+  for (let k = 0; k < take; k++) {
+    const idx = order[k]!;
+    out[k] = { i: candI[idx]!, j: candJ[idx]!, delta: candDelta[idx]! };
+  }
+  return out;
+}
+
+interface HeapNode {
+  cost: number;
+  colours: number[];
+}
+
+/** Real binary min-heap keyed on `cost` — the frontier can hold tens of thousands of entries. */
+class MinHeap {
+  private items: HeapNode[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(node: HeapNode): void {
+    const items = this.items;
+    items.push(node);
+    let i = items.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (items[parent]!.cost <= items[i]!.cost) break;
+      [items[parent], items[i]] = [items[i]!, items[parent]!];
+      i = parent;
+    }
+  }
+
+  pop(): HeapNode | undefined {
+    const items = this.items;
+    if (items.length === 0) return undefined;
+    const top = items[0]!;
+    const last = items.pop()!;
+    if (items.length > 0) {
+      items[0] = last;
+      let i = 0;
+      const n = items.length;
+      for (;;) {
+        const l = i * 2 + 1;
+        const r = l + 1;
+        let smallest = i;
+        if (l < n && items[l]!.cost < items[smallest]!.cost) smallest = l;
+        if (r < n && items[r]!.cost < items[smallest]!.cost) smallest = r;
+        if (smallest === i) break;
+        [items[i], items[smallest]] = [items[smallest]!, items[i]!];
+        i = smallest;
+      }
+    }
+    return top;
+  }
+}
+
+function keyOf(colours: readonly number[]): string {
+  // Colours are single digits 0..5, so plain concatenation is a safe, cheap key.
+  return colours.join('');
+}
+
+interface PopResult {
+  found: HeapNode | null;
+  pops: number;
+}
+
+/**
+ * Pop from `heap` (shared across phases, together with `seen`) up to `budget`
+ * times, expanding each freshly-seen node's 2-swap children, until a node
+ * that is both legal and satisfies `isTarget` is popped, or the budget runs
+ * out. Every heap.pop() call counts against the budget, including pops of
+ * already-seen states.
+ */
+function popUntil(
+  heap: MinHeap,
+  seen: Set<string>,
+  cost: readonly (readonly number[])[],
+  legal: (colours: readonly number[]) => boolean,
+  budget: number,
+  swapsPerNode: number,
+  isTarget: (colours: readonly number[]) => boolean,
+): PopResult {
+  let pops = 0;
+  while (pops < budget) {
+    const node = heap.pop();
+    if (!node) break;
+    pops++;
+    const key = keyOf(node.colours);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (legal(node.colours) && isTarget(node.colours)) {
+      return { found: node, pops };
+    }
+    const swaps = collectSwaps(cost, node.colours, swapsPerNode);
+    for (const sw of swaps) {
+      const child = node.colours.slice();
+      const tmp = child[sw.i]!;
+      child[sw.i] = child[sw.j]!;
+      child[sw.j] = tmp;
+      // DECISION: skip pushing a child whose key is already seen, rather
+      // than pushing it and discarding it at pop time. Cuts heap growth a
+      // lot in the common case without changing which state is found first.
+      if (seen.has(keyOf(child))) continue;
+      heap.push({ cost: node.cost + sw.delta, colours: child });
+    }
+  }
+  return { found: null, pops };
+}
+
+function countChanged(colours: readonly number[], argmin: readonly number[]): number {
+  let n = 0;
+  for (let s = 0; s < colours.length; s++) if (colours[s] !== argmin[s]) n++;
+  return n;
+}
+
+function computeMargins(cost: readonly (readonly number[])[], colours: readonly number[]): number[] {
+  const margins = new Array<number>(N_SLOTS).fill(Infinity);
+  for (let s = 0; s < N_SLOTS; s++) {
+    let min = Infinity;
+    for (let j = 0; j < N_SLOTS; j++) {
+      if (j === s || colours[j] === colours[s]) continue;
+      if (!isAllowedSwap(colours, s, j)) continue;
+      const delta = swapDelta(cost, colours, s, j);
+      if (delta < min) min = delta;
+    }
+    margins[s] = min;
+  }
+  return margins;
+}
+
+export function decode(
+  cost: readonly (readonly number[])[],
+  legal: (colours: readonly number[]) => boolean,
+  opts: DecodeOptions = {},
+): DecodeResult {
+  const maxPops = opts.maxPops ?? 30000;
+  const secondPops = opts.secondPops ?? 12000;
+  const swapsPerNode = opts.swapsPerNode ?? 120;
+
+  const argmin = computeArgmin(cost);
+  const balanced = buildBalanced(cost);
+
+  const heap = new MinHeap();
+  heap.push({ cost: balanced.cost, colours: balanced.colours });
+  const seen = new Set<string>();
+
+  let best: HeapNode | null;
+  let popsA: number;
+  if (legal(balanced.colours)) {
+    // Fast path: the balanced optimum is already legal, no swap search
+    // needed to find it. Its own node is still on the heap (unpopped, not
+    // marked seen), so the delta search below naturally starts by popping
+    // it and expanding its children.
+    best = { cost: balanced.cost, colours: balanced.colours };
+    popsA = 0;
+  } else {
+    const resultA = popUntil(heap, seen, cost, legal, maxPops, swapsPerNode, () => true);
+    best = resultA.found;
+    popsA = resultA.pops;
+  }
+
+  if (!best) {
+    return {
+      colours: null,
+      argmin,
+      cost: balanced.cost,
+      changed: countChanged(balanced.colours, argmin),
+      delta: Infinity,
+      margins: computeMargins(cost, balanced.colours),
+      legal: false,
+      pops: popsA,
+    };
+  }
+
+  const bestKey = keyOf(best.colours);
+  const resultB = popUntil(heap, seen, cost, legal, secondPops, swapsPerNode, (c) => keyOf(c) !== bestKey);
+  const delta = resultB.found ? resultB.found.cost - best.cost : Infinity;
+
+  return {
+    colours: best.colours.slice(),
+    argmin,
+    cost: best.cost,
+    changed: countChanged(best.colours, argmin),
+    delta,
+    margins: computeMargins(cost, best.colours),
+    legal: true,
+    pops: popsA + resultB.pops,
+  };
+}

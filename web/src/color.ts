@@ -3,6 +3,7 @@
 // unit-tested without a camera (see web/test/color.test.ts).
 
 import type { CellSample, Lab } from './types';
+import type { PatchStats } from './colour/types';
 
 // ---------- sRGB (0-255) -> CIE Lab, D65 ----------
 
@@ -642,4 +643,199 @@ export function assignBalanced(
     cost.push(row);
   }
   return solveAssignment(cost).map((col) => Math.floor(col / perCluster));
+}
+
+// ---------- robust patch statistics ----------
+//
+// samplePatch (above) returns the MEAN of a patch, which averages glare, seam
+// spill and finger edges straight into a sticker's color. samplePatchStats
+// and its callers below return the actual distribution — a trimmed median
+// plus clip/dark fractions and a spread — so evidence.ts can down-weight or
+// discard a contaminated reading instead of silently blending it in.
+
+function median(xs: number[]): number {
+  const s = xs.slice().sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+}
+
+/** DECISION: trim the brightest and darkest 10% of pixels (by luminance) before the per-channel median. */
+export const PATCH_TRIM = 0.1;
+export const CLIP_LEVEL = 250; // any channel at or above this counts as clipped
+export const DARK_LEVEL = 0.08 * 255; // luminance below this counts as dark
+
+/**
+ * Statistics of an axis-aligned square patch (side `size` px) centered at
+ * (cx, cy): the same geometry as samplePatch, but a trimmed-median color plus
+ * clip/dark fractions and a spread instead of a single mean.
+ */
+export function samplePatchStats(img: ImageData, cx: number, cy: number, size = 12): PatchStats {
+  const half = size / 2;
+  const x0 = Math.max(0, Math.round(cx - half));
+  const y0 = Math.max(0, Math.round(cy - half));
+  const x1 = Math.min(img.width, Math.round(cx + half));
+  const y1 = Math.min(img.height, Math.round(cy + half));
+  const d = img.data;
+  // [r, g, b, luminance] per gathered pixel.
+  const pixels: Array<[number, number, number, number]> = [];
+  let clipped = 0;
+  let dark = 0;
+  for (let y = y0; y < y1; y++) {
+    let i = (y * img.width + x0) * 4;
+    for (let x = x0; x < x1; x++, i += 4) {
+      const r = d[i]!;
+      const g = d[i + 1]!;
+      const b = d[i + 2]!;
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      pixels.push([r, g, b, luma]);
+      if (r >= CLIP_LEVEL || g >= CLIP_LEVEL || b >= CLIP_LEVEL) clipped++;
+      if (luma < DARK_LEVEL) dark++;
+    }
+  }
+  const n = pixels.length;
+  if (n === 0) throw new Error(`samplePatchStats: patch at (${cx},${cy}) outside image`);
+
+  pixels.sort((p, q) => p[3] - q[3]);
+  // Drop the top and bottom PATCH_TRIM fraction, but never down to zero.
+  const trim = Math.min(Math.floor(n * PATCH_TRIM), Math.floor((n - 1) / 2));
+  const kept = pixels.slice(trim, n - trim);
+
+  const rgb: [number, number, number] = [
+    median(kept.map((p) => p[0])),
+    median(kept.map((p) => p[1])),
+    median(kept.map((p) => p[2])),
+  ];
+  const lab = srgbToLab(rgb[0], rgb[1], rgb[2]);
+  const censored: [boolean, boolean, boolean] = [
+    rgb[0] <= 0 || rgb[0] >= 255,
+    rgb[1] <= 0 || rgb[1] >= 255,
+    rgb[2] <= 0 || rgb[2] >= 255,
+  ];
+  const spread = median(kept.map((p) => labDistance(srgbToLab(p[0], p[1], p[2]), lab)));
+
+  return { rgb, lab, clipFrac: clipped / n, darkFrac: dark / n, spread, censored, n };
+}
+
+/** One of the eight OUTER cells, robust version: mirrors sampleCellRobust's geometry. */
+export function sampleCellStats(
+  img: ImageData,
+  cx: number,
+  cy: number,
+  cellSize: number,
+  plan: CellPlan = LEGACY_PLAN,
+): PatchStats {
+  const patchSize = Math.max(2, Math.round(2 * plan.half * cellSize));
+  return samplePatchStats(img, cx, cy, patchSize);
+}
+
+/**
+ * The center cell, robust version: mirrors sampleCentreCell's geometry (a
+ * ring of four diagonal patches dodging the logo) but never blends two ring
+ * patches into a mean — it takes their medoid instead, so the returned
+ * statistics (clipFrac, darkFrac, spread) describe one real reading rather
+ * than an average of two.
+ *
+ * `spread` is inflated to the median distance from the OTHER three ring
+ * patches to the medoid when that is larger than the medoid's own spread:
+ * a logo or fingertip that reaches part of the ring shows up here as
+ * uncertainty in the returned stats rather than silently winning a vote.
+ */
+export function sampleCentreStats(
+  img: ImageData,
+  cx: number,
+  cy: number,
+  cellSize: number,
+  plan: CellPlan,
+): PatchStats {
+  const patchSize = Math.max(2, Math.round(2 * plan.centreHalf * cellSize));
+  if (plan.centreOff < 0.02) return samplePatchStats(img, cx, cy, patchSize);
+  const off = cellSize * plan.centreOff;
+  const ring = ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const).map(([sx, sy]) =>
+    samplePatchStats(img, cx + sx * off, cy + sy * off, patchSize),
+  );
+  let medoidIdx = 0;
+  let bestSum = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < ring.length; j++) {
+      if (i !== j) sum += labDistance(ring[i]!.lab, ring[j]!.lab);
+    }
+    if (sum < bestSum) {
+      bestSum = sum;
+      medoidIdx = i;
+    }
+  }
+  const medoid = ring[medoidIdx]!;
+  const othersToMedoid = ring
+    .filter((_, i) => i !== medoidIdx)
+    .map((s) => labDistance(s.lab, medoid.lab));
+  return {
+    ...medoid,
+    spread: Math.max(medoid.spread, median(othersToMedoid)),
+    clipFrac: ring.reduce((s, r) => s + r.clipFrac, 0) / ring.length,
+    darkFrac: ring.reduce((s, r) => s + r.darkFrac, 0) / ring.length,
+    n: ring.reduce((s, r) => s + r.n, 0),
+  };
+}
+
+/** Robust version of sampleGridCells: the 9 sticker cells of a face grid, row-major. */
+export function sampleGridStats(img: ImageData, rect: Rect, plan?: CellPlan): PatchStats[] {
+  const cellSize = Math.min(rect.w, rect.h) / 3;
+  const p = plan ?? facePlan(cellSize) ?? LEGACY_PLAN;
+  return gridCellCenters(rect).map(([cx, cy], i) =>
+    i === 4 ? sampleCentreStats(img, cx, cy, cellSize, p)
+             : sampleCellStats(img, cx, cy, cellSize, p),
+  );
+}
+
+/**
+ * Variance of the 3x3 Laplacian of the grey image (sharpness; higher is
+ * sharper). Used on the rectified 90x90 warp to flag a motion-blurred face
+ * before its colors are trusted.
+ */
+export function blurScore(img: { width: number; height: number; data: Uint8ClampedArray | Uint8Array }): number {
+  const { width, height, data } = img;
+  const grey = new Float64Array(width * height);
+  for (let i = 0, p = 0; p < grey.length; i += 4, p++) {
+    grey[p] = 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+  }
+  const responses: number[] = [];
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      responses.push(grey[idx - width]! + grey[idx + width]! + grey[idx - 1]! + grey[idx + 1]! - 4 * grey[idx]!);
+    }
+  }
+  if (responses.length === 0) return 0;
+  const mean = responses.reduce((s, v) => s + v, 0) / responses.length;
+  return responses.reduce((s, v) => s + (v - mean) * (v - mean), 0) / responses.length;
+}
+
+/**
+ * Foreshortening of a quad: shorter mid-line over longer, 1 = square on.
+ * Mid-lines join the midpoints of opposite edges (corners taken in order
+ * around the quad, winding either way).
+ */
+export function quadViewCos(corners: ReadonlyArray<readonly [number, number]>): number {
+  const mid = (a: readonly [number, number], b: readonly [number, number]): [number, number] =>
+    [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const dist = (a: [number, number], b: [number, number]) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  const [c0, c1, c2, c3] = corners;
+  const midA = dist(mid(c0!, c1!), mid(c2!, c3!));
+  const midB = dist(mid(c1!, c2!), mid(c3!, c0!));
+  const lo = Math.min(midA, midB);
+  const hi = Math.max(midA, midB);
+  return hi <= 0 ? 1 : lo / hi;
+}
+
+/** Longest edge of a quad in px. */
+export function quadEdgePx(corners: ReadonlyArray<readonly [number, number]>): number {
+  let max = 0;
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i]!;
+    const b = corners[(i + 1) % corners.length]!;
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (d > max) max = d;
+  }
+  return max;
 }

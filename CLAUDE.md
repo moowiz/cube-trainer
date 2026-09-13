@@ -22,10 +22,10 @@ Two halves:
 2. Detect: keypoint model → 4 corners + confidence for each visible face (up to 3).
 3. Track: Kalman filter on corners. Run the detector every 2–3 frames, interpolate between.
 4. Rectify: homography-warp each face quad to a 90x90 canvas.
-5. Sample: average a ~12px patch at each of the 9 cell centers. Convert to CIE Lab.
-6. Classify: rolling k-means over all samples, k=6, Lab distance. Seeded once ≥6 distinct clusters seen.
-7. Identify: center sticker → face id. Per-face in-plane rotation is resolved here, not by the detector (its corners are rotation-free): shared edges between two faces in one frame pin it, the tracker carries it across dead-on single-face frames.
-8. Assemble: per-sticker vote counts into a 54-entry state. Lock when converged and `cubejs` accepts it.
+5. Sample: robust patch statistics (trimmed median, clip/dark fractions, spread, censoring) at each of the 9 cell centers; the centre cell reads a diagonal ring around the logo. Each reading gets a quality WEIGHT (blur, motion, view angle, size, track age, glare, seam) - never a gate.
+6. Log: readings go into an append-only EvidenceLog keyed by track id and cell, with letter-free shared-edge pairings between co-visible quads. The log IS the capture format; the solver is a pure function of it (`web/src/colour/`).
+7. Solve (in a worker, every ~700 ms): per-track robust aggregation -> six-colour palette + per-frame illumination fitted under the cube's constraints -> tracks grouped into faces (co-visibility veto) -> letters and rotations from geometry, names from ordinal ranks -> 54x6 costs -> exact constrained decoder (9 per colour, distinct centres, legality search, delta certificate). Design: `docs/colour-pipeline-design.md`.
+8. Lock: only on the decoder's certificates (legal, evidence floor, few changes, delta and margin floors). A wrong lock is worse than no lock.
 
 ## Conventions
 
@@ -44,8 +44,12 @@ web/
     camera.ts        getUserMedia setup, frame pump
     detect/          ORT session, pre/post-processing, Kalman tracker
     rectify.ts       homography + warp
-    color.ts         Lab conversion, sampling, k-means
-    state.ts         54-sticker vote model, convergence, cubejs validation
+    color.ts         Lab conversion, patch statistics, sampling geometry, Hungarian
+    colour/          the colour solver: types, evidence log + weights, colorspace
+                     (pluggable embedding), robust stats, palette, illum, faces
+                     (track grouping), naming, decode (exact decoder), solve,
+                     solve.worker + client
+    state.ts         validateState (legality oracle), rotation helpers, cubejs solve
     ui/              overlay canvas, sticker grid, tap-to-fix
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
@@ -79,7 +83,7 @@ MILESTONES.md
   serves http://localhost:8123; probe the port first — a second launch just
   fails to bind) and hand the user that URL. Redirect training output to
   `runs/<name>-console.log` so the dashboard picks the run up.
-- Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it.
+- Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it. For the colour solver the fixture is the phone's `Capture debug` JSON (it holds the whole evidence log): drop it in `web/test/fixtures/evidence/` with a `truth` field and `colour-replay.test.ts` picks it up.
 - Keep `model/` and `web/` independent: `web/` must run (with the grid-overlay fallback) even if no model file is present.
 
 ## Commands
@@ -122,15 +126,19 @@ cd model && make export      # writes web/public/models/facekp.onnx
   architecture; port the separable pieces (exact decoder, quality gates,
   wasm threads). Read it before redesigning the colour lock or the tracker.
 - `docs/colour-pipeline-postmortem.md` — what one day of phone testing taught
-  about the colour half (centre-cluster identity, ordinal naming, per-cell
-  voting): the failure log, why it is structurally fragile, what to keep,
-  and the redesign options. The colour pipeline is being replaced; start there.
+  about the old colour half (centre-cluster identity, ordinal naming, per-cell
+  voting): the failure log and why it was structurally fragile.
+- `docs/colour-pipeline-design.md` — the replacement (implemented 2026-09-13
+  in `web/src/colour/`): principles, stages, how each hard case is handled,
+  the parameter list, the evidence-log capture format and replay method.
+  Read it before touching anything under `web/src/colour/`.
 
 ## Known hard cases (don't be surprised)
 
-- Red vs orange and white vs yellow under warm indoor light. Planned fix:
-  relative classification (same-frame center exemplars + 9-per-color
-  assignment at lock) — see `web/src/color-notes.md`.
+- Red vs orange and white vs yellow under warm indoor light. Handled by the
+  constrained decoder (nine per colour, distinct centres) and the ordinal
+  naming by hue; when the evidence genuinely cannot separate them the delta
+  certificate refuses the lock instead of guessing.
 - Specular glare on the face nearest the light — often wipes out one sticker.
 - Stickerless cubes: no black borders, so edge-based methods fail. This is why we use a learned detector.
 - Tiles/grids in the background (bathroom, keyboard) produce false face candidates.
