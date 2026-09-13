@@ -256,3 +256,47 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
 - Scanning a cube mid-solve for a "where am I" trainer (a stepping stone to
   the solve coach).
 - Offline PWA install.
+
+## Maintenance ledger (2026-09-13 overnight pass)
+
+Done: `model/ruff.toml` + `npm run lint` (ESLint, typescript-eslint) both
+clean; `bbox_eval/common.py` replaces seven copies of the ONNX localizer
+wrapper; `test/helpers.ts` replaces the duplicated synthetic-cube
+projection and LCG in the vitest suites; `scan.html` replaces four camera
+pages (`detect/models.ts`, `debug/dump.ts`, `debug/selftest.ts` hold what
+each page used to carry); `check_targets.py` no longer samples overlapping
+quads (decode dedup merged them by design).
+
+Flagged, not fixed (each needs a decision or is out of scope for a night):
+
+- **Legacy FC head** (`model.py keypoint_loss/pixel_error/conf_accuracy`,
+  the `--head legacy` branch of `train.py`, `export_onnx.py`'s
+  `faces` output, `facekp.ts`'s non-anonymous decode). Exists only so
+  pre-2026-09-12 checkpoints load. Nothing trains it; ~300 lines across
+  both trees. Delete once `v4ft1` is no longer a reference number.
+- **Two colour paths.** The grid scanner (M1) classifies with
+  centre-seeded k-means over six captured faces (`assembleState`); the auto
+  scanner names each detected face from centre exemplars (`identify.ts`)
+  and then hands the per-sticker medians to the same `assembleState`. The
+  building blocks are shared (`normalizeFaceCells`, `CENTER_MIN_DIST`,
+  `kmeans`, `validateState`), the *decision* is made twice. Unifying means
+  the grid scanner naming faces from exemplars too - a behaviour change to
+  the proven fallback, so not done unattended.
+- `bbox_eval/roboflow_audit.py` needs a full-frame stage-2 checkpoint; kept
+  as the record of the audit, will not run against the crop model.
+- `import_labels.py` drops cube-less labels unless `--keep-negatives`, and
+  the summary line lumps them with "unchanged". Both stage-1 training and
+  the labeling convention now want negatives; the flag should flip to
+  default-on with a `--drop-negatives` escape.
+- `check_labels.py` flags opposite faces both visible as a *problem*; with
+  the anonymous head it is only a slot-naming slip. Downgrade to a note.
+- `facekp-decode.test.ts` is coupled to the deployed model: the fixture is
+  re-dumped on every export (`dump_decode_fixture.py`). Fine as a parity
+  gate, but a red suite between export and dump is expected, not a bug.
+- `bench_local.py` trips ruff F821 (the `del` at the end of `run()` makes
+  the closures look unbound); suppressed per-file in `ruff.toml`.
+- `_has_bars` / `_has_side_bars` in `bbox_data.py` detect letterboxing by
+  an exact pad value on one row/column. Correct for the uint8 caches, but
+  would silently stop firing if the pad colour ever changed.
+- The `export_onnx.py` int8 path is still gated off (dynamic quantization
+  shifts corners ~24 px); fp32 ships. Static QDQ calibration is the fix.
