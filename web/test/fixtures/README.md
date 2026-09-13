@@ -96,3 +96,17 @@ reproduces the phone exactly. To turn a capture into a regression test:
 The older `scan-debug-*.json` / `session-0913/` captures predate the log
 and hold only per-face consensus cells; the replay test feeds those to the
 solver as six single-frame tracks (the dead-on-only path).
+
+### Clip replays
+
+`scan.html?clip=/clips/<name>.mp4&autostart=1&autocapture=1&post=<file>.json`
+plays a recording through the live pipeline and, at the end, POSTs the
+capture to the dev server, which writes it here (vite `captureSink`,
+dev only). Clips live in the gitignored `web/clips/` (transcode phone
+HDR video to 480x854 SDR H.264 first; the imageio-ffmpeg binary in
+`model/.venv` works). Headless Chrome runs it without a display:
+`chrome --headless=new --user-data-dir=<scratch> --ignore-certificate-errors
+--autoplay-policy=no-user-gesture-required --enable-logging=stderr <url>`;
+the console prints `CLIP ENDED ...` and `CAPTURED ...`. `clip-*.json` here
+are the 2026-09-12 evening clips (dead-on faces in front of a monitor -
+the hardest lighting we have; both refuse honestly today).
