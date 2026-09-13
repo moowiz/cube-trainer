@@ -1,0 +1,3207 @@
+{
+ "clusters": [
+  {
+   "id": 1,
+   "centroid": {
+    "L": 0.6165101471900716,
+    "a": -5.583883863439388,
+    "b": -6.274264623481107
+   },
+   "n": 40,
+   "color": "white",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 228.3
+  },
+  {
+   "id": 2,
+   "centroid": {
+    "L": -2.720974860884823,
+    "a": 38.80637126471271,
+    "b": 37.069849228849044
+   },
+   "n": 8,
+   "color": "orange",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 43.7
+  },
+  {
+   "id": 3,
+   "centroid": {
+    "L": -0.7951574599711648,
+    "a": 55.58561721166838,
+    "b": 57.17758115843687
+   },
+   "n": 37,
+   "color": "orange",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 45.8
+  },
+  {
+   "id": 4,
+   "centroid": {
+    "L": 1.1223553416250052,
+    "a": -51.713777614473145,
+    "b": 32.689794486442224
+   },
+   "n": 10,
+   "color": "green",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 147.7
+  },
+  {
+   "id": 6,
+   "centroid": {
+    "L": -3.4523864102855555,
+    "a": 58.90745541238967,
+    "b": 38.53382817845733
+   },
+   "n": 16,
+   "color": "red",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 33.2
+  },
+  {
+   "id": 7,
+   "centroid": {
+    "L": 2.585703399364892,
+    "a": -16.309762953837016,
+    "b": 69.44763080497452
+   },
+   "n": 15,
+   "color": "yellow",
+   "bound": null,
+   "aliasOf": 11,
+   "hue": 103.2
+  },
+  {
+   "id": 8,
+   "centroid": {
+    "L": -2.674092499086412,
+    "a": 55.6035078560258,
+    "b": 70.24813243952455
+   },
+   "n": 4,
+   "color": "orange",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 51.6
+  },
+  {
+   "id": 9,
+   "centroid": {
+    "L": -0.9571869336953543,
+    "a": 34.82176460486247,
+    "b": 49.084861319857055
+   },
+   "n": 1,
+   "color": "orange",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 54.6
+  },
+  {
+   "id": 10,
+   "centroid": {
+    "L": -0.260494304631724,
+    "a": 8.579983916344597,
+    "b": 14.874898460488001
+   },
+   "n": 2,
+   "color": "white",
+   "bound": null,
+   "aliasOf": 1,
+   "hue": 60
+  },
+  {
+   "id": 11,
+   "centroid": {
+    "L": 1.860602489409073,
+    "a": -32.000000433554945,
+    "b": 79.61763125596664
+   },
+   "n": 1,
+   "color": "yellow",
+   "bound": null,
+   "aliasOf": null,
+   "hue": 111.9
+  }
+ ],
+ "tracks": [
+  {
+   "id": 133,
+   "cluster": 10,
+   "face": "U",
+   "rotation": null
+  },
+  {
+   "id": 134,
+   "cluster": 1,
+   "face": "U",
+   "rotation": null
+  }
+ ],
+ "adjacencyBinds": 0,
+ "rejectedBinds": 0,
+ "oppositeConflicts": 4,
+ "vetoedCount": 546,
+ "alienCount": 0,
+ "pairings": 66,
+ "edgeRejects": 33,
+ "pairingLog": [
+  {
+   "t": 1789315729795,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315729973,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315730220,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 0,
+   "ok": false
+  },
+  {
+   "t": 1789315731609,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315731842,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315737473,
+   "a": "D",
+   "b": "L",
+   "ra": 2,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315737719,
+   "a": "D",
+   "b": "L",
+   "ra": 2,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315740070,
+   "a": "L",
+   "b": "D",
+   "ra": 1,
+   "rb": 2,
+   "ok": true
+  },
+  {
+   "t": 1789315741059,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315741059,
+   "a": "U",
+   "b": "F",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315741059,
+   "a": "L",
+   "b": "F",
+   "ra": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315741639,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315741639,
+   "a": "U",
+   "b": "F",
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315741639,
+   "a": "L",
+   "b": "F",
+   "ra": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315742392,
+   "a": "L",
+   "b": "F",
+   "ra": 3,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315742697,
+   "a": "L",
+   "b": "F",
+   "ra": 3,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315742986,
+   "a": "L",
+   "b": "F",
+   "ra": 3,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315743830,
+   "a": "L",
+   "b": "F",
+   "ra": 3,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315749596,
+   "a": "F",
+   "b": "L",
+   "ra": 1,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315752924,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315753157,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315753376,
+   "a": "R",
+   "b": "F",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315753735,
+   "a": "R",
+   "b": "F",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315754012,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315754276,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315754566,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315754847,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315755120,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315755331,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315755577,
+   "a": "F",
+   "b": "R",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315759077,
+   "a": "U",
+   "b": "F",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315759881,
+   "a": "U",
+   "b": "F",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315765632,
+   "a": "R",
+   "b": "U",
+   "ra": 2,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315766427,
+   "a": "R",
+   "b": "U",
+   "ra": 2,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315766722,
+   "a": "R",
+   "b": "U",
+   "ra": 2,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315767000,
+   "a": "R",
+   "b": "U",
+   "ra": 2,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315770194,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315770442,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315770706,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315772328,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315773211,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315773460,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315773656,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315773917,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 3,
+   "ok": false
+  },
+  {
+   "t": 1789315774379,
+   "a": "U",
+   "b": "L",
+   "ra": 3,
+   "rb": 0,
+   "ok": false
+  },
+  {
+   "t": 1789315775769,
+   "a": "F",
+   "b": "D",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315775992,
+   "a": "F",
+   "b": "D",
+   "ra": 3,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315776362,
+   "a": "F",
+   "b": "L",
+   "ra": 3,
+   "rb": 2,
+   "ok": false
+  },
+  {
+   "t": 1789315777147,
+   "a": "F",
+   "b": "L",
+   "ra": 1,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315777371,
+   "a": "F",
+   "b": "L",
+   "ra": 1,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315788099,
+   "a": "D",
+   "b": "L",
+   "ra": 3,
+   "rb": 2,
+   "ok": true
+  },
+  {
+   "t": 1789315788399,
+   "a": "D",
+   "b": "L",
+   "ra": 3,
+   "rb": 2,
+   "ok": true
+  },
+  {
+   "t": 1789315788602,
+   "a": "D",
+   "b": "L",
+   "ra": 3,
+   "rb": 2,
+   "ok": false
+  },
+  {
+   "t": 1789315790154,
+   "a": "L",
+   "b": "D",
+   "ra": 2,
+   "rb": 3,
+   "ok": true
+  },
+  {
+   "t": 1789315792495,
+   "a": "D",
+   "b": "L",
+   "ra": 1,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315801303,
+   "a": "L",
+   "b": "U",
+   "ra": 2,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315801656,
+   "a": "L",
+   "b": "U",
+   "ra": 2,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315801908,
+   "a": "L",
+   "b": "U",
+   "ra": 2,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315803006,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315806351,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315806616,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315806866,
+   "a": "U",
+   "b": "R",
+   "ra": 2,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315807295,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315807551,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315807841,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315808112,
+   "a": "U",
+   "b": "L",
+   "ra": 0,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315809939,
+   "a": "F",
+   "b": "U",
+   "ra": 1,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315814349,
+   "a": "U",
+   "b": "L",
+   "ra": 3,
+   "rb": 1,
+   "ok": false
+  },
+  {
+   "t": 1789315814671,
+   "a": "U",
+   "b": "L",
+   "ra": 3,
+   "rb": 1,
+   "ok": true
+  },
+  {
+   "t": 1789315814929,
+   "a": "R",
+   "b": "U",
+   "ra": 1,
+   "rb": 2,
+   "ok": true
+  },
+  {
+   "t": 1789315815204,
+   "a": "R",
+   "b": "U",
+   "ra": 1,
+   "rb": 2,
+   "ok": true
+  },
+  {
+   "t": 1789315815508,
+   "a": "R",
+   "b": "U",
+   "ra": 1,
+   "rb": 2,
+   "ok": false
+  },
+  {
+   "t": 1789315816631,
+   "a": "L",
+   "b": "U",
+   "ra": 0,
+   "rb": 0,
+   "ok": true
+  },
+  {
+   "t": 1789315822764,
+   "a": "U",
+   "b": "F",
+   "ra": 1,
+   "rb": 1,
+   "ok": true
+  }
+ ],
+ "rotationVotes": [],
+ "progress": {
+  "faceFill": {
+   "U": 1,
+   "R": 1,
+   "F": 1,
+   "D": 1,
+   "L": 0.4,
+   "B": 0
+  },
+  "unboundFill": {},
+  "framesSeen": 94,
+  "locked": null,
+  "validationError": null,
+  "lowConfidence": []
+ },
+ "lockAttempt": null,
+ "captured": "2026-09-13T16:10:24.514Z",
+ "model": "kpft3 ep12 fp32",
+ "ep": "wasm",
+ "input": {
+  "w": 480,
+  "h": 640
+ },
+ "inferMs": 93.26999998092651,
+ "totalMs": 98.08000016212463,
+ "exemplars": [
+  {
+   "face": "U",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": 32.0550871628884,
+    "a": -0.3496662147366991,
+    "b": 0.9555616302226344
+   },
+   "color": "white"
+  },
+  {
+   "face": "R",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": -14.099392604844951,
+    "a": 60.71057986944306,
+    "b": 40.057367571218506
+   },
+   "color": "red"
+  },
+  {
+   "face": "F",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": -2.4040824698107883,
+    "a": -52.62932541003001,
+    "b": 33.22873743540045
+   },
+   "color": "green"
+  },
+  {
+   "face": "D",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": 19.415960353979685,
+    "a": -4.444164001568273,
+    "b": 74.28089468235541
+   },
+   "color": "yellow"
+  },
+  {
+   "face": "L",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": 2.4040824698107883,
+    "a": 31.874610185614216,
+    "b": 65.38522173411671
+   },
+   "color": "orange"
+  },
+  {
+   "face": "B",
+   "measured": false,
+   "n": 0,
+   "lab": {
+    "L": -18.652181119697474,
+    "a": 21.828594484972374,
+    "b": -64.68089467032794
+   },
+   "color": "blue"
+  }
+ ],
+ "exemplarRejects": 0,
+ "exemplarHistory": [],
+ "ticks": [
+  {
+   "t": 1789315802588,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.62
+    }
+   ],
+   "refused": [
+    "face too small (80px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315802753,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.97,
+     "nameConf": 0.47
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 22 vs orange 24)"
+   ]
+  },
+  {
+   "t": 1789315802870,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.43
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 26 vs orange 27)"
+   ]
+  },
+  {
+   "t": 1789315803114,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.9
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 27)",
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315803333,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.9
+    }
+   ],
+   "refused": [
+    "face too small (34px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315803512,
+   "obj": 0.97,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.91
+    }
+   ],
+   "refused": [
+    "face too small (53px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315803720,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.95
+    }
+   ],
+   "refused": [
+    "face too small (48px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315803991,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.65
+    }
+   ],
+   "refused": [
+    "face too small (60px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315804205,
+   "obj": 0.93,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.87,
+     "nameConf": 0.51
+    }
+   ],
+   "refused": [
+    "face too small (63px edge, need 85)",
+    "face too small (63px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315804373,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "L",
+     "conf": 0.99,
+     "nameConf": 0.35
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 55)",
+    "center obscured (ring disagrees by 72)"
+   ]
+  },
+  {
+   "t": 1789315804574,
+   "obj": 0.81,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.53,
+     "nameConf": 0.49
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 38)"
+   ]
+  },
+  {
+   "t": 1789315804770,
+   "obj": 0.79,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (orange 26 vs red 29)",
+    "ambiguous centre (white 56 vs blue 57)"
+   ]
+  },
+  {
+   "t": 1789315804959,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (orange 25 vs red 26)",
+    "ambiguous centre (white 53 vs green 63)"
+   ]
+  },
+  {
+   "t": 1789315805132,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (orange 30 vs red 32)",
+    "center obscured (ring disagrees by 25)"
+   ]
+  },
+  {
+   "t": 1789315805293,
+   "obj": 1,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (white 56 vs blue 57)",
+    "ambiguous centre (red 29 vs orange 35)"
+   ]
+  },
+  {
+   "t": 1789315805492,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 29 vs orange 34)",
+    "ambiguous centre (blue 50 vs white 52)"
+   ]
+  },
+  {
+   "t": 1789315805679,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.31
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 31 vs orange 31)"
+   ]
+  },
+  {
+   "t": 1789315805889,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 25 vs orange 30)",
+    "ambiguous centre (white 49 vs blue 56)"
+   ]
+  },
+  {
+   "t": 1789315806035,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 30 vs orange 34)",
+    "ambiguous centre (blue 47 vs white 50)"
+   ]
+  },
+  {
+   "t": 1789315806200,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.28
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 30 vs orange 34)"
+   ]
+  },
+  {
+   "t": 1789315806426,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.99,
+     "nameConf": 0.33
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 30 vs orange 35)"
+   ]
+  },
+  {
+   "t": 1789315806722,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (blue 42 vs white 55)",
+    "ambiguous centre (red 30 vs orange 35)"
+   ]
+  },
+  {
+   "t": 1789315806958,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (blue 44 vs white 54)",
+    "ambiguous centre (red 30 vs orange 35)"
+   ]
+  },
+  {
+   "t": 1789315807134,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 30 vs orange 34)",
+    "ambiguous centre (blue 51 vs white 52)"
+   ]
+  },
+  {
+   "t": 1789315807399,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 31 vs orange 34)",
+    "ambiguous centre (blue 44 vs white 54)"
+   ]
+  },
+  {
+   "t": 1789315807676,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 31 vs orange 33)",
+    "ambiguous centre (blue 46 vs white 54)"
+   ]
+  },
+  {
+   "t": 1789315807934,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 31 vs orange 33)",
+    "ambiguous centre (blue 46 vs white 53)"
+   ]
+  },
+  {
+   "t": 1789315808210,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (red 31 vs orange 34)",
+    "ambiguous centre (blue 45 vs white 54)"
+   ]
+  },
+  {
+   "t": 1789315808388,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.96,
+     "nameConf": 0.46
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 30 vs orange 36)"
+   ]
+  },
+  {
+   "t": 1789315808520,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.37
+    },
+    {
+     "face": "U",
+     "conf": 0.43,
+     "nameConf": 0.62
+    }
+   ],
+   "refused": [
+    "ambiguous centre (red 29 vs orange 32)"
+   ]
+  },
+  {
+   "t": 1789315808675,
+   "obj": 0.98,
+   "quads": 3,
+   "named": [],
+   "refused": [
+    "center obscured (ring disagrees by 29)",
+    "ambiguous centre (red 24 vs orange 28)",
+    "center obscured (ring disagrees by 26)"
+   ]
+  },
+  {
+   "t": 1789315808816,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.76
+    },
+    {
+     "face": "R",
+     "conf": 0.93,
+     "nameConf": 0.36
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 42)"
+   ]
+  },
+  {
+   "t": 1789315808975,
+   "obj": 0.97,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.8
+    },
+    {
+     "face": "R",
+     "conf": 0.98,
+     "nameConf": 0.32
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 48 vs blue 60)"
+   ]
+  },
+  {
+   "t": 1789315809131,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.81
+    }
+   ],
+   "refused": [
+    "face too small (56px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315809278,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.84
+    }
+   ],
+   "refused": [
+    "face too small (73px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315809463,
+   "obj": 0.98,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.82
+    }
+   ],
+   "refused": [
+    "face too small (71px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315809627,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.78
+    }
+   ],
+   "refused": [
+    "face too small (73px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315809783,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.63
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 43 vs white 57)"
+   ]
+  },
+  {
+   "t": 1789315810035,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.57
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 49 vs blue 60)"
+   ]
+  },
+  {
+   "t": 1789315810204,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.56
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 54 vs white 56)"
+   ]
+  },
+  {
+   "t": 1789315810350,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 25)"
+   ]
+  },
+  {
+   "t": 1789315810490,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 27)"
+   ]
+  },
+  {
+   "t": 1789315810627,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 30)"
+   ]
+  },
+  {
+   "t": 1789315810780,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.56
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 29)"
+   ]
+  },
+  {
+   "t": 1789315810896,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.53
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 28)"
+   ]
+  },
+  {
+   "t": 1789315811071,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.56
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 31)"
+   ]
+  },
+  {
+   "t": 1789315811240,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.55
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 28)"
+   ]
+  },
+  {
+   "t": 1789315811376,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.55
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 28)"
+   ]
+  },
+  {
+   "t": 1789315811550,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 30)"
+   ]
+  },
+  {
+   "t": 1789315811707,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 53 vs white 56)"
+   ]
+  },
+  {
+   "t": 1789315811883,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.99,
+     "nameConf": 0.27
+    },
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.65
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315812071,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.46
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 47 vs white 56)"
+   ]
+  },
+  {
+   "t": 1789315812298,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "center obscured (ring disagrees by 34)",
+    "ambiguous centre (blue 46 vs white 54)"
+   ]
+  },
+  {
+   "t": 1789315812460,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.99,
+     "nameConf": 0.26
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 33)"
+   ]
+  },
+  {
+   "t": 1789315812651,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.92,
+     "nameConf": 0.34
+    }
+   ],
+   "refused": [
+    "ambiguous centre (green 38 vs white 41)"
+   ]
+  },
+  {
+   "t": 1789315812826,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.5
+    },
+    {
+     "face": "B",
+     "conf": 0.92,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315812965,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.94,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 29)"
+   ]
+  },
+  {
+   "t": 1789315813134,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.96,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 25)"
+   ]
+  },
+  {
+   "t": 1789315813297,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.96,
+     "nameConf": 0.5
+    },
+    {
+     "face": "U",
+     "conf": 0.94,
+     "nameConf": 0.41
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315813511,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.34
+    }
+   ],
+   "refused": [
+    "ambiguous centre (green 37 vs white 42)"
+   ]
+  },
+  {
+   "t": 1789315813680,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.74
+    },
+    {
+     "face": "R",
+     "conf": 0.96,
+     "nameConf": 0.62
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 40 vs white 51)"
+   ]
+  },
+  {
+   "t": 1789315813828,
+   "obj": 0.98,
+   "quads": 3,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.7
+    },
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.69
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 46 vs blue 46)"
+   ]
+  },
+  {
+   "t": 1789315814006,
+   "obj": 0.98,
+   "quads": 3,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.98,
+     "nameConf": 0.75
+    },
+    {
+     "face": "U",
+     "conf": 0.79,
+     "nameConf": 0.72
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 44 vs blue 51)"
+   ]
+  },
+  {
+   "t": 1789315814133,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.72
+    },
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.3
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315814488,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.74
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 39 vs white 51)"
+   ]
+  },
+  {
+   "t": 1789315814771,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.45
+    },
+    {
+     "face": "B",
+     "conf": 0.97,
+     "nameConf": 0.39
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 74)"
+   ]
+  },
+  {
+   "t": 1789315815035,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.44
+    },
+    {
+     "face": "B",
+     "conf": 0.99,
+     "nameConf": 0.45
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315815357,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.57
+    },
+    {
+     "face": "B",
+     "conf": 0.97,
+     "nameConf": 0.31
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315815664,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.52
+    },
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.32
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315815863,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.55
+    },
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.33
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315816010,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.54
+    },
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.31
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315816143,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.54
+    },
+    {
+     "face": "B",
+     "conf": 0.99,
+     "nameConf": 0.31
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315816282,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.55
+    },
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.32
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315816451,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "R",
+     "conf": 0.99,
+     "nameConf": 0.55
+    },
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.31
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315816730,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.93,
+     "nameConf": 0.64
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 34)",
+    "center obscured (ring disagrees by 30)"
+   ]
+  },
+  {
+   "t": 1789315816912,
+   "obj": 0.99,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.76
+    },
+    {
+     "face": "R",
+     "conf": 0.94,
+     "nameConf": 0.84
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 36)"
+   ]
+  },
+  {
+   "t": 1789315817075,
+   "obj": 0.95,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.77
+    }
+   ],
+   "refused": [
+    "face too small (71px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315817215,
+   "obj": 0.95,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.77
+    }
+   ],
+   "refused": [
+    "face too small (73px edge, need 85)",
+    "ambiguous centre (white 40 vs blue 54)"
+   ]
+  },
+  {
+   "t": 1789315817377,
+   "obj": 0.95,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.78
+    }
+   ],
+   "refused": [
+    "face too small (82px edge, need 85)",
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315817497,
+   "obj": 0.95,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.79
+    },
+    {
+     "face": "R",
+     "conf": 0.95,
+     "nameConf": 0.76
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315817656,
+   "obj": 0.94,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 1,
+     "nameConf": 0.8
+    }
+   ],
+   "refused": [
+    "face too small (84px edge, need 85)",
+    "ambiguous centre (white 43 vs blue 52)"
+   ]
+  },
+  {
+   "t": 1789315817833,
+   "obj": 0.94,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 1,
+     "nameConf": 0.8
+    }
+   ],
+   "refused": [
+    "face too small (82px edge, need 85)",
+    "ambiguous centre (white 43 vs blue 50)"
+   ]
+  },
+  {
+   "t": 1789315818025,
+   "obj": 0.96,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 1,
+     "nameConf": 0.81
+    }
+   ],
+   "refused": [
+    "face too small (78px edge, need 85)",
+    "ambiguous centre (white 42 vs blue 51)"
+   ]
+  },
+  {
+   "t": 1789315818205,
+   "obj": 0.98,
+   "quads": 3,
+   "named": [
+    {
+     "face": "U",
+     "conf": 1,
+     "nameConf": 0.83
+    },
+    {
+     "face": "R",
+     "conf": 0.54,
+     "nameConf": 0.82
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 45 vs white 45)"
+   ]
+  },
+  {
+   "t": 1789315818379,
+   "obj": 1,
+   "quads": 3,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.95,
+     "nameConf": 0.4
+    }
+   ],
+   "refused": [
+    "face too small (80px edge, need 85)",
+    "face too small (69px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315818542,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.97,
+     "nameConf": 0.44
+    }
+   ],
+   "refused": [
+    "face too small (81px edge, need 85)"
+   ]
+  },
+  {
+   "t": 1789315818729,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.85
+    },
+    {
+     "face": "B",
+     "conf": 0.94,
+     "nameConf": 0.41
+    }
+   ],
+   "refused": []
+  },
+  {
+   "t": 1789315818898,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "B",
+     "conf": 0.98,
+     "nameConf": 0.43
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 26)"
+   ]
+  },
+  {
+   "t": 1789315819064,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.44
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 50 vs blue 58)"
+   ]
+  },
+  {
+   "t": 1789315819246,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 51 vs blue 55)"
+   ]
+  },
+  {
+   "t": 1789315819415,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.41
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315819577,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.67
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315819733,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.62
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 37 vs green 44)"
+   ]
+  },
+  {
+   "t": 1789315819854,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.43
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315819999,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.49
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315820103,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315820312,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.46
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315820450,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.95,
+     "nameConf": 0.63
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315820657,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.58
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315820837,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.72
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315821019,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.55
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315821187,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.6
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315821336,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.48
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315821471,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.96,
+     "nameConf": 0.43
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315821682,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.5
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315821849,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.54
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 42 vs white 56)"
+   ]
+  },
+  {
+   "t": 1789315822104,
+   "obj": 1,
+   "quads": 2,
+   "named": [],
+   "refused": [
+    "ambiguous centre (white 50 vs blue 57)",
+    "center obscured (ring disagrees by 28)"
+   ]
+  },
+  {
+   "t": 1789315822257,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.53
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 47 vs white 55)"
+   ]
+  },
+  {
+   "t": 1789315822450,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.46
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 47 vs blue 59)"
+   ]
+  },
+  {
+   "t": 1789315822583,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.48
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315822953,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.6
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 26)"
+   ]
+  },
+  {
+   "t": 1789315823154,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.51
+    }
+   ],
+   "refused": [
+    "center matches another quad"
+   ]
+  },
+  {
+   "t": 1789315823335,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.54
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315823528,
+   "obj": 1,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.56
+    }
+   ],
+   "refused": [
+    "white already claimed (U)"
+   ]
+  },
+  {
+   "t": 1789315823647,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.46
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 53 vs blue 56)"
+   ]
+  },
+  {
+   "t": 1789315823814,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.99,
+     "nameConf": 0.57
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 27)"
+   ]
+  },
+  {
+   "t": 1789315823954,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.53
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 44 vs blue 59)"
+   ]
+  },
+  {
+   "t": 1789315824102,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.98,
+     "nameConf": 0.39
+    }
+   ],
+   "refused": [
+    "center obscured (ring disagrees by 35)"
+   ]
+  },
+  {
+   "t": 1789315824245,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.52
+    }
+   ],
+   "refused": [
+    "ambiguous centre (white 47 vs blue 60)"
+   ]
+  },
+  {
+   "t": 1789315824394,
+   "obj": 0.99,
+   "quads": 2,
+   "named": [
+    {
+     "face": "U",
+     "conf": 0.97,
+     "nameConf": 0.53
+    }
+   ],
+   "refused": [
+    "ambiguous centre (blue 50 vs white 53)"
+   ]
+  }
+ ],
+ "quads": [
+  {
+   "i": 0,
+   "conf": 0.9680643677711487,
+   "cornersSourcePx": [
+    [
+     301.2431405354536,
+     220.47940499209045
+    ],
+    [
+     342.1458754216166,
+     364.078901243195
+    ],
+    [
+     115.31426446198422,
+     378.96586706600783
+    ],
+    [
+     117.61143984853028,
+     227.75107129739655
+    ]
+   ],
+   "named": {
+    "face": "U",
+    "color": "white",
+    "reason": "ok",
+    "nameConf": 0.5308104875753837,
+    "centreNorm": {
+     "L": 5.901051132026524,
+     "a": -7.388021365881736,
+     "b": -2.3586213153196978
+    },
+    "centreRgb": [
+     177.8125,
+     199.5625,
+     199.28125
+    ],
+    "ranked": [
+     {
+      "face": "U",
+      "d": 27.286550762853746
+     },
+     {
+      "face": "F",
+      "d": 58.1567789566435
+     },
+     {
+      "face": "B",
+      "d": 73.0789820120659
+     },
+     {
+      "face": "D",
+      "d": 77.87768923008024
+     },
+     {
+      "face": "L",
+      "d": 78.3773646997634
+     },
+     {
+      "face": "R",
+      "d": 82.6834527163838
+     }
+    ],
+    "cells": [
+     {
+      "k": 0,
+      "rgb": [
+       249.40740740740742,
+       0,
+       4.938271604938271
+      ],
+      "lab": {
+       "L": 52.0989969943428,
+       "a": 78.79089618444635,
+       "b": 64.81179355271375
+      },
+      "labNorm": {
+       "L": -20.85922928677155,
+       "a": 78.79089618444635,
+       "b": 64.81179355271375
+      },
+      "nearest": {
+       "face": "R",
+       "d": 31.39068071403074,
+       "second": 52.37030060718939
+      }
+     },
+     {
+      "k": 1,
+      "rgb": [
+       0,
+       113.4320987654321,
+       243.33333333333334
+      ],
+      "lab": {
+       "L": 49.97183832184122,
+       "a": 23.447863750855834,
+       "b": -72.1433457560902
+      },
+      "labNorm": {
+       "L": -22.98638795927313,
+       "a": 23.447863750855834,
+       "b": -72.1433457560902
+      },
+      "nearest": {
+       "face": "B",
+       "d": 8.780407626702385,
+       "second": 94.54806543319404
+      }
+     },
+     {
+      "k": 2,
+      "rgb": [
+       246.90123456790124,
+       0,
+       0.25925925925925924
+      ],
+      "lab": {
+       "L": 51.5688124523538,
+       "a": 78.15946182271466,
+       "b": 65.51035877090744
+      },
+      "labNorm": {
+       "L": -21.389413828760553,
+       "a": 78.15946182271466,
+       "b": 65.51035877090744
+      },
+      "nearest": {
+       "face": "R",
+       "d": 31.70903107753042,
+       "second": 52.04261346681683
+      }
+     },
+     {
+      "k": 3,
+      "rgb": [
+       0,
+       209.22222222222223,
+       110.50617283950618
+      ],
+      "lab": {
+       "L": 74.08952262747374,
+       "a": -65.01767273112114,
+       "b": 36.94305883826523
+      },
+      "labNorm": {
+       "L": 1.1312963463593917,
+       "a": -65.01767273112114,
+       "b": 36.94305883826523
+      },
+      "nearest": {
+       "face": "F",
+       "d": 13.407693172413738,
+       "second": 73.46831210257254
+      }
+     },
+     {
+      "k": 4,
+      "rgb": [
+       177.8125,
+       199.5625,
+       199.28125
+      ],
+      "lab": {
+       "L": 78.85927741314087,
+       "a": -7.388021365881736,
+       "b": -2.3586213153196978
+      },
+      "labNorm": {
+       "L": 5.901051132026524,
+       "a": -7.388021365881736,
+       "b": -2.3586213153196978
+      },
+      "nearest": {
+       "face": "U",
+       "d": 27.286550762853746,
+       "second": 58.1567789566435
+      }
+     },
+     {
+      "k": 5,
+      "rgb": [
+       0,
+       211.64197530864197,
+       109.82716049382717
+      ],
+      "lab": {
+       "L": 74.84174317868329,
+       "a": -65.9199871822591,
+       "b": 38.23194195852943
+      },
+      "labNorm": {
+       "L": 1.8835168975689385,
+       "a": -65.9199871822591,
+       "b": 38.23194195852943
+      },
+      "nearest": {
+       "face": "F",
+       "d": 14.834326886623643,
+       "second": 73.390669718844
+      }
+     },
+     {
+      "k": 6,
+      "rgb": [
+       0,
+       165.30864197530863,
+       79.1358024691358
+      ],
+      "lab": {
+       "L": 59.51307317609482,
+       "a": -55.7327652163867,
+       "b": 34.41342729077379
+      },
+      "labNorm": {
+       "L": -13.445153105019529,
+       "a": -55.7327652163867,
+       "b": 34.41342729077379
+      },
+      "nearest": {
+       "face": "F",
+       "d": 11.529963983325034,
+       "second": 72.79964525021201
+      }
+     },
+     {
+      "k": 7,
+      "rgb": [
+       0,
+       205.90123456790124,
+       104.46913580246914
+      ],
+      "lab": {
+       "L": 72.95822628111435,
+       "a": -64.93836703890898,
+       "b": 38.505907625635814
+      },
+      "labNorm": {
+       "L": 0,
+       "a": -64.93836703890898,
+       "b": 38.505907625635814
+      },
+      "nearest": {
+       "face": "F",
+       "d": 13.606639686558752,
+       "second": 72.91349543465027
+      }
+     },
+     {
+      "k": 8,
+      "rgb": [
+       0,
+       206.14814814814815,
+       104.18518518518519
+      ],
+      "lab": {
+       "L": 73.03253040007705,
+       "a": -65.06442214622498,
+       "b": 38.73886464272853
+      },
+      "labNorm": {
+       "L": 0.07430411896270073,
+       "a": -65.06442214622498,
+       "b": 38.73886464272853
+      },
+      "nearest": {
+       "face": "F",
+       "d": 13.825177494805494,
+       "second": 72.88450632868503
+      }
+     }
+    ]
+   }
+  },
+  {
+   "i": 1,
+   "conf": 0.9354559779167175,
+   "cornersSourcePx": [
+    [
+     339.88727413464227,
+     361.7047960750562
+    ],
+    [
+     305.85834628432025,
+     467.9220037208885
+    ],
+    [
+     138.3232195166981,
+     480.150254606114
+    ],
+    [
+     115.09697800221282,
+     381.79017760981515
+    ]
+   ],
+   "named": {
+    "face": null,
+    "color": null,
+    "reason": "ambiguous centre (blue 50 vs white 53)",
+    "nameConf": 0.061455552940302804,
+    "centreNorm": {
+     "L": -17.22812894178611,
+     "a": -0.34792016790999303,
+     "b": -19.714290278194625
+    },
+    "centreRgb": [
+     23.28125,
+     50.4375,
+     77.53125
+    ],
+    "ranked": [
+     {
+      "face": "B",
+      "d": 50.15796285051401
+     },
+     {
+      "face": "U",
+      "d": 53.4422882236963
+     },
+     {
+      "face": "F",
+      "d": 75.8687147075562
+     },
+     {
+      "face": "R",
+      "d": 85.50193272637087
+     },
+     {
+      "face": "L",
+      "d": 93.08943082878392
+     },
+     {
+      "face": "D",
+      "d": 100.96862527354153
+     }
+    ],
+    "cells": [
+     {
+      "k": 0,
+      "rgb": [
+       0,
+       71.03703703703704,
+       133.28395061728395
+      ],
+      "lab": {
+       "L": 29.940191829227025,
+       "a": 6.527418095262416,
+       "b": -40.153245536241656
+      },
+      "labNorm": {
+       "L": -7.520556195842737,
+       "a": 6.527418095262416,
+       "b": -40.153245536241656
+      },
+      "nearest": {
+       "face": "B",
+       "d": 30.978131712536268,
+       "second": 57.47573281406564
+      }
+     },
+     {
+      "k": 1,
+      "rgb": [
+       0,
+       55.58024691358025,
+       110.1604938271605
+      ],
+      "lab": {
+       "L": 23.393581792484106,
+       "a": 7.194516304758814,
+       "b": -36.122137784105554
+      },
+      "labNorm": {
+       "L": -14.067166232585656,
+       "a": 7.194516304758814,
+       "b": -36.122137784105554
+      },
+      "nearest": {
+       "face": "B",
+       "d": 32.41575543753368,
+       "second": 59.656791248130766
+      }
+     },
+     {
+      "k": 2,
+      "rgb": [
+       186.1851851851852,
+       51.58024691358025,
+       1.1481481481481481
+      ],
+      "lab": {
+       "L": 42.592382100512154,
+       "a": 52.159748096911876,
+       "b": 54.30490028079612
+      },
+      "labNorm": {
+       "L": 5.131634075442392,
+       "a": 52.159748096911876,
+       "b": 54.30490028079612
+      },
+      "nearest": {
+       "face": "L",
+       "d": 23.27444696122049,
+       "second": 25.41537525771627
+      }
+     },
+     {
+      "k": 3,
+      "rgb": [
+       178.5679012345679,
+       188.0493827160494,
+       23.950617283950617
+      ],
+      "lab": {
+       "L": 73.27636439704011,
+       "a": -20.88387937868591,
+       "b": 71.11195283306913
+      },
+      "labNorm": {
+       "L": 35.81561637197035,
+       "a": -20.88387937868591,
+       "b": 71.11195283306913
+      },
+      "nearest": {
+       "face": "D",
+       "d": 23.436193198410308,
+       "second": 62.47925041284977
+      }
+     },
+     {
+      "k": 4,
+      "rgb": [
+       23.28125,
+       50.4375,
+       77.53125
+      ],
+      "lab": {
+       "L": 20.23261908328365,
+       "a": -0.34792016790999303,
+       "b": -19.714290278194625
+      },
+      "labNorm": {
+       "L": -17.22812894178611,
+       "a": -0.34792016790999303,
+       "b": -19.714290278194625
+      },
+      "nearest": {
+       "face": "B",
+       "d": 50.15796285051401,
+       "second": 53.4422882236963
+      }
+     },
+     {
+      "k": 5,
+      "rgb": [
+       115.98765432098766,
+       109.30864197530865,
+       101.24691358024691
+      ],
+      "lab": {
+       "L": 46.525287856369445,
+       "a": 1.0755605791655243,
+       "b": 5.430166080994447
+      },
+      "labNorm": {
+       "L": 9.064539831299683,
+       "a": 1.0755605791655243,
+       "b": 5.430166080994447
+      },
+      "nearest": {
+       "face": "U",
+       "d": 23.465264179440737,
+       "second": 61.550829774618165
+      }
+     },
+     {
+      "k": 6,
+      "rgb": [
+       180.40740740740742,
+       0,
+       14.555555555555555
+      ],
+      "lab": {
+       "L": 37.46074802506976,
+       "a": 61.934860492944026,
+       "b": 46.1789594015429
+      },
+      "labNorm": {
+       "L": 0,
+       "a": 61.934860492944026,
+       "b": 46.1789594015429
+      },
+      "nearest": {
+       "face": "R",
+       "d": 15.419650495641292,
+       "second": 35.753024681117786
+      }
+     },
+     {
+      "k": 7,
+      "rgb": [
+       0,
+       30.22222222222222,
+       63.91358024691358
+      ],
+      "lab": {
+       "L": 11.33707382063216,
+       "a": 4.514197775443166,
+       "b": -24.56252219817159
+      },
+      "labNorm": {
+       "L": -26.123674204437602,
+       "a": 4.514197775443166,
+       "b": -24.56252219817159
+      },
+      "nearest": {
+       "face": "B",
+       "d": 44.32939602729715,
+       "second": 63.71497507983652
+      }
+     },
+     {
+      "k": 8,
+      "rgb": [
+       99.65432098765432,
+       93.54320987654322,
+       5.617283950617284
+      ],
+      "lab": {
+       "L": 38.94458618674604,
+       "a": -7.167943831985851,
+       "b": 44.478885962093784
+      },
+      "labNorm": {
+       "L": 1.4838381616762746,
+       "a": -7.167943831985851,
+       "b": 44.478885962093784
+      },
+      "nearest": {
+       "face": "D",
+       "d": 34.88752938582553,
+       "second": 44.29720927119945
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

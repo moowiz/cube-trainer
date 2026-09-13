@@ -342,3 +342,36 @@ describe('red and orange 11 deg apart never share a cluster', () => {
     expect(cc.colorOf(o)).toBe('orange');
   });
 });
+
+// scan-debug-1789315824514: no blue cluster after the whole session. The blue
+// face's centre read (-0.3, -19.7) - a dark blue 16 from the white centroid
+// (-5.6, -6.3) - and joined white (the hue split only applies above chroma
+// 30), so two tracks were both "U" and blue was never parsed.
+describe('a dark blue centre never joins a white cluster', () => {
+  const cap = JSON.parse(readFileSync(new URL('scan-debug-1789315824514.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null }[];
+  };
+  const white: Lab = cap.clusters.find((c) => c.id === 1)!.centroid;
+  const darkBlue: Lab = { L: 0, a: -0.3, b: -19.7 };
+
+  it('splits into a white and a blue cluster', () => {
+    expect(labDistance(white, darkBlue)).toBeLessThan(BIRTH_DIST);
+    expect(sameCluster(darkBlue, white, labDistance(white, darkBlue))).toBe(false);
+    const cc = new ColorClusters();
+    for (const c of cap.clusters.filter((c) => c.id !== 10 && c.id !== 11)) cc.observe(cellsWithCentre(c.centroid));
+    const w = cc.observe(cellsWithCentre(white));
+    const b = cc.observe(cellsWithCentre(darkBlue));
+    expect(b).not.toBe(w);
+    expect(cc.colorOf(w)).toBe('white');
+    expect(cc.colorOf(b)).toBe('blue');
+    // and a brighter blue later takes the rank; the dark one follows it
+    const b2 = cc.observe(cellsWithCentre({ L: 0, a: 7, b: -40 }));
+    expect(cc.colorOf(b2)).toBe('blue');
+    expect(cc.colorOf(b)).toBe('blue');
+  });
+
+  it('a mildly cast white (b -9) still joins white', () => {
+    const cast: Lab = { L: 0, a: -4, b: -9.5 };
+    expect(sameCluster(cast, white, labDistance(white, cast))).toBe(true);
+  });
+});

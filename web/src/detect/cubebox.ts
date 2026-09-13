@@ -7,7 +7,7 @@
 // full-frame stage 2): callers fall back to the grid scanner.
 import * as ort from 'onnxruntime-web';
 import { letterbox, type Box, type Letterbox } from './geometry';
-import { createSession, type RunSession } from './session';
+import { createSession, type Ep, type RunSession } from './session';
 
 interface CubeboxMeta {
   input: { shape: number[]; mean: number[]; std: number[] };
@@ -34,7 +34,7 @@ export class CubeLocalizer {
   /** Objectness of the most recent locate() call, hit or miss (debug overlay). */
   lastObj = 0;
 
-  private constructor(private session: RunSession, private meta: CubeboxMeta) {
+  private constructor(private session: RunSession, private meta: CubeboxMeta, readonly ep: Ep) {
     const [, , h, w] = meta.input.shape;
     this.iw = w;
     this.ih = h;
@@ -45,8 +45,8 @@ export class CubeLocalizer {
     this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
   }
 
-  /** null when the model files aren't deployed. */
-  static async load(): Promise<CubeLocalizer | null> {
+  /** null when the model files aren't deployed. Follows stage 2's EP: it runs every tick, so it gains the most from the GPU when that wins. */
+  static async load(ep: Ep = 'wasm'): Promise<CubeLocalizer | null> {
     const base = import.meta.env.BASE_URL;
     try {
       const metaRes = await fetch(`${base}models/cubebox.json`);
@@ -55,11 +55,21 @@ export class CubeLocalizer {
       const modelRes = await fetch(`${base}models/cubebox.onnx`);
       if (!modelRes.ok) return null;
       const buf = await modelRes.arrayBuffer();
-      const session = await createSession(new Uint8Array(buf), 'wasm');
-      return new CubeLocalizer(session, meta);
+      const model = new Uint8Array(buf);
+      try {
+        return new CubeLocalizer(await createSession(model, ep), meta, ep);
+      } catch (err) {
+        if (ep === 'wasm') throw err;
+        console.warn(`cubebox: ${ep} session failed, using wasm`, err);
+        return new CubeLocalizer(await createSession(model, 'wasm'), meta, 'wasm');
+      }
     } catch {
       return null;
     }
+  }
+
+  dispose(): void {
+    void this.session.release();
   }
 
   async locate(source: CanvasImageSource, sw: number, sh: number): Promise<CubeBox | null> {

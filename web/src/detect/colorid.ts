@@ -59,6 +59,8 @@ export const ALIAS_DIST = 2 * BIRTH_DIST;
 const WHITE_MAX_CHROMA = 20;
 /** Blue needs this much negative b; green this much negative a AND a green hue. */
 const BLUE_MAX_B = -8;
+/** A reading this cool is a dark blue, not a cast white, and must not share a cluster with one (see sameCluster). */
+const COOL_SPLIT_B = BLUE_MAX_B - 6;
 const GREEN_MAX_A = -12;
 /** Green measures hue 143-155; yellow 95-113 (a -22..-30, and "most negative a" picked it when no green existed, scan-debug-1789312588404). */
 const GREEN_MIN_HUE = 125;
@@ -144,6 +146,13 @@ function hueGap(x: Lab, y: Lab): number {
  */
 export function sameCluster(reading: Lab, centroid: Lab, d: number): boolean {
   if (d > BIRTH_DIST) return false;
+  // A decidedly cool near-neutral never joins a neutral cluster (or the
+  // reverse): white must not be cool and blue must be, so a cluster that
+  // straddles the boundary can be named neither. scan-debug-1789315824514:
+  // the blue face's centre read (-0.3, -19.7), 16 from the white centroid
+  // (-5.6, -6.3), joined white and blue was never parsed.
+  if ((isNeutral(reading) || isNeutral(centroid))
+    && Math.min(reading.b, centroid.b) < COOL_SPLIT_B && Math.max(reading.b, centroid.b) > BLUE_MAX_B) return false;
   return !(chroma(reading) > HUE_SPLIT_MIN_CHROMA && chroma(centroid) > HUE_SPLIT_MIN_CHROMA && hueGap(reading, centroid) > HUE_SPLIT_DEG);
 }
 

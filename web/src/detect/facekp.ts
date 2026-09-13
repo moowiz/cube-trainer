@@ -94,7 +94,8 @@ interface FacekpMeta {
 export type { Ep } from './session';
 
 const CONF_KEEP = 0.25; // hand everything plausible to the caller; it filters
-const BENCH_KEY = 'facekp:epBench:v1';
+// v2: wasm moved to a threaded worker (2026-09-13), which retires every v1 verdict.
+const BENCH_KEY = 'facekp:epBench:v2';
 const TOP_K = 6;        // max faces the center head decodes per frame (3 can be visible)
 // Decode dedupe, mirroring model/train/model.py's CENTER_* constants exactly.
 const DEDUPE_FRAC = 0.5;      // suppression radius as a fraction of the kept quad's mean edge
