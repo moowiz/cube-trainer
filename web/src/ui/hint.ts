@@ -6,9 +6,11 @@
 import { TOO_SMALL_REASON } from '../detect/identify';
 
 export interface Hint {
-  key: 'closer' | 'light' | 'glare';
+  key: 'closer' | 'light' | 'glare' | 'nocube';
   text: string;
 }
+
+const NO_CUBE: Hint = { key: 'nocube', text: 'No cube found — hold the cube in view' };
 
 const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: string }[] = [
   { key: 'closer', match: (r) => r.startsWith(TOO_SMALL_REASON), text: 'Move closer — the cube is too small to read' },
@@ -18,15 +20,23 @@ const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: strin
 
 /**
  * Pick a hint from the refusal reasons of this frame's unnamed quads (or, with
- * no quads, from the localizer's box being too small), or null when nothing
- * actionable is happening. Majority reason wins so a lone glare quad next to two too-small ones
- * says "move closer".
+ * no quads, from the localizer: its box being too small, or it finding no
+ * cube at all), or null when nothing actionable is happening. Majority reason
+ * wins so a lone glare quad next to two too-small ones says "move closer".
+ *
+ * `noCube` is stage 1's miss (model/PORTRAIT-DESIGN.md section 3.2): the
+ * detection tick produced nothing, so there are no reasons to read and the
+ * tracker is decaying - the banner is the only thing that says why.
  */
-export function hintFor(reasons: readonly string[], anyFaceNamed: boolean, cubeTooSmall = false): Hint | null {
+export function hintFor(reasons: readonly string[], anyFaceNamed: boolean, cubeTooSmall = false,
+                        noCube = false): Hint | null {
   if (anyFaceNamed) return null;
   // The localizer saw a cube whose whole silhouette is under the face floor:
   // no face can be big enough, whether or not the face detector fired.
-  if (reasons.length === 0) return cubeTooSmall ? { key: 'closer', text: HINTS[0]!.text } : null;
+  if (reasons.length === 0) {
+    if (cubeTooSmall) return { key: 'closer', text: HINTS[0]!.text };
+    return noCube ? NO_CUBE : null;
+  }
   let best: Hint | null = null;
   let bestN = 0;
   for (const h of HINTS) {

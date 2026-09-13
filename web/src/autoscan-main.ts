@@ -1,11 +1,13 @@
 // Any-order auto scanner (M6/M7 integration page).
 //
-// Pipeline per CLAUDE.md: camera -> detector (every 2nd frame) -> corner
-// tracker (every frame) -> orientation from shared edges (carried across
-// single-face frames by the track) -> homography rectify at native camera
-// resolution -> 9-cell Lab sampling -> per-sticker voting -> lock on
-// convergence + cubejs validation. The M1 grid scanner remains the fallback
-// (M8): a banner offers it when detection stays weak.
+// Pipeline per CLAUDE.md: camera -> two-stage detector (every 2nd frame:
+// stage-1 localizer on the frame, stage-2 corners on its padded box; a
+// stage-1 miss is a tick with no detections) -> corner tracker (every frame)
+// -> orientation from shared edges (carried across single-face frames by the
+// track) -> homography rectify at native camera resolution -> 9-cell Lab
+// sampling -> per-sticker voting -> lock on convergence + cubejs validation.
+// The M1 grid scanner remains the fallback (M8): a banner offers it when
+// detection stays weak, and it is the only path when either model is missing.
 //
 // Standalone page on purpose - the trainer's Scan tab keeps the proven M1
 // flow until this one has survived phone testing.
@@ -14,10 +16,11 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation } from './assembly';
 import { sampleGridCells } from './color';
-import { FaceDetector, type DetectResult } from './detect/facekp';
-import { MIN_FACE_EDGE_PX } from './color';
-import { drawHeatmap, drawQuad, exemplarSwatches } from './debug/detect-overlay';
-import { CubeLocalizer, padBox } from './detect/cubebox';
+import { FaceDetector } from './detect/facekp';
+import { minFaceEdgePx } from './color';
+import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
+import { CubeLocalizer } from './detect/cubebox';
+import { detectTwoStage, type TwoStageResult } from './detect/twostage';
 import { FaceTracker, type TrackedFace } from './detect/tracker';
 import { HintState, hintFor } from './ui/hint';
 import { resolveOrientations, orientQuad, fuseSharedCorners } from './detect/orient';
@@ -71,6 +74,7 @@ app.innerHTML = `
       <button id="start">Start camera</button>
       <button id="reset">Reset scan</button>
       <label id="heatLbl" style="display:none"><input type="checkbox" id="heat"> heatmap</label>
+      <label id="stageLbl" style="display:none"><input type="checkbox" id="stage1" checked> stage-1 box</label>
       <span id="status">model loading…</span>
     </div>
     <div id="stage"><canvas id="view"></canvas><div id="hint" hidden></div></div>
@@ -92,6 +96,8 @@ const hintEl = document.getElementById('hint')!;
 const swatchEl = document.getElementById('swatches')!;
 const heatChk = document.getElementById('heat') as HTMLInputElement;
 const heatLbl = document.getElementById('heatLbl')!;
+const stageChk = document.getElementById('stage1') as HTMLInputElement;
+const stageLbl = document.getElementById('stageLbl')!;
 
 const camera = new Camera();
 const fps = new FpsCounter();
@@ -102,34 +108,44 @@ const workCtx = work.getContext('2d', { willReadFrequently: true })!;
 
 let detector: FaceDetector | null = null;
 let localizer: CubeLocalizer | null = null;
-let lastTracks: TrackedFace[] = [];
 let running = false;
 let frameNo = 0;
 let inferBusy = false;
 let pendingDetections: import('./detect/facekp').DetectedFace[] | null = null;
-// The most recent detector result, kept for the debug overlay only: the
-// pipeline itself consumes `pendingDetections` once and drops it.
-let lastDetect: DetectResult | null = null;
+// The most recent detection tick, kept for the debug overlay and the banner:
+// the pipeline itself consumes `pendingDetections` once and drops it.
+let lastTick: TwoStageResult | null = null;
 let lastTs = 0;
 let rotations: Partial<Record<FaceId, number>> = {};
 let lastGoodDetectionTs = 0;
 const hintState = new HintState();
 let cubeTooSmall = false;  // localizer found a cube whose silhouette is under the face floor
+let noCube = false;        // localizer found nothing on the last tick
 let solved = false;
 let vetoedCount = 0; // faces skipped by the seam veto (debug stat)
 
 void FaceDetector.load('auto').then(async (d) => {
+  // Always two-stage (model/PORTRAIT-DESIGN.md 3.3): a stage 2 without the
+  // crop stamp has no path to run on, and a missing stage 1 is the same as a
+  // missing stage 2. Either way the grid scanner is the app.
+  const l = d ? await CubeLocalizer.load() : null;
+  if (!d || !l || !d.cropTrained) {
+    detector = null;
+    localizer = null;
+    statusEl.textContent = !d || !l
+      ? 'no model deployed — use the grid scanner'
+      : `model ${d.modelId} is not crop-trained — no two-stage path; use the grid scanner`;
+    fallbackEl.style.display = 'block';
+    return;
+  }
   detector = d;
-  // two-stage path only with a crop-trained stage 2: the base model
-  // measurably degrades on crops (batch4 median 6% -> 11.7%)
-  if (d?.cropTrained) localizer = await CubeLocalizer.load();
-  const mode = d?.cropTrained ? (localizer ? ' · 2-stage' : ' · 2-stage, localizer missing') : '';
-  statusEl.textContent = d ? `model ready (${d.modelId}, ${d.ep}${mode})` : 'no model deployed — use the grid scanner';
-  if (!d) fallbackEl.style.display = 'block';
-  if (d?.anonymous) {
+  localizer = l;
+  statusEl.textContent = `model ready (${l.modelId} → ${d.modelId}, ${d.ep})`;
+  if (d.anonymous) {
     heatLbl.style.display = 'flex';
     swatchEl.style.display = 'flex';
   }
+  stageLbl.style.display = 'flex';
 });
 
 function frameImageData(): ImageDataLike {
@@ -146,8 +162,8 @@ function drawOverlay(tracks: TrackedFace[]): void {
   // Raw anonymous quads first, in grey, under the tracked+named ones: when a
   // face stops being drawn, this says whether the detector lost it or the
   // namer refused it (and why).
-  if (lastDetect) {
-    for (const u of lastDetect.unnamed) {
+  if (lastTick?.result) {
+    for (const u of lastTick.result.unnamed) {
       drawQuad(ctx, u.quad.corners, '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5);
     }
   }
@@ -195,43 +211,30 @@ async function loop(ts: number): Promise<void> {
       view.height = v.videoHeight;
     }
     ctx.drawImage(v, 0, 0);
-    if (lastDetect?.heat && heatChk?.checked) drawHeatmap(ctx, lastDetect.heat);
+    if (lastTick?.result?.heat && heatChk?.checked) drawHeatmap(ctx, lastTick.result.heat);
+    if (lastTick && stageChk?.checked) drawStage1(ctx, lastTick.box?.box ?? null, lastTick.roi, lastTick.obj);
     frameNo++;
     const dt = lastTs ? ts - lastTs : 33;
     lastTs = ts;
 
-    // detector on a cadence, never overlapping inferences. Two-stage when
-    // the deployed model is crop-trained: tracked cube -> crop from the
-    // previous tracks (stage 1 idle); acquisition -> stage-1 localizer;
-    // localizer miss or absent -> full frame (the floor is today's path).
-    if (detector && !inferBusy && frameNo % DETECT_EVERY === 0) {
+    // Detector on a cadence, never overlapping inferences. Every tick is
+    // stage 1 on the frame then stage 2 on its padded box; a stage-1 miss
+    // hands the tracker an empty detection list (tracks decay exactly as
+    // they do when stage 2 finds nothing) and the banner says no cube.
+    if (detector && localizer && !inferBusy && frameNo % DETECT_EVERY === 0) {
       inferBusy = true;
       void (async () => {
         try {
-          let roi: [number, number, number, number] | undefined;
-          if (detector!.cropTrained) {
-            const strong = lastTracks.filter((t2) => t2.conf >= SAMPLE_CONF);
-            if (strong.length) {
-              let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-              for (const t2 of strong) {
-                for (const c of t2.corners) {
-                  x0 = Math.min(x0, c[0]); y0 = Math.min(y0, c[1]);
-                  x1 = Math.max(x1, c[0]); y1 = Math.max(y1, c[1]);
-                }
-              }
-              roi = padBox([x0, y0, x1, y1], 0.4, v.videoWidth, v.videoHeight);
-            } else if (localizer) {
-              const hit = await localizer.locate(v, v.videoWidth, v.videoHeight);
-              if (hit) roi = padBox(hit.box, 0.45, v.videoWidth, v.videoHeight);
-              // A face edge can't exceed the cube's silhouette, so a silhouette
-              // under MIN_FACE_EDGE_PX at the detector's scale is too far, full stop.
-              const scale = Math.min(detector!.iw / v.videoWidth, detector!.ih / v.videoHeight);
-              cubeTooSmall = !!hit && Math.max(hit.box[2] - hit.box[0], hit.box[3] - hit.box[1]) * scale < MIN_FACE_EDGE_PX;
-            }
-          }
-          const res = await detector!.detect(v, roi);
-          pendingDetections = res.faces;
-          lastDetect = res;
+          const tick = await detectTwoStage(localizer!, detector!, v);
+          pendingDetections = tick.result?.faces ?? [];
+          lastTick = tick;
+          noCube = !tick.box;
+          // A face edge can't exceed the cube's silhouette, so a silhouette
+          // under the range floor (a fraction of the SOURCE frame height) is
+          // too far, full stop - whatever stage 2 then says about it.
+          cubeTooSmall = !!tick.box
+            && Math.max(tick.box.box[2] - tick.box.box[0], tick.box.box[3] - tick.box.box[1])
+               < minFaceEdgePx(v.videoHeight);
         } catch { /* transient failure: try again next cadence */ }
         inferBusy = false;
       })();
@@ -240,7 +243,6 @@ async function loop(ts: number): Promise<void> {
     const dets = pendingDetections;
     pendingDetections = null;
     const tracks = tracker.update(dets, dt);
-    lastTracks = tracks;
     if (tracks.some((t) => t.conf >= SAMPLE_CONF)) lastGoodDetectionTs = ts;
 
     // orientation: shared edges when 2+ confident faces are co-visible;
@@ -284,7 +286,7 @@ async function loop(ts: number): Promise<void> {
     // Banner for refusals the user can fix (too far, too dark, glare).
     // Reasons come from the same list the grey debug quads show.
     const hint = hintState.update(
-      hintFor(lastDetect?.unnamed.map((u) => u.reason) ?? [], confident.length > 0, cubeTooSmall), ts);
+      hintFor(lastTick?.result?.unnamed.map((u) => u.reason) ?? [], confident.length > 0, cubeTooSmall, noCube), ts);
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
     if (detector?.anonymous) exemplarSwatches(swatchEl, detector.exemplars);
@@ -292,8 +294,11 @@ async function loop(ts: number): Promise<void> {
     fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
     fps.tick();
     statsEl.textContent = `fps ${fps.fps.toFixed(1)}   tracks ${tracks.length}   oriented ${Object.keys(rotations).length}   vetoed ${vetoedCount}`
-      + (detector?.anonymous && lastDetect
-        ? `   quads ${lastDetect.quads.length}   unnamed ${lastDetect.unnamed.length}`
+      + (lastTick
+        ? `   stage1 ${lastTick.locateMs.toFixed(1)}ms obj ${lastTick.obj.toFixed(2)}`
+          + (lastTick.result
+            ? `   stage2 ${lastTick.result.inferMs.toFixed(1)}ms quads ${lastTick.result.quads.length}   unnamed ${lastTick.result.unnamed.length}`
+            : '   stage2 skipped')
         : '');
   }
   requestAnimationFrame((t) => void loop(t));
@@ -325,7 +330,7 @@ document.getElementById('reset')!.addEventListener('click', () => {
   detector?.exemplars.reset();
   rotations = {};
   solved = false;
-  lastDetect = null;
+  lastTick = null;
   resultEl.textContent = '';
   hintEl.hidden = true;
 });

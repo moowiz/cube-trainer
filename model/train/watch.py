@@ -90,7 +90,7 @@ th { color:#e8eaf0; }
 const METRICS = [
   { title:'Corner error (val_px)', fmt:v=>v.toFixed(2),
     series:[{ key:'val_px', label:'val_px', color:'#7aa2ff' }],
-    desc:'Mean corner error (px at 320x240) on held-out frames — the number that matters. Healthy: falls steeply early, then flattens to a plateau. Rising after a low = overfitting; never falling = data/LR problem.' },
+    desc:'Mean corner error (px at the model input) on held-out frames — the number that matters. Healthy: falls steeply early, then flattens to a plateau. Rising after a low = overfitting; never falling = data/LR problem.' },
   { title:'Loss — train vs val', fmt:v=>v.toFixed(4),
     series:[{ key:'train_loss', label:'train', color:'#c792ea' },
             { key:'val_loss', label:'val', color:'#e0a458' }],

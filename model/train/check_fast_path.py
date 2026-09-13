@@ -26,7 +26,8 @@ import torch
 
 from dataset import CubeKeypointDataset, normalize_batch
 
-INPUT_WH = (320, 240)
+from shapes import KP_WH
+INPUT_WH = KP_WH
 
 
 def main():
@@ -92,7 +93,7 @@ def step_has_no_sync() -> bool:
     raw = torch.randint(0, 256, (b, INPUT_WH[1], INPUT_WH[0], 3), dtype=torch.uint8).pin_memory()
     conf = torch.zeros(b, 6); conf[:, :2] = 1
     corners = (torch.rand(b, 6, 4, 2) * 0.5 + 0.25)
-    corners[0, 0] *= 0.02      # one face below MIN_FACE_EDGE_PX: exercises the ignore path
+    corners[0, 0] *= 0.02      # one face below the range floor: exercises the ignore path
     valid = torch.ones(b, 6)
     conf, corners, valid = (t.pin_memory() for t in (conf, corners, valid))
 

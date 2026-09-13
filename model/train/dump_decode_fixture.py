@@ -1,11 +1,12 @@
 """Dump raw center-head maps + the Python decode as a web test fixture.
 
-    python dump_decode_fixture.py --ckpt runs/oc1/best.pt --data ../data
+    python dump_decode_fixture.py --ckpt runs/kpft1/best.pt --data ../data_v5
     python dump_decode_fixture.py --synthetic          # no checkpoint needed
 
-Writes web/test/fixtures/facekp-maps.json:
+Writes web/test/fixtures/facekp-maps-square.json (input size and view from
+the checkpoint - the crop view re-crops the val image the way the app does):
 
-    { "shape": [1,9,15,20], "stride": 16, "inputWh": [320,240], "thresh": 0.3,
+    { "shape": [1,9,16,16], "stride": 16, "inputWh": [256,256], "thresh": 0.3,
       "maps": [ ...flattened float32, row-major... ],
       "expected": [ {"score": .., "quad": [[x,y] x4]}, ... ] }
 
@@ -26,9 +27,10 @@ import numpy as np
 import torch
 
 from model import CENTER_STRIDE, build_model, decode_to_list
+from shapes import KP_WH, grid_hw
 
-INPUT_WH = (320, 240)
-FIXTURE = Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "facekp-maps.json"
+INPUT_WH = KP_WH
+FIXTURE = Path(__file__).resolve().parents[2] / "web" / "test" / "fixtures" / "facekp-maps-square.json"
 
 
 def _write_quad(maps, i, j, cx, cy, half, stride=CENTER_STRIDE):
@@ -41,7 +43,7 @@ def _write_quad(maps, i, j, cx, cy, half, stride=CENTER_STRIDE):
         maps[0, 2 + 2 * c, i, j] = y / stride - (i + 0.5)
 
 
-def synthetic_maps(grid_hw=(15, 20), seed: int = 7) -> torch.Tensor:
+def synthetic_maps(grid_hw=grid_hw(KP_WH), seed: int = 7) -> torch.Tensor:
     """Deterministic stand-in carrying the cases a trained map almost never
     produces but the decoder must get right. Since 2026-09-12 deduplication is
     on the decoded quads (see model.py::decode_maps), so what matters is no
@@ -79,7 +81,7 @@ def synthetic_maps(grid_hw=(15, 20), seed: int = 7) -> torch.Tensor:
     _write_quad(maps, 12, 8, 136, 200, 20)
 
     # D: below threshold.  E: corners off the left edge and above the frame.
-    maps[0, 0, 2, 16] = -1.2
+    maps[0, 0, 2, W - 1] = -1.2
     maps[0, 0, 6, 1] = 2.2
     _write_quad(maps, 6, 1, -10, 20, 40)
     return maps
@@ -104,10 +106,12 @@ def main():
         head = ckpt.get("head", "legacy")
         if head != "center":
             raise SystemExit(f"{args.ckpt} has head {head!r}; this fixture is center-head only")
+        global INPUT_WH
+        INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
         model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
         model.load_state_dict(ckpt["model"])
         model.eval()
-        ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH)
+        ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH, view=ckpt.get("view", "frame"))
         with torch.no_grad():
             maps = model(ds[args.index][0].unsqueeze(0))
         source = f"{args.ckpt} on {ds.files[args.index].name}"

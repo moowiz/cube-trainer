@@ -138,20 +138,37 @@ export const CENTRE_OBSCURED_LAB = 12;
  */
 export const RING_INCOHERENT_LAB = 25;
 
-/** Median corner error of the deployed detector, in 320x240 letterbox px. */
+/**
+ * Median corner error of the deployed detector, in SOURCE px. Stage 2 is
+ * scale-normalized by the crop (model/PORTRAIT-DESIGN.md section 0): its
+ * ~3 px of model error is 2.5 source px at the range floor and ~8 on the
+ * nearest cubes, where stickers are 60+ px and it does not matter. A flat
+ * 3 source px is the conservative end of that.
+ */
 export const CORNER_ERR_PX = 3.0;
 
 /**
- * Below this the model never saw a positive face at all — the trainer buries
- * anything smaller in the ignore region (model/train/targets.py
- * MIN_FACE_EDGE_PX). Naming a face this small asks the detector for a
- * precision it was never trained to have.
+ * The scanning-range floor: a face whose longest edge is below this fraction
+ * of the SOURCE FRAME HEIGHT is further than a person can hold a cube. The
+ * trainer buries anything smaller in the ignore region (model/train/shapes.py
+ * MIN_FACE_EDGE_FRAC) and naming a face this small asks the detector for a
+ * precision it was never trained to have. A fraction of the frame height, not
+ * a pixel count, because the stage-2 crop zooms the cube to a constant size
+ * in model px - only the source frame still says how far away it is.
+ * 0.133 = 85 px on a 480x640 phone frame.
  */
-export const MIN_FACE_EDGE_PX = 32;
+export const MIN_FACE_EDGE_FRAC = 0.133;
+
+/** The floor in pixels of a source frame `frameH` tall. */
+export function minFaceEdgePx(frameH: number): number {
+  return MIN_FACE_EDGE_FRAC * frameH;
+}
 
 /**
- * Sampling geometry for a face with `cellPx` pixels per sticker, or null if
- * the face is too small to sample at all.
+ * Sampling geometry for a face with `cellPx` SOURCE pixels per sticker, or
+ * null if the face is too small to sample at all (its edge, 3 cells, is under
+ * `minEdgePx` - the caller derives that from the source frame height with
+ * minFaceEdgePx; 0 disables the gate).
  *
  * MEASURED (model/data_real_val, 74 labelled faces, deployed v4ft1): the
  * detector's corner error is nearly flat in pixels — 3.9 px on the smallest
@@ -164,8 +181,8 @@ export const MIN_FACE_EDGE_PX = 32;
  * paid first (capped at 0.15 — wider buys no averaging worth the reach), and
  * only the remainder funds a ring.
  */
-export function facePlan(cellPx: number): CellPlan | null {
-  if (cellPx * 3 < MIN_FACE_EDGE_PX) return null;
+export function facePlan(cellPx: number, minEdgePx = 0): CellPlan | null {
+  if (cellPx * 3 < minEdgePx) return null;
   const budget = 0.45 - CORNER_ERR_PX / Math.max(cellPx, 1e-6);
   if (budget <= 0.02) return null;
   // The eight outer cells have nothing to dodge (measured: their middle and

@@ -1,12 +1,13 @@
-"""Datasets for the stage-1 cube localizer (bbox at 160x120).
+"""Datasets for the stage-1 cube localizer (bbox at BOX_WH = 120x160 portrait).
 
 Two sources, one sample contract: (image CHW normalized like FaceKP,
 objectness float, bbox [cx, cy, w, h] normalized to [0,1], box_valid float).
 
-- SynthBBox wraps CubeKeypointDataset: bbox = hull of the visible faces'
-  corner labels (free supervision from the corner data, incl. real photos
-  in data_real). Hard negatives (no cube) come through as objectness 0.
-  box_valid is always 1: these labels ARE the silhouette convention.
+- SynthBBox wraps CubeKeypointDataset(view="frame"): bbox = hull of the
+  visible faces' corner labels (free supervision from the corner data, incl.
+  real photos in data_real). Hard negatives (no cube) come through as
+  objectness 0. box_valid is always 1: these labels ARE the silhouette
+  convention.
 - CocoBBox reads a Roboflow COCO export dir (all its classes mean "a cube";
   largest box wins if several). Real-world variety stage 2 can't use -
   other people's cubes, rooms, and lighting.
@@ -18,25 +19,25 @@ objectness float, bbox [cx, cy, w, h] normalized to [0,1], box_valid float).
   conventions. Keep them for objectness ("a cube exists, in a real room"),
   which is what they were actually good for, and take extent from the
   silhouette labels only. `--coco-box` puts their box loss back.
+- NegDir: a flat directory of no-cube photos (COCO val2017), objectness 0.
 
-Train-time augmentation (all of it lives here):
+Geometry (PORTRAIT-DESIGN.md section 1): the input is the phone's 480x640
+frame at scale 0.25, no bars - a portrait render fills the 240x320 frame
+cache edge to edge and `reduce_to_box_input` pools it by 2. The only bars
+the model ever sees at runtime are the desktop case (a 640x480 webcam
+letterboxed into 120x160 gets 35 px top/bottom bars), which `_bars`
+simulates at p 0.15; the 10 landscape real photos arrive barred already.
+COCO negatives get a random 3:4 crop at p 0.6 so they look like empty phone
+frames instead of barred landscape ones.
 
-- geometry: isotropic zoom + translate, then a *portrait pillarbox*
-  simulation. The app feeds 480x640 portrait frames, which letterbox into
-  160x120 as a 90x120 content window with 35 px grey bars each side; every
-  synthetic image is 640x480 landscape and fills the canvas edge to edge, so
-  before this the model had never seen a bar outside the ~157 real photos.
-  Measured cost of that gap on the deployed model: a controlled A/B on the
-  same synthetic val images (landscape vs a 3:4 centre crop - identical cube
-  pixel size, only the bars differ) moved median width/true from 1.002 to
-  0.964, i.e. a systematic ~4% shrink, in the direction the user reported.
-- photometric: brightness/contrast/noise, and hflip.
+Train-time augmentation (all of it lives here): isotropic zoom + translate,
+`_bars`, hflip, brightness/contrast, noise.
 
-DECISION 2026-09-12: the 320x240 cache is reduced to 160x120 with a 2x2
-average (`avg_pool2d`), not `[::2, ::2]`. Nearest-neighbour decimation
-aliases sticker edges; the browser's `drawImage` downscale does not. Feeding
-the deployed model a `::2`-decimated input instead of a smooth one moved
-median IoU on data_real_val from 0.888 to 0.959 - the model was trained on a
+DECISION 2026-09-12: the frame cache is reduced to BOX_WH with a 2x2 average
+(`avg_pool2d`), not `[::2, ::2]`. Nearest-neighbour decimation aliases
+sticker edges; the browser's `drawImage` downscale does not. Feeding the
+deployed model a `::2`-decimated input instead of a smooth one moved median
+IoU on data_real_val from 0.888 to 0.959 - the model was trained on a
 sharper, aliased image than it is ever shown at runtime.
 """
 from __future__ import annotations
@@ -53,23 +54,27 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 from dataset import CubeKeypointDataset, NORM_MEAN, NORM_STD, letterbox_image, letterbox_params
+from shapes import BOX_WH, FRAME_CACHE_WH
 
-BOX_WH = (160, 120)
 # rgb(114,114,114) in the normalized space the model sees - the letterbox pad.
 PAD = torch.tensor((114.0 / 255.0 - NORM_MEAN) / NORM_STD, dtype=torch.float32).view(3, 1, 1)
-# app geometry: 480x640 -> 160x120 letterbox is a 90x120 window centred at x=35
-PORTRAIT_W = round(BOX_WH[1] * 3 / 4)
-PORTRAIT_X = (BOX_WH[0] - PORTRAIT_W) // 2
+# desktop geometry: 640x480 -> 120x160 letterbox is a 120x90 window centred at y=35
+BARS_H = round(BOX_WH[0] * 3 / 4)
+BARS_Y = (BOX_WH[1] - BARS_H) // 2
+P_BARS = 0.15
+P_NEG_PORTRAIT_CROP = 0.6
 
 
 def reduce_to_box_input(x: torch.Tensor) -> torch.Tensor:
-    """(3,240,320) -> (3,120,160) with a 2x2 box filter (see module docstring)."""
+    """(3,320,240) frame cache -> (3,160,120) with a 2x2 box filter (see module docstring)."""
+    assert x.shape[1] == 2 * BOX_WH[1] and x.shape[2] == 2 * BOX_WH[0], x.shape
     return F.avg_pool2d(x.unsqueeze(0), 2).squeeze(0)
 
 
 def _has_bars(x: torch.Tensor) -> bool:
-    """True if this sample is already letterboxed (a portrait real photo)."""
-    return bool(torch.allclose(x[:, :, 0], PAD.view(3, 1).expand(3, x.shape[1]), atol=1e-3))
+    """True if this sample is already letterboxed (a landscape real photo:
+    the top row is all pad)."""
+    return bool(torch.allclose(x[:, 0, :], PAD.view(3, 1).expand(3, x.shape[2]), atol=1e-3))
 
 
 def _xyxy(box: torch.Tensor, w: int, h: int):
@@ -113,20 +118,23 @@ def _zoom_translate(x: torch.Tensor, box: torch.Tensor, lo=0.72, hi=1.3):
     return x, box
 
 
-def _pillarbox(x: torch.Tensor, box: torch.Tensor):
-    """Crop a 3:4 window and re-centre it with grey bars: the exact geometry a
-    480x640 phone frame gets. Content scale is unchanged (both letterboxes
-    are height-limited at scale 0.1875), so only the bars are new."""
+def _bars(x: torch.Tensor, box: torch.Tensor | None):
+    """Cut a 4:3 window out of the portrait canvas and re-centre it between
+    grey top/bottom bars: the geometry a landscape desktop webcam frame gets.
+    The window is chosen to keep the box (if any) inside it."""
     W, H = BOX_WH
-    x0, y0, x1, y1 = _xyxy(box, W, H)
-    lo = max(0, math.ceil(x1) - PORTRAIT_W)
-    hi = min(math.floor(x0), W - PORTRAIT_W)
-    if lo > hi:
-        return x, box  # cube wider than the portrait window; leave it alone
-    left = random.randint(lo, hi)
-    window = x[:, :, left:left + PORTRAIT_W]
-    return (_paste(BOX_WH, window, PORTRAIT_X, 0),
-            _from_xyxy(x0 - left + PORTRAIT_X, y0, x1 - left + PORTRAIT_X, y1, W, H))
+    if box is not None:
+        _, y0, _, y1 = _xyxy(box, W, H)
+        lo = max(0, math.ceil(y1) - BARS_H)
+        hi = min(math.floor(y0), H - BARS_H)
+        if lo > hi:
+            return x, box  # cube taller than the window; leave it alone
+        top = random.randint(lo, hi)
+        window = x[:, top:top + BARS_H, :]
+        return (_paste(BOX_WH, window, 0, BARS_Y),
+                _from_xyxy(_xyxy(box, W, H)[0], y0 - top + BARS_Y, _xyxy(box, W, H)[2], y1 - top + BARS_Y, W, H))
+    top = random.randint(0, H - BARS_H)
+    return _paste(BOX_WH, x[:, top:top + BARS_H, :], 0, BARS_Y), None
 
 
 def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = True):
@@ -139,13 +147,11 @@ def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = Tr
         barred = _has_bars(x)
         if random.random() < 0.6:
             x, box = _zoom_translate(x, box)
-        if not barred and random.random() < 0.45:
-            x, box = _pillarbox(x, box)
-    elif geometry and not _has_bars(x) and random.random() < 0.45:
-        # negatives see the portrait bars too: an empty phone frame is the
-        # most common "no cube" the app will ever show the model
-        left = random.randint(0, BOX_WH[0] - PORTRAIT_W)
-        x = _paste(BOX_WH, x[:, :, left:left + PORTRAIT_W], PORTRAIT_X, 0)
+        if not barred and random.random() < P_BARS:
+            x, box = _bars(x, box)
+    elif geometry and not _has_bars(x) and random.random() < P_BARS:
+        # negatives see the desktop bars too
+        x, _ = _bars(x, None)
     if random.random() < 0.7:  # brightness/contrast in normalized space
         # The downward reach matters: data_v4's auto-exposure floor re-renders
         # near-black scenes brighter (5.4% of them), so the synthetic set has
@@ -159,10 +165,27 @@ def _augment(x: torch.Tensor, obj: float, box: torch.Tensor, geometry: bool = Tr
     return x, obj, box
 
 
+def _portrait_crop(img: Image.Image) -> Image.Image:
+    """A random 3:4 window of a (usually landscape) photo, so it letterboxes
+    into BOX_WH with no bars - an empty phone frame."""
+    w, h = img.size
+    if w * 4 <= h * 3:
+        return img  # already at least as tall as 3:4
+    nw = round(h * 3 / 4)
+    x0 = random.randint(0, w - nw)
+    return img.crop((x0, 0, x0 + nw, h))
+
+
+def _to_model(img: Image.Image) -> torch.Tensor:
+    arr = np.asarray(letterbox_image(img, *BOX_WH), dtype=np.float32) / 255.0
+    return torch.from_numpy(((arr - NORM_MEAN) / NORM_STD).transpose(2, 0, 1).copy())
+
+
 class SynthBBox(Dataset):
     def __init__(self, root: str, split: str, augment: bool):
         # keypoint augment stays off; bbox-level augment is done here
-        self.inner = CubeKeypointDataset(root, split=split, input_size=(320, 240), augment=None)
+        self.inner = CubeKeypointDataset(root, split=split, input_size=FRAME_CACHE_WH, augment=None,
+                                         view="frame")
         self.augment = augment
 
     def __len__(self) -> int:
@@ -170,7 +193,7 @@ class SynthBBox(Dataset):
 
     def __getitem__(self, i: int):
         x, conf, corners, valid = self.inner[i]
-        x = reduce_to_box_input(x)  # 320x240 cache -> 160x120, same normalized coords
+        x = reduce_to_box_input(x)  # frame cache -> BOX_WH, same normalized coords
         vis = (conf > 0.5) & (valid > 0.5)
         if vis.any():
             pts = corners[vis].reshape(-1, 2)
@@ -195,8 +218,10 @@ class NegDir(Dataset):
 
     EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
-    def __init__(self, root: str | Path, augment: bool):
+    def __init__(self, root: str | Path, augment: bool, frac: float = 1.0):
         self.files = sorted(p for p in Path(root).iterdir() if p.suffix.lower() in self.EXTS)
+        if frac < 1.0:  # deterministic subset: a smaller pool, not a re-weighting
+            self.files = self.files[: max(1, round(len(self.files) * frac))]
         self.augment = augment
 
     def __len__(self) -> int:
@@ -204,8 +229,9 @@ class NegDir(Dataset):
 
     def __getitem__(self, i: int):
         img = Image.open(self.files[i]).convert("RGB")
-        arr = np.asarray(letterbox_image(img, *BOX_WH), dtype=np.float32) / 255.0
-        x = torch.from_numpy(((arr - NORM_MEAN) / NORM_STD).transpose(2, 0, 1).copy())
+        if self.augment and random.random() < P_NEG_PORTRAIT_CROP:
+            img = _portrait_crop(img)
+        x = _to_model(img)
         box = torch.zeros(4)
         obj = 0.0
         if self.augment:
@@ -236,8 +262,7 @@ class CocoBBox(Dataset):
         name, w, h, b = self.items[i]
         img = Image.open(self.dir / name).convert("RGB")
         scale, dx, dy = letterbox_params(w, h, *BOX_WH)
-        arr = np.asarray(letterbox_image(img, *BOX_WH), dtype=np.float32) / 255.0
-        x = torch.from_numpy(((arr - NORM_MEAN) / NORM_STD).transpose(2, 0, 1).copy())
+        x = _to_model(img)
         if b is not None:
             bx, by, bw, bh = b
             x0 = (bx * scale + dx) / BOX_WH[0]

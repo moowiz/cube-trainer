@@ -1,7 +1,16 @@
 """Break down validation corner error so the mean can't hide anything.
 
-    python diagnose.py --ckpt runs/base/best.pt --data ../data
-    python diagnose.py --ckpt runs/ft/best.pt   --data ../data_real_val --split all
+    python diagnose.py --ckpt runs/kp1/best.pt --data ../data_v5
+    python diagnose.py --ckpt runs/kpft1/best.pt --data ../data_real_val --split all
+    python diagnose.py --ckpt runs/kpft1/best.pt --data ../data_real_val --split all --jitter 0.15
+
+The view (crop/frame) and input size come from the checkpoint. On the crop
+view every image is re-cropped around the cube hull with the app's padding
+(PAD_VAL per side); `--jitter J` draws the padding U(PAD_VAL-J, PAD_VAL+J)
+per side instead, which is what stage 2 sees under localizer error. Errors
+are reported in INPUT px and, via the crop scale, in SOURCE px; face-size
+bins are fractions of the SOURCE frame height (the range floor's units):
+far 0.133-0.188, mid 0.188-0.25, near > 0.25 (PORTRAIT-DESIGN.md 5).
 
 Per visible face: corner error in input pixels, face size (sqrt of quad area),
 cube style. Prints percentiles, error by face-size bin, and error by style -
@@ -34,10 +43,13 @@ import torch
 
 from dataset import FACE_ORDER, CubeKeypointDataset
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps, f1_from_counts
-from targets import MIN_FACE_EDGE_PX, quad_centers
+from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL, min_face_edge_px
+from targets import quad_centers
 
-INPUT_WH = (320, 240)
+INPUT_WH = KP_WH   # overwritten from the checkpoint
 DIAMOND_DEG = 20.0  # a matched quad rotated more than this is a hedge/diamond
+# fractions of the source frame height, longest visible edge
+RANGE_BINS = [("far", MIN_FACE_EDGE_FRAC, 0.188), ("mid", 0.188, 0.25), ("near", 0.25, 1e9)]
 
 
 def quad_area(c):  # shoelace, c: (4,2)
@@ -95,20 +107,34 @@ def main():
                     help="center head: detection score counted as a detection")
     ap.add_argument("--photos", default="../../stephens_photos",
                     help="root holding the original photo batches, for the per-batch split")
-    ap.add_argument("--min-edge", type=float, default=MIN_FACE_EDGE_PX,
+    ap.add_argument("--min-edge", type=float, default=None,
                     help="faces whose longest edge is below this (input px) are out of "
-                         "scanning range and are ignored entirely; 0 scores everything")
+                         "scanning range and are ignored entirely; default = the range floor "
+                         "(MIN_FACE_EDGE_FRAC of the input height); 0 scores everything")
+    ap.add_argument("--jitter", type=float, default=0.0,
+                    help="crop view: per-side padding U(PAD_VAL-J, PAD_VAL+J) instead of exactly "
+                         "PAD_VAL, simulating localizer error")
+    ap.add_argument("--seed", type=int, default=0, help="for --jitter")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "legacy")
+    global INPUT_WH
+    INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
+    view = ckpt.get("view", "frame")
+    if args.min_edge is None:
+        args.min_edge = min_face_edge_px(INPUT_WH[1])
     model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
-    print(f"head={head}  ckpt={args.ckpt}  data={args.data} ({args.split})")
+    pad = (PAD_VAL - args.jitter, PAD_VAL + args.jitter) if args.jitter else PAD_VAL
+    print(f"head={head}  view={view} {INPUT_WH[0]}x{INPUT_WH[1]}  ckpt={args.ckpt}  data={args.data} ({args.split})"
+          + (f"  crop pad {pad}" if view == "crop" else ""))
 
-    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH)
+    ds = CubeKeypointDataset(args.data, split=args.split, input_size=INPUT_WH, view=view, crop_pad=pad)
+    if args.jitter:
+        ds._rng = (__import__("os").getpid(), np.random.default_rng(args.seed))
     batches = batch_index(Path(args.photos))
     rows = []          # one per ground-truth visible face
     false_pos = 0
@@ -116,7 +142,7 @@ def main():
     with torch.no_grad():
         for start in range(0, len(ds), 64):
             idxs = range(start, min(start + 64, len(ds)))
-            batch = [ds[i] for i in idxs]
+            batch = [ds.sample(i) for i in idxs]
             x = torch.stack([b[0] for b in batch]).to(device)
             pred = model(x)
             if head == "center":
@@ -131,7 +157,11 @@ def main():
                 meta = json.loads(ds.files[i].read_text())
                 style = meta.get("style", "?")
                 batch_name = batches.get(meta.get("source", ""), "-")
-                _, conf, corners, valid = batch[j]
+                _, conf, corners, valid, geom = batch[j]
+                # input px -> source px, and a face's long edge as a fraction
+                # of the source frame height (orientation-free range bins)
+                src = 1.0 / geom["scale"]
+                src_h = geom["src_h"]
                 gts = [f for f in range(6) if conf[f] >= 0.5 and valid[f] >= 0.5]
                 gt_q = {f: corners[f].numpy() * wh for f in gts}
                 if head == "center":
@@ -152,9 +182,11 @@ def main():
                     false_pos += len(dets) - len(used_d)
                     for f in gts:
                         e = np.linalg.norm(gt_q[f] - np.roll(gt_q[f], -1, axis=0), axis=1)
+                        frac = float(e.max()) * src / src_h
                         base = {"size": float(np.sqrt(quad_area(gt_q[f]))), "style": style,
                                 "face": FACE_ORDER[f], "batch": batch_name,
-                                "maxEdge": float(e.max()),
+                                "maxEdge": float(e.max()), "src": src, "frac": frac,
+                                "range": next((n for n, lo, hi in RANGE_BINS if lo <= frac < hi), "out"),
                                 "squash": float(e.min() / max(e.max(), 1e-9)),
                                 "far": bool(e.max() < args.min_edge)}
                         if f not in used_g:
@@ -173,10 +205,12 @@ def main():
                         errs = [float(np.linalg.norm(pd - np.roll(gt_q[f], r, axis=0), axis=1).mean())
                                 for r in range(4)]
                         e = np.linalg.norm(gt_q[f] - np.roll(gt_q[f], -1, axis=0), axis=1)
+                        frac = float(e.max()) * src / src_h
                         rows.append({"err": min(errs), "rot": None, "score": None,
                                      "size": float(np.sqrt(quad_area(gt_q[f]))), "style": style,
                                      "face": FACE_ORDER[f], "batch": batch_name,
-                                     "maxEdge": float(e.max()),
+                                     "maxEdge": float(e.max()), "src": src, "frac": frac,
+                                     "range": next((n for n, lo, hi in RANGE_BINS if lo <= frac < hi), "out"),
                                      "squash": float(e.min() / max(e.max(), 1e-9)),
                                      "far": bool(e.max() < args.min_edge)})
 
@@ -184,8 +218,8 @@ def main():
     if out_of_range:
         seen = len([r for r in out_of_range if r["err"] is not None])
         print(f"\nignored {len(out_of_range)} of {len(rows)} ground-truth faces as out of "
-              f"scanning range (longest edge < {args.min_edge:.0f} px at 320x240 - further "
-              f"than a person can hold a cube); the model happened to find {seen} of them")
+              f"scanning range (longest edge < {args.min_edge:.0f} px at {INPUT_WH[0]}x{INPUT_WH[1]} - "
+              f"further than a person can hold a cube); the model happened to find {seen} of them")
     rows = [r for r in rows if not r["far"]]
     hit = [r for r in rows if r["err"] is not None]
     errs = np.array([r["err"] for r in hit])
@@ -197,9 +231,26 @@ def main():
               f"F1 {f1_from_counts(tp, false_pos, fn):.3f}   (score >= {args.thresh})")
     if not hit:
         raise SystemExit("nothing matched - the checkpoint detects nothing at this threshold")
-    print(f"corner error over matched faces: mean {errs.mean():.2f} px  median {np.median(errs):.2f} px")
+    print(f"corner error over matched faces: mean {errs.mean():.2f} px  median {np.median(errs):.2f} px"
+          f"  (input px at {INPUT_WH[0]}x{INPUT_WH[1]})")
     qs = [10, 25, 50, 75, 90, 95, 99]
     print("percentiles:", "  ".join(f"p{q} {np.percentile(errs, q):.2f}" for q in qs))
+    src_errs = np.array([r["err"] * r["src"] for r in hit])
+    print(f"in SOURCE px: mean {src_errs.mean():.2f}  median {np.median(src_errs):.2f}  "
+          f"p90 {np.percentile(src_errs, 90):.2f}")
+
+    print("\nby range (longest edge / source frame height; the floor is "
+          f"{MIN_FACE_EDGE_FRAC}):")
+    for name, lo, hi in RANGE_BINS + [("out", -1, MIN_FACE_EDGE_FRAC)]:
+        sel = [r for r in rows if r["range"] == name]
+        if not sel:
+            continue
+        h = [r for r in sel if r["err"] is not None]
+        e = np.array([r["err"] for r in h]) if h else np.array([np.nan])
+        se = np.array([r["err"] * r["src"] for r in h]) if h else np.array([np.nan])
+        print(f"  {name:4s} {lo:5.3f}-{min(hi, 9.999):5.3f}: n={len(sel):5d}  "
+              f"mean {np.nanmean(e):6.2f} px ({np.nanmean(se):6.2f} src px)  "
+              f"median {np.nanmedian(e):6.2f} px  missed {len(sel) - len(h)}")
 
     print("\nerror by face size (sqrt of quad area, input px):")
     bins = [(0, 40), (40, 70), (70, 100), (100, 1e9)]

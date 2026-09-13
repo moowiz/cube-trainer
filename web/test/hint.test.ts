@@ -22,6 +22,12 @@ describe('hintFor', () => {
     expect(hintFor([], false, true)?.key).toBe('closer');
     expect(hintFor([], true, true)).toBeNull();
   });
+  it('says no cube found on a stage-1 miss, and nothing else beats it', () => {
+    expect(hintFor([], false, false, true)?.key).toBe('nocube');
+    expect(hintFor([], true, false, true)).toBeNull();           // a named face wins
+    expect(hintFor([], false, true, true)?.key).toBe('closer');  // too-small is more specific
+    expect(hintFor([small], false, false, true)?.key).toBe('closer'); // stage 2 reasons win
+  });
   it('picks the majority reason', () => {
     expect(hintFor([small, 'glare: face blown out', 'glare: face blown out'], false)?.key).toBe('glare');
     expect(hintFor(['too dark'], false)?.key).toBe('light');

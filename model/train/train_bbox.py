@@ -1,9 +1,9 @@
-"""Stage-1 cube localizer: tiny convnet, 160x120 in, [objectness, cx, cy, w, h] out.
+"""Stage-1 cube localizer: tiny convnet, BOX_WH (120x160 portrait) in, [objectness, cx, cy, w, h] out.
 
-    python train_bbox.py --data ../data_v4,../data_real*40 --coco ../roboflow --epochs 40 --out runs/box4
+    python train_bbox.py --data ../data_v5,../data_real*40 --coco ../roboflow --epochs 50 --out runs/box9
 
 Console lines match train.py's format so watch.py's dashboard picks runs up
-unchanged (val_px here = mean bbox-corner error in 160x120 pixels;
+unchanged (val_px here = mean bbox-corner error in BOX_WH pixels;
 val_conf_acc = objectness accuracy). `real_iou` is the yardstick: IoU against
 the hand-labelled silhouettes in ../data_real_val, which is NEVER trained on.
 
@@ -16,7 +16,7 @@ Two heads, `--head`:
          and 12.9% of them land below 0.7. That variance is the whole bug -
          the median box is the right size, a long tail of frames clips the
          cube.
-  dense  (default) the same body truncated at stride 16 -> an 8x10 grid of
+  dense  (default) the same body truncated at stride 16 -> a 10x8 (HxW) grid of
          per-cell predictions (objectness, centre offset, w, h), reduced
          inside the graph to one box by an objectness-weighted average, and
          re-logit'd so the exported output is bit-compatible with the
@@ -40,7 +40,6 @@ from torch.utils.data import ConcatDataset, DataLoader
 
 from bbox_data import BOX_WH, CocoBBox, SynthBBox, NegDir
 
-GRID_W, GRID_H = 10, 8  # 160x120 at stride 16
 OFFSET_RANGE = 0.5      # how far (in frame widths) a cell may point
 
 
@@ -78,18 +77,23 @@ class DenseBox(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.body = _blocks([3, 16, 32, 64, 96])           # -> (96, 8, 10)
+        self.body = _blocks([3, 16, 32, 64, 96])           # -> (96, 10, 8) at 120x160
         self.neck = nn.Sequential(nn.Conv2d(96, 96, 3, padding=1, bias=False),
                                   nn.BatchNorm2d(96), nn.ReLU(inplace=True))
         self.head = nn.Conv2d(96, 5, 1)
-        self.register_buffer("gx", ((torch.arange(GRID_W) + 0.5) / GRID_W).view(1, 1, GRID_W))
-        self.register_buffer("gy", ((torch.arange(GRID_H) + 0.5) / GRID_H).view(1, GRID_H, 1))
+        # Probe the grid instead of assuming it: 120 px through four stride-2
+        # convs is ceil(120/16) = 8 cells, not 7.5.
+        with torch.no_grad():
+            _, _, gh, gw = self.body(torch.zeros(1, 3, BOX_WH[1], BOX_WH[0])).shape
+        self.grid_hw = (gh, gw)
+        self.register_buffer("gx", ((torch.arange(gw) + 0.5) / gw).view(1, 1, gw))
+        self.register_buffer("gy", ((torch.arange(gh) + 0.5) / gh).view(1, gh, 1))
 
     def maps(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.neck(self.body(x)))  # (B,5,8,10)
+        return self.head(self.neck(self.body(x)))  # (B,5,gh,gw)
 
     def reduce(self, m: torch.Tensor) -> torch.Tensor:
-        o = m[:, 0]                                         # (B,8,10)
+        o = m[:, 0]                                         # (B,gh,gw)
         p = torch.softmax(o.flatten(1), dim=1).view_as(o)
         cx = self.gx + (torch.sigmoid(m[:, 1]) - 0.5) * OFFSET_RANGE
         cy = self.gy + (torch.sigmoid(m[:, 2]) - 0.5) * OFFSET_RANGE
@@ -142,7 +146,7 @@ def _giou(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return inter / union - (hull - union) / hull
 
 
-def _cell_targets(box: torch.Tensor, obj: torch.Tensor) -> torch.Tensor:
+def _cell_targets(box: torch.Tensor, obj: torch.Tensor, grid_hw: tuple[int, int]) -> torch.Tensor:
     """A size-scaled Gaussian on the box centre (the stage-2 convention, see
     targets.py). Gives the dense head's objectness map a direct signal instead
     of making the soft-argmax discover which cells matter.
@@ -156,11 +160,12 @@ def _cell_targets(box: torch.Tensor, obj: torch.Tensor) -> torch.Tensor:
     multi-cell ensemble.
     """
     dev = box.device
-    gx = ((torch.arange(GRID_W, device=dev) + 0.5) / GRID_W).view(1, 1, GRID_W)
-    gy = ((torch.arange(GRID_H, device=dev) + 0.5) / GRID_H).view(1, GRID_H, 1)
+    gh, gw = grid_hw
+    gx = ((torch.arange(gw, device=dev) + 0.5) / gw).view(1, 1, gw)
+    gy = ((torch.arange(gh, device=dev) + 0.5) / gh).view(1, gh, 1)
     cx, cy = box[:, 0].view(-1, 1, 1), box[:, 1].view(-1, 1, 1)
-    sx = (box[:, 2].view(-1, 1, 1) * 0.25).clamp(min=0.8 / GRID_W)
-    sy = (box[:, 3].view(-1, 1, 1) * 0.25).clamp(min=0.8 / GRID_H)
+    sx = (box[:, 2].view(-1, 1, 1) * 0.25).clamp(min=0.8 / gw)
+    sy = (box[:, 3].view(-1, 1, 1) * 0.25).clamp(min=0.8 / gh)
     g = torch.exp(-((gx - cx) ** 2 / (2 * sx ** 2) + (gy - cy) ** 2 / (2 * sy ** 2)))
     # Renormalize so the cell nearest the centre is exactly 1. Without this the
     # peak target is whatever the grid happens to sample - often 0.6-0.9 - and
@@ -174,7 +179,7 @@ def criterion(model, x: torch.Tensor, obj: torch.Tensor, box: torch.Tensor, bv: 
     if isinstance(model, DenseBox):
         m = model.maps(x)
         pred = model.reduce(m)
-        cell_loss = F.binary_cross_entropy_with_logits(m[:, 0], _cell_targets(box, obj * bv),
+        cell_loss = F.binary_cross_entropy_with_logits(m[:, 0], _cell_targets(box, obj * bv, model.grid_hw),
                                                        reduction="none")
         # cells of a positive whose box we don't trust (coco) contribute nothing
         keep = (obj * bv + (1 - obj)).view(-1, 1, 1)
@@ -219,14 +224,15 @@ def evaluate(model, dl, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="../data_v4,../data_real*40",
+    ap.add_argument("--data", default="../data_v5,../data_real*40",
                     help="synthetic/real keypoint roots, comma-separated, *N oversamples")
     ap.add_argument("--coco", default="../roboflow", help="dir of Roboflow COCO exports (each with train/valid)")
     ap.add_argument("--coco-rep", type=int, default=4, help="oversample factor for the small real coco sets")
     ap.add_argument("--coco-box", action="store_true",
                     help="also fit the coco boxes (off: they train objectness only - see bbox_data)")
     ap.add_argument("--neg", default="../negatives",
-                    help="dir[*rep] of no-cube photos (fetch_negatives.py); objectness-only negatives. '' to disable")
+                    help="dir[*rep] of no-cube photos (fetch_negatives.py); objectness-only negatives. "
+                         "rep < 1 takes that fraction of the pool, rep >= 1 oversamples. '' to disable")
     ap.add_argument("--real-val", default="../data_real_val", help="held-out hand-labelled photos; never trained on")
     ap.add_argument("--head", default="dense", choices=["dense", "gap"])
     ap.add_argument("--select", default="real", choices=["real", "val"], help="which IoU picks best.pt")
@@ -263,9 +269,10 @@ def main():
     if args.neg:
         path, _, rep = args.neg.partition("*")
         if Path(path).is_dir():
-            neg = NegDir(path, augment=True)
-            train_parts.extend([neg] * max(1, int(rep or 1)))
-            n_neg = len(neg) * max(1, int(rep or 1))
+            r = float(rep or 1)
+            neg = NegDir(path, augment=True, frac=min(r, 1.0))
+            train_parts.extend([neg] * max(1, int(r)))
+            n_neg = len(neg) * max(1, int(r))
     train_ds, val_ds = ConcatDataset(train_parts), ConcatDataset(val_parts)
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                           pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
@@ -279,7 +286,8 @@ def main():
           f"coco_box={args.coco_box}")
 
     model = build_box_model(args.head).to(device)
-    print(f"params: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"input {BOX_WH[0]}x{BOX_WH[1]}  params: {sum(p.numel() for p in model.parameters()):,}"
+          + (f"  grid {model.grid_hw[0]}x{model.grid_hw[1]}" if hasattr(model, "grid_hw") else ""))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.epochs * max(1, len(train_dl)))
 
@@ -305,8 +313,8 @@ def main():
         print(f"epoch {epoch:3d}  train_loss {run / n:.4f}  val_loss {vloss:.4f}  "
               f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  val_iou {viou:.3f}  val_bad {vbad:.3f}  "
               f"real_iou {riou:.3f}  real_bad {rbad:.3f}  {time.time() - t0:.0f}s", flush=True)
-        ckpt = {"model": model.state_dict(), "head": args.head, "input_wh": BOX_WH, "epoch": epoch,
-                "val_iou": viou, "real_iou": riou}
+        ckpt = {"model": model.state_dict(), "head": args.head, "input_wh": BOX_WH, "view": "frame",
+                "epoch": epoch, "val_iou": viou, "real_iou": riou, "real_bad": rbad}
         torch.save(ckpt, out / "last.pt")
         score = riou if (args.select == "real" and real_dl is not None) else viou
         if score > best:

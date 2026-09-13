@@ -24,8 +24,9 @@ import torch
 from model import center_loss, center_metrics, decode_maps, f1_from_counts
 from targets import build_center_targets, quad_areas, quad_centers
 
-INPUT_WH = (320, 240)
-GRID_HW = (15, 20)
+from shapes import KP_WH, grid_hw
+INPUT_WH = KP_WH
+GRID_HW = grid_hw(KP_WH)
 
 
 def perfect_maps(t, b: int):

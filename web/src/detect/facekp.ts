@@ -10,12 +10,18 @@
 // Two model generations are supported, selected by `meta.head`:
 //   undefined | 'legacy'  (B,6,9) named face slots, U R F D L B, one
 //                         visibility logit + 4 corners each.
-//   'center-v1'           (B,9,15,20) CenterNet maps: an anonymous
-//                         face-center heatmap plus corner offsets. Quads
-//                         carry NO face identity; identify.ts names them
-//                         from the center sticker color.
+//   'center-v1'           (B,9,16,16) CenterNet maps at the 256x256 square
+//                         crop input: an anonymous face-center heatmap plus
+//                         corner offsets. Quads carry NO face identity;
+//                         identify.ts names them from the center sticker.
 // Either way detect() returns DetectedFace[], so the tracker, orientation
 // and assembly code below it never learns which generation is deployed.
+//
+// This is STAGE 2 of an always-two-stage detector (model/PORTRAIT-DESIGN.md):
+// it is only ever run on stage 1's padded box (detect(source, roi) via
+// twostage.ts) and the sidecar's `cropTrained` stamp says it was trained that
+// way. Pages refuse to run a model without the stamp - there is no full-frame
+// path for it to fall back to.
 //
 // The app must keep working when no model file is deployed: load() resolves
 // null on a missing model, and callers fall back to the grid scanner.
@@ -23,6 +29,7 @@ import * as ort from 'onnxruntime-web';
 import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
 import type { ImageDataLike } from '../rectify';
+import { letterbox, type Box } from './geometry';
 import { CenterExemplars, nameQuads, type NamedQuad } from './identify';
 
 export interface DetectedFace {
@@ -77,7 +84,10 @@ interface FacekpMeta {
   run?: string;          // training run name (e.g. "ft7"), stamped at export
   trainedEpoch?: number;
   exported?: string;
-  cropTrained?: boolean; // stage-2 of the two-stage detector: safe to feed crops
+  cropTrained?: boolean; // stage-2 of the two-stage detector: trained on crops (required)
+  view?: string;         // 'crop' | 'frame', stamped at export
+  cropPad?: number;      // per-side padding the crop view was trained with
+  minFaceEdgeFrac?: number;
 }
 
 export type Ep = 'webgpu' | 'wasm';
@@ -232,8 +242,11 @@ export class FaceDetector {
     // detector's cadence) and a center sticker is ~10-25 px across there -
     // ample for one averaged patch. Full-resolution sampling still happens
     // downstream, where per-sticker color actually has to be right.
+    // The size gate and sampling plan are decided in SOURCE px: the crop
+    // zooms every cube to about the same size in the letterboxed frame.
     const named = nameQuads(run.lbFrame, run.lbQuads, this.exemplars,
-                            run.result.quads.map((q) => q.conf));
+                            run.result.quads.map((q) => q.conf),
+                            { srcPerPx: 1 / run.scale, sourceH: run.fullH });
     const faces: DetectedFace[] = [];
     const unnamed: { quad: DetectedQuad; reason: string }[] = [];
     named.forEach((n: NamedQuad, i: number) => {
@@ -273,17 +286,12 @@ export class FaceDetector {
     const t0 = performance.now();
     const fullW = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
     const fullH = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
-    const r: [number, number, number, number] = roi
-      ? [Math.max(0, roi[0]), Math.max(0, roi[1]), Math.min(fullW, roi[2]), Math.min(fullH, roi[3])]
-      : [0, 0, fullW, fullH];
+    // Letterbox (mirrors model/train/dataset.py crop_letterbox): aspect-
+    // preserving fit of the ROI, centered, rgb(114) padding.
+    const lb = letterbox(fullW, fullH, this.iw, this.ih, roi as Box | undefined);
+    const { r, scale, dx, dy } = lb;
     const sw = r[2] - r[0];
     const sh = r[3] - r[1];
-
-    // Letterbox (must mirror model/train/dataset.py letterbox_params):
-    // aspect-preserving fit, centered, rgb(114) padding.
-    const scale = Math.min(this.iw / sw, this.ih / sh);
-    const dx = (this.iw - sw * scale) / 2;
-    const dy = (this.ih - sh * scale) / 2;
     this.ctx.fillStyle = 'rgb(114,114,114)';
     this.ctx.fillRect(0, 0, this.iw, this.ih);
     this.ctx.drawImage(source, r[0], r[1], sw, sh, dx, dy, sw * scale, sh * scale);
@@ -308,8 +316,7 @@ export class FaceDetector {
 
     // Letterbox px -> source px. Corners come out of both heads in the
     // model's own normalized frame, so this is the one place that inverts it.
-    const toSource = (u: number, v: number): [number, number] =>
-      [(u - dx) / scale + r[0], (v - dy) / scale + r[1]];
+    const toSource = lb.toSource;
 
     const tensor = out[this.outputName];
     if (!tensor) throw new Error(`model output '${this.outputName}' missing (got ${Object.keys(out).join(', ')})`);
@@ -329,7 +336,7 @@ export class FaceDetector {
         quads.push({ conf, corners });
       }
       return {
-        t0,
+        t0, scale, fullH,
         lbFrame: lbFrame as unknown as ImageDataLike,
         lbQuads: [] as [number, number][][],
         result: { faces, quads, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
@@ -352,7 +359,7 @@ export class FaceDetector {
       cellToSource: (j, i) => toSource((j + 0.5) * this.stride, (i + 0.5) * this.stride),
     };
     return {
-      t0,
+      t0, scale, fullH,
       lbFrame: lbFrame as unknown as ImageDataLike,
       lbQuads,
       result: { faces: [], quads, heat, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
@@ -365,8 +372,9 @@ export class FaceDetector {
 }
 
 /**
- * TypeScript mirror of model/train/model.py::decode_maps — 3x3 max-pool NMS,
- * top-K by score, corner = ((j + 0.5 + offx) * stride, (i + 0.5 + offy) * stride).
+ * TypeScript mirror of model/train/model.py::decode_maps — candidates above
+ * the threshold strongest first, greedy dedupe by a radius scaled to the kept
+ * quad's mean edge, corner = ((j + 0.5 + offx) * stride, (i + 0.5 + offy) * stride).
  *
  * Corners come back NORMALIZED to the model's input frame, exactly as the
  * Python version returns them, so web/test/facekp-decode.test.ts can compare

@@ -1,7 +1,12 @@
-"""Train the face keypoint model (M4).
+"""Train the stage-2 face keypoint model (M4) on padded silhouette crops.
 
-    python train.py --data ../data --epochs 30 --batch 64 --out runs/base
-    python train.py --data ../data --overfit 50 --epochs 150   # pipeline check
+    python train.py --data ../data_v5 --epochs 150 --out runs/kp1
+    python train.py --data ../data_v5 --overfit 50 --epochs 150   # pipeline check
+
+The default `--view crop` is the always-two-stage design
+(model/PORTRAIT-DESIGN.md): every sample is a padded crop around the cube,
+re-drawn per epoch from the crop cache, at the square KP_WH input. There is
+no full-frame stage 2 any more.
 
 The overfit run is the correctness test: 50 images, no augmentation, val ==
 train. If the pipeline is sound it drives corner error to ~1 px; if it can't,
@@ -24,9 +29,10 @@ from dataset import CubeKeypointDataset, normalize01, normalize_batch, to_float0
 from gpu_augment import disable_compile, enable_compile, photometric_batch
 from model import (HEADS, build_model, center_loss, center_metrics, conf_accuracy, count_params,
                    f1_from_counts, keypoint_loss, pixel_error)
+from shapes import FRAME_CACHE_WH, KP_WH
 from targets import build_center_targets, dataset_target_stats
 
-INPUT_WH = (320, 240)
+INPUT_WH = KP_WH   # set per --view in main(); evaluate() reads the module global
 
 
 def evaluate(model, loader, device, head="legacy", grid_hw=None):
@@ -91,6 +97,10 @@ def main():
                     help="'center': anonymous-quad CenterNet head (default since 2026-09-12). "
                          "'legacy': the named-slot FC regression head - kept so old checkpoints "
                          "stay trainable/comparable, not for new runs")
+    ap.add_argument("--view", choices=["crop", "frame"], default="crop",
+                    help="'crop' (the deployed stage-2 view: padded silhouette crops at "
+                         f"{KP_WH[0]}x{KP_WH[1]}); 'frame' trains on whole letterboxed frames at "
+                         f"{FRAME_CACHE_WH[0]}x{FRAME_CACHE_WH[1]} - experiments only, the app never runs it")
     ap.add_argument("--out", default="runs/base")
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
@@ -106,6 +116,8 @@ def main():
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    global INPUT_WH
+    INPUT_WH = KP_WH if args.view == "crop" else FRAME_CACHE_WH
     # Static input shape and a fixed batch size: let cuDNN pick kernels once.
     torch.backends.cudnn.benchmark = True
     out = Path(args.out)
@@ -116,7 +128,7 @@ def main():
     (out / "meta.json").write_text(json.dumps({
         "epochs": args.epochs, "data": args.data, "batch": args.batch,
         "workers": args.workers, "head": args.head, "lr": args.lr,
-        "started": time.time(),
+        "view": args.view, "input_wh": INPUT_WH, "started": time.time(),
     }, indent=1))
 
     roots = []
@@ -130,7 +142,7 @@ def main():
         parts = []
         for path, rep in roots:
             ds = CubeKeypointDataset(path, split=split, input_size=INPUT_WH, augment=augment,
-                                     raw_uint8=True)
+                                     raw_uint8=True, view=args.view)
             if len(ds):
                 parts.extend([ds] * (rep if split == "train" or split == "all" else 1))
         return ConcatDataset(parts)
@@ -157,10 +169,10 @@ def main():
     real_dl = None
     if args.real_val:
         rv = CubeKeypointDataset(args.real_val, split="all", input_size=INPUT_WH, augment=None,
-                                 raw_uint8=True)
+                                 raw_uint8=True, view=args.view)
         if len(rv):
             real_dl = DataLoader(rv, batch_size=args.batch, shuffle=False, num_workers=0)  # 42 images
-    print(f"device={device}  train={len(train_ds)}  val={len(val_ds)}"
+    print(f"device={device}  view={args.view} {INPUT_WH[0]}x{INPUT_WH[1]}  train={len(train_ds)}  val={len(val_ds)}"
           + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
     model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(device)
@@ -187,6 +199,11 @@ def main():
         if ckpt.get("head", "legacy") != args.head:
             raise SystemExit(f"--init {args.init} has head {ckpt.get('head', 'legacy')!r}, "
                              f"this run is {args.head!r} - the heads share no weights")
+        if tuple(ckpt.get("input_wh", ())) != tuple(INPUT_WH) or ckpt.get("view", "frame") != args.view:
+            # DECISION (PORTRAIT-DESIGN.md 5): no fine-tuning across shapes/views;
+            # a landscape full-frame checkpoint is not a starting point for a crop model.
+            raise SystemExit(f"--init {args.init} is view={ckpt.get('view', 'frame')!r} "
+                             f"input_wh={ckpt.get('input_wh')} - this run is {args.view!r} {INPUT_WH}")
         model.load_state_dict(ckpt["model"])
         print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')})")
     # fused=True: one multi-tensor kernel instead of ~150 foreach launches
@@ -294,7 +311,7 @@ def main():
                 + f"  train {t_train:.0f}s {n / t_train:.0f}img/s  eval {time.time() - t0 - t_train:.0f}s")
         print(line, flush=True)
         log.append(line)
-        slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "epoch": epoch,
+        slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "view": args.view, "epoch": epoch,
                 "val_px": vpx, "real_px": rpx, "head": args.head}
         select_px = rpx if (args.select == "real" and rpx is not None) else vpx
         if select_px < best_px:

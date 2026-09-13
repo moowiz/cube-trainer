@@ -18,9 +18,9 @@ _, _, IH, IW = meta["input"]["shape"]
 mean = np.array(meta["input"]["mean"], np.float32); std = np.array(meta["input"]["std"], np.float32)
 sess = ort.InferenceSession(str(WEB / "cubebox.onnx"), providers=["CPUExecutionProvider"])
 sig = lambda v: 1 / (1 + np.exp(-v))
-KP_WH = (320, 240)
+from shapes import KP_WH
 ck = torch.load(ROOT / "train" / "runs" / "v4ft1" / "best.pt", map_location="cpu", weights_only=True)
-kp = build_model("center", pretrained=False, input_hw=(240, 320)); kp.load_state_dict(ck["model"]); kp.eval()
+kp = build_model("center", pretrained=False, input_hw=(KP_WH[1], KP_WH[0])); kp.load_state_dict(ck["model"]); kp.eval()
 
 def box_pred(im):
     sw, sh = im.size

@@ -13,9 +13,9 @@ from dataset import letterbox_image, normalize_batch
 from model import build_model, decode_maps
 
 ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")
-KP = (320, 240)
+from shapes import KP_WH as KP
 ck = torch.load(ROOT/"train"/"runs"/"v4ft1"/"best.pt", map_location="cpu", weights_only=True)
-kp = build_model("center", pretrained=False, input_hw=(240, 320)); kp.load_state_dict(ck["model"]); kp.eval()
+kp = build_model("center", pretrained=False, input_hw=(KP[1], KP[0])); kp.load_state_dict(ck["model"]); kp.eval()
 
 def faces_box(im):
     sw, sh = im.size

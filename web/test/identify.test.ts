@@ -9,7 +9,7 @@ import { CenterExemplars, nameQuads } from '../src/detect/identify';
 import type { ImageDataLike } from '../src/rectify';
 import { DEFAULT_SCHEME_HEX, FACE_ORDER } from '../src/types';
 import type { FaceId } from '../src/types';
-import { srgbToLab } from '../src/color';
+import { MIN_FACE_EDGE_FRAC, minFaceEdgePx, srgbToLab } from '../src/color';
 
 const W = 320;
 const H = 240;
@@ -135,6 +135,41 @@ describe('nameQuads', () => {
     expect(got).toHaveLength(2);
     expect(got[0]!.face).toBe('B');
     expect(got[1]!.face).toBeNull();
+  });
+});
+
+describe('nameQuads size gate (the range floor, in source px)', () => {
+  // The frame naming samples from is a letterboxed CROP: a face's size there
+  // says nothing about distance. The gate is on the quad's edge in SOURCE px
+  // against MIN_FACE_EDGE_FRAC of the source frame height.
+  const rgb = hexRgb(DEFAULT_SCHEME_HEX.F);
+
+  it('defaults to treating the frame as the source: the floor is 0.133 of its height', () => {
+    expect(minFaceEdgePx(H)).toBeCloseTo(MIN_FACE_EDGE_FRAC * H, 6);
+    const under = Math.floor(minFaceEdgePx(H)) - 3;   // 28 px on a 240-tall frame
+    const over = Math.ceil(minFaceEdgePx(H)) + 3;
+    const small = nameQuads(frameWith([{ x: 100, y: 60, s: under, rgb }]), [quadFor(100, 60, under)], new CenterExemplars())[0]!;
+    expect(small.face).toBeNull();
+    expect(small.reason).toMatch(/too small/);
+    expect(small.minEdgePx).toBeCloseTo(under, 6);
+    const big = nameQuads(frameWith([{ x: 100, y: 60, s: over, rgb }]), [quadFor(100, 60, over)], new CenterExemplars())[0]!;
+    expect(big.face).toBe('F');
+  });
+
+  it('measures the quad in source px through the crop geometry', () => {
+    // A 90 px face in a 256-ish letterboxed crop of a 480x640 frame. With the
+    // crop scale at 1.5 model px per source px the face is 60 source px:
+    // under the 85 px floor, refused. At 0.5 it is 180 source px: named.
+    const frame = frameWith([{ x: 100, y: 60, s: 90, rgb }]);
+    const zoomedIn = nameQuads(frame, [quadFor(100, 60, 90)], new CenterExemplars(), undefined,
+                               { srcPerPx: 1 / 1.5, sourceH: 640 })[0]!;
+    expect(zoomedIn.face).toBeNull();
+    expect(zoomedIn.reason).toMatch(/need 85/);
+    expect(zoomedIn.minEdgePx).toBeCloseTo(60, 6);
+    const far = nameQuads(frame, [quadFor(100, 60, 90)], new CenterExemplars(), undefined,
+                          { srcPerPx: 2, sourceH: 640 })[0]!;
+    expect(far.face).toBe('F');
+    expect(far.minEdgePx).toBeCloseTo(180, 6);
   });
 });
 

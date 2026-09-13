@@ -2,7 +2,7 @@
 
     python export_onnx.py --ckpt ../train/runs/base/best.pt
 
-Steps: torch -> ONNX (static 1x3x240x320, opset 17) -> parity check in
+Steps: torch -> ONNX (static shape from ckpt["input_wh"], opset 17) -> parity check in
 onnxruntime -> int8 quantization -> parity check again -> copy to
 web/public/models/facekp.onnx plus a facekp.json metadata sidecar describing
 preprocessing and the output layout, so web/ never hardcodes them.
@@ -42,9 +42,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset  # noqa: E402
 from model import (CENTER_DEDUPE_FRAC, CENTER_MIN_DEDUPE_PX, CENTER_STRIDE,  # noqa: E402
                    build_model)
+from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL  # noqa: E402
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
-INPUT_WH = (320, 240)
+INPUT_WH = KP_WH   # overwritten from the checkpoint in main()
+VIEW = "crop"
 CALIB_MAX_SAMPLES = 64  # small on purpose - a training run owns the rest of the CPU
 ORT_THREADS = 2  # applied to every session *we* construct; see note in main()
 
@@ -82,7 +84,7 @@ class ArrayCalibrationReader(CalibrationDataReader):
         self._it = iter(self._arrays)
 
 
-def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_MAX_SAMPLES):
+def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_MAX_SAMPLES, view: str = "crop"):
     """Up to `max_samples` real val-split frames as (1,3,H,W) float32 arrays.
 
     Reuses the same CubeKeypointDataset pathway as the parity check below, so
@@ -92,7 +94,7 @@ def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_
     `model/` and `web/` independently runnable per the repo convention.
     """
     try:
-        ds = CubeKeypointDataset(data_root, split="val", input_size=input_wh)
+        ds = CubeKeypointDataset(data_root, split="val", input_size=input_wh, view=view)
         n = min(max_samples, len(ds))
         arrays = [ds[i][0].unsqueeze(0).numpy() for i in range(n)]
         print(f"calibration: {n} real val-split samples from {data_root}")
@@ -165,10 +167,10 @@ def main():
     ap.add_argument("--ckpt", default="../train/runs/base/best.pt")
     ap.add_argument("--data", default="../data", help="real samples for calibration + the quantization parity check")
     ap.add_argument("--out", default="out")
-    ap.add_argument("--crop-trained", action="store_true",
-                    help="stamp cropTrained: true in the sidecar - ONLY for stage-2 models "
-                         "trained with the crop-heavy augment mix; the app enables the "
-                         "two-stage (localizer -> crop) path when it sees this flag")
+    ap.add_argument("--crop-trained", choices=["auto", "yes", "no"], default="auto",
+                    help="the sidecar's cropTrained stamp. 'auto' = true iff the checkpoint was "
+                         "trained on the crop view (the default and the only deployable kind: the "
+                         "app runs stage 2 on stage-1 crops only and refuses a model without the stamp)")
     ap.add_argument("--no-deploy", action="store_true",
                     help="skip writing web/public/models/facekp.{onnx,json} - use for test runs")
     args = ap.parse_args()
@@ -177,6 +179,14 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "legacy")
+    global INPUT_WH, VIEW
+    INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
+    VIEW = ckpt.get("view", "frame")
+    crop_trained = VIEW == "crop" if args.crop_trained == "auto" else args.crop_trained == "yes"
+    print(f"checkpoint view={VIEW} input_wh={INPUT_WH} -> cropTrained={crop_trained}")
+    if not crop_trained:
+        print("WARNING: a model without the cropTrained stamp is not runnable by the app "
+              "(always-two-stage, PORTRAIT-DESIGN.md 3.3) - exporting anyway for tests")
     model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]))
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -219,11 +229,11 @@ def main():
     # and the measured-shift gate below (falls back to random data if
     # ../data isn't present, same as before)
     try:
-        ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH)
+        ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH, view=VIEW)
         xs = torch.stack([ds[i][0] for i in range(min(16, len(ds)))])
     except FileNotFoundError:
         xs = torch.randn(8, 3, INPUT_WH[1], INPUT_WH[0])
-    calib_arrays = build_calibration_arrays(args.data, INPUT_WH)
+    calib_arrays = build_calibration_arrays(args.data, INPUT_WH, view=VIEW)
 
     def try_static_quant(label: str, dst_path: Path, nodes_to_exclude=None):
         quantize_static(
@@ -306,13 +316,19 @@ def main():
                   "letterbox": "aspect-preserving fit, centered, pad rgb(114,114,114); "
                                "coords map back as (u*W - dx)/scale (see train/dataset.py letterbox_params)"},
         "output": legacy_output if head == "legacy" else center_output,
-        "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"), "precision": kind,
+        "trainedEpoch": ckpt.get("epoch"), "valPx": ckpt.get("val_px"), "realPx": ckpt.get("real_px"),
+        "precision": kind,
         # run name from the checkpoint path (runs/<name>/last.pt), shown in
         # the pages' status lines so a phone user knows which model is live
         "run": Path(args.ckpt).resolve().parent.name,
         "checkpoint": Path(args.ckpt).name,
         "exported": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "cropTrained": bool(args.crop_trained),
+        "cropTrained": crop_trained,
+        # what the model was trained to look at: stage 1's box padded by
+        # `cropPad` per side (web padBox), letterboxed square. The range floor
+        # is a fraction of the SOURCE frame height (web color.ts MIN_FACE_EDGE_FRAC).
+        "view": VIEW, "cropPad": PAD_VAL if VIEW == "crop" else None,
+        "minFaceEdgeFrac": MIN_FACE_EDGE_FRAC,
         "head": "legacy" if head == "legacy" else "center-v1",
         # Anonymous quads carry no face identity: the app names each one from
         # its center sticker color (web/src/detect/identify.ts).

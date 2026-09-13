@@ -5,7 +5,10 @@
 // The cell Labs below are verbatim from those captures, so this is a real
 // frame's numbers without needing the frame.
 import { describe, expect, it } from 'vitest';
-import { facePlan, labDistance, MIN_FACE_EDGE_PX, sampleCentreCell } from '../src/color';
+import { facePlan, labDistance, minFaceEdgePx, sampleCentreCell } from '../src/color';
+
+// The range floor on the 240-tall frames these cases were captured at: ~32 px.
+const MIN_FACE_EDGE_PX = minFaceEdgePx(240);
 import { CenterExemplars } from '../src/detect/identify';
 import { CLUSTER_L_WEIGHT, NAME_L_WEIGHT, normalizeFaceCells } from '../src/state';
 import { FACE_ORDER } from '../src/types';
@@ -61,16 +64,17 @@ describe('facePlan: refuse faces the detector was never trained to place', () =>
     // detect-debug-1789274516525, quad 1: edges 78/33/110/20 px in the 320x240
     // frame naming samples. 20/3 = 6.7 px per sticker; three of the center
     // cell's five patches fell off the sticker entirely.
-    expect(facePlan(20 / 3)).toBeNull();
+    expect(facePlan(20 / 3, MIN_FACE_EDGE_PX)).toBeNull();
   });
 
   it('refuses exactly at the trainer threshold, and accepts just above it', () => {
-    expect(facePlan((MIN_FACE_EDGE_PX - 1) / 3)).toBeNull();
-    expect(facePlan(MIN_FACE_EDGE_PX / 3)).not.toBeNull();
+    expect(facePlan((MIN_FACE_EDGE_PX - 1) / 3, MIN_FACE_EDGE_PX)).toBeNull();
+    expect(facePlan(MIN_FACE_EDGE_PX / 3, MIN_FACE_EDGE_PX)).not.toBeNull();
+    expect(facePlan((MIN_FACE_EDGE_PX - 1) / 3)).not.toBeNull();   // no floor given: no size gate
   });
 
   it('spends the budget on patch width first, and only then on a ring', () => {
-    const tight = facePlan(MIN_FACE_EDGE_PX / 3)!;   // ~10.7 px per sticker
+    const tight = facePlan(MIN_FACE_EDGE_PX / 3, MIN_FACE_EDGE_PX)!;   // ~10.7 px per sticker
     const roomy = facePlan(30)!;
     expect(tight.off).toBeLessThan(roomy.off);
     expect(roomy.half).toBe(0.15);
