@@ -158,6 +158,44 @@ export function identifyNeighbour(
   return null;
 }
 
+/** Row-major cell indices along sticker-layout edge e (from layout corner e to e+1), in traversal order. */
+export const EDGE_CELLS: readonly (readonly number[])[] = [[0, 1, 2], [2, 5, 8], [8, 7, 6], [6, 3, 0]];
+
+const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
+
+/**
+ * For adjacent faces a and b (cells in sticker-layout order), the three
+ * pairs of cells that sit on their shared cube edge: pairs[k] = [cell of
+ * a, cell of b] are two stickers of ONE piece (k = 0 and 2 corners, k = 1
+ * the edge piece). Null for opposite faces.
+ */
+export function sharedEdgeCells(a: FaceId, b: FaceId): [number, number][] | null {
+  const e = sharedEdge(a, b);
+  if (!e) return null;
+  const ca = EDGE_CELLS[e.ia]!;
+  const cb = EDGE_CELLS[e.jb]!; // b traverses the edge the other way
+  return [0, 1, 2].map((k) => [ca[k]!, cb[2 - k]!]);
+}
+
+/**
+ * Whether the stickers along the edge shared by two oriented faces can be
+ * real pieces: the two visible stickers of one piece are never the same
+ * colour nor opposite colours. Unknown cells (null) pass. A frame whose
+ * pairing fails this was oriented wrongly (or a quad is not that face) -
+ * caught in the frame it happens, before it can vote.
+ */
+export function edgePiecesPlausible(a: FaceId, cellsA: readonly (FaceId | null)[], b: FaceId, cellsB: readonly (FaceId | null)[]): boolean {
+  const pairs = sharedEdgeCells(a, b);
+  if (!pairs) return false;
+  for (const [i, j] of pairs) {
+    const x = cellsA[i];
+    const y = cellsB[j];
+    if (!x || !y) continue;
+    if (x === y || OPPOSITE[x] === y) return false;
+  }
+  return true;
+}
+
 /** Apply a resolved rotation: result[t] is sticker-layout corner t. */
 /**
  * Geometry constraint (tier 1): up to 3 visible faces yield 12 corner

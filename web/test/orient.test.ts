@@ -1,8 +1,11 @@
 // Orientation resolution (M6): recover per-face cyclic rotation from shared
 // edges, tested against a synthetic cube projection with known ground truth.
 import { describe, expect, it } from 'vitest';
-import { identifyNeighbour, orientQuad, resolveOrientations, type OrientableFace } from '../src/detect/orient';
+import { edgePiecesPlausible, identifyNeighbour, orientQuad, resolveOrientations, sharedEdgeCells, type OrientableFace } from '../src/detect/orient';
+import { validateState } from '../src/state';
 import { visibleFaces } from './helpers';
+import { FACE_ORDER } from '../src/types';
+import type { FaceId } from '../src/types';
 
 describe('resolveOrientations', () => {
   it('recovers arbitrary cyclic rotations on a 3-face view', () => {
@@ -78,5 +81,40 @@ describe('identifyNeighbour (adjacency identity)', () => {
     const f = vis.find((v) => v.face === 'F')!.quad;
     const far = f.map(([x, y]) => [x + 400, y + 400] as [number, number]);
     expect(identifyNeighbour({ face: 'F', corners: f }, far)).toBeNull();
+  });
+});
+
+// Shared-edge piece check (2026-09-13): the cells of two adjacent oriented
+// faces that lie on their common cube edge form pieces; on a valid state no
+// such pair is the same or opposite colours. Pinned on the corrected 08:06
+// phone state (unique valid orientation among 4^6) and a solved cube after
+// one U turn; a face a quarter turn off breaks it.
+describe('edgePiecesPlausible', () => {
+  const ADJ: [FaceId, FaceId][] = [];
+  for (const a of FACE_ORDER) for (const b of FACE_ORDER) if (a < b && sharedEdgeCells(a, b)) ADJ.push([a, b]);
+  const faceOf = (s: string, f: FaceId) => s.slice(FACE_ORDER.indexOf(f) * 9, FACE_ORDER.indexOf(f) * 9 + 9).split('') as FaceId[];
+  const allOk = (s: string) => ADJ.every(([a, b]) => edgePiecesPlausible(a, faceOf(s, a), b, faceOf(s, b)));
+
+  it('lists the 12 adjacent pairs with three cell pairs each', () => {
+    expect(ADJ.length).toBe(12);
+    expect(sharedEdgeCells('U', 'F')).toEqual([[8, 2], [7, 1], [6, 0]]); // U bottom-right meets F top-right
+    expect(sharedEdgeCells('U', 'D')).toBeNull();
+  });
+
+  it('passes on valid states', () => {
+    const phone = 'LRFLUFLBUBLDLRRRRFDDRUFDUFDFDBUDFRDLBBBULFULLRBUUBBDRF';
+    expect(validateState(phone).ok).toBe(true);
+    expect(allOk(phone)).toBe(true);
+    expect(allOk('UUUUUUUUU' + 'BBBRRRRRR' + 'RRRFFFFFF' + 'DDDDDDDDD' + 'FFFLLLLLL' + 'LLLBBBBBB')).toBe(true);
+  });
+
+  it('fails when a face is a quarter turn off, and passes unknown cells', () => {
+    const phone = 'LRFLUFLBUBLDLRRRRFDDRUFDUFDFDBUDFRDLBBBULFULLRBUUBBDRF';
+    const L = faceOf(phone, 'L');
+    const turned = [L[6], L[3], L[0], L[7], L[4], L[1], L[8], L[5], L[2]] as FaceId[];
+    const broken = ADJ.filter(([a, b]) => a === 'L' || b === 'L')
+      .filter(([a, b]) => !edgePiecesPlausible(a, a === 'L' ? turned : faceOf(phone, a), b, b === 'L' ? turned : faceOf(phone, b)));
+    expect(broken.length).toBeGreaterThan(0);
+    expect(edgePiecesPlausible('U', [null, null, null, null, null, null, null, null, null], 'F', faceOf(phone, 'F'))).toBe(true);
   });
 });
