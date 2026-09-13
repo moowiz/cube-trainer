@@ -207,3 +207,39 @@ one-line `camera.ts` experiment with an fps number, after this lands.
 (`GRID_W, GRID_H = 10, 8` -> probe), `export/export_onnx.py:47`,
 `bbox_eval/score_frames.py:13-14`, `bbox_eval/bbox_vs_faces.py:21,23,73`,
 `bbox_eval/roboflow_audit.py:16,18`.
+
+## 7. Handoff notes for the implementer
+
+Read `CLAUDE.md` (working style, training-run rules, CPU ceiling) and
+`model/README.md` "Training performance" before launching anything.
+
+- **Machine:** 20 cores, RTX 4070 SUPER 12 GB, 768 GB free. CPU ceiling
+  ~80%: use at most ~12 DataLoader workers and no more than 4-5 render
+  instances at once.
+- **Generator preview already done:** `model/preview_v5/` holds 24 fresh
+  480x640 frames (`img_000065..88`, `viz/` overlays) at 5.2 img/s on one
+  instance - but the same root also holds 64 OLD 640x480 frames from an
+  earlier session. Delete `preview_v5` before re-rendering into it, and
+  never merge it into `data_v5`.
+- **Full render recipe:** `model/cloud/RUNBOOK.md` §3 - N instances into
+  `data_v5_part$i`, each with a distinct `--seed $i`, plus
+  `--width 480 --height 640 --cornerBias 0.4`; then the merge snippet in
+  the same section (renumbering copy, since labels reference images by
+  relative path). Run `train/check_labels.py --data data_v5` afterwards.
+- **Old caches to delete:** `data_v4/cache_320x240`,
+  `data_real/cache_320x240`, `data_real_val/cache_320x240`. `data_v4`
+  itself stays (unused by this plan).
+- **Baselines to compare against** (record in §5 before overwriting
+  `web/public/models/`): stage 2 `runs/v4ft1/best.pt`, stage 1
+  `runs/box6/best.pt`; their sidecars are the deployed `facekp.json` /
+  `cubebox.json`.
+- **Killing a run leaves orphaned DataLoader workers** holding the console
+  log (see `CLAUDE.md` hard-won facts); detached launches fail silently -
+  run training as a session background task and redirect output to
+  `runs/<name>-console.log`. Start `train/watch.py` (port 8123, probe
+  first) and give the user the URL and a `Get-Content -Wait` command.
+- **`data_real_val` is never trained on and its labels are never edited.**
+- **Order matters:** shapes module -> cache code -> render finishes ->
+  caches -> stage 1 -> stage 2 scratch -> stage 2 real fine-tune -> export
+  both -> web -> `npm test` -> commit + push (Pages deploys). The web work
+  can be done while renders and runs are in progress.
