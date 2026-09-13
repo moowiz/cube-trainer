@@ -40,7 +40,7 @@
 // they can dilute the vote.
 
 import { labMedian, labDistance } from './color';
-import { assembleState, normalizeFaceCells, resolveByPieces, resolveByRotation, rotateCells, validateState, type AssembledState, type FaceCapture } from './state';
+import { assembleResolved, normalizeFaceCells, rotateCells, validateState, type AssembledState, type FaceCapture } from './state';
 
 export { rotateCells };
 import { FACE_ORDER } from './types';
@@ -99,6 +99,17 @@ export function isGlareSample(lab: Lab): boolean {
 }
 
 const MIN_SAMPLES = 5;      // per cell before a face counts as covered
+/**
+ * A face may only lock with this many frames agreeing with its consensus and
+ * a mean fit under MAX_FIT. MEASURED 2026-09-13: faces that classified all
+ * nine stickers right had 11-41 inliers and fit 2-8; the two false locks of
+ * the session were built on a U with 6 inliers of 13 (fit 9.5) and an F
+ * with fit 11.6.
+ */
+const MIN_INLIERS = 10;
+const MAX_FIT = 10;
+/** The most recent frames are always seed candidates: if the cube was re-scrambled mid-session they are the new truth. */
+const RECENT_SEEDS = 8;
 const RESERVOIR = 40;       // frames kept per cluster; newest replace oldest
 const MIN_CONF = 0.5;       // ignore observations from low-confidence quads
 /** A frame whose best-rotation fit to the consensus is worse than this (normalized Lab, mean over cells) is an outlier. */
@@ -232,14 +243,31 @@ export class StickerVoter {
       for (let r = 0; r < 4; r++) { const x = fitAt(norm, r, ref); if (x < d) { d = x; k = r; } }
       return { k, d };
     };
-    // seed: the candidate with the most supporters (frames within SEED_DIST at some rotation)
+    // seed: the candidate with the most supporters (frames within SEED_DIST
+    // at some rotation), candidates spread over the reservoir plus the most
+    // recent frames. When the newest frames agree among themselves (at least
+    // MIN_INLIERS of them) but not with the best-supported older group, the
+    // face has changed - the cube was re-scrambled or the track slid - and
+    // the recent group wins (session-0913/scan-debug-1789313154714: every
+    // face a mix of two scrambles).
     const step = Math.max(1, Math.floor(frames.length / MAX_SEEDS));
+    const candidates = new Set<number>();
+    for (let s = 0; s < frames.length; s += step) candidates.add(s);
+    for (let s = Math.max(0, frames.length - RECENT_SEEDS); s < frames.length; s++) candidates.add(s);
+    const supportOf = (s: number) => frames.map((f) => bestRot(f.norm, frames[s]!.norm).d <= SEED_DIST);
     let seed = 0;
     let seedSupport = -1;
-    for (let s = 0; s < frames.length; s += step) {
-      let support = 0;
-      for (const f of frames) if (bestRot(f.norm, frames[s]!.norm).d <= SEED_DIST) support++;
-      if (support > seedSupport) { seedSupport = support; seed = s; }
+    let seedSet: boolean[] = [];
+    for (const s of candidates) {
+      const set = supportOf(s);
+      const support = set.filter(Boolean).length;
+      if (support > seedSupport || (support === seedSupport && s > seed)) { seedSupport = support; seed = s; seedSet = set; }
+    }
+    const newest = frames.length - 1;
+    if (!seedSet[newest]) {
+      const recent = supportOf(newest);
+      const recentN = recent.filter(Boolean).length;
+      if (recentN >= MIN_INLIERS) seed = newest;
     }
     let rot = frames.map((f) => bestRot(f.norm, frames[seed]!.norm).k);
     let keep = frames.map((f) => bestRot(f.norm, frames[seed]!.norm).d <= SEED_DIST);
@@ -276,14 +304,17 @@ export class StickerVoter {
     return { cells: Array.from({ length: 9 }, (_, i) => cellMedian(alignedRaw, i)), inliers, rotations, fit: inliers ? fitSum / inliers : 0, aligned: alignedNorm };
   }
 
-  private fillOf(cells: readonly (Lab | null)[], frames: readonly FrameObs[]): number {
-    // per cell: inlier frames that have the cell, capped at MIN_SAMPLES
+  private fillOf(con: Consensus): number {
+    // per cell: aligned inlier frames that have the cell, capped at MIN_SAMPLES;
+    // a face short of MIN_INLIERS or with a poor fit never reads as full
     let have = 0;
     for (let i = 0; i < 9; i++) {
-      if (!cells[i]) continue;
-      have += Math.min(frames.filter((f) => f.cells[i] !== null).length, MIN_SAMPLES);
+      if (!con.cells[i]) continue;
+      have += Math.min(con.aligned.filter((f) => f[i] !== null).length, MIN_SAMPLES);
     }
-    return have / (9 * MIN_SAMPLES);
+    const fill = have / (9 * MIN_SAMPLES);
+    const quality = Math.min(1, con.inliers / MIN_INLIERS) * (con.fit <= MAX_FIT ? 1 : 0.5);
+    return Math.min(fill, quality);
   }
 
   private evidenceOf(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): FaceEvidence {
@@ -294,9 +325,8 @@ export class StickerVoter {
 
   private faceFill(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): number {
     const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
-    const frames = this.framesOf(clusters);
-    if (!frames.length) return 0;
-    return this.fillOf(this.consensusOf(clusters).cells, frames);
+    if (!this.framesOf(clusters).length) return 0;
+    return this.fillOf(this.consensusOf(clusters));
   }
 
   /** Try to lock with the given binding; the caller may call this after a re-binding without new samples. */
@@ -312,7 +342,7 @@ export class StickerVoter {
     const captures: FaceCapture[] = evidence.map((ev) => ({ face: ev.face, cells: ev.cells }));
     const attempt: LockAttempt = { evidence, assembled: null, error: null };
     try {
-      const assembled = resolveByRotation(resolveByPieces(assembleState(captures)));
+      const assembled = assembleResolved(captures);
       attempt.assembled = assembled;
       const v = validateState(assembled.facelets);
       if (v.ok) {
@@ -334,7 +364,7 @@ export class StickerVoter {
     const unboundFill: Record<number, number> = {};
     for (const cluster of this.clusterIds()) {
       if (faceMap.has(cluster)) continue;
-      unboundFill[cluster] = this.fillOf(this.consensusOf([cluster]).cells, this.obs.get(cluster)!);
+      unboundFill[cluster] = this.fillOf(this.consensusOf([cluster]));
     }
     const lowConfidence: number[] = [];
     if (this.locked) {

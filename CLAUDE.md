@@ -114,6 +114,14 @@ cd model && make export      # writes web/public/models/facekp.onnx
   (instant exit 0): run training as a normal session background task and use
   `--resume` after interruptions.
 
+## Prior art
+
+- `docs/rubiks-vision-analysis.md` — analysis of gillis.oldfeldt/rubiks-vision
+  (a comparable browser scanner: whole-cube 54-keypoint pose, learned colour
+  model, exact 9-per-colour decoder). Verdict: keep our per-face
+  architecture; port the separable pieces (exact decoder, quality gates,
+  wasm threads). Read it before redesigning the colour lock or the tracker.
+
 ## Known hard cases (don't be surprised)
 
 - Red vs orange and white vs yellow under warm indoor light. Planned fix:

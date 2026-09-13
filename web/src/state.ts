@@ -8,6 +8,7 @@
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
 import {
+  assignBalanced,
   labDistance,
   labMean,
   labMedian,
@@ -146,6 +147,27 @@ export function normalizeFaceCells(cells: readonly Lab[], lWeight = CLUSTER_L_WE
   return cells.map((c) => ({ L: (c.L - medL) * lWeight, a: c.a, b: c.b }));
 }
 
+/**
+ * Chroma above this is compressed by CHROMA_SLOPE before stickers are
+ * classified. MEASURED 2026-09-13 on the phone sessions: a sticker's chroma
+ * swings with illumination far more than its hue - the same blue read
+ * (16, -61) lit and (6, -28) in shadow, and in plain ab the shadowed one
+ * sat nearer white (27) than blue (34); a pale yellow (-10, 40) was a coin
+ * flip between yellow and white. Halving chromatic differences beyond the
+ * knee keeps neutrals linear (white vs a dim blue still separates by
+ * chroma) while a colour seen dim stays with its hue.
+ */
+export const CHROMA_KNEE = 20;
+export const CHROMA_SLOPE = 0.5;
+
+/** The classification space: normalized Lab with chroma compressed past the knee. */
+export function compressChroma(c: Lab): Lab {
+  const ch = Math.hypot(c.a, c.b);
+  if (ch <= CHROMA_KNEE) return c;
+  const s = (CHROMA_KNEE + (ch - CHROMA_KNEE) * CHROMA_SLOPE) / ch;
+  return { L: c.L, a: c.a * s, b: c.b * s };
+}
+
 // DECISION: two capture centers closer than this in the normalized space are
 // treated as the same physical face scanned twice (the scanner's duplicate
 // guard uses the same constant). Calibrated on fixtures: genuinely duplicated
@@ -165,6 +187,8 @@ export interface AssembledState {
   flipped?: number[];
   /** quarter turns applied per face (U R F D L B order) by resolveByRotation */
   turned?: number[];
+  /** the nine-per-colour constraint had to be enforced to reach a valid state */
+  balanced?: boolean;
 }
 
 /** Row-major 3x3 cell index after k quarter turns: rotated[i] = cells[ROT3[k][i]]. */
@@ -231,7 +255,7 @@ export function resolveByRotation(state: AssembledState): AssembledState {
  * message. Center facelet positions (index 4 of each face) are forced to their
  * face id.
  */
-export function assembleState(captures: readonly FaceCapture[]): AssembledState {
+export function assembleState(captures: readonly FaceCapture[], opts: { balanced?: boolean } = {}): AssembledState {
   if (captures.length !== 6) {
     throw new Error(`assembleState: expected 6 face captures, got ${captures.length}.`);
   }
@@ -263,10 +287,13 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     for (let c = 0; c < 9; c++) samples.push(cells[c]!);
   }
 
-  const normalized: Lab[] = [];
+  const plain: Lab[] = [];
   for (let f = 0; f < FACE_ORDER.length; f++) {
-    normalized.push(...normalizeFaceCells(samples.slice(f * 9, f * 9 + 9)));
+    plain.push(...normalizeFaceCells(samples.slice(f * 9, f * 9 + 9)));
   }
+  // classification happens with chroma compressed; the centre-distinctness
+  // check below keeps the plain space its threshold was calibrated in
+  const normalized = plain.map(compressChroma);
 
   // Indistinguishable centers mean the same face was scanned twice (or a
   // capture is unusable) — no clustering can recover from that.
@@ -274,7 +301,7 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
     for (let j = i + 1; j < FACE_ORDER.length; j++) {
       const a = FACE_ORDER[i]!;
       const b = FACE_ORDER[j]!;
-      if (labDistance(normalized[centerIndex[a]]!, normalized[centerIndex[b]]!) < CENTER_MIN_DIST) {
+      if (labDistance(plain[centerIndex[a]]!, plain[centerIndex[b]]!) < CENTER_MIN_DIST) {
         throw new Error(`Couldn't tell the ${a} and ${b} centers apart — rescan in better light.`);
       }
     }
@@ -289,7 +316,25 @@ export function assembleState(captures: readonly FaceCapture[]): AssembledState 
   // cell stays pinned to its own cluster. Recomputing labels by nearest
   // centroid afterwards looks equivalent and is not - it lets a center be
   // relabelled, which costs a sticker on the monitor-cast fixture.
-  const { centroids, labels } = kmeans(normalized, 6, seeds, 32, anchors);
+  const km = kmeans(normalized, 6, seeds, 32, anchors);
+  const centroids = km.centroids;
+  let labels = km.labels;
+  // Nine of each colour, enforced on request when the free assignment
+  // breaks it. MEASURED 2026-09-13: on the phone sessions the one to five
+  // wrong stickers were exactly the surplus ("U appears 10") and the
+  // cheapest rebalancing by squared distance was the right sticker; on two
+  // older single-frame fixtures it moves the wrong ones (52 -> 50 of 54).
+  // So assembleResolved tries it second and keeps it only if the result is
+  // a real cube.
+  if (opts.balanced) {
+    const counts = new Array<number>(6).fill(0);
+    for (const l of labels) counts[l]!++;
+    if (counts.some((n) => n !== 9)) {
+      const pinned = new Map<number, number>();
+      anchors.forEach((i, cluster) => pinned.set(i, cluster));
+      labels = assignBalanced(normalized, centroids, 9, pinned);
+    }
+  }
 
   // Everything from here to the very end works in CLUSTER indices - "the six
   // colors this cube shows" - never in face letters. A cluster is not a face:
@@ -680,4 +725,19 @@ export function warmSolver(): void {
 /** Inverse of a move sequence (use Cube.inverse from cubejs). */
 export function inverseMoves(alg: string): string {
   return Cube.inverse(alg);
+}
+
+/**
+ * The lock-time cascade: free classification, near-tie flips by piece
+ * uniqueness, per-face orientation from the pieces; and when that is still
+ * not a cube, the same with the nine-per-colour constraint enforced. The
+ * result is the first that validates, else the free one (its error message
+ * is the honest one).
+ */
+export function assembleResolved(captures: readonly FaceCapture[]): AssembledState {
+  const free = resolveByRotation(resolveByPieces(assembleState(captures)));
+  if (validateState(free.facelets).ok) return free;
+  const balanced = resolveByRotation(resolveByPieces(assembleState(captures, { balanced: true })));
+  if (validateState(balanced.facelets).ok) return { ...balanced, balanced: true };
+  return free;
 }

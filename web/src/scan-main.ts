@@ -455,9 +455,12 @@ function updateFillUI(): void {
     solved = true;
     const flipped = (p.locked.flipped?.length ? `\n(${p.locked.flipped.length} sticker(s) resolved by piece uniqueness)` : '')
       + (p.locked.turned?.some(Boolean) ? `\n(orientation corrected from the pieces for ${FACE_ORDER.filter((_, i) => p.locked!.turned![i]).join(', ')})` : '');
+    // the solution's moves are named by centre: U is the face whose centre
+    // is the U colour, F the F colour - say so, or the moves are meaningless
+    const hold = `Hold the cube with the ${DEFAULT_SCHEME_NAMES[p.locked.stickerFaces[4]!]} centre on top and the ${DEFAULT_SCHEME_NAMES[p.locked.stickerFaces[22]!]} centre facing you.`;
     resultEl.textContent = `LOCKED\n${p.locked.facelets}${flipped}\nsolving…`;
     void solveState(p.locked.facelets)
-      .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
+      .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\n${hold}\nSolution: ${sol}`; })
       .catch((e) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nsolver failed: ${e}`; });
   } else if (!p.locked && p.validationError) {
     resultEl.textContent = `sampling complete but state invalid: ${p.validationError}\n(keep scanning - votes keep updating)`;
