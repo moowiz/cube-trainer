@@ -19,6 +19,20 @@ export interface Lab {
 export interface CellSample {
   lab: Lab;
   rgb: [number, number, number];
+  /**
+   * Center cell only: the middle of the sticker disagrees with the ring around
+   * it by more than CENTRE_OBSCURED_LAB, so something is sitting on it — a
+   * logo, a fingertip, a glare spot. `lab` is then the ring's reading, which
+   * is the sticker; this flag says how much to trust it.
+   */
+  obscured?: boolean;
+  /**
+   * Center cell only, and only when `obscured`: how far apart the two ring
+   * patches the reading was built from are. Large means the ring itself is
+   * inconsistent — it is straddling seams, or the obstruction covers most of
+   * the cell — and the reading should not be trusted.
+   */
+  ringSpread?: number;
 }
 
 /**

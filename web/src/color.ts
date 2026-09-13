@@ -104,7 +104,39 @@ export function gridCellCenters(rect: Rect): Array<[number, number]> {
 export interface CellPlan {
   half: number;
   off: number;
+  /** Patch half-width for the center cell, which trades width for reach. */
+  centreHalf: number;
+  /** Ring radius for the center cell. May be 0 when there is no budget. */
+  centreOff: number;
 }
+
+/**
+ * Diagonal offset (in cells) at which all four ring patches clear the center
+ * logo. MEASURED on a GAN cube whose center cap carries a large blue mark:
+ * out to ±0.20 of a cell the sample is 100% logo, at ±0.26 it is still
+ * 86–91% logo, and only at ±0.30 do all four diagonal patches come off it.
+ * Diagonal placement is what makes this affordable — a corner at ±0.30 sits
+ * 0.42 from the cell center but only 0.30 from the seam on either axis.
+ */
+export const LOGO_CLEAR_OFF = 0.3;
+
+/** Patch half-width on the center cell: small, because reach matters more. */
+export const CENTRE_PATCH_HALF = 0.07;
+
+/**
+ * Lab gap between the middle of the center cell and its ring above which the
+ * center sticker is taken to be obscured — by a logo, a fingertip, or glare.
+ * The ring is then the only honest reading of the sticker.
+ */
+export const CENTRE_OBSCURED_LAB = 12;
+
+/**
+ * When the center is obscured, the two ring patches the reading is built from
+ * must agree within this. Beyond it the ring is straddling seams or the
+ * obstruction covers most of the cell, and there is no sticker reading to be
+ * had — identify.ts declines the face rather than guess.
+ */
+export const RING_INCOHERENT_LAB = 25;
 
 /** Median corner error of the deployed detector, in 320x240 letterbox px. */
 export const CORNER_ERR_PX = 3.0;
@@ -136,29 +168,27 @@ export function facePlan(cellPx: number): CellPlan | null {
   if (cellPx * 3 < MIN_FACE_EDGE_PX) return null;
   const budget = 0.45 - CORNER_ERR_PX / Math.max(cellPx, 1e-6);
   if (budget <= 0.02) return null;
+  // The eight outer cells have nothing to dodge (measured: their middle and
+  // their own ±25% ring differ by 1.6–2.8 Lab), so they spend the budget on
+  // patch width. The CENTER cell is the opposite: its middle is the one place
+  // a logo is guaranteed to be, so it spends the budget on reach first and
+  // takes whatever width is left.
   const half = Math.min(0.15, budget);
-  return { half, off: Math.max(0, budget - half) };
+  const centreOff = Math.max(0, Math.min(LOGO_CLEAR_OFF, budget - CENTRE_PATCH_HALF));
+  return { half, off: centreOff, centreHalf: CENTRE_PATCH_HALF, centreOff };
 }
 
 /** The plan a caller gets when it does not supply one: today's fixed geometry. */
-const LEGACY_PLAN: CellPlan = { half: 0.2, off: 0.25 };
+const LEGACY_PLAN: CellPlan = { half: 0.2, off: 0.25, centreHalf: 0.1, centreOff: 0.25 };
 
 /**
- * Robust cell sample. A ring of four extra patches is sampled only when the
- * plan funds one, and the result is the MEDOID of the patches — the single
- * patch closest to all the others.
+ * One of the eight OUTER cells: a single patch at the cell's center.
  *
- * MEASURED: the ring exists to dodge the center-cap logo (fixture
- * cube-frame-D-1789100811627, where the logo covers the whole center of the
- * white tile). On full-resolution photos with hand-labelled geometry the gap
- * between a sticker's middle and its own ±25% ring is 8.3 Lab for the face
- * center and 1.6–2.8 for all eight others — the logo lives in exactly one
- * cell, so only that cell should pay the ring's reach out toward the seam.
- *
- * The medoid replaces a component-wise median, which picked each channel
- * independently and could return a color present in none of the patches
- * (observed on a phone capture: red from one sub-patch, green and blue from
- * another, naming a blue sticker white).
+ * MEASURED: on full-resolution photos with hand-labelled geometry the gap
+ * between a sticker's middle and its own ±25% ring is 1.6–2.8 Lab for these
+ * eight cells and 8.3 for the face center. There is nothing here to dodge, so
+ * a ring would only spend reach toward the seam and buy noise. The center
+ * cell, which does have something to dodge, is sampleCentreCell.
  */
 export function sampleCellRobust(
   img: ImageData,
@@ -168,27 +198,55 @@ export function sampleCellRobust(
   plan: CellPlan = LEGACY_PLAN,
 ): CellSample {
   const patchSize = Math.max(2, Math.round(2 * plan.half * cellSize));
-  if (plan.off < 0.02) return samplePatch(img, cx, cy, patchSize);
-  const off = cellSize * plan.off;
-  const points: Array<[number, number]> = [
-    [cx, cy],
-    [cx - off, cy - off],
-    [cx + off, cy - off],
-    [cx - off, cy + off],
-    [cx + off, cy + off],
+  return samplePatch(img, cx, cy, patchSize);
+}
+
+/**
+ * The center cell, which is the only one that has to work around something
+ * sitting in its middle.
+ *
+ * Reads a ring of four DIAGONAL patches and takes their medoid, then compares
+ * that to the middle of the cell. The middle is never allowed to vote: on a
+ * logo'd cube it is contaminated essentially always (measured: 100% logo out
+ * to ±0.20 of a cell), so including it would let the contaminant win a
+ * majority rather than be outvoted by it.
+ */
+export function sampleCentreCell(
+  img: ImageData,
+  cx: number,
+  cy: number,
+  cellSize: number,
+  plan: CellPlan,
+): CellSample {
+  const patchSize = Math.max(2, Math.round(2 * plan.centreHalf * cellSize));
+  const inner = samplePatch(img, cx, cy, patchSize);
+  if (plan.centreOff < 0.02) return inner;
+  const off = cellSize * plan.centreOff;
+  const ring = ([[-1, -1], [1, -1], [-1, 1], [1, 1]] as const).map(([sx, sy]) =>
+    samplePatch(img, cx + sx * off, cy + sy * off, patchSize),
+  );
+  const byDistance = ring
+    .map((s) => ({ s, d: labDistance(s.lab, inner.lab) }))
+    .sort((a, b) => b.d - a.d);
+  // Nothing is on the middle: the whole cell agrees, and the tight middle
+  // patch is the most accurate reading of it.
+  if (byDistance[0]!.d <= CENTRE_OBSCURED_LAB) return { ...inner, obscured: false };
+  // Something IS on the middle. The contaminant is by construction central,
+  // so the ring patches least like the middle are the least contaminated —
+  // MEASURED on a GAN center mark at the reach the budget allows (±0.195):
+  // the medoid of the ring names white at distance 30-39, the mean of the two
+  // furthest at 20-21, against a middle that names blue. Two rather than one
+  // so a single stray patch cannot carry the reading on its own.
+  const [a, b] = [byDistance[0]!.s, byDistance[1]!.s];
+  const rgb: [number, number, number] = [
+    (a.rgb[0] + b.rgb[0]) / 2, (a.rgb[1] + b.rgb[1]) / 2, (a.rgb[2] + b.rgb[2]) / 2,
   ];
-  const parts = points.map(([x, y]) => samplePatch(img, x, y, patchSize));
-  let best = 0;
-  let bestSum = Infinity;
-  for (let i = 0; i < parts.length; i++) {
-    let sum = 0;
-    for (let j = 0; j < parts.length; j++) sum += labDistance(parts[i]!.lab, parts[j]!.lab);
-    if (sum < bestSum) {
-      bestSum = sum;
-      best = i;
-    }
-  }
-  return parts[best]!;
+  return {
+    lab: srgbToLab(rgb[0], rgb[1], rgb[2]),
+    rgb,
+    obscured: true,
+    ringSpread: labDistance(a.lab, b.lab),
+  };
 }
 
 /**
@@ -203,10 +261,10 @@ export function sampleCellRobust(
  */
 export function sampleGridCells(img: ImageData, rect: Rect, plan?: CellPlan): CellSample[] {
   const cellSize = Math.min(rect.w, rect.h) / 3;
-  const p = plan ?? facePlan(cellSize) ?? { half: 0.15, off: 0 };
-  const flat: CellPlan = { half: p.half, off: 0 };
+  const p = plan ?? facePlan(cellSize) ?? LEGACY_PLAN;
   return gridCellCenters(rect).map(([cx, cy], i) =>
-    sampleCellRobust(img, cx, cy, cellSize, i === 4 ? p : flat),
+    i === 4 ? sampleCentreCell(img, cx, cy, cellSize, p)
+            : sampleCellRobust(img, cx, cy, cellSize, p),
   );
 }
 

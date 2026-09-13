@@ -19,7 +19,7 @@
 // trained model has always made.
 import {
   facePlan, isFaceBlownOut, isFaceTooDark, labDistance, labMedian, MIN_FACE_EDGE_PX,
-  sampleGridCells, srgbToLab,
+  RING_INCOHERENT_LAB, sampleGridCells, srgbToLab,
 } from '../color';
 import { warpQuad, type ImageDataLike } from '../rectify';
 // CENTER_MIN_DIST was calibrated in the clustering space, but it survives the
@@ -42,6 +42,9 @@ function colorOf(face: FaceId): ColorName {
  * not that the color was unreadable, it is that the app declined to guess.
  */
 export const TOO_SMALL_REASON = 'face too small';
+
+/** Prefix of the refusal reason for a center sticker with something on it. */
+export const OBSCURED_REASON = 'center obscured';
 
 /** Faces that can never be co-visible: naming both in one frame is a bug. */
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
@@ -245,6 +248,18 @@ export function nameQuads(
     }
     if (isFaceBlownOut(cells)) {
       out[i] = { face: null, color: null, reason: 'glare: face blown out', nameConf: 0, minEdgePx: minEdge };
+      return;
+    }
+    // Rule 1b: something is on the middle of the center sticker (logo, a
+    // fingertip, glare) AND the ring built to see around it does not agree
+    // with itself. sampleCentreCell handles the ordinary obscured case by
+    // reading the ring; this is the case where even that failed, and naming
+    // from a reading known to be contaminated is exactly how a white center
+    // gets called blue.
+    const centre = samples[4]!;
+    if (centre.obscured && (centre.ringSpread ?? 0) > RING_INCOHERENT_LAB) {
+      out[i] = { face: null, color: null, nameConf: 0, minEdgePx: minEdge,
+                 reason: `${OBSCURED_REASON} (ring disagrees by ${(centre.ringSpread ?? 0).toFixed(0)})` };
       return;
     }
     const cellsNorm = normalizeFaceCells(cells, NAME_L_WEIGHT);
