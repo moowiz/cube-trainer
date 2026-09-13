@@ -36,3 +36,7 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   it - both pinned by colorid.test.ts (bindings need a vote quorum and a
   chromatically possible colour, ranks beat bindings, leftover clusters
   alias, red/orange split by hue gap).
+  `-1789309733443` (daylight, all six faces filled, clusters right) is the
+  lock that failed with "U appears 8 times": the old cell-keyed voter blended
+  stickers of frames whose rotation disagreed; the voter now aligns whole
+  frames to the face consensus and drops outliers (assembly.test.ts).

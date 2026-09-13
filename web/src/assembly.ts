@@ -1,27 +1,39 @@
 // Any-order state assembly (M7): per-sticker voting across frames.
 //
 // The detector/tracker stack turns frames into per-face 9-cell Lab
-// observations (already in sticker-layout order), each tagged with the
-// session colour CLUSTER its centre belongs to (detect/colorid.ts) - not a
-// face letter. This module accumulates them into per-cell sample reservoirs
-// keyed by cluster and, once every cluster has enough evidence and every
-// cluster has a letter, aggregates each cell (Lab median - robust to outlier
-// frames), hands the result to M1's proven assembleState (center-seeded
-// k-means + cubejs facelet mapping), resolves near-tie stickers by piece
-// uniqueness (resolveByPieces), then validateState. Never trust a single
-// frame (CLAUDE.md): a state only locks when sampling converged AND cubejs
-// accepts it.
+// observations (in the face's resolved sticker-layout order), each tagged
+// with the session colour CLUSTER its centre belongs to (detect/colorid.ts)
+// - not a face letter. This module keeps a reservoir of whole-frame
+// observations per cluster and, once every face has enough evidence and a
+// letter, builds each face's CONSENSUS: the per-cell Lab median of the
+// frames, after every frame has been re-aligned to that median by whichever
+// of the four in-plane rotations fits it best, and after frames that fit no
+// rotation have been dropped. The result goes to M1's proven assembleState
+// (center-seeded k-means + cubejs facelet mapping), then resolveByPieces,
+// then validateState. Never trust a single frame (CLAUDE.md): a state only
+// locks when sampling converged AND cubejs accepts it.
 //
-// Keying by cluster rather than letter (2026-09-13) is what lets a cluster be
-// renamed (a lone warm cluster resolving to red or orange late in the
-// session) without throwing away or mislabelling the votes already cast.
+// DECISION 2026-09-13: frames, not cells, are the unit of evidence. The
+// previous voter keyed samples by (cluster, cell index) AFTER the frame's
+// rotation was applied, so a face whose rotation was resolved differently in
+// some frames (a track re-created with a new cyclic corner order, one bad
+// shared-edge match) mixed samples of different stickers in one reservoir;
+// the median of a white/red mix is neither, and the lock failed with "U
+// appears 8 times" on every phone session (scan-debug-1789309733443). A
+// face's stickers are only ever compared up to rotation here; the claimed
+// rotation of the majority of frames fixes the absolute one.
+//
+// Keying by cluster rather than letter is what lets a cluster be renamed (a
+// lone warm cluster resolving to red or orange late in the session) without
+// throwing away or mislabelling the votes already cast; several clusters
+// may map to one face (a colour split by lighting) and their frames merge.
 //
 // M8 glare rule lives here too: samples that are blown out (very high L,
 // near-zero chroma) carry no pigment information and are dropped before
 // they can dilute the vote.
 
 import { labMedian, labDistance } from './color';
-import { assembleState, resolveByPieces, validateState, type AssembledState } from './state';
+import { assembleState, normalizeFaceCells, resolveByPieces, validateState, type AssembledState, type FaceCapture } from './state';
 import { FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 
@@ -32,6 +44,28 @@ export interface FaceObservation {
   cells: Lab[];
   /** Detector confidence for this face in this frame, [0,1]. */
   conf: number;
+}
+
+/** Per-face evidence summary of the last lock attempt (debug). */
+export interface FaceEvidence {
+  face: FaceId;
+  clusters: number[];
+  frames: number;
+  /** frames that fit the consensus at some rotation */
+  inliers: number;
+  /** how many inlier frames were re-aligned by 1/2/3 quarter turns (index 0 = as claimed) */
+  rotations: [number, number, number, number];
+  /** mean aligned distance of the inliers to the consensus (normalized space) */
+  fit: number;
+  /** raw Lab median per cell of the aligned inliers */
+  cells: Lab[];
+}
+
+/** What the last tryLock saw: the 54 medians, the assembled state, and why it failed (debug). */
+export interface LockAttempt {
+  evidence: FaceEvidence[];
+  assembled: AssembledState | null;
+  error: string | null;
 }
 
 export interface AssemblyProgress {
@@ -56,20 +90,71 @@ export function isGlareSample(lab: Lab): boolean {
 }
 
 const MIN_SAMPLES = 5;      // per cell before a face counts as covered
-const RESERVOIR = 25;       // cap per cell; newest replace oldest
+const RESERVOIR = 40;       // frames kept per cluster; newest replace oldest
 const MIN_CONF = 0.5;       // ignore observations from low-confidence quads
+/** A frame whose best-rotation fit to the consensus is worse than this (normalized Lab, mean over cells) is an outlier. */
+const OUTLIER_DIST = 18;
+const ALIGN_ITERATIONS = 3;
+
+/** Row-major 3x3 cell index after k quarter turns: rotated[i] = cells[ROT[k][i]]. */
+const ROT: readonly (readonly number[])[] = (() => {
+  const once = [6, 3, 0, 7, 4, 1, 8, 5, 2]; // 90 deg: new (r, c) = old (2 - c, r)
+  const out: number[][] = [[0, 1, 2, 3, 4, 5, 6, 7, 8]];
+  for (let k = 1; k < 4; k++) out.push(out[k - 1]!.map((_, i) => out[k - 1]![once[i]!]!));
+  return out;
+})();
+
+export function rotateCells<T>(cells: readonly T[], k: number): T[] {
+  return ROT[k & 3]!.map((j) => cells[j]!);
+}
+
+interface FrameObs {
+  /** 9 cells; null = glare, dropped */
+  cells: (Lab | null)[];
+  /** the same cells in the exposure-free space (own median L subtracted, crushed) */
+  norm: (Lab | null)[];
+}
+
+function normalize(cells: (Lab | null)[]): (Lab | null)[] {
+  const present = cells.filter((c): c is Lab => c !== null);
+  if (!present.length) return cells.map(() => null);
+  const normed = normalizeFaceCells(present);
+  let k = 0;
+  return cells.map((c) => (c === null ? null : normed[k++]!));
+}
+
+function cellMedian(frames: readonly (Lab | null)[][], i: number): Lab | null {
+  const xs = frames.map((f) => f[i]).filter((c): c is Lab => c !== null);
+  return xs.length ? labMedian(xs) : null;
+}
+
+/** Mean distance of a frame (at rotation k) to the per-cell consensus, over cells both have. */
+function fitAt(norm: readonly (Lab | null)[], k: number, consensus: readonly (Lab | null)[]): number {
+  const rotated = rotateCells(norm, k);
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i < 9; i++) {
+    const c = rotated[i];
+    const m = consensus[i];
+    if (c && m) { sum += labDistance(c, m); n++; }
+  }
+  return n ? sum / n : Infinity;
+}
 
 export class StickerVoter {
-  private samples: Map<string, Lab[]> = new Map(); // "<cluster>:<cell>" -> reservoir
   private frames = 0;
+  private obs = new Map<number, FrameObs[]>();
   private locked: AssembledState | null = null;
   private lastValidationError: string | null = null;
+  /** Debug: the last lock attempt with every face covered. */
+  lastAttempt: LockAttempt | null = null;
 
   reset(): void {
-    this.samples.clear();
+    this.obs.clear();
     this.frames = 0;
     this.locked = null;
     this.lastValidationError = null;
+    this.lastAttempt = null;
   }
 
   /** Record one frame's observations. `faceMap` is the current cluster -> letter binding, used to try a lock. */
@@ -78,70 +163,110 @@ export class StickerVoter {
     this.frames++;
     for (const ob of observations) {
       if (ob.conf < MIN_CONF || ob.cells.length !== 9) continue;
-      for (let i = 0; i < 9; i++) {
-        const cell = ob.cells[i]!;
-        if (isGlareSample(cell)) continue;
-        const key = `${ob.cluster}:${i}`;
-        let r = this.samples.get(key);
-        if (!r) this.samples.set(key, (r = []));
-        r.push({ ...cell });
-        if (r.length > RESERVOIR) r.shift();
-      }
+      const cells = ob.cells.map((c) => (isGlareSample(c) ? null : { ...c }));
+      let r = this.obs.get(ob.cluster);
+      if (!r) this.obs.set(ob.cluster, (r = []));
+      r.push({ cells, norm: normalize(cells) });
+      if (r.length > RESERVOIR) r.shift();
     }
     this.tryLock(faceMap);
   }
 
   /** Merge one cluster's votes into another (the clusterer merged them). */
   mergeClusters(from: number, into: number): void {
-    for (let i = 0; i < 9; i++) {
-      const src = this.samples.get(`${from}:${i}`);
-      if (!src) continue;
-      const key = `${into}:${i}`;
-      const dst = this.samples.get(key) ?? [];
-      this.samples.set(key, [...dst, ...src].slice(-RESERVOIR));
-      this.samples.delete(`${from}:${i}`);
-    }
-  }
-
-  private cellSamples(cluster: number, i: number): Lab[] {
-    return this.samples.get(`${cluster}:${i}`) ?? [];
-  }
-
-  /** All samples of one cell across every cluster mapped to the face (a colour may be split over clusters). */
-  private faceCellSamples(face: FaceId, faceMap: ReadonlyMap<number, FaceId>, i: number): Lab[] {
-    const out: Lab[] = [];
-    for (const [cluster, f] of faceMap) if (f === face) out.push(...this.cellSamples(cluster, i));
-    return out;
-  }
-
-  private faceFill(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): number {
-    let have = 0;
-    for (let i = 0; i < 9; i++) have += Math.min(this.faceCellSamples(face, faceMap, i).length, MIN_SAMPLES);
-    return have / (9 * MIN_SAMPLES);
+    const src = this.obs.get(from);
+    if (!src) return;
+    this.obs.set(into, [...(this.obs.get(into) ?? []), ...src].slice(-RESERVOIR));
+    this.obs.delete(from);
   }
 
   private clusterIds(): number[] {
-    const ids = new Set<number>();
-    for (const key of this.samples.keys()) ids.add(Number(key.split(':')[0]));
-    return [...ids];
+    return [...this.obs.keys()];
   }
 
-  private fill(cluster: number): number {
+  private framesOf(clusters: readonly number[]): FrameObs[] {
+    return clusters.flatMap((c) => this.obs.get(c) ?? []);
+  }
+
+  /**
+   * The consensus of a set of frames: per-cell medians after aligning every
+   * frame by its best rotation and dropping the frames that fit none.
+   */
+  private consensus(frames: readonly FrameObs[]): { cells: (Lab | null)[]; inliers: number; rotations: [number, number, number, number]; fit: number; aligned: (Lab | null)[][] } {
+    if (!frames.length) return { cells: Array.from({ length: 9 }, () => null), inliers: 0, rotations: [0, 0, 0, 0], fit: 0, aligned: [] };
+    let rot = frames.map(() => 0);
+    let keep = frames.map(() => true);
+    for (let iter = 0; iter < ALIGN_ITERATIONS; iter++) {
+      const aligned = frames.flatMap((f, j) => (keep[j] ? [rotateCells(f.norm, rot[j]!)] : []));
+      const con = Array.from({ length: 9 }, (_, i) => cellMedian(aligned, i));
+      rot = frames.map((f) => {
+        let best = 0;
+        let bestD = Infinity;
+        for (let k = 0; k < 4; k++) { const d = fitAt(f.norm, k, con); if (d < bestD) { bestD = d; best = k; } }
+        return best;
+      });
+      keep = frames.map((f, j) => fitAt(f.norm, rot[j]!, con) <= OUTLIER_DIST);
+      if (!keep.some(Boolean)) keep = frames.map(() => true);
+    }
+    // the majority's claimed rotation is the absolute one: re-express every
+    // alignment relative to it so "as claimed" frames read as rotation 0
+    const counts: [number, number, number, number] = [0, 0, 0, 0];
+    frames.forEach((_, j) => { if (keep[j]) counts[rot[j]!]++; });
+    const majority = counts.indexOf(Math.max(...counts));
+    const alignedRaw = frames.flatMap((f, j) => (keep[j] ? [rotateCells(f.cells, (rot[j]! - majority + 4) & 3)] : []));
+    const alignedNorm = frames.flatMap((f, j) => (keep[j] ? [rotateCells(f.norm, (rot[j]! - majority + 4) & 3)] : []));
+    const con = Array.from({ length: 9 }, (_, i) => cellMedian(alignedNorm, i));
+    const rotations: [number, number, number, number] = [0, 0, 0, 0];
+    let fitSum = 0;
+    let inliers = 0;
+    frames.forEach((f, j) => {
+      if (!keep[j]) return;
+      const k = (rot[j]! - majority + 4) & 3;
+      rotations[k]++;
+      fitSum += fitAt(f.norm, k, con);
+      inliers++;
+    });
+    return { cells: Array.from({ length: 9 }, (_, i) => cellMedian(alignedRaw, i)), inliers, rotations, fit: inliers ? fitSum / inliers : 0, aligned: alignedNorm };
+  }
+
+  private fillOf(cells: readonly (Lab | null)[], frames: readonly FrameObs[]): number {
+    // per cell: inlier frames that have the cell, capped at MIN_SAMPLES
     let have = 0;
-    for (let i = 0; i < 9; i++) have += Math.min(this.cellSamples(cluster, i).length, MIN_SAMPLES);
+    for (let i = 0; i < 9; i++) {
+      if (!cells[i]) continue;
+      have += Math.min(frames.filter((f) => f.cells[i] !== null).length, MIN_SAMPLES);
+    }
     return have / (9 * MIN_SAMPLES);
+  }
+
+  private evidenceOf(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): FaceEvidence {
+    const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
+    const frames = this.framesOf(clusters);
+    const con = this.consensus(frames);
+    return { face, clusters, frames: frames.length, inliers: con.inliers, rotations: con.rotations, fit: con.fit, cells: con.cells.filter((c): c is Lab => c !== null) };
+  }
+
+  private faceFill(face: FaceId, faceMap: ReadonlyMap<number, FaceId>): number {
+    const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
+    const frames = this.framesOf(clusters);
+    if (!frames.length) return 0;
+    return this.fillOf(this.consensus(frames).cells, frames);
   }
 
   /** Try to lock with the given binding; the caller may call this after a re-binding without new samples. */
   tryLock(faceMap: ReadonlyMap<number, FaceId>): void {
     if (this.locked) return;
-    for (const f of FACE_ORDER) if (this.faceFill(f, faceMap) < 1) return;
-    const captures = FACE_ORDER.map((face) => ({
-      face,
-      cells: Array.from({ length: 9 }, (_, i) => labMedian(this.faceCellSamples(face, faceMap, i))),
-    }));
+    const evidence: FaceEvidence[] = [];
+    for (const face of FACE_ORDER) {
+      const ev = this.evidenceOf(face, faceMap);
+      if (ev.cells.length !== 9 || this.faceFill(face, faceMap) < 1) return;
+      evidence.push(ev);
+    }
+    const captures: FaceCapture[] = evidence.map((ev) => ({ face: ev.face, cells: ev.cells }));
+    const attempt: LockAttempt = { evidence, assembled: null, error: null };
     try {
       const assembled = resolveByPieces(assembleState(captures));
+      attempt.assembled = assembled;
       const v = validateState(assembled.facelets);
       if (v.ok) {
         this.locked = assembled;
@@ -152,25 +277,33 @@ export class StickerVoter {
     } catch (err) {
       this.lastValidationError = String(err instanceof Error ? err.message : err);
     }
+    attempt.error = this.lastValidationError;
+    this.lastAttempt = attempt;
   }
 
   progress(faceMap: ReadonlyMap<number, FaceId>): AssemblyProgress {
     const faceFill = {} as Record<FaceId, number>;
-    for (const f of FACE_ORDER) faceFill[f] = 0;
-    const unboundFill: Record<number, number> = {};
     for (const f of FACE_ORDER) faceFill[f] = this.faceFill(f, faceMap);
-    for (const cluster of this.clusterIds()) if (!faceMap.has(cluster)) unboundFill[cluster] = this.fill(cluster);
+    const unboundFill: Record<number, number> = {};
+    for (const cluster of this.clusterIds()) {
+      if (faceMap.has(cluster)) continue;
+      const frames = this.obs.get(cluster)!;
+      unboundFill[cluster] = this.fillOf(this.consensus(frames).cells, frames);
+    }
     const lowConfidence: number[] = [];
     if (this.locked) {
-      // dispersion of each cell's reservoir around its median, worst first
+      // dispersion of each cell's aligned samples around the consensus, worst first
       const spread: Array<[number, number]> = [];
       FACE_ORDER.forEach((face, fi) => {
+        const clusters = [...faceMap].filter(([, f]) => f === face).map(([c]) => c);
+        const frames = this.framesOf(clusters);
+        if (!frames.length) return;
+        const con = this.consensus(frames);
         for (let i = 0; i < 9; i++) {
-          const r = this.faceCellSamples(face, faceMap, i);
-          if (!r.length) continue;
-          const med = labMedian(r);
-          const d = r.reduce((s, x) => s + labDistance(x, med), 0) / Math.max(r.length, 1);
-          spread.push([fi * 9 + i, d]);
+          const m = cellMedian(con.aligned, i);
+          if (!m) continue;
+          const xs = con.aligned.flatMap((f) => (f[i] ? [labDistance(f[i]!, m)] : []));
+          if (xs.length) spread.push([fi * 9 + i, xs.reduce((s, x) => s + x, 0) / xs.length]);
         }
       });
       spread.sort((a, b) => b[1] - a[1]);
