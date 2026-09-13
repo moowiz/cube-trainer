@@ -190,6 +190,8 @@ export interface Solution {
   reason: string;
   /** Which colour space produced this solution. */
   embedding: string;
+  /** Debug: the ordinal names of the palette colours and the best letter maps considered. */
+  naming: { names: (string | null)[]; top: { letters: string; penalty: number; mismatches: number }[]; hinted: boolean; lab: (Lab | null)[] };
   /** Milliseconds spent. */
   ms: number;
   /** Per-frame chromatic gains actually applied (debug). */

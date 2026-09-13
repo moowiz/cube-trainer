@@ -29,30 +29,49 @@ function ranks(values: readonly (number | null)[], desc: boolean): number[] {
   return out;
 }
 
+/** Largest angular gap (degrees) between consecutive hues of `others` seen from `centre`. */
+function maxHueGap(centre: Lab, others: readonly Lab[]): number {
+  const hues = others.map((c) => (Math.atan2(c.b - centre.b, c.a - centre.a) * 180) / Math.PI).sort((x, y) => x - y);
+  let gap = 0;
+  for (let i = 0; i < hues.length; i++) {
+    const next = i + 1 < hues.length ? hues[i + 1]! : hues[0]! + 360;
+    gap = Math.max(gap, next - hues[i]!);
+  }
+  return gap;
+}
+
 /**
- * Name the palette colours by rank. White is the least chromatic; the other
- * five are ordered by HUE - blue, red, orange, yellow, green - which is the
- * one ordering that held across every phone session (MEASURED: red at hue
- * 33-45 and orange 44-55 in every session, while "red has the larger a"
- * failed on the kitchen-evening scan where red read (38, 26) and orange
- * (44, 41)). Each colour gets the name whose rank it fits best under a
- * one-to-one assignment; null colours stay null.
+ * Name the palette colours by structure. WHITE is the achromatic point of
+ * the palette: seen from the true white the five cube colours spread
+ * around the whole hue circle (largest gap ~150 deg), seen from any other
+ * candidate they bunch on one side (170-290 deg). Neither "least
+ * chromatic" nor "brightest" survives every light - under warm room light
+ * white reads as a tan of chroma ~50 while blue sits at 18, and on a fast
+ * indoor scan white was darker than yellow - but the surround does. The
+ * other five are ordered by HUE relative to that white (blue, red, orange,
+ * yellow, green), the ordering that held across every session. Each colour
+ * gets the name whose rank it fits best under a one-to-one assignment;
+ * null colours stay null.
  */
 export function ordinalNames(lab: readonly (Lab | null)[]): (ColorName | null)[] {
   const n = lab.length;
+  const present = lab.map((c, i) => (c ? i : -1)).filter((i) => i >= 0);
+  const gap = lab.map((c, i) => (c && present.length >= 3 ? maxHueGap(c, present.filter((j) => j !== i).map((j) => lab[j]!)) : null));
   const chroma = lab.map((c) => (c ? Math.hypot(c.a, c.b) : null));
+  // surround first, chroma as the tiebreak (both ranks, gap weighted double)
+  const rGap = ranks(gap, false);
   const rChroma = ranks(chroma, false);
-  // hue in (-180, 180]: blue lands near -80, red ~35, orange ~48, yellow ~100,
-  // green ~150; the least chromatic colour has no meaningful hue and is left
-  // out of the hue ranking
-  const white = rChroma.indexOf(0);
-  const hue = lab.map((c, i) => (c && i !== white ? (Math.atan2(c.b, c.a) * 180) / Math.PI : null));
+  const rWhite = lab.map((c, i) => (c ? 2 * rGap[i]! + rChroma[i]! : 1e3));
+  const white = rWhite.indexOf(Math.min(...rWhite));
+  const w = lab[white] ?? { L: 0, a: 0, b: 0 };
+  // hue relative to white in (-180, 180]: blue near -80, red ~35, orange ~48, yellow ~100, green ~150
+  const hue = lab.map((c, i) => (c && i !== white ? (Math.atan2(c.b - w.b, c.a - w.a) * 180) / Math.PI : null));
   const rHue = ranks(hue, false);
   const ORDER: Record<ColorName, number> = { blue: 0, red: 1, orange: 2, yellow: 3, green: 4, white: -1 };
   const cost: number[][] = [];
   for (let c = 0; c < n; c++) {
     if (!lab[c]) { cost.push(NAMES.map(() => 1e3)); continue; }
-    cost.push(NAMES.map((name) => (name === 'white' ? rChroma[c]! : c === white ? 10 : Math.abs(rHue[c]! - ORDER[name]))));
+    cost.push(NAMES.map((name) => (name === 'white' ? rWhite[c]! : c === white ? 10 : Math.abs(rHue[c]! - ORDER[name]))));
   }
   const rowToCol = solveAssignment(cost);
   return lab.map((c, i) => (c ? NAMES[rowToCol[i]!]! : null));
@@ -97,6 +116,8 @@ export interface LetterResult {
   /** name-prior mismatches of the chosen map */
   mismatches: number;
   maps: number;
+  /** the best few maps, for the debug panel: letters per candidate group and their costs */
+  top: { letters: string; penalty: number; mismatches: number }[];
 }
 
 /**
@@ -117,6 +138,8 @@ export function assignLetters(
   pairings: readonly Pairing[],
   centreMembership: (g: FaceGroup) => number[] | null,
   names: readonly (ColorName | null)[],
+  /** group id -> colour, when a decode has already settled the centres; the name prior then uses these instead of memberships */
+  hint?: ReadonlyMap<number, number>,
 ): LetterResult {
   // DECISION: geometry outranks the name prior - one pairing frame outweighs
   // every name mismatch put together (6 * 0.1 < 1) - so a non-standard
@@ -149,11 +172,12 @@ export function assignLetters(
     withCentre.forEach(({ g }, i) => { const c = rowToCol[i]!; if (c < 6) colourOf.set(g.id, c); });
   }
   const cands = groups.filter((g) => colourOf.has(g.id));
-  const centreColour = (g: FaceGroup): number | null => colourOf.get(g.id) ?? null;
+  const centreColour = (g: FaceGroup): number | null => hint?.get(g.id) ?? colourOf.get(g.id) ?? null;
   const tp = trackPairings(groups, pairings);
 
   interface Best { cost: number; letters: FaceId[]; votes: Map<number, number[]>; penalty: number; mismatches: number }
   const found: { best: Best | null } = { best: null };
+  const top: { letters: string; penalty: number; mismatches: number; cost: number }[] = [];
   let maps = 0;
   const letters: FaceId[] = [];
   const used = new Set<FaceId>();
@@ -183,6 +207,8 @@ export function assignLetters(
       if (name && DEFAULT_SCHEME_NAMES[letters[i]!] !== name) mismatches++;
     });
     const cost = penalty + PRIOR_WEIGHT * mismatches;
+    top.push({ letters: letters.join(''), penalty, mismatches, cost });
+    if (top.length > 64) { top.sort((a, b) => a.cost - b.cost); top.length = 4; }
     if (!found.best || cost < found.best.cost) found.best = { cost, letters: letters.slice(), votes, penalty, mismatches };
   };
   const rec = (i: number): void => {
@@ -196,8 +222,9 @@ export function assignLetters(
     }
   };
   rec(0);
+  top.sort((a, b) => a.cost - b.cost);
   const b = found.best;
-  if (!b) return { penalty: 0, mismatches: 0, maps };
+  if (!b) return { penalty: 0, mismatches: 0, maps, top: [] };
   cands.forEach((g, i) => {
     g.letter = b.letters[i]!;
     const groupVotes: [number, number, number, number] = [0, 0, 0, 0];
@@ -215,5 +242,5 @@ export function assignLetters(
     const top = Math.max(...groupVotes);
     g.absRotation = top > 0 ? groupVotes.indexOf(top) : null;
   });
-  return { penalty: b.penalty, mismatches: b.mismatches, maps };
+  return { penalty: b.penalty, mismatches: b.mismatches, maps, top: top.slice(0, 4).map(({ letters, penalty, mismatches }) => ({ letters, penalty, mismatches })) };
 }

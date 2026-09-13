@@ -182,6 +182,7 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
   let nEff: number[] = new Array<number>(54).fill(0);
   let slotLab: (Lab | null)[] = new Array<Lab | null>(54).fill(null);
   let balancedFacelets: string | null = null;
+  let naming: Solution['naming'] = { names: [], top: [], hinted: false, lab: [] };
   // absolute rotations the previous round's pairings established, so the
   // next grouping aligns paired tracks by geometry rather than by colour
   let knownAbs = new Map<number, number>();
@@ -189,8 +190,17 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
   for (let round = 0; round < P.rounds; round++) {
     const last = round === P.rounds - 1;
     const sigs: TrackSignature[] = aggregateTracks(log, embedding, gains, P.nSat);
+    // The palette is fitted to the cube's stickers, not to everything in
+    // view: from the second round on only tracks of lettered faces feed it
+    // (a hand or a desk beside the cube is a track too, and skin sits right
+    // next to white under warm light - the monitor clips).
+    const onFace = new Set<number>();
+    for (const g of groups) if (g.letter) for (const t of g.tracks) onFace.add(t);
     const points: { x: Vec3; w: number; track: number; cell: number }[] = [];
-    for (const s of sigs) s.cells.forEach((c, k) => { if (c.value && c.nEff > 0) points.push({ x: c.value, w: c.nEff, track: s.track, cell: k }); });
+    for (const s of sigs) {
+      if (onFace.size >= 5 && !onFace.has(s.track)) continue;
+      s.cells.forEach((c, k) => { if (c.value && c.nEff > 0) points.push({ x: c.value, w: c.nEff, track: s.track, cell: k }); });
+    }
     if (!points.length) break;
 
     // 1. free fit, seeded by the previous constrained refit or, the first
@@ -246,6 +256,41 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
       result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 6000, secondPops: 3000, maxMs: 250 });
     } else {
       result = decode(cm.cost, legalAll, { checkPieces: false, secondPops: 0 });
+    }
+    // The name prior was applied with the free fit's centre memberships,
+    // which can misread a centre (a yellow read as white on the fast-scan
+    // capture) and then prefer a whole-cube relabelling that geometry
+    // cannot tell apart - a legal cube with the wrong letters. Re-check
+    // the map against the DECODED centre colours and redo the decode if
+    // the letters move.
+    {
+      const decoded = result.colours ?? result.argmin;
+      const hint = new Map<number, number>();
+      [4, 13, 22, 31, 40, 49].forEach((slot, fi) => {
+        const g = groups.find((x) => x.letter === FACE_ORDER[fi]);
+        if (g && cm.nEff[slot]! > 0) hint.set(g.id, decoded[slot]!);
+      });
+      const before = groups.map((g) => g.letter);
+      const names = ordinalNames(palette.lab);
+      const lr = assignLetters(groups, log.pairings, (g) => member(g.cells[4]!.value), names, hint);
+      naming = { names, top: lr.top, hinted: hint.size > 0, lab: palette.lab };
+      if (groups.some((g, i) => g.letter !== before[i])) {
+        reconcileRotations(groups, sigs, member);
+        knownAbs = new Map();
+        for (const g of groups) for (const [t, k] of g.trackAbs) knownAbs.set(t, k);
+        ({ ev } = slotMap(groups, sigs));
+        cm = costMatrix(ev, palette, P.nu, P.freeBelow);
+        if (last && !opts.quick && groups.filter((g) => g.letter).length >= 5 && cm.nEff.filter((n) => n < P.freeBelow).length <= 9) {
+          const balanced = decode(cm.cost, legalAll, { checkPieces: false, secondPops: 0 });
+          balancedFacelets = balanced.colours ? coloursToFacelets(balanced.colours) : null;
+          if (balanced.colours) resolveUnknownRotations(groups, balanced.colours);
+          ({ ev } = slotMap(groups, sigs));
+          cm = costMatrix(ev, palette, P.nu, P.freeBelow);
+          result = decode(cm.cost, (cols) => validateState(coloursToFacelets(cols)).ok, { maxPops: 6000, secondPops: 3000, maxMs: 250 });
+        } else {
+          result = decode(cm.cost, legalAll, { checkPieces: false, secondPops: 0 });
+        }
+      }
     }
     nEff = cm.nEff;
     slotLab = cm.lab;
@@ -333,6 +378,7 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
     lockable: reason === 'ok',
     reason,
     embedding: embedding.name,
+    naming,
     ms: performance.now() - t0,
     gains,
     balanced: balancedFacelets,
