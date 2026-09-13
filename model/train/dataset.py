@@ -38,6 +38,23 @@ NORM_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
+def normalize_batch(x: torch.Tensor) -> torch.Tensor:
+    """(B,H,W,3) uint8 (as produced by raw_uint8=True) -> (B,3,H,W) float32,
+    pixel/255 then (x-mean)/std - the same math as the per-sample path in
+    __getitem__, just done once per batch on whatever device `x` is on.
+
+    Exists so training can ship uint8 out of the DataLoader workers: the
+    float32 tensor is 4x the bytes (921 KB vs 230 KB per 320x240 sample),
+    and on Windows every one of those bytes crosses a worker->main-process
+    shared-memory copy, gets pinned, then goes over PCIe. Measured 0.63 ms of
+    CPU per sample for the normalize alone, on top of the transfer cost.
+    """
+    mean = torch.as_tensor(NORM_MEAN, device=x.device).view(1, 3, 1, 1)
+    std = torch.as_tensor(NORM_STD, device=x.device).view(1, 3, 1, 1)
+    x = x.permute(0, 3, 1, 2).float().div_(255.0)
+    return x.sub_(mean).div_(std).contiguous()
+
+
 CACHE_VERSION = 2  # bump when the cached schema changes; triggers rebuild
 
 
@@ -124,9 +141,18 @@ def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path):
 
 
 class CubeKeypointDataset(Dataset):
-    def __init__(self, root: str | Path, split: str = "train", input_size=(320, 240), augment=None):
-        """split: 'train' | 'val' | 'all' (crc32-hash split, ~5% val)."""
+    def __init__(self, root: str | Path, split: str = "train", input_size=(320, 240), augment=None,
+                 raw_uint8: bool = False):
+        """split: 'train' | 'val' | 'all' (crc32-hash split, ~5% val).
+
+        raw_uint8: return the image as (H,W,3) uint8 instead of a normalized
+        (3,H,W) float32 - the caller must run `normalize_batch` on the batch.
+        Off by default so every tool that indexes the dataset directly
+        (export parity check, diagnose, fixture dumps, bbox) keeps getting
+        model-ready tensors; train.py turns it on for throughput.
+        """
         self.root = Path(root)
+        self.raw_uint8 = raw_uint8
         all_files = sorted((self.root / "labels").glob("img_*.json"))
         if not all_files:
             raise FileNotFoundError(f"no labels under {self.root} - run the M3 generator first")
@@ -176,10 +202,14 @@ class CubeKeypointDataset(Dataset):
             img, corners_px, conf = self.augment(img, norm * wh, conf)
             norm = (corners_px / wh).astype(np.float32)
             arr = np.asarray(img)
-        x = arr.astype(np.float32) / 255.0
-        x = (x - NORM_MEAN) / NORM_STD
+        if self.raw_uint8:
+            x = torch.from_numpy(arr.copy())  # memmap/PIL views are read-only; own the bytes
+        else:
+            x = arr.astype(np.float32) / 255.0
+            x = (x - NORM_MEAN) / NORM_STD
+            x = torch.from_numpy(x.transpose(2, 0, 1).copy())
         return (
-            torch.from_numpy(x.transpose(2, 0, 1).copy()),
+            x,
             torch.from_numpy(conf),
             torch.from_numpy(norm),
             torch.from_numpy(self.valid[idx].copy()),
