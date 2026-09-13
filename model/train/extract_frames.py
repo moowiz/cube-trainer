@@ -12,7 +12,10 @@ web/public/label.html and then import_labels.py, same as a photo batch.
 
 ffmpeg comes from the imageio-ffmpeg wheel (bundled static binary, no
 system install); it auto-applies the phone's rotation tag, so a portrait
-video comes out portrait.
+video comes out portrait. HDR clips (Pixel default: HLG 10-bit, bt2020) are
+tone-mapped to ordinary SDR - decoded naively they come out washed out with
+red reading as orange, which is exactly the confusion the colour stage
+struggles with, so they must not enter the data that way.
 """
 from __future__ import annotations
 
@@ -40,14 +43,28 @@ def ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def decode(video: Path, tmp: Path, rate: int, long_side: int) -> list[Path]:
+HDR_TRANSFERS = ("arib-std-b67", "smpte2084")   # HLG, PQ
+# DECISION: hable tone-map, no desaturation. Checked against the naive decode
+# on a real clip: naive is flat and hue-shifted, hable matches an SDR photo.
+TONEMAP = ("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+           "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
+
+
+def is_hdr(video: Path) -> bool:
+    info = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(video)],
+                          capture_output=True, text=True).stderr
+    return any(t in info for t in HDR_TRANSFERS)
+
+
+def decode(video: Path, tmp: Path, rate: int, long_side: int) -> tuple[list[Path], bool]:
     # scale keeps aspect; -2 rounds the other side to even. autorotate is on
     # by default so the rotate tag is honoured before scaling.
-    vf = (f"fps={rate},scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'")
+    hdr = is_hdr(video)
+    vf = f"fps={rate}," + (TONEMAP + "," if hdr else "") +          f"scale='if(gt(iw,ih),{long_side},-2)':'if(gt(iw,ih),-2,{long_side})'"
     cmd = [ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", str(video),
            "-vf", vf, "-q:v", "2", str(tmp / "f%06d.jpg")]
     subprocess.run(cmd, check=True)
-    return sorted(tmp.glob("f*.jpg"))
+    return sorted(tmp.glob("f*.jpg")), hdr
 
 
 def sharpness(im: Image.Image) -> float:
@@ -63,7 +80,7 @@ def thumb(im: Image.Image) -> np.ndarray:
 
 def extract(video: Path, out: Path, start_idx: int, a: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="frames_") as td:
-        frames = decode(video, Path(td), a.rate, a.long_side)
+        frames, hdr = decode(video, Path(td), a.rate, a.long_side)
         if not frames:
             print(f"{video.name}: no frames decoded"); return 0
         ims = [Image.open(f).convert("RGB") for f in frames]
@@ -84,7 +101,7 @@ def extract(video: Path, out: Path, start_idx: int, a: argparse.Namespace) -> in
             kept += 1
             if a.max and kept >= a.max: break
         w, h = ims[0].size
-        print(f"{video.name}: {len(ims)} decoded at {w}x{h}, {len(ims)//win} windows -> kept {kept} "
+        print(f"{video.name}: {len(ims)} decoded at {w}x{h}{' (HDR tone-mapped)' if hdr else ''}, {-(-len(ims)//win)} windows -> kept {kept} "
               f"(dropped {n_blur} blurry, {n_dup} duplicate)")
         return kept
 
