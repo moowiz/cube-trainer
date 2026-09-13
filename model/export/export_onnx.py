@@ -40,7 +40,8 @@ from onnxruntime.quantization import CalibrationDataReader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "train"))
 from dataset import NORM_MEAN, NORM_STD, CubeKeypointDataset  # noqa: E402
-from model import CENTER_STRIDE, build_model  # noqa: E402
+from model import (CENTER_DEDUPE_FRAC, CENTER_MIN_DEDUPE_PX, CENTER_STRIDE,  # noqa: E402
+                   build_model)
 
 WEB_MODELS = Path(__file__).resolve().parent.parent.parent / "web" / "public" / "models"
 INPUT_WH = (320, 240)
@@ -288,8 +289,12 @@ def main():
         "name": "maps", "shape": [1, 9, gh, gw], "stride": CENTER_STRIDE,
         "channels": "0: face-center heatmap logit (sigmoid me); 1..8: corner offsets "
                     "x0,y0..x3,y3 in cells, relative to the cell center",
-        "decode": "3x3 max-pool NMS, top 6, corner = ((j+0.5+offx)*stride/W, "
-                  "(i+0.5+offy)*stride/H); quads are ANONYMOUS - name them by center color",
+        "decode": f"corner = ((j+0.5+offx)*stride/W, (i+0.5+offy)*stride/H); candidates are "
+                  f"every cell >= threshold, strongest first (ties to the lower cell index), "
+                  f"then drop a quad whose center is within {CENTER_DEDUPE_FRAC} x an "
+                  f"already-kept quad's mean edge (floor {CENTER_MIN_DEDUPE_PX:.0f} px), keep 6; "
+                  f"NOT a 3x3 max-pool - that dropped a face on small cubes. Quads are "
+                  f"ANONYMOUS - name them by center color",
         "cornerOrder": "cyclic, winding consistent; starting corner arbitrary",
     }
 
