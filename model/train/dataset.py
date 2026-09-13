@@ -55,13 +55,18 @@ def normalize_batch(x: torch.Tensor) -> torch.Tensor:
 def to_float01(x: torch.Tensor) -> torch.Tensor:
     """(B,H,W,3) uint8 -> (B,3,H,W) float32 in [0,1]. The layout the GPU
     photometric augmentation (gpu_augment.py) operates on."""
-    return x.permute(0, 3, 1, 2).float().div_(255.0).contiguous()
+    # .to(dtype, memory_format) converts and re-lays out in one pass; the
+    # old .float().div_().contiguous() was three passes over ~60 MB a batch.
+    return x.permute(0, 3, 1, 2).to(torch.float32, memory_format=torch.contiguous_format).div_(255.0)
 
 
 def normalize01(x: torch.Tensor) -> torch.Tensor:
     """(B,3,H,W) float in [0,1] -> ImageNet-normalized, IN PLACE."""
-    mean = torch.as_tensor(NORM_MEAN, device=x.device).view(1, 3, 1, 1)
-    std = torch.as_tensor(NORM_STD, device=x.device).view(1, 3, 1, 1)
+    # Cached constants: as_tensor(ndarray, device="cuda") is a synchronizing
+    # host->device copy, and this runs once per training step.
+    from gpu_augment import const
+    mean = const(NORM_MEAN.tolist(), x.device, x.dtype).view(1, 3, 1, 1)
+    std = const(NORM_STD.tolist(), x.device, x.dtype).view(1, 3, 1, 1)
     return x.sub_(mean).div_(std)
 
 

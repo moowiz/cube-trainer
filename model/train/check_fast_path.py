@@ -7,7 +7,11 @@ produce the same model input, or train and export/diagnose would silently
 disagree about what the network sees.
 
 Also pins the float32 Gaussian-noise RNG in augment.py to the distribution
-the old float64 `np.random.normal` call produced.
+the old float64 `np.random.normal` call produced, and proves that one full
+training step (H2D copy, GPU augmentation, targets, forward, backward, fused
+AdamW through GradScaler) issues no device synchronization: every sync
+parks the CPU until the previous step's kernels drain, so CPU launch time
+and GPU time add up instead of overlapping (2026-09-12: ~12 syncs/step).
 
     ../.venv/Scripts/python check_fast_path.py --data ../data_real_val
 """
@@ -65,8 +69,62 @@ def main():
     print(f"noise rng: sigma {sigma:.3f} -> mean {m:+.4f} std {s:.4f} dtype {z.dtype}  "
           f"{'OK' if good else 'FAIL'}")
 
+    if torch.cuda.is_available():
+        ok &= step_has_no_sync()
+
     print("PASS" if ok else "FAIL")
     sys.exit(0 if ok else 1)
+
+
+def step_has_no_sync() -> bool:
+    """One train.py step with torch's sync debug mode set to raise."""
+    from gpu_augment import photometric_batch
+    from model import build_model, center_loss
+    from targets import build_center_targets
+    from dataset import normalize01, to_float01
+
+    torch.backends.cudnn.benchmark = True
+    dev = "cuda"
+    model = build_model("center", pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0])).to(dev)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4, fused=True)
+    scaler = torch.amp.GradScaler()
+    b = 8
+    raw = torch.randint(0, 256, (b, INPUT_WH[1], INPUT_WH[0], 3), dtype=torch.uint8).pin_memory()
+    conf = torch.zeros(b, 6); conf[:, :2] = 1
+    corners = (torch.rand(b, 6, 4, 2) * 0.5 + 0.25)
+    corners[0, 0] *= 0.02      # one face below MIN_FACE_EDGE_PX: exercises the ignore path
+    valid = torch.ones(b, 6)
+    conf, corners, valid = (t.pin_memory() for t in (conf, corners, valid))
+
+    def step():
+        x, c, co, v = (t.to(dev, non_blocking=True) for t in (raw, conf, corners, valid))
+        x = normalize01(photometric_batch(to_float01(x)))
+        t = build_center_targets(c, co, v, model.grid_hw)
+        opt.zero_grad(set_to_none=True)
+        with torch.amp.autocast("cuda"):
+            loss, lh, lo = center_loss(model(x), t)
+        scaler.scale(loss).backward()
+        scaler.step(opt)
+        scaler.update()
+        return loss.detach() * b + lh.detach() + lo.detach()
+
+    for _ in range(3):     # warm-up: cudnn autotune, constant caches, allocator
+        step()
+    torch.cuda.synchronize()
+    torch.cuda.set_sync_debug_mode("error")
+    try:
+        for _ in range(5):
+            step()
+        good = True
+        msg = "no device sync in a full training step"
+    except RuntimeError as e:
+        good = False
+        msg = f"training step SYNCHRONIZES: {str(e).splitlines()[0][:120]}"
+    finally:
+        torch.cuda.set_sync_debug_mode("default")
+        torch.cuda.synchronize()
+    print(f"{msg}  {'OK' if good else 'FAIL'}")
+    return good
 
 
 if __name__ == "__main__":

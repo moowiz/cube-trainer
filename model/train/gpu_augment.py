@@ -47,6 +47,20 @@ from torch import nn
 PAD_GRAY = 114.0 / 255.0
 _LUMA = (0.299, 0.587, 0.114)   # ITU-R 601-2, what PIL's convert("L") uses
 
+_const_cache: dict = {}
+
+
+def const(values, device, dtype=torch.float32) -> torch.Tensor:
+    """A small constant tensor on `device`, built once per (values, device,
+    dtype) and reused. `torch.tensor(..., device="cuda")` is a host->device
+    copy that SYNCHRONIZES the stream every call, so a constant rebuilt per
+    step stalls the CPU behind all queued GPU work (see photometric_batch)."""
+    key = (tuple(values), str(device), dtype)
+    t = _const_cache.get(key)
+    if t is None:
+        t = _const_cache[key] = torch.tensor(values, device=device, dtype=dtype)
+    return t
+
 # Probabilities and ranges: identical to the block they replaced in
 # augment.augment_sample - keep the two in sync if either changes.
 P_COLOR, BRIGHT, CONTRAST, SATURATION = 0.8, (0.6, 1.4), (0.7, 1.3), (0.6, 1.5)
@@ -63,7 +77,7 @@ def _u(n: int, lo: float, hi: float, device) -> torch.Tensor:
 
 def _luma(x: torch.Tensor) -> torch.Tensor:
     """(B,3,H,W) -> (B,1,H,W)."""
-    w = x.new_tensor(_LUMA).view(1, 3, 1, 1)
+    w = const(_LUMA, x.device, x.dtype).view(1, 3, 1, 1)
     return (x * w).sum(dim=1, keepdim=True)
 
 
@@ -98,10 +112,12 @@ def color_jitter(x: torch.Tensor, bright: torch.Tensor, contrast: torch.Tensor,
     return q(torch.lerp(gray.expand_as(x), x, sat))
 
 
-def gaussian_blur(x: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
-    """Separable Gaussian with a per-sample sigma (B,), via grouped conv."""
+def gaussian_blur(x: torch.Tensor, sigma: torch.Tensor, ksize: int | None = None) -> torch.Tensor:
+    """Separable Gaussian with a per-sample sigma (B,), via grouped conv.
+    ksize: odd kernel width; None derives it from sigma.max() (a device sync
+    - photometric_batch passes it from the CPU-side draw instead)."""
     b, c, h, w = x.shape
-    k = 2 * int(math.ceil(3 * float(sigma.max()))) + 1
+    k = ksize if ksize is not None else 2 * int(math.ceil(3 * float(sigma.max()))) + 1
     r = torch.arange(k, device=x.device, dtype=x.dtype) - k // 2
     g = torch.exp(-0.5 * (r.view(1, -1) / sigma.view(-1, 1).to(x.dtype)) ** 2)
     g = g / g.sum(dim=1, keepdim=True)                            # (B,k)
@@ -134,53 +150,91 @@ def motion_kernels(lengths: torch.Tensor, angles: torch.Tensor, size: int = 2 * 
 
 def motion_blur(x: torch.Tensor, lengths: torch.Tensor, angles: torch.Tensor) -> torch.Tensor:
     """(n,3,H,W) with per-sample length/angle, one grouped conv. Borders are
-    zero-padded where np.roll wrapped around - irrelevant 7 px from the edge."""
+    zero-padded where np.roll wrapped around - irrelevant 7 px from the edge.
+
+    The kernels are built where `lengths` lives: motion_kernels indexes with
+    a bool mask (a nonzero() sync on the device), so photometric_batch passes
+    CPU tensors and the n x 13 x 13 result is uploaded instead."""
     n, c, h, w = x.shape
     k = motion_kernels(lengths, angles)                              # (n,S,S)
+    if k.device != x.device:
+        k = k.pin_memory().to(x.device, non_blocking=True)
     size = k.shape[-1]
     k = k.repeat_interleave(c, dim=0).view(n * c, 1, size, size)
     y = nn.functional.conv2d(x.reshape(1, n * c, h, w), k, padding=size // 2, groups=n * c)
     return y.view(n, c, h, w)
 
 
+PARAM_COLS = 7   # bright, contrast, sat, gain r/g/b, noise sigma
+
+
+def _draw_params(b: int):
+    """All per-sample coin flips and parameters for one batch, drawn on the
+    CPU: (params (b,PARAM_COLS) float32 pinned, blur_idx (nb,) long,
+    blur_sigma (nb,) float32, motion_idx (nm,) long, lengths (nm,) long,
+    angles (nm,) float32) - all CPU tensors.
+
+    Samples that are "off" for an op get its NEUTRAL parameter (factor 1,
+    gain 1, noise sigma 0) rather than being skipped: torch.lerp at weight 1
+    and clamp on in-range values are exact identities, so their pixels come
+    back bit-identical, and running the elementwise ops over the whole batch
+    is cheaper than gathering the on-samples and scattering them back (80%
+    are on for color anyway). The two convolutions (blur, motion) stay
+    indexed - they are the only ops heavy enough for the gather to pay.
+    """
+    r = torch.rand(b, 9)
+    p = torch.ones(b, PARAM_COLS, pin_memory=torch.cuda.is_available())
+
+    def u(col, lo, hi):
+        return r[:, col] * (hi - lo) + lo
+
+    on = r[:, 0] < P_COLOR
+    p[:, 0] = torch.where(on, u(1, *BRIGHT), 1.0)
+    p[:, 1] = torch.where(on, u(2, *CONTRAST), 1.0)
+    p[:, 2] = torch.where(on, u(3, *SATURATION), 1.0)
+    on = r[:, 4] < P_WB
+    p[:, 3:6] = torch.where(on.view(b, 1), torch.rand(b, 3) * (WB_GAIN[1] - WB_GAIN[0]) + WB_GAIN[0], 1.0)
+    on = r[:, 5] < P_NOISE
+    p[:, 6] = torch.where(on, u(6, *NOISE_SIGMA) / 255.0, 0.0)
+    blur_idx = (r[:, 7] < P_BLUR).nonzero(as_tuple=True)[0]
+    blur_sigma = torch.rand(blur_idx.numel()) * (BLUR_SIGMA[1] - BLUR_SIGMA[0]) + BLUR_SIGMA[0]
+    motion_idx = (r[:, 8] < P_MOTION).nonzero(as_tuple=True)[0]
+    lengths = torch.randint(MOTION_LEN[0], MOTION_LEN[1] + 1, (motion_idx.numel(),))
+    angles = torch.rand(motion_idx.numel()) * math.pi
+    return p, blur_idx, blur_sigma, motion_idx, lengths, angles
+
+
 @torch.no_grad()
 def photometric_batch(x: torch.Tensor) -> torch.Tensor:
     """(B,3,H,W) float in [0,1] on any device -> same shape/range, augmented.
-    Draws all per-sample randomness with torch on `x.device`."""
+
+    Issues NO device synchronization (2026-09-12). The first version drew the
+    coin flips on the GPU and picked samples with `.any()` / `nonzero()`:
+    ten syncs per batch, each of which parks the CPU until every queued
+    kernel - the previous step's whole backward pass - has finished, so CPU
+    launch time and GPU time added up instead of overlapping. Now the
+    randomness is drawn on the CPU (_draw_params), shipped in one pinned
+    copy, and the device only ever runs kernels. check_fast_path.py asserts
+    this with torch.cuda.set_sync_debug_mode.
+    """
     b = x.shape[0]
     dev = x.device
     pad = (x == PAD_GRAY).all(dim=1, keepdim=True)   # (B,1,H,W) letterbox/pillar pixels
 
-    on = torch.rand(b, device=dev) < P_COLOR
-    if on.any():
-        idx = on.nonzero(as_tuple=True)[0]
-        n = idx.numel()
-        x[idx] = color_jitter(x[idx], _u(n, *BRIGHT, dev), _u(n, *CONTRAST, dev),
-                              _u(n, *SATURATION, dev))
+    p, blur_idx, blur_sigma, motion_idx, lengths, angles = _draw_params(b)
+    p = p.to(dev, non_blocking=True)
+    x = color_jitter(x, p[:, 0].view(b, 1, 1, 1), p[:, 1].view(b, 1, 1, 1), p[:, 2].view(b, 1, 1, 1))
+    x = x.mul_(p[:, 3:6].view(b, 3, 1, 1)).clamp_(0, 1)          # white balance (gain 1 where off)
 
-    on = torch.rand(b, device=dev) < P_WB
-    if on.any():
-        idx = on.nonzero(as_tuple=True)[0]
-        gain = torch.rand(idx.numel(), 3, 1, 1, device=dev) * (WB_GAIN[1] - WB_GAIN[0]) + WB_GAIN[0]
-        x[idx] = (x[idx] * gain).clamp_(0, 1)
+    if blur_idx.numel():
+        k = 2 * int(math.ceil(3 * float(blur_sigma.max()))) + 1  # CPU tensor: no sync
+        idx = blur_idx.to(dev, non_blocking=True)
+        x[idx] = gaussian_blur(x[idx], blur_sigma.to(dev, non_blocking=True), ksize=k)
 
-    on = torch.rand(b, device=dev) < P_BLUR
-    if on.any():
-        idx = on.nonzero(as_tuple=True)[0]
-        sigma = torch.rand(idx.numel(), device=dev) * (BLUR_SIGMA[1] - BLUR_SIGMA[0]) + BLUR_SIGMA[0]
-        x[idx] = gaussian_blur(x[idx], sigma)
+    if motion_idx.numel():
+        idx = motion_idx.to(dev, non_blocking=True)
+        x[idx] = motion_blur(x[idx], lengths, angles).clamp_(0, 1)   # conv sums can land at 1+eps
 
-    on = torch.rand(b, device=dev) < P_MOTION
-    if on.any():
-        idx = on.nonzero(as_tuple=True)[0]
-        lens = torch.randint(MOTION_LEN[0], MOTION_LEN[1] + 1, (idx.numel(),), device=dev)
-        angs = torch.rand(idx.numel(), device=dev) * math.pi
-        x[idx] = motion_blur(x[idx], lens, angs).clamp_(0, 1)   # conv sums can land at 1+eps
-
-    on = torch.rand(b, device=dev) < P_NOISE
-    if on.any():
-        # one fused kernel over the whole batch: sigma is 0 where noise is off
-        sigma = _u(b, *NOISE_SIGMA, dev) / 255.0 * on.view(b, 1, 1, 1).to(x.dtype)
-        x = (x + torch.randn_like(x) * sigma).clamp_(0, 1)
-
-    return torch.where(pad, x.new_tensor(PAD_GRAY), x)
+    # noise: one fused kernel over the whole batch, sigma 0 where it is off
+    x = x.addcmul_(torch.randn_like(x), p[:, 6].view(b, 1, 1, 1)).clamp_(0, 1)
+    return torch.where(pad, PAD_GRAY, x)
