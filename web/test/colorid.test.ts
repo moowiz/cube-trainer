@@ -303,3 +303,42 @@ describe('junk clusters take no rank', () => {
     expect([...named.values()]).not.toContain('yellow');
   });
 });
+
+// scan-debug-1789312588404: no green in the session yet, and "most negative
+// a" named the yellow cluster green; a four-reading stray at hue 15 made the
+// largest hue gap fall below the real red, grouping red with orange.
+describe('green needs a green hue; the warm split weighs readings', () => {
+  const cap = JSON.parse(readFileSync(new URL('scan-debug-1789312588404.json', dir), 'utf8')) as {
+    clusters: { id: number; centroid: Lab; bound: ColorName | null; n: number }[];
+  };
+
+  it('yellow is yellow when green is absent', () => {
+    const named = nameClusters(cap.clusters);
+    expect(named.get(8)).toBe('yellow');
+    expect([...named.values()]).not.toContain('green');
+    expect(couldBe(cap.clusters.find((c) => c.id === 8)!.centroid, 'green')).toBe(false);
+  });
+
+  it('red at 30-36 deg stays red beside a tiny stray at 15 deg; orange at 48 is orange', () => {
+    const named = nameClusters(cap.clusters);
+    expect(named.get(4)).toBe('red');
+    expect(named.get(6)).toBe('red');
+    expect(named.get(10)).toBe('orange');
+  });
+});
+
+// scan-debug-1789312538549: red (hue 36) and orange (47) readings leaked into
+// each other's reservoirs at an 8 deg split until both medians sat at 39-40.
+describe('red and orange 11 deg apart never share a cluster', () => {
+  it('a red reading does not join an orange centroid 11 deg away', () => {
+    const red: Lab = { L: 0, a: 65.9, b: 47.9 };
+    const orange: Lab = { L: 0, a: 62.5, b: 67.2 };
+    expect(sameCluster(red, orange, labDistance(red, orange))).toBe(false);
+    const cc = new ColorClusters();
+    const o = cc.observe(cellsWithCentre(orange));
+    const r = cc.observe(cellsWithCentre(red));
+    expect(r).not.toBe(o);
+    expect(cc.colorOf(r)).toBe('red');
+    expect(cc.colorOf(o)).toBe('orange');
+  });
+});

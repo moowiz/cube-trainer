@@ -22,7 +22,7 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation, type LockAttempt } from './assembly';
 import { ColorClusters, hueDeg } from './detect/colorid';
-import { labDistance, labToSrgb, minFaceEdgePx, sampleGridCells } from './color';
+import { facePlan, labDistance, labToSrgb, minFaceEdgePx, sampleGridCells, type CellPlan } from './color';
 import type { Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
 import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
@@ -65,11 +65,8 @@ const FALLBACK_AFTER_MS = 6000;
 // (scan-debug-1789311565144, alien 800, no yellow cluster).
 const STICKER_MAX_DIST = ALIAS_DIST;
 const MAX_ALIEN_CELLS = 2;
-// Sampling geometry drawn by the "sample patches" overlay, in cell units
-// (mirrors the legacy plan sampleGridCells uses on a 90 px warp).
-const PATCH_HALF = 0.2;
-const CENTRE_PATCH_HALF = 0.1;
-const CENTRE_RING_OFF = 0.25;
+// Fallback sampling geometry (cell units) when facePlan has no budget.
+const LEGACY_PLAN: CellPlan = { half: 0.2, off: 0.25, centreHalf: 0.1, centreOff: 0.25 };
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 
 const app = document.getElementById('app')!;
@@ -200,8 +197,8 @@ let solved = false;
 let vetoedCount = 0;       // faces skipped by the seam veto (debug stat)
 let alienCount = 0;        // faces skipped because their cells are no known colour (debug stat)
 let paused = false;
-/** The quads actually sampled for votes this frame (source px, oriented), for the overlay. */
-let sampledQuads: { face: FaceId; quad: [number, number][] }[] = [];
+/** The quads actually sampled for votes this frame (source px, oriented) and their sampling plan, for the overlay. */
+let sampledQuads: { face: FaceId; quad: [number, number][]; plan: CellPlan }[] = [];
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -304,7 +301,7 @@ function looksAlien(cells: Lab[]): boolean {
 function drawSamplePatches(): void {
   ctx.save();
   ctx.lineWidth = 1.5;
-  for (const { face, quad } of sampledQuads) {
+  for (const { face, quad, plan } of sampledQuads) {
     const m = squareToQuad(quad);
     ctx.strokeStyle = DEFAULT_SCHEME_HEX[face];
     const box = (u: number, v: number, half: number) => {
@@ -320,10 +317,10 @@ function drawSamplePatches(): void {
         const u = (c + 0.5) / 3;
         const v = (r + 0.5) / 3;
         if (r === 1 && c === 1) {
-          box(u, v, CENTRE_PATCH_HALF / 3);
-          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) box(u + (sx! * CENTRE_RING_OFF) / 3, v + (sy! * CENTRE_RING_OFF) / 3, CENTRE_PATCH_HALF / 3);
+          box(u, v, plan.centreHalf / 3);
+          for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) box(u + (sx! * plan.centreOff) / 3, v + (sy! * plan.centreOff) / 3, plan.centreHalf / 3);
         } else {
-          box(u, v, PATCH_HALF / 3);
+          box(u, v, plan.half / 3);
         }
       }
     }
@@ -380,10 +377,23 @@ function renderAttempt(): void {
   }
 }
 
+/**
+ * The sampling plan for a quad: patch widths and the centre cell's ring
+ * reach from the face's size in SOURCE pixels (color.ts facePlan). The
+ * legacy plan's ring at 0.25 of a cell sat on the GAN centre logo (measured
+ * to cover +-0.20) and the white centre read as a dark blue, aliased to
+ * blue, and fed the white face's frames into B (scan-debug-1789312538549).
+ */
+function planFor(quad: [number, number][]): CellPlan {
+  let perim = 0;
+  for (let i = 0; i < 4; i++) perim += Math.hypot(quad[i]![0] - quad[(i + 1) % 4]![0], quad[i]![1] - quad[(i + 1) % 4]![1]);
+  return facePlan(perim / 4 / 3) ?? LEGACY_PLAN;
+}
+
 /** 9 Lab cells of a quad, sampled from the native-resolution frame. */
 function sampleFace(frame: ImageDataLike, quad: [number, number][]): Lab[] {
   const warped = warpQuad(frame, quad, 90);
-  return sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 }).map((c) => c.lab);
+  return sampleGridCells(warped as unknown as ImageData, { x: 0, y: 0, w: 90, h: 90 }, planFor(quad)).map((c) => c.lab);
 }
 
 function drawOverlay(tracks: TrackedQuad[]): void {
@@ -611,7 +621,7 @@ async function loop(ts: number): Promise<void> {
       sampledQuads = [];
       for (const s of sampled) {
         if (bad.has(s.x.t.id)) continue;
-        sampledQuads.push({ face: s.x.face, quad: s.quad });
+        sampledQuads.push({ face: s.x.face, quad: s.quad, plan: planFor(s.quad) });
         observations.push({ cluster: trackCluster.get(s.x.t.id)!, cells: s.cells, conf: s.x.conf });
       }
       if (observations.length) voter.addFrame(observations, clusters.faceMap());
