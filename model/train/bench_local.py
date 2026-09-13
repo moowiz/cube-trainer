@@ -22,7 +22,11 @@ TRAIN_IMAGES = 51300      # a 54k set after the 5% val split
 EPOCHS = 150
 
 
-def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, steps=30, dev='cuda'):
+def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, steps=300, dev='cuda'):
+    """steps=300 (19k images at batch 64) so the number is a SUSTAINED rate:
+    the loader's prefetch queue (workers x prefetch_factor batches) is full
+    after warm-up, and a 30-step window mostly drained it - that read 3774
+    img/s where train.py sustained 2054 (2026-09-12)."""
     from dataset import normalize01, to_float01
     from gpu_augment import photometric_batch
     from model import build_model, center_loss
@@ -32,12 +36,16 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
     if channels_last:
         model = model.to(memory_format=torch.channels_last)
     if compile_model:
-        model = torch.compile(model)
+        # what train.py --compile does: graphs for the model, fusion for the
+        # augmentation stages (gpu_augment.enable_compile has the why)
+        from gpu_augment import enable_compile
+        model = torch.compile(model, mode='reduce-overhead', dynamic=False)
+        enable_compile()
     opt = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4, fused=(dev == 'cuda'))
     scaler = torch.amp.GradScaler(enabled=(dev == 'cuda'))
     dl = DataLoader(ds, batch_size=batch, shuffle=True, num_workers=workers,
                     pin_memory=(dev == 'cuda'), persistent_workers=workers > 0,
-                    prefetch_factor=6 if workers else None)
+                    prefetch_factor=4 if workers else None)   # same as train.py
     it = iter(dl)
 
     def nxt():
@@ -49,6 +57,8 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
             return next(it)
 
     def step():
+        if compile_model:
+            torch.compiler.cudagraph_mark_step_begin()
         x, c, co, v = (t.to(dev, non_blocking=True) for t in nxt())   # same as train.py
         x = normalize01(photometric_batch(to_float01(x)))
         if channels_last:
@@ -62,7 +72,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
         scaler.update()
         return x.size(0)
 
-    for _ in range(12 if compile_model else 6):
+    for _ in range(40 if compile_model else 30):   # past the prefetch burst
         step()
     if dev == 'cuda':
         torch.cuda.synchronize()
@@ -85,7 +95,8 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', default='../data_v4')
-    ap.add_argument('--workers', default='4,8,12,16')
+    ap.add_argument('--workers', default='4,6,8')
+    ap.add_argument('--compile', action='store_true', help='run the worker sweep compiled (train.py --compile)')
     args = ap.parse_args()
 
     import functools
@@ -105,17 +116,19 @@ def main():
     print('--- data pipeline: how many workers to feed the GPU? ---', flush=True)
     base = {}
     for w in [int(x) for x in args.workers.split(',')]:
-        base[w] = run(ds, f'workers={w}', w, dev=dev)
+        base[w] = run(ds, f'workers={w}' + (' compiled' if args.compile else ''), w,
+                      compile_model=args.compile, dev=dev)
 
     best_w = max(base, key=base.get)
     print(f'--- best workers = {best_w}; GPU-side levers ---', flush=True)
     run(ds, f'workers={best_w} + channels_last', best_w, channels_last=True, dev=dev)
     run(ds, f'workers={best_w} batch=128', best_w, batch=128, dev=dev)
     run(ds, f'workers={best_w} batch=256', best_w, batch=256, dev=dev)
-    try:
-        run(ds, f'workers={best_w} + compile', best_w, compile_model=True, steps=20, dev=dev)
-    except Exception as e:
-        print('RESULT compile FAILED:', str(e)[:160], flush=True)
+    if not args.compile:
+        try:
+            run(ds, f'workers={best_w} + compile', best_w, compile_model=True, dev=dev)
+        except Exception as e:
+            print('RESULT compile FAILED:', str(e)[:160], flush=True)
     print('BENCH_DONE', flush=True)
 
 

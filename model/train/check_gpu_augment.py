@@ -6,7 +6,7 @@ path stays float, so the bar is "within a couple of gray levels", not
 bit-exact; anything larger means a formula is wrong. Also checks the
 padding-restore guarantee and times photometric_batch on a real batch.
 
-    ../.venv/Scripts/python check_gpu_augment.py --data ../data_real_val
+    ../.venv/Scripts/python check_gpu_augment.py --data ../data_real_val [--compile]
 """
 from __future__ import annotations
 
@@ -34,8 +34,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="../data_real_val")
     ap.add_argument("--n", type=int, default=8)
+    ap.add_argument("--compile", action="store_true",
+                    help="run photometric_batch with its torch.compile'd stages (what train.py "
+                         "--compile uses): the identity, padding and timing checks then cover them")
     args = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if args.compile:
+        G.enable_compile()
+        print("photometric stages: torch.compile(mode='reduce-overhead')")
 
     ds = CubeKeypointDataset(args.data, split="all", input_size=INPUT_WH, augment=None, raw_uint8=True)
     n = min(args.n, len(ds))
