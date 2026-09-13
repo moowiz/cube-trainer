@@ -56,3 +56,12 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   legacy sampling plan (ring at 0.25 of a cell, logo covers 0.20), aliased to
   blue and fed the white face's frames into B; red/orange 11 deg apart leaked
   into each other at an 8 deg hue split (now 5, and facePlan's 0.30 ring).
+- `session-0913/scan-debug-*.json` — six captures of one afternoon on one
+  cube (state pinned by the 08:06 lock, confirmed by photos). Three stalled
+  with a colour-count error at 49-53/54 correct: a shadowed blue read as
+  white, bright reds as orange, one junk cell. session-replay.test.ts drives
+  their evidence through assembleResolved (chroma-compressed classification,
+  nine-per-colour rebalance kept only if it validates, orientation from the
+  pieces). `-154714` is a mix of two scrambles (re-scrambled mid-session);
+  `-320194` / `-416187` locked on faces with 6 inliers or fit 11.6 - the lock
+  gate (MIN_INLIERS 10, MAX_FIT 10) now refuses that.
