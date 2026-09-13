@@ -134,7 +134,11 @@ def batch_index(photo_root: Path) -> dict[str, str]:
         elif f.is_dir():
             for g in f.iterdir():
                 if g.is_file() and g.suffix.lower() in (".jpg", ".jpeg", ".png"):
-                    idx[g.name] = f.name
+                    # sources are "<batch>/<file>" since batch 8 (clip batches
+                    # all number stills v00000.jpg..); older ones are bare
+                    # names, which belong to the first batch that used them
+                    idx[f"{f.name}/{g.name}"] = f.name
+                    idx.setdefault(g.name, f.name)
     return idx
 
 
