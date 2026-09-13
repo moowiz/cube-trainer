@@ -40,7 +40,9 @@
 // they can dilute the vote.
 
 import { labMedian, labDistance } from './color';
-import { assembleState, normalizeFaceCells, resolveByPieces, validateState, type AssembledState, type FaceCapture } from './state';
+import { assembleState, normalizeFaceCells, resolveByPieces, resolveByRotation, rotateCells, validateState, type AssembledState, type FaceCapture } from './state';
+
+export { rotateCells };
 import { FACE_ORDER } from './types';
 import type { FaceId, Lab } from './types';
 
@@ -107,18 +109,6 @@ const MAX_SEEDS = 12;
 const ALIGN_ITERATIONS = 3;
 /** A lock is attempted every this many frames with observations (the consensus is not free). */
 const LOCK_EVERY = 4;
-
-/** Row-major 3x3 cell index after k quarter turns: rotated[i] = cells[ROT[k][i]]. */
-const ROT: readonly (readonly number[])[] = (() => {
-  const once = [6, 3, 0, 7, 4, 1, 8, 5, 2]; // 90 deg: new (r, c) = old (2 - c, r)
-  const out: number[][] = [[0, 1, 2, 3, 4, 5, 6, 7, 8]];
-  for (let k = 1; k < 4; k++) out.push(out[k - 1]!.map((_, i) => out[k - 1]![once[i]!]!));
-  return out;
-})();
-
-export function rotateCells<T>(cells: readonly T[], k: number): T[] {
-  return ROT[k & 3]!.map((j) => cells[j]!);
-}
 
 interface Consensus {
   cells: (Lab | null)[];
@@ -322,7 +312,7 @@ export class StickerVoter {
     const captures: FaceCapture[] = evidence.map((ev) => ({ face: ev.face, cells: ev.cells }));
     const attempt: LockAttempt = { evidence, assembled: null, error: null };
     try {
-      const assembled = resolveByPieces(assembleState(captures));
+      const assembled = resolveByRotation(resolveByPieces(assembleState(captures)));
       attempt.assembled = assembled;
       const v = validateState(assembled.facelets);
       if (v.ok) {

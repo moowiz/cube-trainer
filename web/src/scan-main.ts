@@ -417,7 +417,8 @@ function updateFillUI(): void {
   $('unbound').textContent = unbound ? `unresolved: ${unbound}` : '';
   if (p.locked && !solved) {
     solved = true;
-    const flipped = p.locked.flipped?.length ? `\n(${p.locked.flipped.length} sticker(s) resolved by piece uniqueness)` : '';
+    const flipped = (p.locked.flipped?.length ? `\n(${p.locked.flipped.length} sticker(s) resolved by piece uniqueness)` : '')
+      + (p.locked.turned?.some(Boolean) ? `\n(faces turned to fit the pieces: ${FACE_ORDER.filter((_, i) => p.locked!.turned![i]).join(' ')})` : '');
     resultEl.textContent = `LOCKED\n${p.locked.facelets}${flipped}\nsolving…`;
     void solveState(p.locked.facelets)
       .then((sol) => { resultEl.textContent = `LOCKED\n${p.locked!.facelets}${flipped}\n\nSolution: ${sol}`; })
@@ -648,7 +649,7 @@ saveBtn.addEventListener('click', () => {
   void saveRawFrame(camera.video, 'scan-frame').then((name) => { msgEl.textContent = name ? `saved ${name}` : ''; });
 });
 captureBtn.addEventListener('click', () => {
-  if (!lastTick?.result || !models) { msgEl.textContent = 'nothing to capture: no stage-2 result on the last tick'; return; }
+  if (!models) { msgEl.textContent = 'nothing to capture: models not loaded'; return; }
   const extra = {
     clusters: clusters.clusters().map((c) => ({ ...c, hue: +hueDeg(c.centroid).toFixed(1) })),
     tracks: [...trackCluster].map(([id, cluster]) => ({ id, cluster, face: clusters.faceOf(cluster), rotation: rotationOf(id) ?? null })),
@@ -656,7 +657,7 @@ captureBtn.addEventListener('click', () => {
     progress: voter.progress(clusters.faceMap()),
     lockAttempt: voter.lastAttempt,
   };
-  void captureDebug(lastTick.result, models.detector, camera.video, 'scan-debug', tickHistory, extra)
+  void captureDebug(lastTick?.result ?? null, models.detector, camera.video, 'scan-debug', tickHistory, extra)
     .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; });
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });

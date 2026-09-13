@@ -163,6 +163,63 @@ export interface AssembledState {
   secondFaces: FaceId[];
   /** facelet indices whose colour was flipped to its runner-up by resolveByPieces */
   flipped?: number[];
+  /** quarter turns applied per face (U R F D L B order) by resolveByRotation */
+  turned?: number[];
+}
+
+/** Row-major 3x3 cell index after k quarter turns: rotated[i] = cells[ROT3[k][i]]. */
+export const ROT3: readonly (readonly number[])[] = (() => {
+  const once = [6, 3, 0, 7, 4, 1, 8, 5, 2]; // 90 deg: new (r, c) = old (2 - c, r)
+  const out: number[][] = [[0, 1, 2, 3, 4, 5, 6, 7, 8]];
+  for (let k = 1; k < 4; k++) out.push(out[k - 1]!.map((_, i) => out[k - 1]![once[i]!]!));
+  return out;
+})();
+
+export function rotateCells<T>(cells: readonly T[], k: number): T[] {
+  return ROT3[k & 3]!.map((j) => cells[j]!);
+}
+
+/**
+ * The in-plane rotation of each face is the least certain part of a scan
+ * (it comes from shared-edge geometry, not from colour), and a face turned
+ * a quarter keeps its nine colours but breaks every corner and edge piece
+ * it touches. When a state has the right colour counts but invalid pieces,
+ * search the 4^6 per-face rotations: the piece constraints are so tight
+ * that at most one assignment is valid in practice (the screenshot session
+ * of 2026-09-13: L turned 1, B turned 2, unique among 4096). Returns the
+ * state with the fewest faces turned if exactly one valid assignment has
+ * that count, else the input unchanged.
+ */
+export function resolveByRotation(state: AssembledState): AssembledState {
+  if (validateState(state.facelets).ok) return state;
+  const counts = new Map<string, number>();
+  for (const f of state.stickerFaces) counts.set(f, (counts.get(f) ?? 0) + 1);
+  if (FACE_ORDER.some((f) => counts.get(f) !== 9)) return state; // rotation cannot fix a colour count
+  let best: { turns: number[]; changed: number } | null = null;
+  let tie = false;
+  const faces = FACE_ORDER.map((_, fi) => state.stickerFaces.slice(fi * 9, fi * 9 + 9));
+  for (let code = 1; code < 4096; code++) {
+    const turns = FACE_ORDER.map((_, i) => (code >> (2 * i)) & 3);
+    const changed = turns.filter((t) => t !== 0).length;
+    if (best && changed > best.changed) continue;
+    const facelets = faces.map((cells, i) => rotateCells(cells, turns[i]!).join('')).join('');
+    if (!validateState(facelets).ok) continue;
+    if (best && changed === best.changed) { tie = true; continue; }
+    best = { turns, changed };
+    tie = false;
+  }
+  if (!best || tie) return state;
+  const turn = <T>(arr: readonly T[]): T[] => faces.flatMap((_, i) => rotateCells(arr.slice(i * 9, i * 9 + 9), best!.turns[i]!));
+  const stickerFaces = turn(state.stickerFaces);
+  return {
+    ...state,
+    stickerFaces,
+    facelets: stickerFaces.join(''),
+    confidences: turn(state.confidences),
+    secondFaces: turn(state.secondFaces),
+    flipped: state.flipped,
+    turned: best.turns,
+  };
 }
 
 /**
