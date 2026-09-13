@@ -929,17 +929,20 @@ window.renderSample = async function renderSample(opts) {
   const camUp = new THREE.Vector3(0, 1, 0).transformDirection(camera.matrixWorld);
   const camFwd = new THREE.Vector3(0, 0, -1).transformDirection(camera.matrixWorld);
   // DECISION: hands in ~50% of scenes - every real usage photo has them, and
-  // M3 data had none. Gated on a real cube being present (nothing to grip in
-  // a negative/no-cube scene).
-  const hasHands = !negative && rnd() < 0.5;
+  // M3 data had none. Negatives get them too (30%): a hand gripping nothing
+  // is exactly the skin blob the localizer scored 0.3-0.5 on in real
+  // no-cube frames (2026-09-13 desk clips), and a negative with no hands and
+  // no clutter never teaches that.
+  const hasHands = rnd() < (negative ? 0.3 : 0.5);
   let handMeta = null;
   if (hasHands && !window.DEBUG_BARE) {
     const hands = buildHands(rnd, camera.position, camRight, camUp, camFwd, dist);
     scene.add(hands);
     handMeta = hands.userData;
   }
-  // DECISION: unrelated foreground junk in ~20% of scenes.
-  const hasClutter = !negative && rnd() < 0.2;
+  // DECISION: unrelated foreground junk in ~20% of scenes, 35% of negatives
+  // (colourful primitives with no cube are the hard negative that matters).
+  const hasClutter = rnd() < (negative ? 0.35 : 0.2);
   if (hasClutter && !window.DEBUG_BARE) scene.add(buildClutter(rnd, camera.position, camRight, camUp, camFwd, dist));
 
   // --- surfaces behind/below (perspective hard negatives + shadow catcher) ---

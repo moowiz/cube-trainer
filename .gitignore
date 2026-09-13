@@ -20,6 +20,8 @@ stephens_photos/
 labels-all*.json
 model/.venv/
 model/backgrounds/
+model/negatives/
+model/val2017.zip
 model/train/runs/
 model/export/out/
 __pycache__/

@@ -38,7 +38,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import ConcatDataset, DataLoader
 
-from bbox_data import BOX_WH, CocoBBox, SynthBBox
+from bbox_data import BOX_WH, CocoBBox, SynthBBox, NegDir
 
 GRID_W, GRID_H = 10, 8  # 160x120 at stride 16
 OFFSET_RANGE = 0.5      # how far (in frame widths) a cell may point
@@ -225,6 +225,8 @@ def main():
     ap.add_argument("--coco-rep", type=int, default=4, help="oversample factor for the small real coco sets")
     ap.add_argument("--coco-box", action="store_true",
                     help="also fit the coco boxes (off: they train objectness only - see bbox_data)")
+    ap.add_argument("--neg", default="../negatives",
+                    help="dir[*rep] of no-cube photos (fetch_negatives.py); objectness-only negatives. '' to disable")
     ap.add_argument("--real-val", default="../data_real_val", help="held-out hand-labelled photos; never trained on")
     ap.add_argument("--head", default="dense", choices=["dense", "gap"])
     ap.add_argument("--select", default="real", choices=["real", "val"], help="which IoU picks best.pt")
@@ -257,6 +259,13 @@ def main():
                 train_parts.extend([CocoBBox(sub / "train", augment=True, box_valid=bvalid)] * args.coco_rep)
             if (sub / "valid").is_dir():
                 val_parts.append(CocoBBox(sub / "valid", augment=False, box_valid=bvalid))
+    n_neg = 0
+    if args.neg:
+        path, _, rep = args.neg.partition("*")
+        if Path(path).is_dir():
+            neg = NegDir(path, augment=True)
+            train_parts.extend([neg] * max(1, int(rep or 1)))
+            n_neg = len(neg) * max(1, int(rep or 1))
     train_ds, val_ds = ConcatDataset(train_parts), ConcatDataset(val_parts)
     train_dl = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=args.workers,
                           pin_memory=(device == "cuda"), persistent_workers=args.workers > 0)
@@ -266,7 +275,7 @@ def main():
         real_ds = SynthBBox(args.real_val, "all", augment=False)
         real_dl = DataLoader(real_ds, batch_size=64, shuffle=False, num_workers=0)
         print(f"real_val={len(real_ds)} (held out, never trained on)")
-    print(f"device={device}  head={args.head}  train={len(train_ds)}  val={len(val_ds)}  "
+    print(f"device={device}  head={args.head}  train={len(train_ds)} (neg {n_neg})  val={len(val_ds)}  "
           f"coco_box={args.coco_box}")
 
     model = build_box_model(args.head).to(device)

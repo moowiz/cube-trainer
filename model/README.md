@@ -392,6 +392,15 @@ box5gap shows it too, so it is the data/augmentation, not the head; the
 darkening aug (box8) did not fix it. `box4` has no misses (min obj 0.54) at
 −0.011 IoU, within noise, and is a defensible alternative deploy.
 
+**Negatives (2026-09-13).** Real no-cube frames from the desk clips scored
+objectness 0.3-0.5 on a wristwatch, a bottle, an empty mousepad - right at
+the threshold. Two sources of "no cube anywhere" now feed training:
+`train_bbox.py --neg ../negatives` (default; a flat dir of photos, obj 0,
+pillarboxed like phone frames 45% of the time - `fetch_negatives.py` pulls
+COCO val2017, 5000 photos, ~420 MB after resize) and the generator's 7%
+negative slice, which since this date keeps hands (30%) and clutter (35%)
+instead of being bare tables - the next tranche picks that up.
+
 Things not to do: don't add a scale-up fudge (median size is right, and
 `autoscan-main.ts` already pads the crop 0.45); don't run 80 epochs; `train_bbox.py`
 has no `--resume`/`--init` — 50 epochs is ~18 min, just rerun.
