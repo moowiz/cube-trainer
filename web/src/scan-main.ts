@@ -22,7 +22,7 @@ import { Camera } from './camera';
 import { FpsCounter } from './debug/fps';
 import { StickerVoter, type FaceObservation, type LockAttempt } from './assembly';
 import { ColorClusters, hueDeg } from './detect/colorid';
-import { labToSrgb, minFaceEdgePx, sampleGridCells } from './color';
+import { labDistance, labToSrgb, minFaceEdgePx, sampleGridCells } from './color';
 import type { Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
 import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
@@ -54,12 +54,15 @@ const REFINE = true;         // grid-prior corner refinement before sampling
 // metric and lifts garbage from ~0.63 to ~1.4 (would pass 70-80%).
 const SEAM_VETO_SCORE = 1.15;
 const FALLBACK_AFTER_MS = 6000;
-// Once the session knows its six colours, a face reading with more than this
-// many cells that are no known colour (crushed-L Lab further than
-// STICKER_MAX_DIST from every cluster) is not a face: a hand, the desk, a
-// quad hanging off the cube. It neither feeds the clusters nor votes.
-// scan-debug-1789310783346: 38 frames of skin became a "red" cluster and
-// 90 junk frames drowned the R face.
+// Once the session has NAMED all six colours, a face reading with more than
+// this many cells that are none of them (crushed-L Lab further than
+// STICKER_MAX_DIST from every named cluster) is not a face: a hand, the
+// desk, a quad hanging off the cube. It neither feeds the clusters nor
+// votes. scan-debug-1789310783346: 38 frames of skin became a "red" cluster
+// and 90 junk frames drowned the R face. Gating on the palette being
+// complete, not on a cluster count: junk and split clusters reached six
+// before yellow was ever seen and the gate then refused every yellow frame
+// (scan-debug-1789311565144, alien 800, no yellow cluster).
 const STICKER_MAX_DIST = ALIAS_DIST;
 const MAX_ALIEN_CELLS = 2;
 // Sampling geometry drawn by the "sample patches" overlay, in cell units
@@ -259,11 +262,14 @@ function setRotation(id: number, rot: number): void {
 
 /** True when the session knows its colours and this reading has too many cells that are none of them. */
 function looksAlien(cells: Lab[]): boolean {
-  if (clusters.size() < 6) return false;
+  const map = clusters.faceMap();
+  if (new Set(map.values()).size < 6) return false;
+  const named = clusters.clusters().filter((c) => map.has(c.id));
   let alien = 0;
   for (const c of normalizeFaceCells(cells)) {
-    const near = clusters.nearestLab(c);
-    if (!near || near.d > STICKER_MAX_DIST) alien++;
+    let d = Infinity;
+    for (const k of named) d = Math.min(d, labDistance(c, k.centroid));
+    if (d > STICKER_MAX_DIST) alien++;
   }
   return alien > MAX_ALIEN_CELLS;
 }
@@ -393,7 +399,11 @@ function renderClusters(tracks: TrackedQuad[]): void {
     `cluster ${c.id}  ${(c.color ?? '?').padEnd(7)} ${(c.aliasOf !== null ? `alias of ${c.aliasOf}` : c.bound && c.bound === c.color ? 'bound' : c.bound ? `ordinal (adj says ${c.bound})` : 'ordinal').padEnd(7)} x${String(c.n).padStart(2)}  `
     + `a ${c.centroid.a.toFixed(0).padStart(4)} b ${c.centroid.b.toFixed(0).padStart(4)} hue ${hueDeg(c.centroid).toFixed(0).padStart(3)}  `
     + `tracks ${tracks.filter((t) => trackCluster.get(t.id) === c.id).map((t) => `#${t.id}`).join(' ') || '—'}`);
-  exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\nadjacency binds ${adjacencyBinds}   rejected ${clusters.rejectedBinds}   opposite conflicts ${oppositeConflicts}`;
+  const all = clusters.clusters();
+  const named = all.filter((c) => c.color && c.aliasOf === null).length;
+  const aliased = all.filter((c) => c.aliasOf !== null).length;
+  const summary = `${named} named · ${aliased} alias · ${all.length - named - aliased} idle (a colour seen under two lights splits and the extra aliases; an idle cluster is nothing the cube has)`;
+  exEl.textContent = (rows.join('\n') || 'no clusters yet') + `\n${summary}\nadjacency binds ${adjacencyBinds}   rejected ${clusters.rejectedBinds}   opposite conflicts ${oppositeConflicts}   alien frames ${alienCount}`;
 }
 
 let renderedAttempt: LockAttempt | null = null;
