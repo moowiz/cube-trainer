@@ -57,9 +57,11 @@ const MAX_CLUSTERS = 10;
 export const ALIAS_DIST = 2 * BIRTH_DIST;
 /** White: the least chromatic cluster, and it must actually be low-chroma (measured 7-18; skin starts at 23). */
 const WHITE_MAX_CHROMA = 20;
-/** Blue needs this much negative b; green this much negative a. */
+/** Blue needs this much negative b; green this much negative a AND a green hue. */
 const BLUE_MAX_B = -8;
 const GREEN_MAX_A = -12;
+/** Green measures hue 143-155; yellow 95-113 (a -22..-30, and "most negative a" picked it when no green existed, scan-debug-1789312588404). */
+const GREEN_MIN_HUE = 125;
 /**
  * The warm/yellow side: b > 0 with real chroma; yellow is the high-hue end
  * of it. Sticker reds/oranges/yellows measure chroma 45-80 in every capture
@@ -71,8 +73,14 @@ const YELLOW_MIN_HUE = 78;
 /** Green starts well above this (measured 143-155); yellow reads 88-102. */
 const YELLOW_MAX_HUE = 120;
 const YELLOW_MAX_A = 25;
-/** Two chromatic readings whose hues differ by more than this are different colours, whatever their ab distance. */
-const HUE_SPLIT_DEG = 8;
+/**
+ * Two chromatic readings whose hues differ by more than this are different
+ * colours, whatever their ab distance. Red and orange were 11 deg apart in
+ * scan-debug-1789312538549 and at 8 deg their readings leaked into each
+ * other's reservoirs until both medians sat at 39-40 deg; centre readings of
+ * one face vary ~3 deg frame to frame, so 5 keeps them apart.
+ */
+const HUE_SPLIT_DEG = 5;
 const HUE_SPLIT_MIN_CHROMA = 30;
 /** Among the warm clusters, the largest hue gap separates red from orange only if it is at least this wide. */
 const WARM_MIN_GAP_DEG = 8;
@@ -112,6 +120,7 @@ const isNeutral = (c: Lab) => chroma(c) < WHITE_MAX_CHROMA;
 const isWarmish = (c: Lab) => c.b > 0 && chroma(c) > WARM_MIN_CHROMA;
 const isYellowish = (c: Lab) => isWarmish(c) && hueDeg(c) > YELLOW_MIN_HUE && hueDeg(c) < YELLOW_MAX_HUE && c.a < YELLOW_MAX_A;
 const isWarm = (c: Lab) => isWarmish(c) && hueDeg(c) < YELLOW_MIN_HUE;
+const isGreenish = (c: Lab) => c.a < GREEN_MAX_A && hueDeg(c) > GREEN_MIN_HUE;
 
 /**
  * Whether a centroid could be this colour at all - the same coarse
@@ -144,7 +153,7 @@ export function couldBe(c: Lab, color: ColorName): boolean {
     // pair undecided; an alias must not decide it the wrong way)
     case 'white': return isNeutral(c) && !isCool(c);
     case 'blue': return isCool(c);
-    case 'green': return c.a < GREEN_MAX_A;
+    case 'green': return isGreenish(c);
     case 'yellow': return isYellowish(c);
     case 'red':
     case 'orange': return isWarm(c);
@@ -307,7 +316,7 @@ export class ColorClusters {
     const list: ColorCluster[] = [...this.centroids].map(([id, centroid]) => ({
       id, centroid, n: this.reservoirs.get(id)!.length, color: null, bound: this.bindingOf(id), aliasOf: null,
     }));
-    const named = nameClusters(list.map((c) => ({ id: c.id, centroid: c.centroid, bound: c.bound })));
+    const named = nameClusters(list.map((c) => ({ id: c.id, centroid: c.centroid, bound: c.bound, n: c.n })));
     for (const c of list) c.color = named.get(c.id) ?? null;
     const ranked = list.filter((c) => c.color);
     for (const c of list) {
@@ -347,7 +356,7 @@ export class ColorClusters {
  * cluster - and never overrules a rank.
  */
 export function nameClusters(
-  clusters: readonly { id: number; centroid: Lab; bound?: ColorName | null }[],
+  clusters: readonly { id: number; centroid: Lab; bound?: ColorName | null; n?: number }[],
 ): Map<number, ColorName> {
   const out = new Map<number, ColorName>();
   const taken = new Set<ColorName>();
@@ -386,22 +395,39 @@ export function nameClusters(
       if (blue) take('blue', () => blue);
     }
     // green: most negative a
-    take('green', (cs) => { const g = minBy(cs, (c) => c.a); return g && g.centroid.a < GREEN_MAX_A ? g : undefined; });
+    take('green', (cs) => minBy(cs.filter((c) => isGreenish(c.centroid)), (c) => c.a));
     // yellow: the warm/yellow side sorted by hue - yellow has the largest hue
     // of them and sits away from red/orange (hue > ~80); it needs chroma
     const warmish = () => rest.filter((c) => isWarmish(c.centroid)).sort((x, y) => hueDeg(x.centroid) - hueDeg(y.centroid));
     take('yellow', () => { const ys = warmish().filter((c) => isYellowish(c.centroid)); return ys[ys.length - 1]; });
-    // red / orange: the warm clusters in hue order split at their largest
-    // hue gap - red below, orange above - when that gap is wide enough to
-    // be two colours; a narrower spread is one colour seen under two
-    // lights, which stays unnamed until adjacency binds it or the other
-    // one shows up (or is the remaining warm colour when one is taken)
+    // red / orange: the warm clusters in hue order split into two groups
+    // by weighted 1-D 2-means on hue (weight = readings, so a four-reading
+    // stray at 15 deg cannot pull the split below the real red at 30-36,
+    // scan-debug-1789312588404) - red below, orange above - when the gap
+    // between the groups is wide enough to be two colours; a narrower
+    // spread is one colour seen under two lights, which stays unnamed
+    // until adjacency binds it or the other one shows up (or is the
+    // remaining warm colour when one is taken)
     const warm = warmish().filter((c) => isWarm(c.centroid));
     let split = warm.length;
     let gap = 0;
-    for (let i = 1; i < warm.length; i++) {
-      const g = hueDeg(warm[i]!.centroid) - hueDeg(warm[i - 1]!.centroid);
-      if (g > gap) { gap = g; split = i; }
+    {
+      const h = warm.map((c) => hueDeg(c.centroid));
+      const w = warm.map((c) => Math.max(1, c.n ?? 1));
+      let bestCost = Infinity;
+      for (let s = 1; s < warm.length; s++) {
+        const cost = (lo: number, hi: number) => {
+          let sw = 0;
+          let mean = 0;
+          for (let i = lo; i < hi; i++) { sw += w[i]!; mean += w[i]! * h[i]!; }
+          mean /= sw;
+          let c = 0;
+          for (let i = lo; i < hi; i++) c += w[i]! * (h[i]! - mean) ** 2;
+          return c;
+        };
+        const total = cost(0, s) + cost(s, warm.length);
+        if (total < bestCost) { bestCost = total; split = s; gap = h[s]! - h[s - 1]!; }
+      }
     }
     const group = (color: ColorName, members: typeof rest) => {
       take(color, () => members[0]);

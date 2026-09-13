@@ -49,3 +49,10 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
   got there first (gate now keys on six NAMED colours); also a chroma-23
   skin cluster grouped into red and a dark blue aliased to white (warm needs
   chroma 30, white 20 and never cool).
+  `-1789312588404`: yellow named green because no green existed yet ("most
+  negative a"; green now needs hue > 125) and a 4-reading stray at hue 15
+  dragged the warm split below red (split is weighted 1-D 2-means now).
+  `-1789312538549`: the white centre's GAN logo read as dark blue with the
+  legacy sampling plan (ring at 0.25 of a cell, logo covers 0.20), aliased to
+  blue and fed the white face's frames into B; red/orange 11 deg apart leaked
+  into each other at an 8 deg hue split (now 5, and facePlan's 0.30 ring).
