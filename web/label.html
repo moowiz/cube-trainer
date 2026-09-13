@@ -266,7 +266,8 @@
         <li>drag a marker (no face selected) &mdash; move it; a plain click
           still picks it up for click-to-drop</li>
         <li>placing/dropping near another face's marker &mdash; snaps to it, so
-          shared corners coincide exactly</li>
+          shared corners coincide exactly; moving a shared corner moves it
+          on every face that has it</li>
         <li>auto-complete: with 1 face labeled, click a new face's 2 outer
           corners &mdash; the shared edge fills in; with 2 faces labeled, click
           the third face's 1 outer corner &mdash; the other 3 fill in. Drag
@@ -534,11 +535,12 @@
   function hitTestCorner(mx, my, opts = {}, radius = HIT_RADIUS) {
     const faces = getFaces();
     if (!faces) return null;
+    const exclude = opts.exclude || [];
     for (const f of FACE_ORDER) {
       const face = faces[f];
       if (!face.visible) continue;
       for (let i = 0; i < 4; i++) {
-        if (opts.excludeOne && opts.excludeOne.face === f && opts.excludeOne.index === i) continue;
+        if (exclude.some(x => x.face === f && x.index === i)) continue;
         const [sx, sy] = imageToScreen(face.corners[i][0], face.corners[i][1]);
         const dx = sx - mx, dy = sy - my;
         if (dx * dx + dy * dy <= radius * radius) return { face: f, index: i };
@@ -551,14 +553,45 @@
   // marker while PLACING (or dropping a picked-up corner) snaps to that
   // marker's exact position instead of grabbing it - shared corners then
   // coincide exactly. Picking a marker up requires no face to be mid-placement.
-  function clickPosition(mx, my, excludeOne) {
-    const hit = hitTestCorner(mx, my, { excludeOne });
+  function clickPosition(mx, my, exclude) {
+    const hit = hitTestCorner(mx, my, { exclude });
     if (hit) {
       const c = getFaces()[hit.face].corners[hit.index];
       showToast('Snapped to ' + hit.face + ' corner ' + hit.index);
       return [c[0], c[1]];
     }
     return screenToImage(mx, my);
+  }
+
+  // A cube vertex is shared by two or three faces, and snapping makes their
+  // markers coincide exactly - so moving one of them must move them all, or
+  // the faces come apart. A "grab" is the grabbed corner plus every other
+  // face's corner at the same image position; every write goes through
+  // moveGrab so the set stays together, and the whole set is excluded from
+  // the release snap (they are all under the cursor).
+  const SHARED_TOL = 0.5; // image px: snapped copies are exact, this only absorbs float noise
+  function grabCorner(face, index) {
+    const faces = getFaces();
+    const c = faces[face].corners[index];
+    const all = [{ face, index }];
+    for (const f of FACE_ORDER) {
+      if (f === face || !faces[f].visible) continue;
+      for (let i = 0; i < 4; i++) {
+        const q = faces[f].corners[i];
+        if (Math.hypot(q[0] - c[0], q[1] - c[1]) <= SHARED_TOL) all.push({ face: f, index: i });
+      }
+    }
+    return { face, index, all };
+  }
+  function moveGrab(grab, pos, verified) {
+    const faces = getFaces();
+    for (const { face, index } of grab.all) {
+      faces[face].corners[index] = [pos[0], pos[1]];
+      if (verified) delete faces[face].suggested; // human touched it -> verified
+    }
+  }
+  function grabLabel(grab) {
+    return grab.all.length > 1 ? grab.all.map(g => g.face).join('+') + ' shared corner' : grab.face + ' corner ' + (grab.index + 1);
   }
 
   function handleLeftClick(e) {
@@ -676,9 +709,8 @@
     // Finishing a pick-up: this click drops the corner (snapping to another
     // face's marker if close, so shared corners can be made exact).
     if (state.repositioning) {
-      const { face, index } = state.repositioning;
-      getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
-      delete getFaces()[face].suggested; // human touched it -> verified
+      const grab = state.repositioning;
+      moveGrab(grab, clickPosition(mx, my, grab.all), true);
       state.repositioning = null;
       saveCurrentToStorage();
       renderSidebar();
@@ -703,7 +735,7 @@
     // No face selected: clicking a marker picks it up to move it.
     const hit = hitTestCorner(mx, my);
     if (hit) {
-      state.repositioning = hit;
+      state.repositioning = grabCorner(hit.face, hit.index);
       render();
     }
   }
@@ -861,8 +893,7 @@
     if (!state.images[state.current]) {
       statusEl.textContent = 'Load images to begin.';
     } else if (state.repositioning) {
-      statusEl.textContent = 'Repositioning ' + state.repositioning.face + ' corner ' +
-        (state.repositioning.index + 1) + ' — click the new location.';
+      statusEl.textContent = 'Repositioning ' + grabLabel(state.repositioning) + ' — click the new location.';
     } else if (state.activeFace) {
       const n = state.tempCorners.length;
       statusEl.textContent = 'Placing ' + state.activeFace + ': click corner ' + (n + 1) +
@@ -1081,7 +1112,7 @@
         const hit = hitTestCorner(mx, my);
         if (hit) {
           e.preventDefault();
-          state.dragging = { ...hit, moved: false, startMouse: [mx, my] };
+          state.dragging = { ...grabCorner(hit.face, hit.index), moved: false, startMouse: [mx, my] };
           canvas.style.cursor = 'grabbing';
           return;
         }
@@ -1102,7 +1133,7 @@
       if (!state.dragging.moved && Math.hypot(mx - sx, my - sy) < 3) return;
       state.dragging.moved = true;
       // live position under the cursor; snapping happens on release
-      getFaces()[state.dragging.face].corners[state.dragging.index] = screenToImage(mx, my);
+      moveGrab(state.dragging, screenToImage(mx, my), false);
       render();
       return;
     }
@@ -1119,20 +1150,20 @@
       return;
     }
     if (state.dragging) {
-      const { face, index, moved } = state.dragging;
+      const grab = state.dragging;
+      const { moved } = grab;
       state.dragging = null;
       canvas.style.cursor = 'crosshair';
       if (moved) {
         // final placement snaps to another face's marker if released nearby
         const [mx, my] = canvasMouseXY(e);
-        getFaces()[face].corners[index] = clickPosition(mx, my, { face, index });
-        delete getFaces()[face].suggested; // human touched it -> verified
+        moveGrab(grab, clickPosition(mx, my, grab.all), true);
         saveCurrentToStorage();
         renderSidebar();
         updateProgress();
       } else {
         // a motionless click keeps the old pick-up / click-to-drop flow
-        state.repositioning = { face, index };
+        state.repositioning = grabCorner(grab.face, grab.index);
       }
       render();
     }
@@ -1176,7 +1207,7 @@
     if (hit) {
       const c = getFaces()[hit.face].corners[hit.index];
       const [sx, sy] = imageToScreen(c[0], c[1]);
-      touchGesture = { kind: 'drag', face: hit.face, index: hit.index, offX: sx - mx, offY: sy - my };
+      touchGesture = { kind: 'drag', ...grabCorner(hit.face, hit.index), offX: sx - mx, offY: sy - my };
       showLoupe(sx, sy);
       return;
     }
@@ -1211,7 +1242,7 @@
       showLoupe(mx, my);
     } else if (touchGesture.kind === 'drag') {
       const px = mx + touchGesture.offX, py = my + touchGesture.offY;
-      getFaces()[touchGesture.face].corners[touchGesture.index] = screenToImage(px, py);
+      moveGrab(touchGesture, screenToImage(px, py), false);
       render();
       showLoupe(px, py);
     }
@@ -1236,8 +1267,7 @@
     if (g.kind === 'drag' && !cancelled) {
       const cur = getFaces()[g.face].corners[g.index];
       const [sx, sy] = imageToScreen(cur[0], cur[1]);
-      getFaces()[g.face].corners[g.index] = clickPosition(sx, sy, { face: g.face, index: g.index });
-      delete getFaces()[g.face].suggested; // human touched it -> verified
+      moveGrab(g, clickPosition(sx, sy, g.all), true);
       saveCurrentToStorage();
       renderSidebar();
       updateProgress();
