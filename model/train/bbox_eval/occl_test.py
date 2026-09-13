@@ -1,32 +1,15 @@
 """IoU of the deployed cubebox on data_v4 val, split by the generator's own
 occlusion metadata (hasHands / hasPalm / nFingers / hasClutter)."""
 import json
-import pathlib
 import sys
 import zlib
 
 import numpy as np
-import onnxruntime as ort
 from PIL import Image
 
-ROOT = pathlib.Path(r"C:\Users\moowi\Documents\GitHub\cube_stuff\model")
-WEB = ROOT.parent/"web"/"public"/"models"
-MODEL = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else str(WEB/"cubebox.onnx")
-meta_j = json.loads((WEB/"cubebox.json").read_text())
-_, _, IH, IW = meta_j["input"]["shape"]
-mean = np.array(meta_j["input"]["mean"], np.float32); std = np.array(meta_j["input"]["std"], np.float32)
-sess = ort.InferenceSession(MODEL, providers=["CPUExecutionProvider"])
-sig = lambda v: 1/(1+np.exp(-v))
+from common import ROOT, Localizer
 
-def predict(im):
-    sw, sh = im.size
-    s = min(IW/sw, IH/sh); dx, dy = (IW-sw*s)/2, (IH-sh*s)/2
-    c = Image.new("RGB", (IW, IH), (114,114,114))
-    c.paste(im.resize((round(sw*s), round(sh*s)), Image.BILINEAR), (round(dx), round(dy)))
-    x = (np.asarray(c, np.float32)/255 - mean)/std
-    y = sess.run(None, {"image": x.transpose(2,0,1)[None]})[0][0]
-    cx, cy, w, h = (float(sig(v)) for v in y[1:5])
-    return [((cx*IW-w*IW/2)-dx)/s, ((cy*IH-h*IH/2)-dy)/s, ((cx*IW+w*IW/2)-dx)/s, ((cy*IH+h*IH/2)-dy)/s], s
+loc = Localizer(sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None)
 
 root = ROOT/sys.argv[1]
 N = int(sys.argv[3]) if len(sys.argv) > 3 else 600
@@ -39,7 +22,7 @@ for lf in sorted((root/"labels").glob("*.json")):
     a = np.array(pts, float)
     gt = [a[:,0].min(), a[:,1].min(), a[:,0].max(), a[:,1].max()]
     im = Image.open(root/m["image"]).convert("RGB")
-    pb, s = predict(im)
+    _, pb, s = loc.predict(im)
     ix0,iy0,ix1,iy1 = max(gt[0],pb[0]),max(gt[1],pb[1]),min(gt[2],pb[2]),min(gt[3],pb[3])
     inter = max(0,ix1-ix0)*max(0,iy1-iy0)
     gw, gh = gt[2]-gt[0], gt[3]-gt[1]
