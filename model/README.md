@@ -203,6 +203,26 @@ kpft7 (scratch base with batch 8 at `*20`, then the same fine-tune) is the
 pending comparison. `web/test/fixtures/facekp-maps-square.json`
 is dumped from kpft3.
 
+**Where the remaining error is (kpft6, 204 real val faces).** Model-px error
+is ~3.4 in every range bin while source-px error grows with the face
+(far 10, mid 13, near 16): the error is a constant in the model's own
+pixels, i.e. bound by the 256 input / stride-16 offset regression, not by
+the camera. Camera resolution alone cannot help; a bigger input or a
+finer head can.
+
+**Seam refinement does NOT help corners (measured 2026-09-13).**
+`diagnose.py --dump DIR [--dump-scale 2]` writes every model input (and the
+same window from the native photo at 2x, ~the phone frame's scale) with
+predicted and true quads; `web/test/refine-bench.test.ts` runs
+`gridfit.refineQuad` on them. At 1x: 3.45 -> 4.88 px (29 better, 157
+worse); at 2x: 3.45 -> 3.77 px (44 better, 106 worse); started FROM THE
+TRUTH it drifts 4.1 / 2.3 px while its seam score rises. The seam prior's
+optimum is ~2 model px (~9 source px) from the outline labels (rounded
+stickerless cubies, or label noise - the bench cannot separate them), and
+the detector is already inside that. Do not feed refined quads to the
+tracker or the overlay. It still runs in the colour sampler (`REFINE`);
+whether it helps the cell centres there is unmeasured.
+
 ## Architecture: anonymous-quad head (center-v1, 2026-09-12)
 
 `train/model.py` holds two heads; `--head` picks one and every checkpoint
