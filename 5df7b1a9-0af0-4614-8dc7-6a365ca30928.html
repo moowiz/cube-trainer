@@ -1097,7 +1097,7 @@ function canonical(sol){
   const shown=sol.slice();
   sol.forEach((m,i)=>{ if(m.times===2) return; free.push(i); if(familySolves()) shown[i]={face:m.face,times:1,str:m.face+'*'}; else free.pop(); });
   for(let i=0;i+1<shown.length;i++) if(OPP[shown[i].face]===shown[i+1].face&&ORDER[shown[i].face]>ORDER[shown[i+1].face]) [shown[i],shown[i+1]]=[shown[i+1],shown[i]];
-  return toSpatial(cube,shown);
+  return {txt:toSpatial(cube,shown),moves:shown};
 }
 // the moves in the box up to the point EO is first solved, or null if they aren't plain face turns
 function userEO(){
@@ -1115,12 +1115,15 @@ function showSolutions(){
   const el=$('sols'); el.innerHTML='';
   // group the families by F/B plan (the "Hint: F/B plan" text), biggest family first within a group
   const groups=new Map(); let starred=false;
+  // the plan is read off the reordered moves (F' B' and B' F' are one line, so they must be one plan too);
+  // a family whose starred directions would give different plans is filed under its first member's
+  const fam=new Map();
   for(const sol of solution.solutions){
-    const plan=fbPlans.counts(sol), txt=canonical(sol); if(txt.includes('*')) starred=true;
-    const g=groups.get(plan.key)||{plan,lines:new Map()}; groups.set(plan.key,g);
-    g.lines.set(txt,(g.lines.get(txt)||0)+1);
+    const c=canonical(sol), f=fam.get(c.txt); if(f){ f.n++; continue; }
+    fam.set(c.txt,{n:1,plan:fbPlans.counts(c.moves)}); if(c.txt.includes('*')) starred=true;
   }
-  const mine=userEO(); const mineTxt=mine&&mine.length===solution.length?canonical(mine):null;
+  for(const [txt,f] of fam){ const g=groups.get(f.plan.key)||{plan:f.plan,lines:new Map()}; groups.set(f.plan.key,g); g.lines.set(txt,f.n); }
+  const mine=userEO(); const mineTxt=mine&&mine.length===solution.length?canonical(mine).txt:null;
   const total=solution.solutions.length, families=[...groups.values()].reduce((n,g)=>n+g.lines.size,0);
   $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${families<total?`, ${families} lines once turns that work either way (*) and commuting pairs are merged`:''}. From the scrambled state, white down.${mineTxt?' Yours is marked.':''}`;
   const order=[...groups.values()].sort((a,b)=>b.lines.size-a.lines.size);
