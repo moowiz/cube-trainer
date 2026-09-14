@@ -16,11 +16,31 @@ button.on { background: #3a4a6a; border-color: #5a7ab0; }
 #scramble span { font: 600 17px/1.4 ui-monospace, monospace; letter-spacing: 0.02em; }
 #scramble label { margin-left: auto; font-size: 13px; }
 #modes { display: inline-flex; gap: 4px; }
-#fill { display: flex; gap: 6px; margin: 8px 0; }
-.f { flex: 1; text-align: center; border-radius: 6px; padding: 4px 0; background: #1a1e26; border: 1px solid #3a4150; }
-.f b { display: block; }
-#result { background: #1a1e26; border-radius: 8px; padding: 10px 12px; margin-top: 10px; white-space: pre-wrap; word-break: break-all; }
+/* face evidence chips: --fc is the face colour (standard scheme, then the
+   measured palette); the bar is the weakest sticker's share of the lock floor */
+#fill { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
+.f { position: relative; border-radius: 6px; padding: 6px 8px 8px; background: #1a1e26; border: 1px solid #3a4150; border-left: 6px solid var(--fc);
+     display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 5px; align-items: baseline; font-size: 12px; }
+.f b { font-size: 15px; color: var(--fc); }
+.f .nm { color: #8b93a3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f .pct { color: #c8ccd6; font-variant-numeric: tabular-nums; }
+.f .bar { grid-column: 1 / -1; height: 6px; margin-top: 6px; border-radius: 3px; background: #2a2f3a; overflow: hidden; }
+.f .bar i { display: block; height: 100%; width: 0; background: var(--fc); transition: width 0.25s; }
+.f.done { border-color: var(--fc); box-shadow: inset 0 0 0 1px var(--fc); }
+.ph { font-weight: 600; margin: 10px 0 2px; }
+.note { color: #8891a0; font-size: 12px; line-height: 1.45; margin: 6px 0 10px; }
+.note code, .note i { color: #c8ccd6; font-style: normal; }
+#unbound { color: #8891a0; min-height: 1.2em; }
+/* the lock */
+#result { background: #1a2a1e; border: 1px solid #2f6a3f; border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
 #result:empty { display: none; }
+#result .rt { font-size: 18px; font-weight: 700; color: #6fd48a; }
+#result .st { font: 12px ui-monospace, monospace; color: #8b93a3; word-break: break-all; margin: 4px 0; }
+#result .cert { color: #8891a0; font-size: 12px; }
+#result .hold { margin-top: 10px; }
+#result .sol { font: 600 20px/1.5 ui-monospace, monospace; letter-spacing: 0.03em; margin-top: 6px; word-spacing: 0.2em; }
+#lockbadge { position: absolute; left: 0; right: 0; top: 0; padding: 8px 14px; text-align: center; font-size: 15px;
+             color: #fff; background: #1f7a3dd9; }
 #fallback { display: none; background: #4a3320; border: 1px solid #8a6030; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
 #fallback a { color: #ffb454; }
 #stats { color: #8891a0; font-variant-numeric: tabular-nums; margin-top: 6px; white-space: pre-line; }
@@ -38,6 +58,8 @@ details#debug summary { cursor: pointer; color: #8b93a3; }
 .grids:empty { display: none; }
 .grids .face { background: #1a1e26; border-radius: 8px; padding: 8px 10px; }
 .grids .hd { font: 11px ui-monospace, monospace; color: #8b93a6; margin-bottom: 6px; white-space: pre-line; }
+.grids .hd b { color: #e8eaf0; font-weight: 600; }
+.grids .hd .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid #0008; }
 .grids .g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
 .grids .c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
             justify-content: center; font: 10px/1.15 ui-monospace, monospace; border: 1px solid #0005; }
@@ -53,4 +75,14 @@ details#debug summary { cursor: pointer; color: #8b93a3; }
 #grid { display: none; background: #eceef2; color: #1b222c; border-radius: 8px; padding: 12px; }
 body.grid #grid { display: block; }
 body.grid .auto { display: none !important; }
+/* desktop: the camera fills the left column up to the viewport height; the
+   scan's state (evidence, lock, decoded faces) sits beside it */
+@media (min-width: 1100px) {
+  #wrap { max-width: 1900px; padding: 12px 24px; }
+  #cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(440px, 1fr); gap: 28px; align-items: start; }
+  #stage { max-width: calc((100vh - 230px) * var(--ar, 1.3333)); margin: 0 auto; }
+  #side { margin-top: 8px; }
+  #side .ph:first-child { margin-top: 0; }
+  .grids { gap: 12px; }
+}
 #exemplars { font: 11px ui-monospace, monospace; white-space: pre; color: #c8ccd6; background: #1a1e26; border-radius: 8px; padding: 8px 10px; margin-top: 8px; overflow-x: auto; }
