@@ -10,6 +10,7 @@
 //            out {type:'progress', depth}   {type:'ready', hist:number[], ms}
 //            in  {type:'solve', id, eo, slots:number[4], cap}   slots = current slot of each cross edge, same order
 //            out {type:'solved', id, length, count, solutions:number[][] (move indices), truncated}
+//            in  {type:'dists', id, items:[{eo, slots}]}   out {type:'dists', id, ds:number[]}   (distances only)
 'use strict';
 const N_EO = 4096, N_CR = 11880, NM = 18;
 let T = null, eoT = null, crT = null, HOME = 0;
@@ -94,6 +95,7 @@ function onMessage(msg) {
   if (msg.type === 'init') return post(build(msg.perm, msg.flip, msg.home));
   if (msg.type === 'solve') return post({ type: 'solved', id: msg.id, ...solve(msg.eo, msg.slots, msg.cap || 3000) });
   if (msg.type === 'dist') return post({ type: 'dist', id: msg.id, d: dist(msg.eo, msg.slots) });
+  if (msg.type === 'dists') return post({ type: 'dists', id: msg.id, ds: msg.items.map((it) => dist(it.eo, it.slots)) });
 }
 if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
   self.onmessage = ev => onMessage(ev.data);
