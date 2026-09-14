@@ -35,12 +35,14 @@ STRIDE = 16
 MIN_FACE_EDGE_FRAC = 0.133
 
 # Stage-2 crop geometry. The app pads stage 1's box by PAD_VAL per side
-# (web padBox(box, 0.45)); training re-crops the cached loose crop with
+# (web twostage.ts CROP_PAD - keep them equal, val is scored at this pad);
+# 0.45 -> 0.20 on 2026-09-13: same model px, 18% fewer source px, +F1
+# (diagnose.py --pad). Training re-crops the cached loose crop with
 # per-side padding U(PAD_TRAIN) - negative = the localizer clipped the cube,
 # which its per-edge sd of 0.08-0.14 says happens. The cache itself holds a
 # looser crop, U(CACHE_PAD) per side, so the same image can be re-cropped
 # differently every epoch and the far end of the range keeps native pixels.
-PAD_VAL = 0.45
+PAD_VAL = 0.20
 PAD_TRAIN = (-0.10, 0.45)
 CACHE_PAD = (0.20, 0.70)
 
