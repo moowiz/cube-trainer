@@ -50,6 +50,7 @@ import { mapUV, squareToQuad } from './rectify';
 import { randomScramble, scrambleState } from './scramble';
 import { solveState } from './state';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
+import { persistControls } from './ui/settings';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from './types';
 import type { FaceId } from './types';
 
@@ -141,6 +142,7 @@ app.innerHTML = `
           <button id="reset">Reset scan</button>
           <button id="pause" disabled title="Freeze the frame and the overlay to inspect what was sampled">Pause</button>
           <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
+          <label title="Freeze the view on the frame that locked the cube instead of streaming a feed nothing reads any more"><input type="checkbox" id="pauseOnLock" checked> pause on lock</label>
         </div>
         <div id="stage"><canvas id="view" width="640" height="480"></canvas><div id="hint" hidden></div><div id="lockbadge" hidden>Locked ✓ — camera paused. <b>Resume</b> keeps watching, <b>Reset scan</b> starts over.</div></div>
         <div id="fallback">Having trouble? The <a href="#" id="toGrid">grid scanner</a> always works.</div>
@@ -294,6 +296,12 @@ const refusedChk = $<HTMLInputElement>('refusedChk');
 const pauseBtn = $<HTMLButtonElement>('pause');
 const attemptEl = $('attempt');
 const exEl = $('exemplars');
+const pauseOnLockChk = $<HTMLInputElement>('pauseOnLock');
+
+// Settings that survive a refresh (values only for now; 'change' is
+// dispatched at the end of the module, once every listener is attached).
+// The exposure select is not among them: its options are per camera.
+const restoredControls = persistControls(['pauseOnLock', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 'refusedChk', 'heat', 'stage2off', 'cellsChk', 'exChk', 'samplesChk', 'debug']);
 
 const camera = new Camera();
 const fps = new FpsCounter();
@@ -395,7 +403,7 @@ async function load(ep: Ep | 'auto') {
   return outcome;
 }
 
-void load('auto');
+void load(epSel.value as Ep | 'auto');
 epSel.addEventListener('change', () => void load(epSel.value as Ep | 'auto'));
 installDetectSelfTest({ current: () => models, load });
 
@@ -657,7 +665,7 @@ function updateFillUI(): void {
     // overlay stays up) rather than keep streaming a feed nothing reads any
     // more. A clip must play to its end so the autocapture hook fires.
     // (not while recording a solve: the moves come after the lock)
-    if (!clipUrl && !recorder) setPaused(true);
+    if (!clipUrl && !recorder && pauseOnLockChk.checked) setPaused(true);
   }
   if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
 }
@@ -1168,6 +1176,10 @@ captureBtn.addEventListener('click', () => {
 });
 cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
 exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; });
+
+// Restored settings take effect through the same listeners a click would
+// use; the EP was already honoured by the initial load() above.
+for (const el of restoredControls) if (el !== epSel && !(el instanceof HTMLDetailsElement)) el.dispatchEvent(new Event('change'));
 
 // ---- modes ----------------------------------------------------------------
 
