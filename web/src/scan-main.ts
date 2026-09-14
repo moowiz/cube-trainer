@@ -293,7 +293,9 @@ let lastSampleTs = -Infinity;
 let peakEma = 255;         // running median-ish of the brightest channel of sampled readings
 let clipEma = 0;           // running mean of the sampled readings' clipped fraction
 let exposureAt = 0;        // when the camera's exposure compensation was last nudged
-let exposureComp: string | null = null;   // what was applied ('ev +1', '31.2 ms', 'auto'; null: never / not supported)
+let exposureComp: string | null = null;   // what was applied ('ev +1', '62.5 ms', 'auto'; null: never / not supported)
+let exposurePeakBefore: number | null = null;   // the cube's brightness when the last brightening step was taken
+let exposureGaveUp = false;   // a brightening step made the cube no brighter: this camera's control is not the one to use
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -755,11 +757,29 @@ function loop(ts: number, gen: number): void {
     // frame; when the stickers being read are dark (or blown out) ask the
     // camera for one step more (less), where it offers exposure
     // compensation at all - a no-op elsewhere.
-    if (!clipUrl && confident.length > 0 && !locked && ts - exposureAt >= EXPOSURE_HOLD_MS) {
-      const dir = dark ? 1 : clipEma > 0.3 ? -1 : 0;
-      if (dir) {
+    if (!clipUrl && confident.length > 0 && !locked && !exposureGaveUp && ts - exposureAt >= EXPOSURE_HOLD_MS) {
+      // A step must prove itself: the webcam's auto mode brightens a dark
+      // room with gain that a manual exposure time resets, so the step
+      // that should have helped turned the picture black (evening session,
+      // 2026-09-13). No brighter after the hold-off means back to auto and
+      // no more steps this session.
+      if (exposurePeakBefore !== null && peakEma < exposurePeakBefore * 1.15 + 3) {
+        exposurePeakBefore = null;
+        exposureGaveUp = true;
         exposureAt = ts;
-        void camera.nudgeExposure(dir).then((v) => { if (v !== null) exposureComp = v; });
+        void camera.resetExposure().then((v) => { if (v !== null) exposureComp = `${v} (step did not help)`; });
+      } else {
+        exposurePeakBefore = null;
+        const dir = dark ? 1 : clipEma > 0.3 ? -1 : 0;
+        if (dir) {
+          exposureAt = ts;
+          const before = peakEma;
+          void camera.nudgeExposure(dir).then((v) => {
+            if (v === null) return;
+            exposureComp = v;
+            if (dir > 0) exposurePeakBefore = before;
+          });
+        }
       }
     }
     hintEl.hidden = !hint;
@@ -950,6 +970,9 @@ $('reset').addEventListener('click', () => {
   lastSampleTs = -Infinity;
   peakEma = 255;
   clipEma = 0;
+  exposurePeakBefore = null;
+  exposureGaveUp = false;
+  void camera.resetExposure().then((v) => { if (v !== null) exposureComp = v; });
   renderedSolution = null;
   attemptEl.replaceChildren();
   tickHistory.length = 0;
