@@ -364,11 +364,15 @@ a fixture, then close this.
   face-on grip shows ONE face with fingers on 2-4 stickers and turns happen
   inside the hands; camera ABOVE and cube CLOSE shows 2-3 faces most of the
   time; after batch 10 a 28 s solve has ~4 sampled frames per turn and one
-  detection gap. Next, in order: an occlusion (skin) veto per cell with the
-  evidence unioned over the epoch, the stage-1 miss fallback, then
-  `web/src/moves/` (segment / anchor / hypotheses / score / record) tested
-  first on a synthetic solve, then on recordings with `Moves` truth. Hands
-  are an occlusion mask, not a signal (design doc 8). The original sketch:
+  detection gap. 2026-09-14: `web/src/moves/` built (design doc section
+  10) - a beam Viterbi reader over the sampled frames with per-track
+  face / rotation / illumination memory, a flat-cost occlusion veto,
+  evidence-derived timing windows, bursts and certificates; reads the
+  synthetic solve 20/20 at ~3 ms/frame live (solve worker, ticker in the
+  result panel, trace in the debug panel); the two dim-room recordings
+  are `hard` fixtures it cannot read (one lit face), so the next step is
+  recordings from above and close with `Moves` truth, then calibration.
+  Hands are an occlusion mask, not a signal (design doc 8). The original sketch:
   phone camera watches a full solve;
   the app reconstructs the move sequence with timestamps, segments it into
   method phases (ZZ: EO / F2L / LL), computes objective metrics (move count,
