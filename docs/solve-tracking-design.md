@@ -378,6 +378,21 @@ moves typed). The `Moves` field and `I applied it` exist for the next
 round; the scripted 3-6 move takes from section 5.3 are still the
 calibration set to record, **with the camera at the side-above angle**.
 
+### 7.1 Fourth recording: camera side-above (2026-09-13, late)
+
+Webcam raised to look down at the cube in the lap: the view is right (U F R
+legible together in most still frames) but the detector collapsed - faces
+in 13 % of frames on replay, stage-1 objectness p50 0.35 (37 % of frames
+>= 0.5), one face when anything. Causes, all domain: cube ~80 px in the
+640 frame (~20 px in stage 1's 160x120 input), a plaid shirt behind it in
+every frame, tungsten light with the webcam at 15 fps and motion blur.
+Live cadence was not the problem. Response: batch 10 = 59 stills from the
+clip in `stephens_photos/batch10/` (extract_frames --dup 0 --long-side 640;
+the whole-frame duplicate hash kills small-cube clips) to label and
+fine-tune both stages on; and a runtime fallback worth measuring - when
+stage 1 misses while a track died < 0.5 s ago, run stage 2 on the last
+padded box anyway. Cheaper still: cube closer to the camera, more light.
+
 ## 8. Hands: occlusion, not a signal (2026-09-13)
 
 Section 7 shows the fingers cover 2-4 stickers of the visible face at all
