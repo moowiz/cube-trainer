@@ -299,7 +299,8 @@
         <li><kbd>x</kbd> or "Clear suggested" &mdash; drop every unverified
           suggestion on this image (shift-click: on every image)</li>
         <li><kbd>Esc</kbd> &mdash; cancel in-progress face</li>
-        <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label</li>
+        <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label;
+          <kbd>Shift</kbd>+<kbd>Delete</kbd> or "Clear all" &mdash; every face on this image</li>
         <li>mouse wheel &mdash; zoom toward cursor</li>
         <li>middle-drag, or <kbd>space</kbd>+drag &mdash; pan</li>
         <li><kbd>0</kbd> &mdash; reset zoom/pan to fit image</li>
@@ -332,7 +333,7 @@
       <button class="face-btn" data-face="L" style="background:#f19f2c;color:#111">L</button>
       <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
       <button id="clearFaceBtn">Clear face</button>
-      <button id="clearAllBtn" title="Remove all face labels on this image">Clear all</button>
+      <button id="clearAllBtn" title="Remove all face labels on this image (Shift+Delete)">Clear all</button>
       <button id="clearSuggestedBtn" title="Drop the model's unverified suggestions on this image (x); shift-click for every image">Clear suggested</button>
       <button id="copyPrevBtn" title="Copy the previous image's verified faces onto this one as suggestions to adjust (c)">Copy prev</button>
       <button id="suggestBtn" title="Run the current keypoint model on this photo and pre-fill unlabeled faces">Suggest (model)</button>
@@ -1618,7 +1619,7 @@
     if (k === 'ArrowLeft' || k === "'") { selectImage(state.current - 1); e.preventDefault(); }
     else if (k === 'ArrowRight' || k === '.') { selectImage(state.current + 1); e.preventDefault(); }
     else if (k === 'Escape') { hideMenu(); cancelActive(); e.preventDefault(); }
-    else if (k === 'Delete' || k === 'Backspace') { clearFace(); e.preventDefault(); }
+    else if (k === 'Delete' || k === 'Backspace') { if (e.shiftKey) clearAllFaces(); else clearFace(); e.preventDefault(); }
     else if (k === '0') { fitImageToView(); render(); }
     else if (k === 'c' || k === 'C') { copyFromPrevious(); e.preventDefault(); }
     else if (k === 'x' || k === 'X') { clearSuggested(e.shiftKey); e.preventDefault(); }
