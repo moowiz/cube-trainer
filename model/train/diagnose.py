@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -124,12 +125,19 @@ def cell_centre_error(pred_pts: np.ndarray, gt_corners: np.ndarray, npts: int) -
     return float(np.linalg.norm(apply_h(Hp, CELL_UV) - apply_h(Hg, CELL_UV), axis=1).mean())
 
 
+def _batch_key(p: Path):
+    # numeric order: a bare (pre-batch-8) name belongs to the lowest batch that
+    # used it, and "batch10" sorts before "batch2" as a string
+    m = re.search(r"\d+", p.name)
+    return (int(m.group()) if m else 0, p.name)
+
+
 def batch_index(photo_root: Path) -> dict[str, str]:
     """source filename -> batch name, from the local photo directories."""
     idx: dict[str, str] = {}
     if not photo_root.is_dir():
         return idx
-    for f in photo_root.iterdir():
+    for f in sorted(photo_root.iterdir(), key=_batch_key):
         if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png"):
             idx[f.name] = "batch1"
         elif f.is_dir():

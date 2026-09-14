@@ -6,6 +6,7 @@ silhouette ground truth of a labelled root, and per-photo rows.
 """
 import json
 import pathlib
+import re
 import sys
 
 import numpy as np
@@ -64,11 +65,17 @@ def iou(a, b):
     return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
 
 
+def _batch_key(p):
+    m = re.search(r"\d+", p.name)
+    return (int(m.group()) if m else 0, p.name)
+
+
 def batch_index() -> dict[str, str]:
     """source photo name -> stephens_photos batch (batch1 = the loose photos at the top)."""
     idx = {}
     if PHOTOS.is_dir():
-        for f in PHOTOS.iterdir():
+        # numeric order: bare names belong to the lowest batch ('batch10' < 'batch2' as strings)
+        for f in sorted(PHOTOS.iterdir(), key=_batch_key):
             if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png"):
                 idx[f.name] = "batch1"
             elif f.is_dir() and not f.name.startswith("_"):
