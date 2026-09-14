@@ -145,6 +145,12 @@
 
   /* EO trainer */
   #eo-panel { max-width: 560px; margin: 0 auto; }
+  @media (min-width: 820px) {
+    #eo-panel { max-width: 900px; display: grid; grid-template-columns: 360px 1fr; gap: 0 32px; align-items: start; }
+    #eo-panel .eo-head { grid-column: 1 / -1; }
+    #eo-panel .eo-left { position: sticky; top: 16px; }
+    #eo-panel .eo-right .eo-hints { margin-top: 2px; }
+  }
   .eo-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
   .eo-head p { margin: 4px 0 0; color: var(--ink-2); font-size: 14px; line-height: 1.4; }
   .eo-primary { background: var(--ink) !important; color: #fff !important; border-color: var(--ink) !important; font-weight: 600; white-space: nowrap; }
@@ -285,6 +291,7 @@
     <button id="eo-next" class="btn eo-primary" type="button">New scramble</button>
   </div>
 
+  <div class="eo-left">
   <div class="eo-stage"><svg id="eo-cube" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
   <div class="eo-corner">
     <button id="eo-peekBack" class="btn" type="button" title="Look at the back">Peek back</button>
@@ -298,6 +305,9 @@
   </div>
   <div class="eo-scramble" id="eo-scramble"></div>
   <p class="eo-note" id="eo-orient"></p>
+  </div>
+
+  <div class="eo-right">
   <div class="eo-hints" id="eo-hints">
     <button type="button" class="eo-chip" data-hint="bad">Hint: bad edges</button>
     <button type="button" class="eo-chip" data-hint="len">Hint: move count</button>
@@ -340,6 +350,7 @@
       <div class="eo-seg" data-set="target"><button type="button" data-v="any">Any</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button><button type="button" data-v="6">6</button><button type="button" data-v="8">8</button></div></div>
     <div class="eo-stats" id="eo-stats"></div>
   </details>
+  </div>
 </div>
 
 <div id="scan-panel" hidden></div>
