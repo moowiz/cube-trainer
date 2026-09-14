@@ -10,6 +10,18 @@ function hsla(h, s, l, a) {
 }
 const clampL = (l) => Math.min(0.97, Math.max(0.03, l));
 
+// The six sticker colours (scene.mjs SCHEME) as HSL, jittered like
+// faceColors() so a checked shirt drawn from these matches the cube's own
+// colour distribution. DECISION: a third of the woven kinds draw from this
+// palette - a lattice of saturated cube-coloured squares is the sharpest
+// version of the hard negative these patterns exist for, and uniform random
+// hue at half saturation rarely produces one.
+const CUBE_HSL = [[0, 0, 0.96], [350, 0.73, 0.44], [156, 1, 0.31], [50, 1, 0.5], [21, 1, 0.5], [214, 1, 0.36]];
+function cubeColor(rnd, a = 1) {
+  const [h, sat, l] = pick(rnd, CUBE_HSL);
+  return hsla(h + (rnd() - 0.5) * 14, Math.min(1, Math.max(0, sat + (rnd() - 0.5) * 0.2)), clampL(l + (rnd() - 0.5) * 0.1), a);
+}
+
 // Soft fold shading, shared by the cloth kinds: wide blurred dark curves.
 function softFolds(ctx, rnd, w, h) {
   ctx.filter = `blur(${4 + rnd() * 8}px)`;
@@ -43,15 +55,16 @@ function rotated(ctx, rnd, w, h, draw) {
 // horizontally, then vertically with multiply blending so the crossings
 // darken like woven threads. The same band list both ways (a true tartan)
 // most of the time, an independent one otherwise (madras, shirt checks).
-function plaidBands(rnd, baseHue, baseL) {
+function plaidBands(rnd, baseHue, baseL, cubey) {
   const n = 3 + Math.floor(rnd() * 4);
   const bands = [];
   for (let i = 0; i < n; i++) {
-    const width = 3 + rnd() * rnd() * 60; // mostly thin, a few wide
+    const width = cubey ? 8 + rnd() * rnd() * 70 : 3 + rnd() * rnd() * 60; // mostly thin, a few wide; cube-coloured setts run blockier
     const hueShift = rnd() < 0.5 ? (rnd() - 0.5) * 40 : rnd() * 360;
+    const alpha = 0.55 + rnd() * 0.45;
     bands.push({
       width,
-      color: hsla(baseHue + hueShift, 0.25 + rnd() * 0.6, clampL(baseL + (rnd() - 0.5) * 0.7), 0.55 + rnd() * 0.45),
+      color: cubey ? cubeColor(rnd, alpha) : hsla(baseHue + hueShift, 0.25 + rnd() * 0.6, clampL(baseL + (rnd() - 0.5) * 0.7), alpha),
     });
   }
   return bands;
@@ -104,6 +117,7 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
     'plaid', 'plaid', 'gingham', 'houndstooth', 'argyle']);
   const baseHue = rnd() * 360;
   const baseL = 0.15 + rnd() * 0.65;
+  const cubey = rnd() < 0.33; // woven kinds: draw from the sticker palette
   ctx.fillStyle = hsl(baseHue, 0.05 + rnd() * 0.4, baseL);
   ctx.fillRect(0, 0, w, h);
 
@@ -198,10 +212,10 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
     case 'plaid': {
       // Tartan / flannel / madras. Horizontal bands, then vertical bands
       // multiplied over them; optional fine twill diagonals on top.
-      const bandsA = plaidBands(rnd, baseHue, baseL);
-      const bandsB = rnd() < 0.7 ? bandsA : plaidBands(rnd, baseHue, baseL);
+      const bandsA = plaidBands(rnd, baseHue, baseL, cubey);
+      const bandsB = rnd() < 0.7 ? bandsA : plaidBands(rnd, baseHue, baseL, cubey);
       rotated(ctx, rnd, w, h, (x0, y0, W, Hh) => {
-        ctx.fillStyle = hsl(baseHue, 0.1 + rnd() * 0.5, baseL);
+        ctx.fillStyle = cubey ? cubeColor(rnd) : hsl(baseHue, 0.1 + rnd() * 0.5, baseL);
         ctx.fillRect(x0, y0, W, Hh);
         drawBands(ctx, bandsA, x0, y0, W, Hh, false);
         ctx.globalCompositeOperation = 'multiply';
@@ -228,9 +242,10 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
       const hue = rnd() < 0.7 ? baseHue : rnd() * 360;
       const sat = 0.4 + rnd() * 0.6;
       const ground = rnd() < 0.75 ? clampL(0.8 + rnd() * 0.17) : clampL(baseL);
-      const ink = hsla(hue, sat, 0.2 + rnd() * 0.35, 0.55 + rnd() * 0.15);
+      // cube-coloured: sticker ink on a white ground, or two stickers' worth
+      const ink = cubey ? cubeColor(rnd, 0.6 + rnd() * 0.3) : hsla(hue, sat, 0.2 + rnd() * 0.35, 0.55 + rnd() * 0.15);
       rotated(ctx, rnd, w, h, (x0, y0, W, Hh) => {
-        ctx.fillStyle = hsl(hue, sat * 0.15, ground);
+        ctx.fillStyle = cubey ? (rnd() < 0.6 ? hsl(0, 0, 0.96) : cubeColor(rnd)) : hsl(hue, sat * 0.15, ground);
         ctx.fillRect(x0, y0, W, Hh);
         ctx.fillStyle = ink;
         for (let x = 0; x < W; x += 2 * s) ctx.fillRect(x0 + x, y0, s, Hh);
@@ -241,8 +256,8 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
     }
     case 'houndstooth': {
       const l1 = clampL(baseL);
-      const dark = hsl(baseHue, 0.05 + rnd() * 0.3, l1 < 0.5 ? l1 : l1 - 0.45);
-      const light = hsl(baseHue + (rnd() - 0.5) * 30, 0.05 + rnd() * 0.3, l1 < 0.5 ? l1 + 0.45 : l1);
+      const dark = cubey ? cubeColor(rnd) : hsl(baseHue, 0.05 + rnd() * 0.3, l1 < 0.5 ? l1 : l1 - 0.45);
+      const light = cubey ? hsl(0, 0, 0.9 + rnd() * 0.07) : hsl(baseHue + (rnd() - 0.5) * 30, 0.05 + rnd() * 0.3, l1 < 0.5 ? l1 + 0.45 : l1);
       const tile = houndstoothTile(dark, light);
       const scale = 2 + rnd() * rnd() * 14; // px per thread: fine cloth to a coat at arm's length
       rotated(ctx, rnd, w, h, (x0, y0, W, Hh) => {
@@ -259,7 +274,7 @@ export function proceduralBackground(rnd, w = 512, h = 512) {
       // centres: a checkerboard drawn at ~45 deg and stretched vertically.
       const dw = 30 + rnd() * 70;
       const stretch = 1.2 + rnd() * 0.8;
-      const cols = [hsl(baseHue, 0.3 + rnd() * 0.5, clampL(baseL)),
+      const cols = cubey ? [cubeColor(rnd), cubeColor(rnd), cubeColor(rnd)] : [hsl(baseHue, 0.3 + rnd() * 0.5, clampL(baseL)),
         hsl(baseHue + 150 + rnd() * 60, 0.3 + rnd() * 0.5, clampL(baseL + (rnd() < 0.5 ? 0.35 : -0.35))),
         hsl(baseHue + (rnd() - 0.5) * 60, 0.1 + rnd() * 0.3, clampL(baseL + (rnd() - 0.5) * 0.5))];
       const ncol = rnd() < 0.5 ? 2 : 3;
