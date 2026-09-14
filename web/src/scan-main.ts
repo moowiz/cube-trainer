@@ -226,7 +226,7 @@ const DIAG: { group: string; rows: { id: string; label: string; hint: string }[]
   { group: 'Camera', rows: [
     { id: 'frame', label: 'frame', hint: 'Camera frame size and the measured frame rate. A webcam drops to 15 fps when its exposure goes past 33 ms.' },
     { id: 'exposure', label: 'exposure', hint: "What the app last asked the camera for. 'app-controlled' steps the exposure until the stickers read well (see brightness); 'auto' is the camera's own whole-frame metering. '(step did not help)' = a step was undone and the loop is off for this session." },
-    { id: 'peak', label: 'sticker brightness', hint: 'Running median of the brightest channel (0-255) of the sticker readings being sampled, and the share of their pixels that are clipped. Under 55 is too dark to tell colours apart; over 215, or more than 12% clipped, is blown out (white and yellow merge).' },
+    { id: 'peak', label: 'sticker brightness', hint: 'Running median of the brightest channel (0-255) of the sticker readings being sampled, the same for their darkest tenth (blues, shaded stickers), and the share of their pixels that are clipped. Under 55 is too dark to tell colours apart; over 215, or more than 12% clipped, is blown out (white and yellow merge) - but the loop only darkens while the darkest tenth would still clear 55 afterwards.' },
   ] },
   { group: 'Detector', rows: [
     { id: 'backend', label: 'backend', hint: 'ONNX runtime execution provider (webgpu or wasm), wasm threads, and whether inference runs in a worker.' },
@@ -368,6 +368,7 @@ let sampledQuads: { track: number; quad: [number, number][]; plan: CellPlan }[] 
 let lastSolveTs = 0;
 let lastSampleTs = -Infinity;
 let peakEma = 255;         // running median-ish of the brightest channel of sampled readings
+let peakLowEma = 255;      // same for the darkest tenth of them (the blues and shaded stickers)
 let clipEma = 0;           // running mean of the sampled readings' clipped fraction
 let exposureAt = 0;        // when the camera's exposure compensation was last nudged
 let exposureComp: string | null = null;   // what was applied ('ev +1', '62.5 ms', 'auto'; null: never / not supported)
@@ -574,7 +575,9 @@ sampler.onSampled = (r) => {
   const peaks = r.quads.flatMap((q) => q.readings.map((x) => Math.max(x.rgb[0], x.rgb[1], x.rgb[2]))).sort((a, b) => a - b);
   if (peaks.length) {
     const clip = r.quads.flatMap((q) => q.readings.map((x) => x.clipFrac)).reduce((a, b) => a + b, 0) / peaks.length;
-    peakEma = peakEma === 255 && peaks.length ? peaks[peaks.length >> 1]! : 0.8 * peakEma + 0.2 * peaks[peaks.length >> 1]!;
+    const fresh = peakEma === 255;
+    peakEma = fresh ? peaks[peaks.length >> 1]! : 0.8 * peakEma + 0.2 * peaks[peaks.length >> 1]!;
+    peakLowEma = fresh ? peaks[Math.floor(peaks.length / 10)]! : 0.8 * peakLowEma + 0.2 * peaks[Math.floor(peaks.length / 10)]!;
     clipEma = 0.8 * clipEma + 0.2 * clip;
   }
   for (const q of r.refined) lastOffset.set(q.track, q.offset);
@@ -841,9 +844,17 @@ function loop(ts: number, gen: number): void {
     // frame; when the stickers being read are dark (or blown out) ask the
     // camera for one step more (less), where it offers exposure
     // compensation at all - a no-op elsewhere.
-    if (!clipUrl && exposureSel.value === 'loop' && confident.length > 0 && !locked && !exposureGaveUp && ts - exposureAt >= EXPOSURE_HOLD_MS) {
-      exposureAt = ts;
-      void steerExposure();
+    if (!clipUrl && exposureSel.value === 'loop' && !locked && !exposureGaveUp && ts - exposureAt >= EXPOSURE_HOLD_MS) {
+      if (confident.length > 0) {
+        exposureAt = ts;
+        void steerExposure();
+      } else if (exposureStep && ts - exposureAt >= 2 * EXPOSURE_HOLD_MS) {
+        // the step cost us the cube itself (the detector lost it in the
+        // dark, or in the glare): nothing will ever come to check it, so
+        // undo it now rather than sit there
+        exposureAt = ts;
+        void undoExposureStep('cube lost');
+      }
     }
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
@@ -857,7 +868,7 @@ function loop(ts: number, gen: number): void {
       const sol = locked ?? solution;
       setDiag('frame', `${v.videoWidth}×${v.videoHeight} · ${fps.fps.toFixed(1)} fps`);
       setDiag('exposure', exposureSel.value === 'loop' ? `app-controlled${exposureComp !== null ? ` → ${exposureComp}` : ''}` : (exposureComp ?? exposureSel.value));
-      setDiag('peak', peakEma === 255 && !log.quads.length ? 'no readings yet' : `${peakEma.toFixed(0)} / 255 · ${(clipEma * 100).toFixed(0)}% clipped${peakEma < DARK_PEAK ? ' · too dark' : peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP ? ' · too bright' : ''}`);
+      setDiag('peak', peakEma === 255 && !log.quads.length ? 'no readings yet' : `${peakEma.toFixed(0)} / 255 (darkest tenth ${peakLowEma.toFixed(0)}) · ${(clipEma * 100).toFixed(0)}% clipped${peakEma < DARK_PEAK ? ' · too dark' : peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP ? (peakLowEma / 2 > DARK_PEAK ? ' · too bright' : ' · whites clip, darkening would lose the blues') : ''}`);
       setDiag('backend', m ? `${m.detector.ep}${m.detector.threads > 1 ? ` × ${m.detector.threads} threads` : ''}${m.detector.proxied ? ' · worker' : ''}` : 'loading');
       setDiag('stage1', lastTick ? `${locateEma.toFixed(1)} ms · obj ${lastTick.obj.toFixed(2)} · no cube on ${stage1Misses} of ${ticks} ticks` : '–');
       setDiag('stage2', lastTick ? (lastTick.result ? `${inferEma.toFixed(1)} ms · ${lastTick.result.quads.length} quad${lastTick.result.quads.length === 1 ? '' : 's'}` : stage2Off.checked ? 'off' : 'skipped (no cube)') : '–');
@@ -887,18 +898,17 @@ function loop(ts: number, gen: number): void {
  */
 async function steerExposure(): Promise<void> {
   const tooDark = peakEma < DARK_PEAK;
-  const tooBright = peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP;
+  // A cube spans ~3 stops from white to blue and a darkening step halves
+  // everything: the whites clipping is only worth fixing while the darkest
+  // tenth of the readings would still clear the dark floor afterwards -
+  // else the step trades blown whites for blues in the noise, where the
+  // solver's brightness normalisation has nothing to work with.
+  const tooBright = (peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP) && peakLowEma / 2 > DARK_PEAK;
   if (exposureStep) {
     const st = exposureStep;
-    exposureStep = null;
     const moved = st.dir > 0 ? peakEma > st.peakBefore * 1.15 + 3 : peakEma < st.peakBefore * 0.9 || clipEma < st.clipBefore * 0.7;
-    if (!moved) {
-      exposureGaveUp = true;
-      const back = st.fromIdx < 0 ? await camera.resetExposure() : await camera.setExposureTime(exposureLevels[st.fromIdx]!);
-      exposureIdx = st.fromIdx;
-      exposureComp = `${back ?? exposureComp ?? '?'} (step did not help)`;
-      return;
-    }
+    if (!moved) { await undoExposureStep('step did not help'); return; }
+    exposureStep = null;
   }
   const dir: 1 | -1 | 0 = tooDark ? 1 : tooBright ? -1 : 0;
   if (!dir) return;
@@ -934,6 +944,17 @@ async function steerExposure(): Promise<void> {
   const before = { fromIdx: exposureIdx, dir, peakBefore: peakEma, clipBefore: clipEma };
   const v = await camera.setExposureTime(exposureLevels[next]!);
   if (v !== null) { exposureComp = v; exposureIdx = next; exposureStep = before; }
+}
+
+/** Put the camera back where it was before the pending step, and leave it alone for the rest of the session. */
+async function undoExposureStep(why: string): Promise<void> {
+  const st = exposureStep;
+  exposureStep = null;
+  if (!st) return;
+  exposureGaveUp = true;
+  const back = st.fromIdx < 0 ? await camera.resetExposure() : await camera.setExposureTime(exposureLevels[st.fromIdx]!);
+  exposureIdx = st.fromIdx;
+  exposureComp = `${back ?? exposureComp ?? '?'} (${why})`;
 }
 
 /** The debug panel's exposure select: app-controlled, camera auto, or one of the camera's manual times. */
@@ -1125,6 +1146,7 @@ $('reset').addEventListener('click', () => {
   sampledQuads = [];
   lastSampleTs = -Infinity;
   peakEma = 255;
+  peakLowEma = 255;
   clipEma = 0;
   exposureStep = null;
   exposureGaveUp = false;
