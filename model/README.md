@@ -194,7 +194,7 @@ heatmap at stride 4 with per-junction peaks - which is a different (and
 costlier on the phone) architecture, not a flag on this one. Keep
 `--points 4`.
 
-Deployed 2026-09-13 (evening): `cubebox` = **box11**, `facekp` = **kpft7**
+Deployed 2026-09-13 (late): `cubebox` = **box13** (batches 8-9 in; see the box table's ‡ note on stage-1 noise), `facekp` = **kpft7**
 (kp2/kpft3's recipe with batch 8 in `data_real`: kp4 scratch on
 `data_v5,data_real*20`, then the `*150` fine-tune). On the 114-frame val:
 
@@ -586,14 +586,19 @@ scanning range above) dominate the raw mean; report the in-range number too.
 | box10 | dense | same + batch 7 (`data_real` 373) | `_side_bars` p 0.10 | 0.885 | 0.837 (96 frames) | 13.2%† | 12.6%† | 0.15† |
 | **box11** | dense | same, `data_real*80` | real photos at double weight; **deployed 2026-09-13** | 0.883 | 0.853 (96 frames) | 7.7%† | 7%† | 0.37† |
 | box12 | dense | same, `data_real*160` | past the sweet spot: synthetic val_iou drops too | 0.870 | 0.839 (96 frames) | - | - | - |
-| box13 | dense | same, `data_real*80` with batches 8-9 (457) | batch 9 0.744 -> 0.837 IoU, but batch 7 0.844 -> 0.815 and batch 6 0.840 -> 0.818; not deployed | 0.877 | 0.835 (122 frames) | 12.8%‡ | 12.8%‡ | 0.05‡ |
-| box14 | dense | same, `data_real*65` (box11's real share) | same trade (batch 9 0.849 / 0% <0.7, batch 7 0.824 / 15%, batch 6 0.793 / 29%) - so not the mixing ratio; not deployed | - | 0.828 (122 frames) | 12.8%‡ | 12.8%‡ | 0.49‡ |
+| box13 | dense | same, `data_real*80` with batches 8-9 (457) | batch 9 0.744 -> 0.837 IoU, batch 8 0.816 -> 0.842; batches 6-7 0.82 (noise, see box16); **deployed 2026-09-13 late** | 0.877 | 0.835 (122 frames) | 12.8%‡ | 12.8%‡ | 0.05‡ |
+| box14 | dense | same, `data_real*65` (box11's real share) | batch 9 0.849 / 0% <0.7, batch 7 0.824, batch 6 0.793 - the same picture at a different mixing ratio | - | 0.828 (122 frames) | 12.8%‡ | 12.8%‡ | 0.49‡ |
+| box15 | dense | box13 minus batch 9 (427) | batch 7 0.820, batch 6 0.809, batch 9 back to 0.748: the batch 6-7 dip is not batch 9's doing | - | 0.828 (122 frames) | 8.5%‡ | 8.5%‡ | 0.09‡ |
+| box16 | dense | **box11's exact data (373) and recipe, rerun** | batch 7 0.837 / 13%, batch 6 0.818 / 12%, overall 0.829 / 12.8%: box11 was a lucky draw | - | 0.831 (122 frames) | 12.8%‡ | 12.8%‡ | 0.15‡ |
 
 ‡ box11 re-measured on the same 122-frame val (117 with a cube): 0.839 IoU,
-6.4% under 0.7, batch 9 0.744 / 25%. Two runs that both fix batch 9 and both
-lose batches 6-7 say the desk-with-two-cubes frames pull the localizer away
-from the older scenes at any oversampling; box11 stays deployed until there
-is more than one 8-frame batch-9 slice to judge by.
+6.4% under 0.7, batch 9 0.744 / 25%. **Stage-1 run-to-run noise is about
+±0.02 batch IoU and ±6 points on the <0.7 rate** (box16 is box11 rerun
+unchanged and lands with box13-15, not with box11). A single run cannot
+resolve a difference of that size; only batch 8 (+0.03-0.04) and batch 9
+(+0.09-0.13) moved beyond it when their frames entered training. Do not
+chase a 0.02 dip on an old batch after adding data - rerun the baseline
+first.
 
 † measured with `bbox_measure.py` on the 96-frame val (91 with a cube); the
 earlier rows are on the 37-photo set. Full before/after tables: "Always
@@ -742,8 +747,9 @@ Imported with `--source-prefix batch9/` (30 -> `data_real` 457, 8 ->
 cube). The val slice was carved out *after* kpft7's fine-tune had trained
 on all 38, so kpft7's batch-9 number (4.22 px, 0 missed, 17 faces) is
 optimistic; box11 never saw them: **0.744 IoU, 25% under 0.7**, the weakest
-batch for stage 1 (keyboard grid + a second far cube). box13/box14 fixed it
-at the cost of batches 6-7 (see the box table); box11 stays.
+batch for stage 1 (keyboard grid + a second far cube). box13 fixes it (0.837);
+the batch 6-7 dip that came with it is run-to-run noise (box16), so box13
+is deployed.
 
 ### Real-data coverage and what to shoot next
 
