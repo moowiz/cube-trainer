@@ -718,6 +718,24 @@ train 61 minus 7 mid-turn cube-less frames skipped (`--drop-negatives`).
   refuses a bare name that is already imported from a different image, so
   every clip batch from here on must be imported with its prefix.
 
+### Batch 9: desk, both cubes (2026-09-13)
+
+38 photos at the desk: the GAN stickerless cube held over the keyboard for
+the first 14, the white-body sticker cube for the rest, and in about 20 of
+them **the other cube sits on the desk unlabelled** (the labeller does one
+cube per frame). DECISION: left as-is. Stage 1 emits one box, every frame
+has a hand-held labelled cube, and the desk cube is ~0.07 of the frame
+height - half the range floor - so "the near one" is the right answer and
+the size-scaled Gaussian target puts ~0 on it anyway. Stage 2 only sees the
+stage-1 crop. Revisit if a multi-cube frame ever needs both.
+
+Imported with `--source-prefix batch9/` (30 -> `data_real` 457, 8 ->
+`data_real_val` 122, `batch9/val-picks.json`: every ~5th photo, 4 per
+cube). The val slice was carved out *after* kpft7's fine-tune had trained
+on all 38, so kpft7's batch-9 number (4.22 px, 0 missed, 17 faces) is
+optimistic; box11 never saw them: **0.744 IoU, 25% under 0.7**, the weakest
+batch for stage 1 (keyboard grid + a second far cube), hence box13.
+
 ### Real-data coverage and what to shoot next
 
 Census of `data_real` + `data_real_val` after batch 7 (frames; range bins
@@ -734,9 +752,10 @@ centre within 20% of a frame border):
 | 6 | 95 | 22 | 22 | 28 | 30 | 15 | 9 | 22 | 42 | 1 | 0 | 3000x4000 photos |
 | 7 | 270 | 54 | 12 | 103 | 119 | 36 | 55 | 96 | 107 | 14 | 0 | 720x1280 clip stills |
 | 8 | 79 | 18 | 7* | 27 | 35 | 10 | 2 | 27 | 43 | 1 | 0 | 720x1280 clip stills, outdoors |
+| 9 | 38 | 8 | 0 | 7 | 20 | 11 | 10 | 17 | 11 | 0 | 0 | 3000x4000 photos, desk, two cubes |
 
 \* batch 8's seven cube-less frames are all mid-turn cubes, skipped, not
-negatives. 541 frames (batch 8 covers items 2 and 3 below: direct sun, hard
+negatives. 579 frames (batch 8 covers items 2 and 3 below: direct sun, hard
 shadows, a white-body sticker cube), 27 of them with every face under the range floor. What is
 covered well: the stickerless GAN cube in one person's hands, indoors under
 warm room light, bed/blanket/wood/tile/desk backgrounds, near and mid
