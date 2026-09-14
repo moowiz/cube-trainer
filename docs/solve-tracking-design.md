@@ -26,6 +26,31 @@ runner-up). Watching the layer physically turn is a secondary cue for
 timing and tie-breaking, not the primary reader - fingers cover the
 turning layer exactly when it moves.
 
+## 0.1 Not live (decided 2026-09-13)
+
+The move record does not have to appear while the solve happens. The
+phone records (camera stream + evidence log, `Record` on scan.html) and the
+reader runs afterwards; a result **ten seconds or so after the last turn is
+fine**. Everything below is to be read with that in mind:
+
+- The reader is a **decoder over the whole recording**, not a filter. The
+  belief set of section 2.3 is propagated forward *and backward*; an epoch
+  that is ambiguous on its own is settled by later evidence, and a move
+  is recorded when the smoothed belief clears the margin, not when the
+  frame arrives.
+- **Both endpoints are known.** The start state is the lock; the end state
+  is solved (or a later lock). Every hypothesised sequence must connect
+  them, which prunes gaps far harder than depth-3 search alone.
+- Heavier per-epoch work is allowed: sequence priors (section 8), flow on
+  the rectified faces, re-reading selected frames from the recording at
+  full resolution. What is *not* allowed is a second full detector pass
+  over the video on the phone: at ~15 detections/s live, re-detecting a
+  60 s solve costs ~60 s. The live log is the input; the recording is
+  consulted for chosen frames.
+- Perf budget (2.1, 6) is therefore about the *live* log's density, not
+  the reader. The reader runs in the solve worker, once.
+- Still client-side: the recording never leaves the phone.
+
 ## 1. Is the state even observable from what the camera sees?
 
 Measured with cubejs (`scratch: observ.cjs`, `gaps.cjs`; 300 random states,
@@ -352,3 +377,45 @@ Truth: none of the three has per-move truth (scramble not applied, no
 moves typed). The `Moves` field and `I applied it` exist for the next
 round; the scripted 3-6 move takes from section 5.3 are still the
 calibration set to record, **with the camera at the side-above angle**.
+
+## 8. Hands: occlusion, not a signal (2026-09-13)
+
+Section 7 shows the fingers cover 2-4 stickers of the visible face at all
+times and every turn happens inside the hands. Three ways to deal with it,
+in the order to try them:
+
+1. **Fingers as an occlusion mask (do first).** A per-cell veto: a patch
+   that is warm, low-chroma, textured and matches none of the six frozen
+   palette colours is *unknown*, not the nearest colour. Then the epoch's
+   evidence for a slot is the **union over its frames**: the fingers shift
+   between turns, so across a 0.7 s pause more stickers get exposed than in
+   any one frame (4-6 per frame in the recordings; likely 7-9 per epoch).
+   Cheap, and a prerequisite for every per-slot cost in 2.3 meaning
+   anything. Test: the survey's "readable cells" must drop to what the
+   video shows.
+2. **Sequence prior (the offline lever).** A solve has grammar: cross,
+   F2L pairs, one of 57 OLLs, one of 21 PLLs, with AUFs between. An
+   n-gram / alg-library prior over move sequences (from reconstruction
+   corpora or a CFOP program's solutions) is the language model to the
+   colour evidence's acoustic model, and with both endpoints known (0.1)
+   the decoder is a beam search over sequences scored by evidence x prior.
+   It resolves the one-face ambiguities of section 1 that the evidence
+   cannot. Person-specific only in the method; no training on the user.
+3. **Row/column flow on the rectified face.** A 90 degree turn at 30 fps
+   spans ~6 frames; on the 90x90 warp the turning row/column shears while
+   the rest is still. 2D flow on the warp gives which layer of the visible
+   face moved and which way - section 4's mid-turn geometry at row level
+   without a 3D fit. Fingers weaken it on the top/bottom rows; partial rows
+   still carry direction. A tie-breaker for `R` vs `R'` vs `R2`, and a
+   timing source.
+4. **Hand pose (last, if ever).** Browser hand landmarkers exist, but two
+   interleaved hands around a 60 mm object with one half hidden is their
+   worst case, and landmarks are not moves: mapping finger trajectories to
+   `U'` is per-solver (finger tricks differ) and needs labelled moves to
+   learn from - a smart cube's move log would be that truth. Weeks for an
+   uncertain, person-specific reader. Only as a direction/layer
+   tie-breaker once 1-3 exist and the numbers say it is needed.
+
+Underneath all four: the camera angle (section 7, item 1). Side-above
+placement turns most of the one-face epochs into two- or three-face ones
+and is free.
