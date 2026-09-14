@@ -121,9 +121,11 @@ app.innerHTML = `
   <div id="wrap">
     <h1>Scan the cube
       <span id="modes"><button id="modeAuto" class="on">Auto</button><button id="modeGrid">Grid</button></span>
-      <small id="status" class="auto">model loading…</small>
-      <small id="build" title="git hash · build time">build ${__BUILD__.hash} · ${__BUILD__.time}</small>
     </h1>
+    <div id="version">
+      <span id="build" title="git commit · build time">build <b>${__BUILD__.hash}</b> · ${__BUILD__.time}</span>
+      <span id="status" class="auto">model loading…</span>
+    </div>
     <div id="cols">
       <div id="main" class="auto">
         <div id="scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span id="scrambleAlg"></span> <label><input type="checkbox" id="applied"> I applied it (from solved)</label></div>
