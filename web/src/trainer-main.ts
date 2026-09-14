@@ -7,6 +7,7 @@
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
 import { trainerScramble, type ScannedCube } from './handoff';
+import { mountLL } from './ll/trainer';
 import { stageOf, type StageReport } from './stage';
 import { COLOR_NAMES, type ColorName } from './types';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
@@ -15,13 +16,15 @@ interface ZZBus {
   showTab(t: string): void;
   openScan(): void;
   closeScan(): void;
+  sheetOpen(): boolean;
   toast(msg: string): void;
   eo?: { load(scramble: string): void };
   f2l?: { start(scramble: string, pre: string): void };
-  ocll?: { load(scramble: string): void };
-  pll?: { load(scramble: string): void };
+  ocll?: { load(scramble: string): void; render(): void };
+  pll?: { load(scramble: string): void; render(): void };
   /** The colour scheme setting: which colour a face letter shows (white is always D). */
   faceColorName?(face: 'F' | 'R' | 'B' | 'L'): string;
+  faceHex?(face: string): string;
 }
 
 declare global {
@@ -29,6 +32,10 @@ declare global {
     ZZ: ZZBus;
   }
 }
+
+// the last-layer stages: PLL first so OCLL's "continue" button has somewhere to go
+window.ZZ.pll = mountLL(document.getElementById('pll-panel')!, 'pll', window.ZZ);
+window.ZZ.ocll = mountLL(document.getElementById('ocll-panel')!, 'ocll', window.ZZ);
 
 const panel = document.getElementById('scan-panel');
 const sheet = document.getElementById('scan-sheet');

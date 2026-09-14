@@ -10,7 +10,7 @@ One page, four stage tabs plus a scan button and a settings sheet:
 
 - **EO trainer** — drill EO or EOCross (white down, edges oriented to the front/back axis). Random scrambles, a rotatable cube, timer, hints, and every optimal solution for the goal: the EO list groups solutions by F/B plan, the EOCross list by how many cross moves follow the last EO turn, and the moves you typed get tagged if they were optimal. EOCross optima come from an exact table built in a worker. What optimal EOCross looks like, measured: [docs/eocross-patterns.md](docs/eocross-patterns.md).
 - **F2L** — ZZ-style F2L case drills.
-- **OCLL / PLL** — placeholders for now; a scanned cube at those stages lands there with its scramble.
+- **OCLL / PLL** — last-layer drills: a random case (OCLL 7, PLL 21) or the cube handed over from the previous stage or a scan, the top-down diagram, timer, hints that reveal the case, Check on the moves you did, and the standard alg with the AUF for the angle shown. F2L (tracked) → OCLL → PLL chain with a Continue button at each step.
 - **📷 Scan** — point the rear camera at your cube and turn it in view. A two-stage detector (cube localizer → face corners) finds and tracks up to three faces per frame, stickers are sampled into an evidence log, and a constrained colour decoder locks the 54-sticker state only when it can certify it (legal, enough evidence, clear margins). A lock works out which stage the cube is at and opens that tab with it loaded. The debug panel shows the pipeline stage by stage and exports the evidence log for replay tests.
 - **⚙** — the colour you hold in front (white stays down) and each stage's options, in one place.
 

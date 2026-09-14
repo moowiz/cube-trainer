@@ -55,6 +55,8 @@ web/
     ui/              scanner.ts (the scan sheet: camera, overlay, evidence, lock), hint, settings
     handoff.ts       a locked scan as a scramble in the trainer's frame (white down)
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
+    ll/              last-layer trainers: cases (OCLL 7, PLL 21, algs verified by test), model (cubejs
+                     alg strings: normalise rotations, identify a case modulo AUF, random setups), trainer UI
     trainer-main.ts  mounts the scanner in index.html's scan sheet, routes a lock to its stage's tab
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)

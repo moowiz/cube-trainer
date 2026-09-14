@@ -160,8 +160,6 @@
   .set-sec h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 18px 2px 4px; }
   .set-sec .lbl label { cursor: pointer; }
   .set-sec select { font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-  .stub { max-width: 560px; margin: 0 auto; }
-  .stub .eo-head { margin-bottom: 4px; }
   .toast { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 1100; background: rgba(20,22,28,.94); color: #e8eaf0; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: min(90vw, 480px); box-shadow: 0 4px 18px rgba(0,0,0,.35); }
   [hidden] { display: none !important; }
 
@@ -355,18 +353,9 @@
   </div>
 </div>
 
-<div id="ocll-panel" hidden>
-  <div class="stub">
-    <div class="eo-head"><div><h1>OCLL</h1><p>Orient the last layer's corners. After EO the edges are already oriented, so there are 7 cases. The trainer for this stage is not built yet; a scanned cube that is here shows its scramble below.</p></div></div>
-    <div class="eo-scramble" id="ocll-scramble"></div>
-  </div>
-</div>
-<div id="pll-panel" hidden>
-  <div class="stub">
-    <div class="eo-head"><div><h1>PLL</h1><p>Permute the last layer: 21 cases. The trainer for this stage is not built yet; a scanned cube that is here shows its scramble below.</p></div></div>
-    <div class="eo-scramble" id="pll-scramble"></div>
-  </div>
-</div>
+<!-- the last-layer trainers (src/ll/trainer.ts) are mounted here by src/trainer-main.ts -->
+<div id="ocll-panel" hidden></div>
+<div id="pll-panel" hidden></div>
 
 <div id="scan-sheet" class="sheet" hidden>
   <div class="sheet-box">
@@ -423,8 +412,6 @@ window.ZZ = {
   closeScan(){ ZZ.closeSheet('scan-sheet'); },
   toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>{ t.hidden=true; },4000); },
 };
-// stages without a trainer yet: they just hold the scramble a scan or handoff gives them
-for(const k of ['ocll','pll']) ZZ[k]={ load(scr){ const el=document.getElementById(k+'-scramble'); el.textContent='Scramble: '; const s=document.createElement('span'); s.textContent=scr; el.appendChild(s); } };
 document.querySelectorAll('.tabs button[data-t]').forEach(b=>b.addEventListener('click',()=>ZZ.showTab(b.dataset.t)));
 document.getElementById('scan-open').onclick=()=>ZZ.openScan();
 document.getElementById('scan-close').onclick=()=>ZZ.closeScan();
@@ -917,7 +904,11 @@ function showResult(){
   const r=document.getElementById('result'); r.innerHTML='';
   const hint=t=>{ const p=document.createElement('p'); p.className='hint'; p.textContent=t; r.appendChild(p); };
   const hb=document.getElementById('hintbox'); hb.hidden=true; hb.innerHTML='';
-  if(solvedSlots.size===4){ hint(cube?'All four pairs solved on the tracked cube. Generate a new scramble or press "Start over".':'All four pairs solved. Press "Start over" for the next solve.'); return; }
+  if(solvedSlots.size===4){ hint(cube?'All four pairs solved on the tracked cube. Generate a new scramble or press "Start over".':'All four pairs solved. Press "Start over" for the next solve.');
+    if(cube&&ZZ.ocll){ const b=document.createElement('button'); b.type='button'; b.className='btn'; b.style.marginTop='8px'; b.textContent='Continue to OCLL with this cube';
+      b.addEventListener('click',()=>{ const alg=[document.getElementById('scrtext').value,document.getElementById('pretext').value,...trackHist].map(s=>s.trim()).filter(Boolean).join(' ');
+        ZZ.ocll.load(alg); ZZ.showTab('ocll'); window.scrollTo({top:0}); }); r.appendChild(b); }
+    return; }
   if(!corner||!edge){
     hint(!corner&&!edge ? 'Nothing placed yet. Start with the corner: tap any facelet where its white sticker sits — on the top face, on the sides, or down in a slot.'
       : !corner ? 'Now place the corner: tap the facelet holding its white sticker.' : 'Now tap where the edge is (top layer or one of the four slots).');
@@ -964,7 +955,7 @@ function fillSlotSelect(){
   }
 }
 function updateEdgeName(){ document.getElementById('edgename').textContent=`${faceColorName(slot[0])}-${faceColorName(slot[1])}`; }
-document.getElementById('frontc').addEventListener('change',e=>{ setScheme(e.target.value); render(); if(ZZ.eo) ZZ.eo.render(); });
+document.getElementById('frontc').addEventListener('change',e=>{ setScheme(e.target.value); render(); for(const k of ['eo','ocll','pll']) if(ZZ[k]&&ZZ[k].render) ZZ[k].render(); });
 document.getElementById('slotsel').addEventListener('change',e=>{ slot=e.target.value; corner=null; edge=null; updateEdgeName(); if(cube) syncFromCube(); else render(); });
 document.getElementById('random').addEventListener('click',()=>{
   const keys=Object.keys(DATA.slots[slot].lookup); const k=keys[Math.floor(Math.random()*keys.length)];
