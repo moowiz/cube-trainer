@@ -17,7 +17,7 @@ export class Camera {
 
   readonly video: HTMLVideoElement;
 
-  private stream: MediaStream | null = null;
+  private stream_: MediaStream | null = null;
   private _running = false;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
@@ -32,6 +32,11 @@ export class Camera {
 
   get running(): boolean {
     return this._running;
+  }
+
+  /** The live camera stream (null for a clip or before start) - for MediaRecorder. */
+  get stream(): MediaStream | null {
+    return this.stream_;
   }
 
   /** Open the rear camera at ideally 640x480. Resolves once frames are flowing. */
@@ -68,7 +73,7 @@ export class Camera {
       }
     }
 
-    this.stream = stream;
+    this.stream_ = stream;
     for (const track of stream.getVideoTracks()) {
       track.addEventListener('ended', () => {
         this._running = false;
@@ -124,9 +129,9 @@ export class Camera {
   /** Stop all tracks and detach the stream. Safe to call twice. */
   stop(): void {
     this._running = false;
-    if (this.stream) {
-      for (const track of this.stream.getTracks()) track.stop();
-      this.stream = null;
+    if (this.stream_) {
+      for (const track of this.stream_.getTracks()) track.stop();
+      this.stream_ = null;
     }
     this.video.srcObject = null;
     if (this.video.src) { this.video.removeAttribute('src'); this.video.load(); }

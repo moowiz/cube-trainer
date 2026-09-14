@@ -38,7 +38,7 @@ import { DEFAULT_PARAMS } from './colour/solve';
 import type { EvidenceLog, Solution } from './colour/types';
 import type { Ep } from './detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from './debug/detect-overlay';
-import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
+import { captureDebug, downloadBlob, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from './debug/dump';
 import { installDetectSelfTest } from './debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from './detect/models';
 import { detectTwoStage, type TwoStageResult } from './detect/twostage';
@@ -110,6 +110,7 @@ app.innerHTML = `
     <div id="cols">
       <div id="main" class="auto">
         <div id="scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span id="scrambleAlg"></span> <label><input type="checkbox" id="applied"> I applied it (from solved)</label></div>
+        <div id="solverec" title="Record the camera feed while you turn the cube: the .webm and the debug capture download together, aligned on the same clock, and become a move-tracking fixture. Type the moves you will make (or leave blank for a free solve)"><b>Moves</b> <input id="moves" placeholder="R U R' U' - what you will turn while recording" spellcheck="false" autocapitalize="characters"> <button id="rec" disabled>Record</button> <span id="recState"></span></div>
         <div id="bar">
           <button id="start">Start camera</button>
           <button id="reset">Reset scan</button>
@@ -547,7 +548,8 @@ function updateFillUI(): void {
     // The cube is read: freeze the view on the frame that locked it (the
     // overlay stays up) rather than keep streaming a feed nothing reads any
     // more. A clip must play to its end so the autocapture hook fires.
-    if (!clipUrl) setPaused(true);
+    // (not while recording a solve: the moves come after the lock)
+    if (!clipUrl && !recorder) setPaused(true);
   }
   if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
 }
@@ -750,6 +752,8 @@ function stopAuto(): void {
   saveBtn.disabled = true;
   captureBtn.disabled = true;
   pauseBtn.disabled = true;
+  if (recorder) recorder.stop(); // the stream is about to end; keep what was recorded
+  recBtn.disabled = true;
 }
 
 function setPaused(on: boolean): void {
@@ -762,6 +766,71 @@ function setPaused(on: boolean): void {
 }
 
 pauseBtn.addEventListener('click', () => { if (running) setPaused(!paused); });
+
+// Solve recording: MediaRecorder on the live camera stream, so the .webm
+// holds exactly the frames the pipeline saw at app resolution. Stopping it
+// downloads the video and then fires the debug capture, whose evidence log
+// carries the same wall-clock t as `recording.startedAt` - video time is
+// t - startedAt. The clip replay (below) then reproduces the session with no
+// hands, and `movesApplied` / `endTruth` are the fixture's truth.
+const recBtn = $<HTMLButtonElement>('rec');
+const movesInput = $<HTMLInputElement>('moves');
+const recStateEl = $('recState');
+let recorder: MediaRecorder | null = null;
+let recChunks: Blob[] = [];
+let recording: { startedAt: number; stoppedAt: number | null; file: string; mime: string } | null = null;
+let recTimer = 0;
+const MOVES_RE = /^(\s*[URFDLBurfdlbMESxyz][2']?)*\s*$/;
+function movesText(): string { return movesInput.value.trim().replace(/\s+/g, ' '); }
+/** The state after scramble + moves from solved, when both are trustworthy. */
+function endTruth(): string | null {
+  const m = movesText();
+  if (!appliedChk.checked || !MOVES_RE.test(m)) return null;
+  try { return scrambleState(m ? `${scramble} ${m}` : scramble); } catch { return null; }
+}
+function pickMime(): string {
+  // DECISION: webm first (Android Chrome, desktop); mp4 is Safari's only option
+  for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+function startRecording(): void {
+  const stream = camera.stream;
+  if (!running || !stream || typeof MediaRecorder === 'undefined') { msgEl.textContent = 'recording needs the live camera'; return; }
+  const mime = pickMime();
+  const startedAt = Date.now();
+  const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
+  recording = { startedAt, stoppedAt: null, file: `solve-rec-${startedAt}.${ext}`, mime };
+  recChunks = [];
+  // DECISION: 2.5 Mbps at 640x480 - ~20 MB/min, clean enough to re-run the detector on
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2_500_000 } : undefined);
+  recorder.addEventListener('dataavailable', (e) => { if (e.data.size) recChunks.push(e.data); });
+  recorder.addEventListener('stop', () => {
+    const rec = recording!;
+    rec.stoppedAt = Date.now();
+    downloadBlob(new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }), rec.file);
+    recChunks = [];
+    recorder = null;
+    recBtn.textContent = 'Record';
+    recBtn.classList.remove('on');
+    movesInput.disabled = false;
+    clearInterval(recTimer);
+    recStateEl.textContent = `saved ${rec.file} (${((rec.stoppedAt - rec.startedAt) / 1000).toFixed(1)} s)`;
+    // the paired evidence log; a second download prompt on Android is expected
+    setTimeout(() => captureBtn.click(), 800);
+  });
+  recorder.start(1000);
+  recBtn.textContent = 'Stop recording';
+  recBtn.classList.add('on');
+  movesInput.disabled = true; // the moves are the truth for this take - fix them before pressing Record
+  const tick = () => { recStateEl.textContent = `REC ${((Date.now() - startedAt) / 1000).toFixed(0)} s`; };
+  tick();
+  recTimer = window.setInterval(tick, 500);
+}
+recBtn.addEventListener('click', () => {
+  if (recorder) recorder.stop(); else startRecording();
+});
 
 // Clip replay: scan.html?clip=/clips/x.mp4[&autostart=1][&autocapture=1]
 // feeds a recording through the live pipeline (camera.ts startClip); with
@@ -790,6 +859,7 @@ startBtn.addEventListener('click', () => {
       saveBtn.disabled = false;
       captureBtn.disabled = false;
       pauseBtn.disabled = false;
+      recBtn.disabled = !!clipUrl;
       const gen = ++loopGen;
       vfcSeen = vfcFresh = false;
       armFrameSignal(camera.video, gen);
@@ -848,6 +918,12 @@ captureBtn.addEventListener('click', () => {
     // the truth only when the user says the scramble was applied from solved
     scrambleApplied: appliedChk.checked,
     scrambleTruth: appliedChk.checked ? scrambleState(scramble) : null,
+    // solve recording (null when none): the .webm's name and wall-clock span
+    // (video time = QuadObs.t - startedAt), the moves the user said they
+    // turned, and the resulting state when scramble and moves are both truth
+    recording,
+    movesApplied: movesText() || null,
+    endTruth: endTruth(),
     evidenceLog: log,
     solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
     params: DEFAULT_PARAMS,
