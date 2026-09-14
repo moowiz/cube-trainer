@@ -1,7 +1,11 @@
 # Watching a solve: design thoughts (2026-09-13)
 
-Status: design only, nothing implemented. Written while the 16-point grid
-head trained. Read `colour-pipeline-design.md` first; this builds on its
+Status: the reader exists (`web/src/moves/`, 2026-09-14, section 10) and
+reads the synthetic solve end to end, live and offline; on the two recorded
+solves it reads the first turns and then drifts, for reasons the diagnostics
+name (one lit face). Sections 0-9 are the design as written before it, kept
+as the record of why; section 10 says what was built, where it departs, and
+what the numbers are. Written while the 16-point grid head trained. Read `colour-pipeline-design.md` first; this builds on its
 evidence log and solver and does not repeat them. The product goal is the
 "solve coach" entry in `MILESTONES.md` (Later): the phone watches a solve
 and produces a move record with timestamps. This document is about the
@@ -495,3 +499,122 @@ kpft7 `diagnose.py --dump` of `data_real_val` (81 photos with 2-3 faces).
   three levels in the discussion): the per-face corners are not wrong in a
   way a rigid constraint repairs. Revisit only if a stride-4 corner head
   changes the noise picture.
+
+## 10. Built (2026-09-14): `web/src/moves/`
+
+```
+moves.ts    the 18 face turns as facelet permutations (checked against cubejs),
+            canonical sequences (18 / 243 / 3240: each state once per commuting class)
+anchor.ts   Anchorer: per frame, per quad -> face + rotation k + readings + weights,
+            with per-track memory (below); quadCost / frameCost
+reader.ts   MoveReader: beam Viterbi over frames, push() per frame, record() any time;
+            forcedAlignment() for calibration; formatTrace()
+record.ts   MoveRecord / RecordItem, formatAlg(), formatItems()
+```
+
+Tests: `test/moves.test.ts`, `test/moves-synthetic.test.ts` (the design's
+5.1 fixture: 20 random turns through 2-3 faces with fingers, drops,
+re-grips, garbage frames; a two-face read; a burst; a fingered cube that
+never moves; a slipped move), `test/moves-worker.test.ts` (the live
+protocol), `test/moves-replay.test.ts` (recorded solves from
+`test/fixtures/solves/`, built by `tools/solve/moves_fixture.py`). Live:
+after a lock in solve mode the page starts the reader in the solve worker
+(`track`), the worker anchors and decodes each frame as it is appended
+(`moves` polls return the record), the result panel shows the ticker (sure
+turns bright, tentative dimmed with `?`) and the debug panel the last
+frames of the trace; the capture carries `moves`.
+
+### 10.1 Where it departs from sections 2-4
+
+- **No epoch segmentation step.** The reader is a Viterbi decoder over
+  the sampled frames: the hidden state is the cube, a frame boundary
+  either keeps it (cost 0), takes one turn (`moveCost`, 6 nats), or a
+  burst of two or three (`+burstExtra`; three only after a gap over 500 ms
+  or when no shorter candidate explains the frame). The path that
+  minimises evidence + turns IS the segmentation; a hand passing costs
+  every hypothesis the same. Beam of 24 states; depth-2 bursts from the
+  top 4. The belief set of 2.3 is the beam.
+- **Timing windows from the evidence, not from where Viterbi put the
+  transition:** t0 = the last frame that showed the cube without the
+  turn, t1 = the first that showed it with it (0.5 nat test either way);
+  transitions whose windows overlap are one burst, `ordered` false when
+  any two of its turns commute. Per-frame placement inside a window is
+  arbitrary and is not reported.
+- **Certificate** per epoch = the cheapest complete path in the final beam
+  that was in a different state at the epoch's last frame, minus the
+  chosen path (all evidence counted, the future included); when nothing in
+  the beam disagrees, the beam's width. A turn is `sure` when that clears
+  `marginMin` (3) AND a later frame confirmed it - a turn read on the very
+  last frame never is (the synthetic solve bought a phantom L2 there).
+- **Anchoring keeps per-track memory** (a track is the quad at a place,
+  7.4): the face from the centre colour (decayed vote over the track's
+  centres) or, when the colour cannot say, from the pairing geometry with
+  a face that can; the rotation k from pairings when there are any, else
+  from the track's first three frames against the reader's leading state,
+  and then FROZEN - a U turn on a lone top face is only visible as its
+  content rotating under a fixed k (the first version let k float per
+  frame and could not see it).
+- **Illumination per track, not per hypothesis.** A face turned from the
+  light reads at a fraction of the palette's chroma (0.4-0.7 on the lit
+  top face, 0.2 on the sides of the dim recordings) plus a shift, so each
+  track carries an affine chroma map (s, t) estimated by a robust fit
+  under the leader's colours (taken when it explains >= 5 cells and 60 %
+  of those seen, EMA over frames) and used for every hypothesis alike.
+  Fitting per hypothesis was tried and is wrong twice over: skin passed as
+  orange at s = 0.35, and any hypothesis could shrink the palette out from
+  under the cells that contradicted it. A per-frame white-balance shift
+  (grid search + median refinement over the last second's readings, prior
+  towards zero) sits underneath: the camera's AWB follows the hands in by
+  20+ units.
+- **The veto (8.1) is a flat cost, not a zero.** A cell the outlier class
+  wins costs at most `outlierCost` (2 nats) whatever colour is claimed -
+  the same for every hypothesis, so a finger votes for nothing - but never
+  nothing, so contradicting cells cannot be explained away.
+- **Reading weights are session-relative** (median reading weight -> 0.5,
+  capped at 1): the scan solver's convergence weights are 0.02-0.2 on a
+  dim webcam and the move cost is in nats of evidence. A per-track
+  reliability factor (EMA of the share of cells the illumination fit
+  explains, floor 0.3) scales a face the hand covers or the light does
+  not reach.
+
+### 10.2 Numbers
+
+Synthetic solve (`moves-synthetic.test.ts`, 83 frames): 20/20 turns, every
+one certified (margins 6-35), timing inside the garbage frames; the
+two-face read 12/12 with one commuting pair unordered; the burst as `(U
+F')`; the fingered, re-gripped, never-moving cube: nothing read, margin >
+3. Speed: anchoring ~1.2 ms/frame (the shift grid search), decode ~1.8
+ms/frame, live protocol 3.2 ms/frame - a 15 fps solve costs ~5 % of a
+desktop core; the record follows a turn within 3-4 sampled frames.
+
+Recorded solves (fixtures `solve-1789369770950-live-kpft8`,
+`solve-1789367308690-replay-kpft8`, both marked `hard`): the reader gets
+the first turns (`U U` = U2, then the B2 as two quarters) and drifts. The
+forced alignment of the assumed truth (the cubejs solution the app showed)
+says why: per frame the truth beats its single-move neighbours 13x, ties
+49x and loses 103x on the live one. Looked at with the overlay tool, the
+cube is ~60 px across and far, the room dim, the top face lit and readable
+(affine fit: 7-9 of 9 cells within 3 sigma, s 0.6-0.7, t +20 in b) and
+the front face under the fingers with 2-4 cells left; the side faces read
+grey (s 0.2 under ANY state, 2-4 inliers). Section 1's "one face is
+useless" is then the whole story: U vs U' on a lone face is a 180 degree
+ambiguity of the track's rotation, the yellow-face turns are invisible,
+and the truth itself is unverified (it assumes the displayed solution was
+followed exactly; the two phone sessions of the same morning each slipped
+one move). Decode 2.3-3.5 ms/frame on 100-150 frames.
+
+### 10.3 Next
+
+1. **Recordings that can be read:** camera above and close (7.2), the cube
+   filling 150+ px, three faces in view, `Moves` typed and "I applied it"
+   ticked for truth, a few short takes (3-6 turns) before a solve. The
+   fixture script and the replay test print everything needed to
+   calibrate `moveCost`, `outlierSigmas`, the gain priors and
+   `marginMin` on them; the forced-alignment table shows which face and
+   which neighbour disagree, frame by frame.
+2. Gaps and the `lost` item: when depth-3 bursts leave the frame
+   unexplained for a run of frames, declare the belief lost and reseed
+   (2.4) - today the beam just carries on.
+3. Track survival across a whole-cube rotation: a pairing majority
+   re-anchors k, a lone face does not; the fit-based k is frozen for life.
+4. Slice / wide moves and rotations in the record (2.2, last paragraph).

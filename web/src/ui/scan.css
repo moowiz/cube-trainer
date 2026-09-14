@@ -48,6 +48,15 @@ button.on { background: #3a4a6a; border-color: #5a7ab0; }
 #result .cert { color: #8891a0; font-size: 12px; }
 #result .hold { margin-top: 10px; }
 #result .sol { font: 600 20px/1.5 ui-monospace, monospace; letter-spacing: 0.03em; margin-top: 6px; word-spacing: 0.2em; }
+/* the move reader's ticker: sure turns bright, tentative ones dim with a ? */
+#result .moves { margin-top: 10px; border-top: 1px solid #2f6a3f; padding-top: 8px; }
+#result .moves .mh { color: #8891a0; font-size: 12px; }
+#result .moves .mv { font: 600 18px/1.5 ui-monospace, monospace; word-spacing: 0.2em; }
+#result .moves .sure { color: #e8eaf0; }
+#result .moves .unsure { color: #8b93a3; }
+#result .moves .gap { color: #d9a441; }
+#movesTrace { font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #c8ccd6; white-space: pre; overflow-x: auto; max-height: 260px; margin: 8px 0 0; }
+#movesTrace:empty { display: none; }
 #lockbadge { position: absolute; left: 0; right: 0; top: 0; padding: 8px 14px; text-align: center; font-size: 15px;
              color: #fff; background: #1f7a3dd9; }
 #fallback { display: none; background: #4a3320; border: 1px solid #8a6030; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }

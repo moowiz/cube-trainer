@@ -31,6 +31,10 @@ import { FrameRing, type RingFrame } from './framering';
 import { FpsCounter } from './debug/fps';
 import { labToSrgb, minFaceEdgePx, type CellPlan } from './color';
 import { SolverClient } from './colour/client';
+import type { MovesResult } from './colour/solve.worker';
+import { commitmentsFrom } from './moves/anchor';
+import { formatItems } from './moves/record';
+import { formatTrace } from './moves/reader';
 import { emptyLog, trimLog } from './colour/evidence';
 import { SamplerClient } from './colour/sampler';
 import type { SampleTrack } from './colour/sample.worker';
@@ -193,6 +197,7 @@ app.innerHTML = `
       <div id="swatches" hidden></div>
       <div id="exemplars" hidden></div>
       <div id="cells" class="grids"></div>
+      <pre id="movesTrace" title="The move reader's last frames: faces anchored (letter, g = face from geometry, . , ? = rotation from pairing / fit / free, digit = reliability in ninths), total reading weight, pre-vetoed cells, fit (mean cost per unit weight of the leader; over 2.5 = unexplained), cost margin to the runner-up state, burst depth tried, candidates scored, ms, the frame's chroma shift and inlier share, and the turns the leader took to reach this frame"></pre>
     </details>
       </aside>
     </div>
@@ -218,6 +223,7 @@ const statusEl = $('status');
 const resultEl = $('result');
 const fallbackEl = $('fallback');
 const statsEl = $('stats');
+const movesTraceEl = $('movesTrace');
 
 // The pipeline readout: one labelled value per thing worth watching, grouped
 // by stage, each with a hover explanation. Values are written in place on
@@ -243,6 +249,7 @@ const DIAG: { group: string; rows: { id: string; label: string; hint: string }[]
     { id: 'solve', label: 'solve', hint: 'ms per solve in the solver worker (it re-runs whenever new evidence lands, never back to back) and the colour space that produced the current answer (three are tried).' },
     { id: 'faces', label: 'faces', hint: 'Faces with a lettered centre out of six, and how many track groups the solver currently holds. More than six groups = the same face seen twice and not yet merged, or a junk quad.' },
     { id: 'verdict', label: 'verdict', hint: 'Why the solver will not lock yet, or ok. A lock needs a legal cube, every sticker seen, and a runner-up state clearly worse.' },
+    { id: 'moves', label: 'move reader', hint: 'After a lock in solve mode (a recording running, or ?solve=1): frames the reader has anchored since the lock, ms per frame in the worker, and the cost margin of the leading move sequence over the best other one in its beam. The record itself is in the result panel; the last frames of its trace in the debug panel.' },
   ] },
 ];
 const diagCells = new Map<string, HTMLElement>();
@@ -320,6 +327,12 @@ const nthOf = new Map<number, number>();           // track -> detections so far
 let knownTracks = new Set<number>();
 let solution: Solution | null = null;
 let locked: Solution | null = null;
+// The move reader (src/moves/): started in the worker once the cube is locked
+// and the session is in solve mode; polled for its record while it runs.
+let tracking = false;
+let movesResult: MovesResult | null = null;
+let lastMovesTs = -Infinity;
+const MOVES_POLL_MS = 250;
 let logVersion = 0;
 let solvedVersion = -1;
 let solveEma = 0;
@@ -659,7 +672,7 @@ function updateFillUI(): void {
     const hold = `Hold the cube with the ${DEFAULT_SCHEME_NAMES[st[4] as FaceId]} centre on top and the ${DEFAULT_SCHEME_NAMES[st[22] as FaceId]} centre facing you.`;
     const cert = `${locked.decode!.changed} sticker(s) moved by the cube's constraints; runner-up state ${locked.decode!.delta === Infinity ? 'none' : `${locked.decode!.delta.toFixed(1)} worse`}`;
     // facelets and moves are letters from the solver, never user text
-    resultEl.innerHTML = `<div class="rt">Locked ✓</div><div class="st">${st}</div><div class="cert">${cert}</div><div class="hold">${hold}</div><div class="sol">solving…</div>`;
+    resultEl.innerHTML = `<div class="rt">Locked ✓</div><div class="st">${st}</div><div class="cert">${cert}</div><div class="hold">${hold}</div><div class="sol">solving…</div><div class="moves" hidden><div class="mh">Moves read</div><div class="mv"></div></div>`;
     const solEl = resultEl.querySelector('.sol')!;
     void solveState(st)
       .then((s) => { solEl.textContent = s.trim() === '' ? 'Already solved!' : s; })
@@ -671,6 +684,33 @@ function updateFillUI(): void {
     if (!clipUrl && !recorder && pauseOnLockChk.checked) setPaused(true);
   }
   if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
+}
+
+/** The ticker: turns the reader is sure of in full, the rest dimmed with a '?', plus the reader's trace in the debug panel. */
+function renderMoves(): void {
+  const r = movesResult;
+  const box = resultEl.querySelector<HTMLElement>('.moves');
+  if (!r || !box) return;
+  box.hidden = false;
+  const mv = box.querySelector('.mv')!;
+  mv.textContent = '';
+  const committed = new Set(r.committed.map((m, i) => `${i}:${m}`));
+  let i = 0;
+  for (const it of r.record.items) {
+    const span = document.createElement('span');
+    if (it.kind === 'gap') { span.className = 'gap'; span.textContent = `(${it.minMoves}+ unread)`; mv.append(span, ' '); continue; }
+    const moves = it.kind === 'move' ? [it.move] : it.moves;
+    const sure = it.sure && moves.every((m, j) => committed.has(`${i + j}:${m}`));
+    i += moves.length;
+    span.className = sure ? 'sure' : 'unsure';
+    span.textContent = it.kind === 'move' ? it.move : it.ordered ? `(${moves.join(' ')})` : `[${moves.join(' ')}]`;
+    if (!sure) span.textContent += '?';
+    span.title = `${it.kind === 'burst' && !it.ordered ? 'order unknown; ' : ''}margin ${it.margin === Infinity ? 'inf' : it.margin.toFixed(1)}; ${((it.t1 - it.t0) / 1000).toFixed(2)} s window`;
+    mv.append(span, ' ');
+  }
+  if (!r.record.items.length) mv.textContent = 'no turns yet';
+  setDiag('moves', `${r.frames} frames · ${(r.msPerFrame + r.anchorMsPerFrame).toFixed(1)} ms/frame · margin ${r.record.margin === Infinity ? 'inf' : r.record.margin.toFixed(1)}`);
+  movesTraceEl.textContent = `${r.tracks.map((t) => `#${t.track}: ${t.face}, rotation ${t.k}, ${t.gain}`).join('\n')}\n${formatTrace(r.trace, { from: r.record.t0 })}\n${formatItems(r.record)}`;
 }
 
 function loop(ts: number, gen: number): void {
@@ -831,6 +871,17 @@ function loop(ts: number, gen: number): void {
         solveEma = solveEma === 0 ? sol.ms : 0.2 * sol.ms + 0.8 * solveEma;
         if (sol.lockable) locked = sol;
       });
+    }
+
+    // Solve mode after the lock: the worker reads the moves as the frames
+    // land; poll its record a few times a second for the ticker
+    if (locked && solveMode() && !tracking) {
+      const commit = commitmentsFrom(locked);
+      if (commit) { tracking = true; solver.track(commit, Date.now()); }
+    }
+    if (tracking && !solver.movesBusy && ts - lastMovesTs >= MOVES_POLL_MS) {
+      lastMovesTs = ts;
+      void solver.requestMoves().then((r) => { if (r) { movesResult = r; renderMoves(); } });
     }
 
     if (!confident.length || locked) sampledQuads = [];
@@ -1130,6 +1181,10 @@ $('reset').addEventListener('click', () => {
   knownTracks = new Set();
   solution = null;
   locked = null;
+  tracking = false;
+  movesResult = null;
+  lastMovesTs = -Infinity;
+  movesTraceEl.textContent = '';
   logVersion = 0;
   solvedVersion = -1;
   solver.reset();
@@ -1182,6 +1237,8 @@ captureBtn.addEventListener('click', () => {
     recording,
     movesApplied: movesText() || null,
     endTruth: endTruth(),
+    // the move reader's record and last trace lines, when it ran
+    moves: movesResult,
     evidenceLog: log,
     solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
     params: DEFAULT_PARAMS,
