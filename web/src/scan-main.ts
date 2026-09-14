@@ -594,12 +594,16 @@ function drawOverlay(tracks: TrackedQuad[]): void {
       drawQuad(ctx, u.quad.corners, tooSmall ? '#d98a1f' : '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5, tooSmall);
     }
   }
+  // Solid = a detection on this frame; dashed = coasting (the tracker's
+  // memory of a quad, kept up to dropMs so a one-frame miss does not kill
+  // the track - never sampled). Bold = confident enough to be sampled.
   for (const t of tracks) {
     const strong = t.conf >= SAMPLE_CONF;
+    const coasting = t.sinceDetectMs > 0;
     const face = faceOfTrack(t.id);
-    ctx.globalAlpha = strong ? 1 : 0.5;
-    const label = labelsChk.checked ? `#${t.id} ${face ? DEFAULT_SCHEME_NAMES[face] : '?'} ${t.conf.toFixed(2)}` : '';
-    drawQuad(ctx, t.corners, face ? cssOfLetter(face) : '#cfd3dc', label, strong ? 4 : 1.5);
+    ctx.globalAlpha = strong && !coasting ? 1 : 0.5;
+    const label = labelsChk.checked ? `#${t.id} ${face ? DEFAULT_SCHEME_NAMES[face] : '?'} ${t.conf.toFixed(2)}${coasting ? ` coast ${Math.round(t.sinceDetectMs)}ms` : ''}` : '';
+    drawQuad(ctx, t.corners, face ? cssOfLetter(face) : '#cfd3dc', label, strong && !coasting ? 4 : 1.5, coasting);
     ctx.globalAlpha = 1;
   }
 }
