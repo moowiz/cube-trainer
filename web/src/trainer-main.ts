@@ -82,6 +82,7 @@ function useInTrainer(scan: ScannedCube): void {
 }
 
 let scanner: ScannerHandle | null = null;
+let scanned = false; // a scan has been started since the last reset
 
 function ensureScanner(): ScannerHandle {
   scanner ??= mountScanner(panel!, { onUseInTrainer: useInTrainer });
@@ -94,18 +95,20 @@ const origOpen = window.ZZ.openScan;
 const origClose = window.ZZ.closeScan;
 window.ZZ.openScan = (opts) => {
   origOpen(opts);
-  const fresh = scanner === null;
   const s = ensureScanner();
-  if (!fresh && !opts?.keep) s.reset();
+  if (scanned && !opts?.keep) s.reset();
   s.start();
+  scanned = true;
   const resume = document.getElementById('scan-resume');
   if (resume) resume.hidden = false;
 };
 window.ZZ.closeScan = () => { origClose(); scanner?.stop(); };
 
-// The page's startup script may already have opened the sheet (?tab=scan,
-// the replay tooling's URL) before this module ran.
-if (!sheet.hidden) ensureScanner().start();
+// Mount at page load so the detector is loaded by the time the sheet opens;
+// the camera still waits for start(). The page's startup script may already
+// have opened the sheet (?tab=scan, the replay tooling's URL).
+ensureScanner();
+if (!sheet.hidden) { scanner!.start(); scanned = true; }
 
 // Free the camera when the page is hidden; take it back when it shows again.
 document.addEventListener('visibilitychange', () => {
