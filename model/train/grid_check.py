@@ -74,7 +74,12 @@ def center_color(face: np.ndarray) -> str:
                 h = 60 * ((b - r) / (mx - mn) + 2)
             else:
                 h = 60 * ((r - g) / (mx - mn) + 4)
-            votes.append(min(_HUES, key=lambda f: min(abs(h - _HUES[f]), 360 - abs(h - _HUES[f]))))
+            # a thumb over the centre is a desaturated orange; stickers are
+            # saturated (batch 8: 15 of 25 identity flags were skin)
+            if 5 <= h <= 40 and (mx - mn) / mx < 0.55:
+                votes.append("skin")
+            else:
+                votes.append(min(_HUES, key=lambda f: min(abs(h - _HUES[f]), 360 - abs(h - _HUES[f]))))
     vals, counts = np.unique(votes, return_counts=True)
     top = str(vals[np.argmax(counts)])
     if top not in ("white", "dark") and counts.max() < 3:
@@ -97,6 +102,12 @@ def check_face(img: Image.Image, letter: str, corners,
         return False, f"seams misaligned (score {score:.2f} < {seam_min}) - quad likely clips a neighbor or is offset"
     if col == "dark":
         return None, "center too dark to classify"
+    if col == "skin":
+        return None, "center covered (thumb)"
+    if col == "white" and letter != "U":
+        # neutral where a colour is expected: blown highlight, motion blur
+        # or a covered centre far more often than a mislabel
+        return None, "center reads neutral (blown out / blurred / covered?)"
     if not ident_ok:
         return False, f"center cell reads {col}, but face is labeled {letter} ({expect})"
     return True, f"seams {score:.2f}, center {col}"

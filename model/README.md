@@ -702,10 +702,18 @@ the keyboard, far and static.
   a cube in them — mid-turn with the layers misaligned, or cut off at the
   frame edge — and were **skipped**, not imported: training objectness 0
   on a visible cube would be wrong, and there is no box-only label type.
-- `check_labels.py` flags 5 frames (`v00058 v00065 v00079 v00092 v00201`)
-  with two *opposite* faces marked visible (R+L or F+B). The anonymous-quad
-  head does not use the face slot, so they train correctly as-is; they only
-  matter if a named-face head ever comes back.
+- `check_labels.py` flagged 5 frames (`v00058 v00065 v00079 v00092 v00201`)
+  with two *opposite* faces marked visible (R+L or F+B). Four were letter
+  slips caught by a colour audit on 2026-09-13 (yellow centre labelled L,
+  orange labelled F) and fixed, along with `v00044 v00085` (yellow as L) and
+  batch 8's `v00033 v00039 v00062 v00063` (orange as R); `v00092` has both
+  faces under a thumb and stays. The anonymous-quad head does not use the
+  slot, so training never saw a difference; the letters matter because the
+  colour-side harness uses them as centre-colour truth (`check_labels`
+  now reports a thumb or a neutral centre as unverifiable instead of a
+  mismatch, and a "reads R" on an L face under warm light is the checker's
+  red/orange confusion, not the label's - orange sits at hue 0-5 there,
+  red at -17 to -21).
 - 720x1280 is 16:9; the app frame is 4:3 from the same sensor width, so the
   frame cache pillarboxes these to 180x320 inside 240x320 (grey side bands,
   cube at its true app scale) and the crop cache cuts them natively.
