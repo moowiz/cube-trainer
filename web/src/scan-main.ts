@@ -479,7 +479,7 @@ function renderSolution(): void {
 
 /** The sampler's result for one detection frame: append to the log, mirror to the solver. */
 sampler.onSampled = (r) => {
-  if (locked) return;
+  if (locked && !solveMode()) return;
   const present = new Set(r.quads.map((q) => q.track));
   const pairs = (pendingPairings.get(r.frame) ?? []).filter((p) => present.has(p.a) && present.has(p.b));
   pendingPairings.delete(r.frame);
@@ -497,7 +497,8 @@ sampler.onSampled = (r) => {
   for (const q of r.refined) lastOffset.set(q.track, q.offset);
   // mirror to the worker before trimming so both logs trim identically
   solver.sync(log);
-  const dropped = trimLog(log);
+  // solve mode keeps the whole log (every epoch of a solve is evidence)
+  const dropped = solveMode() ? { quads: 0, pairings: 0, events: 0 } : trimLog(log);
   solver.trimmed(dropped.quads, dropped.pairings, dropped.events);
   logVersion++;
 };
@@ -686,7 +687,7 @@ function loop(ts: number, gen: number): void {
     // doubtful centre stops the other eight stickers from counting.
     const confident = tracks.filter((t) => t.conf >= SAMPLE_CONF);
     const pipeStart = performance.now();
-    if (dets && !locked) {
+    if (dets && (!locked || solveMode())) {
       detFrame++;
       log.frames = detFrame;
       // only tracks with a detection THIS frame: a coasting track is the
@@ -879,6 +880,11 @@ recBtn.addEventListener('click', () => {
 // becomes an evidence-log fixture with no hands on the cube.
 const params = new URL(location.href).searchParams;
 const clipUrl = params.get('clip');
+// Solve mode (?solve=1, or while a recording is running): the log keeps
+// growing after the start lock - sampling continues, nothing is trimmed -
+// so the moves that follow the lock are in the capture. The solver still
+// stops at the lock; its Solution is the start state, not a running read.
+const solveMode = (): boolean => params.get('solve') === '1' || recorder !== null;
 if (clipUrl) startBtn.textContent = 'Play clip';
 
 startBtn.addEventListener('click', () => {
@@ -888,11 +894,14 @@ startBtn.addEventListener('click', () => {
     try {
       if (clipUrl) {
         await camera.startClip(clipUrl, () => {
+          if (recording) recording.stoppedAt = Date.now();
           const sol = locked ?? solution;
           msgEl.textContent = `clip ended - ${locked ? 'LOCKED' : (sol?.reason ?? 'no solution')}`;
           console.log(`CLIP ENDED locked=${!!locked} reason="${sol?.reason ?? ''}" facelets=${sol?.facelets ?? ''} frames=${log.frames} quads=${log.quads.length}`);
           if (params.get('autocapture')) setTimeout(() => captureBtn.click(), 1500);
         });
+        // a replayed clip is stamped like a live recording: video time = t - startedAt
+        recording = { startedAt: Date.now(), stoppedAt: null, file: clipUrl, mime: 'clip' };
       } else await camera.start();
       running = true;
       lastGoodDetectionTs = performance.now();
