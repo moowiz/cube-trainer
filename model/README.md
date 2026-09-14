@@ -194,13 +194,18 @@ heatmap at stride 4 with per-junction peaks - which is a different (and
 costlier on the phone) architecture, not a flag on this one. Keep
 `--points 4`.
 
-Deployed 2026-09-13 (evening): `cubebox` = **box11**, `facekp` = **kpft6**
-(kpft3's recipe with batch 8 in `data_real`; on the 114-frame val batch 8
-went 4.52 -> 4.06 px, everything else within noise, overall 3.51 -> 3.45,
-F1 0.951 -> 0.956; box11 was already fine on batch 8 at 0.816 IoU, none
-under 0.7). fp32; the int8 gate still fails at 14 px mean shift. kp4 ->
-kpft7 (scratch base with batch 8 at `*20`, then the same fine-tune) is the
-pending comparison. `web/test/fixtures/facekp-maps-square.json`
+Deployed 2026-09-13 (evening): `cubebox` = **box11**, `facekp` = **kpft7**
+(kp2/kpft3's recipe with batch 8 in `data_real`: kp4 scratch on
+`data_v5,data_real*20`, then the `*150` fine-tune). On the 114-frame val:
+
+| | kpft3 | kpft6 (kp2 base + ft) | **kpft7** (kp4 base + ft) |
+|---|---|---|---|
+| batch 8 (32 faces) mean px / missed | 4.52 / 1 | 4.06 / 1 | **3.98 / 0** |
+| overall mean px / missed / FP / F1 | 3.51 / 5 / 16 / 0.951 | 3.45 / 6 / 13 / 0.956 | 3.47 / **3 / 12 / 0.965** |
+
+Other batches move within noise. box11 was already fine on batch 8 (0.816
+IoU, none under 0.7, boxes ~7% small) and was not retrained. fp32; the int8
+gate still fails at 14 px mean shift. `web/test/fixtures/facekp-maps-square.json`
 is dumped from kpft3.
 
 **Where the remaining error is (kpft6, 204 real val faces).** Model-px error
