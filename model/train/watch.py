@@ -23,21 +23,28 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 RUNS = Path(__file__).parent / "runs"
-LINE = re.compile(
-    r"epoch\s+(\d+)\s+train_loss\s+([\d.]+)\s+val_loss\s+([\d.]+)\s+"
-    r"val_px\s+([\d.]+)\s+val_conf_acc\s+([\d.]+)\s+(\d+)s")
-
-
+# One epoch per line, "epoch N" then "key value" pairs and the epoch's "NNs".
+# Parsed generically: stage 2 (train.py) logs val_px / val_conf_acc / real_px,
+# stage 1 (train_bbox.py) adds val_iou / val_bad / real_iou / real_bad before
+# the seconds, and either may grow more fields - a fixed regex silently
+# dropped every stage-1 epoch until 2026-09-13.
+EPOCH = re.compile(r"^epoch\s+(\d+)\s+(.*)$", re.M)
+PAIR = re.compile(r"([a-z_]+)\s+(-?\d+(?:\.\d+)?)")
+SECS = re.compile(r"(?<![\d.])(\d+)s(?![\w.])")  # the epoch's "43s", never the s of a name or a decimal
+KEYS = {"train_loss", "val_loss", "val_px", "val_conf_acc", "real_px", "val_iou", "val_bad", "real_iou", "real_bad"}
+def parse_line(m):
+    row = {"epoch": int(m[1])}
+    for k, v in PAIR.findall(m[2]):
+        if k in KEYS: row["conf_acc" if k == "val_conf_acc" else k] = float(v)
+    sec = SECS.search(m[2])
+    row["sec"] = int(sec[1]) if sec else 0
+    return row if "train_loss" in row else None
 def parse_runs():
     out = {}
     logs = list(RUNS.glob("*-console.log")) + list(RUNS.glob("*/log.txt"))
     for lf in logs:
         name = lf.stem.replace("-console", "") if lf.suffix == ".log" else lf.parent.name
-        rows = [
-            {"epoch": int(m[1]), "train_loss": float(m[2]), "val_loss": float(m[3]),
-             "val_px": float(m[4]), "conf_acc": float(m[5]), "sec": int(m[6])}
-            for m in LINE.finditer(lf.read_text(errors="ignore"))
-        ]
+        rows = [r for r in (parse_line(m) for m in EPOCH.finditer(lf.read_text(errors="ignore"))) if r]
         if rows and (name not in out or len(rows) > len(out[name]["rows"])):
             out[name] = {"mtime": lf.stat().st_mtime, "rows": rows}
     for name, rec in out.items():
@@ -88,17 +95,28 @@ th { color:#e8eaf0; }
 <div id="root"></div></main>
 <script>
 const METRICS = [
-  { title:'Corner error (val_px)', fmt:v=>v.toFixed(2),
-    series:[{ key:'val_px', label:'val_px', color:'#7aa2ff' }],
-    desc:'Mean corner error (px at the model input) on held-out frames — the number that matters. Healthy: falls steeply early, then flattens to a plateau. Rising after a low = overfitting; never falling = data/LR problem.' },
+  { title:'Corner error (px at model input)', fmt:v=>v.toFixed(2),
+    series:[{ key:'val_px', label:'val_px (synthetic val)', color:'#7aa2ff' },
+            { key:'real_px', label:'real_px (held-out photos)', color:'#e0a458' }],
+    desc:'Mean corner error on held-out frames. val_px is the synthetic val split; real_px is data_real_val, the number a `--select real` fine-tune picks best.pt on and the one that matters for the phone. Healthy: falls steeply early, then flattens. A rising real_px while val_px still falls is overfitting to renders.' },
+  { title:'Box IoU (stage 1)', fmt:v=>v.toFixed(3),
+    series:[{ key:'val_iou', label:'val_iou (synthetic)', color:'#7aa2ff' },
+            { key:'real_iou', label:'real_iou (held-out photos)', color:'#e0a458' }],
+    desc:'Stage-1 localizer: mean IoU of the predicted cube box with the true one. real_iou is what best.pt is selected on. Healthy: real_iou climbs into the 0.8s; the last few hundredths are noise between reruns (see model/README.md box16).' },
+  { title:'Boxes under 0.7 IoU (stage 1)', fmt:v=>(v*100).toFixed(1)+'%',
+    series:[{ key:'val_bad', label:'synthetic', color:'#7aa2ff' },
+            { key:'real_bad', label:'held-out photos', color:'#e06c75' }],
+    desc:'The tail: share of frames whose box is bad enough that stage 2 gets a wrong crop. This is the number the app feels as stage-1 misses; the mean IoU can look fine while this stays high.' },
   { title:'Loss — train vs val', fmt:v=>v.toFixed(4),
     series:[{ key:'train_loss', label:'train', color:'#c792ea' },
             { key:'val_loss', label:'val', color:'#e0a458' }],
-    desc:'Combined corner+visibility loss. Train (purple) is measured on augmented batches so it sits above what you might expect; val (orange) is held-out frames. Healthy: both decline together. Val flattening or rising while train keeps falling = memorizing, not learning; a sustained rise in train = learning rate too hot.' },
+    desc:'Combined loss. Train (purple) is measured on augmented batches so it sits above what you might expect; val (orange) is held-out frames without augmentation. Healthy: both fall together. Val flat while train falls = memorising.' },
   { title:'Face visibility accuracy', fmt:v=>v.toFixed(3),
     series:[{ key:'conf_acc', label:'val conf acc', color:'#7ce38b' }],
-    desc:'How often the model correctly says which faces are visible. Healthy: climbs to ~0.97+ and sticks. Drops here usually mean something structural broke, not noise.' },
+    desc:'How often the model correctly says which faces (stage 2) or whether a cube (stage 1) is present. Healthy: climbs to ~0.97+ and sticks.' },
 ];
+// a run charts only the series its log has (stage 1 has no val_px, stage 2 no IoU)
+function present(m, rows) { return { ...m, series: m.series.filter(s => rows.some(r => r[s.key] != null)) }; }
 const PADL = 52, PADR = 14, PADT = 24, PADB = 20;
 const ETA_WINDOW = 20;   // epochs of history the rate estimate is built from
 
@@ -180,6 +198,7 @@ function drawChart(cv, rows, m, hoverI) {
   let lo = Infinity, hi = -Infinity;
   for (const s of m.series) for (const r of rows) {
     const v = r[s.key];
+    if (v == null) continue;
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
@@ -197,7 +216,8 @@ function drawChart(cv, rows, m, hoverI) {
   ctx.fillText(lastLbl, W - padR - ctx.measureText(lastLbl).width, H - 6*dpr);
   for (const s of m.series) {
     ctx.strokeStyle = s.color; ctx.lineWidth = 1.8*dpr; ctx.beginPath();
-    rows.forEach((r, i) => i ? ctx.lineTo(X(i), Y(r[s.key])) : ctx.moveTo(X(i), Y(r[s.key])));
+    let started = false;
+    rows.forEach((r, i) => { if (r[s.key] == null) return; started ? ctx.lineTo(X(i), Y(r[s.key])) : ctx.moveTo(X(i), Y(r[s.key])); started = true; });
     ctx.stroke();
   }
   if (hoverI != null) {
@@ -205,10 +225,11 @@ function drawChart(cv, rows, m, hoverI) {
     ctx.strokeStyle = '#525a68'; ctx.lineWidth = dpr;
     ctx.beginPath(); ctx.moveTo(X(i), padT); ctx.lineTo(X(i), H - padB); ctx.stroke();
     for (const s of m.series) {
+      if (rows[i][s.key] == null) continue;
       ctx.beginPath(); ctx.arc(X(i), Y(rows[i][s.key]), 3.2*dpr, 0, 7);
       ctx.fillStyle = s.color; ctx.fill();
     }
-    const parts = m.series.map(s => (m.series.length > 1 ? s.label + ' ' : '') + m.fmt(rows[i][s.key]));
+    const parts = m.series.filter(s => rows[i][s.key] != null).map(s => (m.series.length > 1 ? s.label + ' ' : '') + m.fmt(rows[i][s.key]));
     const txt = `ep ${rows[i].epoch} · ` + parts.join(' / ');
     const tw = ctx.measureText(txt).width;
     const tx = Math.min(Math.max(X(i) - tw/2, padL), W - padR - tw);
@@ -218,7 +239,9 @@ function drawChart(cv, rows, m, hoverI) {
     // legend: each series' name and latest value, in its own color
     let x = padL;
     for (const s of m.series) {
-      const txt = s.label + ' · ' + m.fmt(rows[n-1][s.key]);
+      const lastV = [...rows].reverse().find(r => r[s.key] != null);
+      if (!lastV) continue;
+      const txt = s.label + ' · ' + m.fmt(lastV[s.key]);
       ctx.fillStyle = s.color;
       ctx.fillText(txt, x, 14*dpr);
       x += ctx.measureText(txt).width + 16*dpr;
@@ -265,7 +288,9 @@ async function render() {
     }
     const charts = [];
     const redraw = (hoverI) => { for (const c of charts) drawChart(c.cv, rows, c.m, hoverI); };
-    for (const m of METRICS) {
+    for (const m0 of METRICS) {
+      const m = present(m0, rows);
+      if (!m.series.length) continue;
       const cell = document.createElement('div');
       cell.className = 'cell';
       const left = document.createElement('div');
@@ -286,8 +311,12 @@ async function render() {
     }
     redraw(null);
     const t = document.createElement('table');
-    t.innerHTML = '<tr><th>epoch</th><th>train_loss</th><th>val_loss</th><th>val_px</th><th>conf</th><th>s</th></tr>' +
-      rows.slice(-5).map(r => `<tr class="${r === last ? 'now' : ''}"><td>${r.epoch}</td><td>${r.train_loss.toFixed(4)}</td><td>${r.val_loss.toFixed(4)}</td><td>${r.val_px.toFixed(2)}</td><td>${r.conf_acc.toFixed(3)}</td><td>${r.sec}</td></tr>`).join('');
+    const COLS = [['epoch','epoch',v=>v],['train_loss','train_loss',v=>v.toFixed(4)],['val_loss','val_loss',v=>v.toFixed(4)],
+      ['val_px','val_px',v=>v.toFixed(2)],['real_px','real_px',v=>v.toFixed(2)],['val_iou','val_iou',v=>v.toFixed(3)],['real_iou','real_iou',v=>v.toFixed(3)],
+      ['real_bad','real <0.7',v=>(v*100).toFixed(1)+'%'],['conf_acc','conf',v=>v.toFixed(3)],['sec','s',v=>v]]
+      .filter(([k]) => rows.some(r => r[k] != null));
+    t.innerHTML = '<tr>' + COLS.map(([,h]) => `<th>${h}</th>`).join('') + '</tr>' +
+      rows.slice(-5).map(r => `<tr class="${r === last ? 'now' : ''}">` + COLS.map(([k,,f]) => `<td>${r[k] == null ? '' : f(r[k])}</td>`).join('') + '</tr>').join('');
     root.append(t);
   }
   const delay = nextDelay(active);
