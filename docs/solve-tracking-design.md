@@ -279,3 +279,76 @@ real solves says single-frame epochs are common.
 - Whether to keep scanning and solve mode as one session (start lock →
   moves) or let the user start mid-solve with a fresh six-face read.
   The record format supports both via `reseed`.
+
+## 7. What the first three recorded solves taught (2026-09-13, evening)
+
+Three full solves recorded in the app (`Record` on scan.html: the camera
+stream as `.webm` plus the evidence log on the same clock; solve mode keeps
+logging past the lock). Desktop webcam, 640x480, backlit by a window, the
+cube ~110-130 px across; ~30 s of scanning to the lock, then 28-34 s of
+solving each, ending solved. Clips and replay logs live in
+`web/clips/solves/` (gitignored); tooling in `tools/solve/`
+(`replay_clips.py` drives headless Chrome, `survey_log.py` summarises a log,
+`overlay_log.py` draws the tracked quads on the video frames - the last one
+is what actually answered the questions below).
+
+Numbers over the solve stretch of each clip (detector on ~27 of 30 fps):
+
+| clip | frames with a cube | 1 / 2 / 3 faces | gaps > 0.25 s | median epoch | second face viewCos |
+|---|---|---|---|---|---|
+| 1 | 71 % | 67 / 27 / 6 % | 10 (median 0.57 s) | 0.73 s | 0.50 |
+| 2 | 72 % | 62 / 25 / 13 % | 10 (0.53 s) | 1.77 s | 0.48 |
+| 3 | 44 % | 65 / 26 / 9 % | 18 (0.67 s, max 2.0 s) | 0.55 s | 0.50 |
+
+What this says, against the assumptions in sections 1-3:
+
+1. **The natural grip shows one face.** Camera at chest height looking up,
+   cube held facing the solver: the front face is square-on, the second
+   face when present is the bottom or top at viewCos ~0.5, three faces
+   appear only during a deliberate tilt (clip 1, 50.1-50.6 s: a clean
+   corner-on view, tracked perfectly for half a second). Section 1 says
+   one face is useless and two adjacent are nearly enough; the recordings
+   sit at the useless end. **Camera placement is the first lever**, not
+   the solver: a phone propped ~45 degrees to the side and above the cube
+   sees U F R for most of a solve without the solver changing their grip.
+   Measure that before building anything in section 2.
+2. **Fingers cover 2-4 stickers of the visible face at all times** (thumbs
+   along the bottom row, fingers over the top row), and the quality
+   weights do not know: a finger reads as a plausible sticker with w ~0.2-
+   0.7 (the survey counts a median 7-8 "readable" cells per quad; the video
+   shows 4-6). Skin is warm and low-chroma and will pass for orange or red
+   under the frozen palette. **An occlusion term is needed before per-slot
+   costs mean anything** - either a skin/non-sticker classifier on the
+   patch (chroma + texture + the patch's distance to the six palette
+   colours) or a per-cell "matches no palette colour" veto in the scorer.
+3. **Turns happen inside the hands.** Most turns produce no detection gap
+   at all (a `U` flick leaves the front quad still; only the top row
+   changes, under the fingers). The ~10 gaps per solve are re-grips, where
+   both hands wrap the cube for 0.3-0.9 s and every track dies; there is no
+   mid-turn geometry to observe (section 4 is moot for this grip). So
+   signal 1 (deaths/births) marks re-grips, not moves; signal 2 (residual
+   jump) has to carry the moves, and it fires on the very cells the fingers
+   sit on. With the front face square-on, a `U` shows as 3 stickers of the
+   top row changing - the same 3 stickers a thumb crosses.
+4. **A track is the quad at a place, not a face.** Track #87 in clip 1
+   survived a re-grip and a turn (49.5-52.4 s); tracks in the scanning
+   phase lived 6-7 s while every face was shown in turn. Anchoring (2.2)
+   must re-run per epoch from the centre colour and must not carry a
+   track's identity across an epoch boundary.
+5. **Noise floor.** Consecutive-frame per-cell Lab distance within a
+   track: p50 2.9, p90 14, p95 28, p99 70 - a heavy tail from fingers,
+   glare and quad slips. A per-cell CUSUM at 18 Lab over 3-frame windows
+   fired 87 times in 26 s of *scanning* (no moves). The residual detector
+   in 2.1 needs robust window medians over 5+ frames and a persistence
+   requirement, or it will call a move on every finger.
+6. **Mid-turn junk quads exist** (clip 1, 51.4 s: a wide rectangle fitted
+   to the sliding top layer). They are one or two frames long and low
+   conf; the transition weighting in 2.1 should also drop quads whose
+   aspect ratio or area jumps from the track's running median.
+7. Epoch budget (2.1) holds on desktop: 0.5-1.8 s median epochs at 27
+   detections/s. Unmeasured on the phone; still the first perf item.
+
+Truth: none of the three has per-move truth (scramble not applied, no
+moves typed). The `Moves` field and `I applied it` exist for the next
+round; the scripted 3-6 move takes from section 5.3 are still the
+calibration set to record, **with the camera at the side-above angle**.
