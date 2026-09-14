@@ -30,7 +30,15 @@ have evidence and the reason names the face to show. The lock's trajectory
 was never wrong at any prefix; its latency was face coverage, not the
 solver. Embedding: lab-crushed classified all 54 free on both captures
 where logchroma needed the decoder to move four orange stickers, so
-lab-crushed is the default now.
+lab-crushed became the default. **Superseded the same night by the colour
+bank** (`web/test/colour-bank.test.ts`: 674 hand-labelled centres over ten
+capture sessions, perfect corners): lab-crushed is the worst of the five
+embeddings on red/orange in every warm indoor session (d' 1.6-2.0 against
+lab-norm's 2.8-7.6) and lab-norm names centres at 92.3% pooled against
+84.7%, locks four more replay captures (two verified 54/54); its one loss
+is the monitor-lit day-one capture where white and yellow are not
+separate colours in the data at all, now a must-refuse case. lab-norm is
+the default.
 
 **Third capture (same day, blue-cast light, each face shown once):**
 three findings. (1) Glare was defined as "any channel >= 250" and the

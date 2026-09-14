@@ -49,12 +49,17 @@ const scanFaces = (name: string): Face[] => {
 };
 const scramble = (alg: string) => new Cube().move(alg).asString();
 
-interface Case { name: string; faces: Face[]; truth: string; /** what the old pipeline managed */ before: number }
+interface Case { name: string; faces: Face[]; truth: string; /** what the old pipeline managed */ before: number; /** two colours are absent from the data: any answer is wrong */ mustRefuse?: boolean }
 const CASES: Case[] = [
   { name: 'session 986281 (shadowed blue, bright reds)', faces: sessionFaces('scan-debug-1789312986281.json'), truth: SESSION_TRUTH, before: 54 },
   { name: 'session 082369 (R appears 8)', faces: sessionFaces('scan-debug-1789313082369.json'), truth: SESSION_TRUTH, before: 54 },
   { name: 'session 817862 (one junk cell on B)', faces: sessionFaces('scan-debug-1789312817862.json'), truth: SESSION_TRUTH, before: 53 },
-  { name: 'scan 102942492 (blue monitor cast)', faces: scanFaces('cube-scan-1789102942492.json'), truth: scramble("U L B2 U2 L D2 B2 L U2 R' F2 B' D2 F D L' B' F U'"), before: 43 },
+  // 2026-09-11, day one, desktop webcam, cube lit by a monitor alone: the
+  // white centre reads (70, 105, 131) and yellow (115, 142, 37), so white/
+  // blue and yellow/green do not exist as separate colours in the data. A
+  // must-refuse case; how many stickers a guess gets right on it is not a
+  // quality signal (before: 43), so the evidence floor is waived.
+  { name: 'scan 102942492 (blue monitor cast)', faces: scanFaces('cube-scan-1789102942492.json'), truth: scramble("U L B2 U2 L D2 B2 L U2 R' F2 B' D2 F D L' B' F U'"), before: 43, mustRefuse: true },
   { name: 'scan 102641416 (kitchen evening)', faces: scanFaces('cube-scan-1789102641416.json'), truth: scramble("F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D"), before: 54 },
   { name: 'scan 107876392 (second cube)', faces: scanFaces('cube-scan-1789107876392.json'), truth: scramble("B2 F2 U' R2 F2 D' U F2 R2 U2 F' D2 L U B' F' R' D2 B L'"), before: 54 },
   { name: 'scan 108244116 (matte cube)', faces: scanFaces('cube-scan-1789108244116.json'), truth: scramble("B2 F2 U' R2 F2 D' U F2 R2 U2 F' D2 L U B' F' R' D2 B L'"), before: 52 },
@@ -97,7 +102,8 @@ describe('colour solver replay', () => {
       // balanced colouring is pre-rotation, so only compare when refused)
       // (the balanced colouring is pre-rotation and a single frame per face
       // is noise-level territory: allow a couple of stickers of slack)
-      else if (s.facelets !== c.truth) expect(matches(s.balanced, c.truth)).toBeGreaterThanOrEqual(c.before - 2);
+      else if (s.facelets !== c.truth && !c.mustRefuse) expect(matches(s.balanced, c.truth)).toBeGreaterThanOrEqual(c.before - 2);
+      if (c.mustRefuse) expect(s.facelets).toBeNull();
     });
   }
 
