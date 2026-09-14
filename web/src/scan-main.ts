@@ -107,19 +107,29 @@ app.innerHTML = `
       <small id="status" class="auto">model loading…</small>
       <small id="build" title="git hash · build time">build ${__BUILD__.hash} · ${__BUILD__.time}</small>
     </h1>
-    <div id="scramble" class="auto" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span id="scrambleAlg"></span> <label><input type="checkbox" id="applied"> I applied it (from solved)</label></div>
-    <div id="bar" class="auto">
-      <button id="start">Start camera</button>
-      <button id="reset">Reset scan</button>
-      <button id="pause" disabled title="Freeze the frame and the overlay to inspect what was sampled">Pause</button>
-      <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
+    <div id="cols">
+      <div id="main" class="auto">
+        <div id="scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span id="scrambleAlg"></span> <label><input type="checkbox" id="applied"> I applied it (from solved)</label></div>
+        <div id="bar">
+          <button id="start">Start camera</button>
+          <button id="reset">Reset scan</button>
+          <button id="pause" disabled title="Freeze the frame and the overlay to inspect what was sampled">Pause</button>
+          <button id="save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
+        </div>
+        <div id="stage"><canvas id="view" width="640" height="480"></canvas><div id="hint" hidden></div><div id="lockbadge" hidden>Locked ✓ — camera paused. <b>Resume</b> keeps watching, <b>Reset scan</b> starts over.</div></div>
+        <div id="fallback">Having trouble? The <a href="#" id="toGrid">grid scanner</a> always works.</div>
+      </div>
+      <aside id="side" class="auto">
+        <div class="ph">Face evidence</div>
+        <div id="fill">${FACE_ORDER.map((f) => `<div class="f" id="fill-${f}" style="--fc:${DEFAULT_SCHEME_HEX[f]}"><b>${f}</b><span class="nm">${DEFAULT_SCHEME_NAMES[f]}</span><span class="pct">0%</span><div class="bar"><i></i></div></div>`).join('')}</div>
+        <div id="unbound"></div>
+        <p class="note">One bar per face of the cube, named by its centre (U up, R right, F front, D down, L left, B back; the colours are the standard scheme until the solver has measured the cube's own). The bar is the weakest sticker of that face: how much of the lock floor (${DEFAULT_PARAMS.nMin} weighted readings) it has collected. Turn the cube until every bar is full.</p>
+        <div id="result"></div>
+        <div class="ph" id="attemptHd" hidden>Decoded faces</div>
+        <div id="attempt" class="grids"></div>
+        <p class="note" id="legend" hidden>Each cell is painted with the colour actually measured for that sticker; the badge is the letter the decoder assigned it (<code>?</code> = too close to call, <code>·</code> = no evidence yet; the ringed cell is the centre). Header: which tracked quads fed the face and its rotation. Footer: why the solver will not lock yet — <i>changed</i> is how many stickers the cube's constraints moved off their raw best colour, <i>delta</i> how much worse the runner-up state scores, <i>min margin</i> the tightest sticker call.</p>
+      </aside>
     </div>
-    <div id="stage" class="auto"><canvas id="view"></canvas><div id="hint" hidden></div></div>
-    <div id="fill" class="auto">${FACE_ORDER.map((f) => `<div class="f" id="fill-${f}" style="color:${DEFAULT_SCHEME_HEX[f]}"><b>${f}</b><span>0%</span></div>`).join('')}</div>
-    <div id="unbound" class="auto"></div>
-    <div id="fallback" class="auto">Having trouble? The <a href="#" id="toGrid">grid scanner</a> always works.</div>
-    <div id="result" class="auto"></div>
-    <div id="attempt" class="auto grids"></div>
     <div id="stats" class="auto"></div>
     <details id="debug" class="auto">
       <summary>Debug</summary>
@@ -404,8 +414,14 @@ function renderSolution(): void {
     hd.className = 'hd';
     const g = sol.groups.find((x) => x.letter === face);
     const n = sol.nEff.slice(fi * 9, fi * 9 + 9);
-    hd.textContent = `${face} ${DEFAULT_SCHEME_NAMES[face]}${g ? ` - tracks ${g.tracks.map((t) => `#${t}`).join(' ')}` : ' - not seen'}\n`
-      + `evidence ${Math.min(...n).toFixed(1)}-${Math.max(...n).toFixed(1)}${g ? ` - rot ${g.absRotation ?? '?'}${g.rotationVotes.some(Boolean) ? ` (${g.rotationVotes.join('/')})` : ''}` : ''}`;
+    const dot = document.createElement('i');
+    dot.className = 'dot';
+    dot.style.background = cssOfLetter(face);
+    const title = document.createElement('b');
+    title.textContent = `${face} ${DEFAULT_SCHEME_NAMES[face]}`;
+    hd.append(dot, title, document.createTextNode(
+      `${g ? ` · tracks ${g.tracks.map((t) => `#${t}`).join(' ')}` : ' · not seen'}\n`
+      + `evidence ${Math.min(...n).toFixed(1)}–${Math.max(...n).toFixed(1)}${g ? ` · rot ${g.absRotation ?? '?'}${g.rotationVotes.some(Boolean) ? ` (${g.rotationVotes.join('/')})` : ''}` : ''}`));
     const grid = document.createElement('div');
     grid.className = 'g';
     for (let k = 0; k < 9; k++) {
@@ -435,6 +451,8 @@ function renderSolution(): void {
   note.textContent = (locked ? 'LOCKED - ' : '') + sol.reason
     + (d ? ` - changed ${d.changed}, delta ${d.delta === Infinity ? 'inf' : d.delta.toFixed(1)}, min margin ${Math.min(...d.margins).toFixed(1)}, pops ${d.pops}` : '');
   attemptEl.append(note);
+  $('attemptHd').hidden = false;
+  $('legend').hidden = false;
 }
 
 /** The sampler's result for one detection frame: append to the log, mirror to the solver. */
@@ -505,7 +523,12 @@ function updateFillUI(): void {
   for (const f of FACE_ORDER) {
     const fi = FACE_ORDER.indexOf(f);
     const n = sol ? Math.min(...sol.nEff.slice(fi * 9, fi * 9 + 9)) : 0;
-    document.querySelector(`#fill-${f} span`)!.textContent = `${Math.round(Math.min(1, n / DEFAULT_PARAMS.nMin) * 100)}%`;
+    const frac = Math.min(1, n / DEFAULT_PARAMS.nMin);
+    const chip = $(`fill-${f}`);
+    chip.style.setProperty('--fc', cssOfLetter(f));
+    chip.classList.toggle('done', frac >= 1);
+    (chip.querySelector('.bar i') as HTMLElement).style.width = `${frac * 100}%`;
+    chip.querySelector('.pct')!.textContent = `${Math.round(frac * 100)}%`;
   }
   $('unbound').textContent = sol && !locked ? `${sol.centresSeen}/6 faces - ${sol.reason}` : '';
   if (locked && !solved) {
@@ -514,11 +537,17 @@ function updateFillUI(): void {
     // the solution's moves are named by centre: U is the face whose centre
     // is the U colour, F the F colour - say so, or the moves are meaningless
     const hold = `Hold the cube with the ${DEFAULT_SCHEME_NAMES[st[4] as FaceId]} centre on top and the ${DEFAULT_SCHEME_NAMES[st[22] as FaceId]} centre facing you.`;
-    const cert = `(${locked.decode!.changed} sticker(s) moved by the cube's constraints; runner-up ${locked.decode!.delta === Infinity ? 'none' : locked.decode!.delta.toFixed(1)} worse)`;
-    resultEl.textContent = `LOCKED\n${st}\n${cert}\nsolving...`;
+    const cert = `${locked.decode!.changed} sticker(s) moved by the cube's constraints; runner-up state ${locked.decode!.delta === Infinity ? 'none' : `${locked.decode!.delta.toFixed(1)} worse`}`;
+    // facelets and moves are letters from the solver, never user text
+    resultEl.innerHTML = `<div class="rt">Locked ✓</div><div class="st">${st}</div><div class="cert">${cert}</div><div class="hold">${hold}</div><div class="sol">solving…</div>`;
+    const solEl = resultEl.querySelector('.sol')!;
     void solveState(st)
-      .then((sol) => { resultEl.textContent = `LOCKED\n${st}\n${cert}\n\n${hold}\nSolution: ${sol}`; })
-      .catch((e) => { resultEl.textContent = `LOCKED\n${st}\n${cert}\n\nsolver failed: ${e}`; });
+      .then((s) => { solEl.textContent = s.trim() === '' ? 'Already solved!' : s; })
+      .catch((e) => { solEl.textContent = `solver failed: ${e}`; });
+    // The cube is read: freeze the view on the frame that locked it (the
+    // overlay stays up) rather than keep streaming a feed nothing reads any
+    // more. A clip must play to its end so the autocapture hook fires.
+    if (!clipUrl) setPaused(true);
   }
   if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
 }
@@ -530,9 +559,11 @@ function loop(ts: number, gen: number): void {
   vfcFresh = false;
   const v = camera.video;
   if (v.videoWidth > 0) {
-    if (view.width !== v.videoWidth) {
+    if (view.width !== v.videoWidth || view.height !== v.videoHeight) {
       view.width = v.videoWidth;
       view.height = v.videoHeight;
+      // the desktop layout caps the stage by viewport height through this ratio
+      $('stage').style.setProperty('--ar', (v.videoWidth / v.videoHeight).toFixed(4));
     }
     const head = ring.push(v, ts);
     frameNo++;
@@ -725,6 +756,7 @@ function setPaused(on: boolean): void {
   paused = on;
   pauseBtn.textContent = on ? 'Resume' : 'Pause';
   pauseBtn.classList.toggle('on', on);
+  $('lockbadge').hidden = !(on && locked);
   const v = camera.video;
   if (on) v.pause(); else void v.play().catch(() => undefined);
 }
@@ -787,7 +819,10 @@ $('reset').addEventListener('click', () => {
   models?.detector.exemplars.reset();
   solved = false;
   lastTick = null;
+  setPaused(false);
   resultEl.textContent = '';
+  $('attemptHd').hidden = true;
+  $('legend').hidden = true;
   hintEl.hidden = true;
   stage1Misses = ticks = lateTicks = 0;
   sampledQuads = [];
