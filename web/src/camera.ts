@@ -127,45 +127,108 @@ export class Camera {
   }
 
   /**
-   * Step the camera's exposure compensation by `dir` (+1 brighter, -1
-   * darker), one advertised step. Resolves to the value applied, or null
-   * when the camera has no such control (a clip, a webcam driver without
-   * it) or the value is already at the end of its range. Why: a webcam's
-   * metering sees the whole room - an evening session with a ceiling lamp
-   * in the frame read the cube at RGB (40, 27, 14) while the lamp was
-   * correctly exposed (scan-debug-1789348371807); the cube is the only
-   * thing this app cares about, so its brightness drives the exposure.
+   * Step the camera's exposure by `dir` (+1 brighter, -1 darker). Resolves
+   * to a description of what was applied, or null when the camera offers
+   * no control (a clip, a driver without one) or the value is already at
+   * the end of its range. Why: a webcam's metering sees the whole room -
+   * an evening session with a ceiling lamp in the frame read the cube at
+   * RGB (40, 27, 14) while the lamp was correctly exposed
+   * (scan-debug-1789348371807); the cube is the only thing this app cares
+   * about, so its brightness drives the exposure.
+   *
+   * Two controls, in order of preference: `exposureCompensation` (phones:
+   * the camera's own metering keeps running, offset by one advertised
+   * step); else manual `exposureTime`. MEASURED on a LifeCam HD-3000
+   * (no compensation offered): manual times are immediate and stable
+   * (15.6 / 31 / 62.5 ms read luma 57 / 209 / 226 in a lit room), the
+   * driver rounds a request UP to its power-of-two grid (66 ms became
+   * 125 ms and 8 fps), and getSettings().exposureTime under auto reports
+   * the last manual register, not what auto is using - so the first
+   * manual step is a fixed EXPOSURE_TIME_FIRST, each step doubles or
+   * halves from the value read back, a step that lands past
+   * EXPOSURE_TIME_MAX is undone, and stepping below the first value hands
+   * control back to auto. Auto is also restored when the camera stops: a
+   * manual exposure persists in the driver for the next app otherwise.
    */
-  async nudgeExposure(dir: 1 | -1): Promise<number | null> {
+  async nudgeExposure(dir: 1 | -1): Promise<string | null> {
     const track = this.stream_?.getVideoTracks()[0];
     if (!track || typeof track.getCapabilities !== 'function') return null;
-    let caps: { exposureCompensation?: { min?: number; max?: number; step?: number } };
+    let caps: ExposureCaps;
     try {
-      caps = track.getCapabilities() as typeof caps;
+      caps = track.getCapabilities() as ExposureCaps;
     } catch {
       return null;
     }
-    const range = caps.exposureCompensation;
-    if (!range || range.min === undefined || range.max === undefined || range.max <= range.min) return null;
-    const step = range.step && range.step > 0 ? range.step : (range.max - range.min) / 6;
-    const current = (track.getSettings() as { exposureCompensation?: number }).exposureCompensation ?? 0;
-    const next = Math.min(range.max, Math.max(range.min, current + dir * step));
-    if (Math.abs(next - current) < step / 2) return null;
-    try {
-      await track.applyConstraints({ advanced: [{ exposureCompensation: next } as MediaTrackConstraintSet] });
-    } catch {
-      return null;
+    const settings = track.getSettings() as ExposureSettings;
+    const apply = async (c: Record<string, unknown>): Promise<boolean> => {
+      try {
+        await track.applyConstraints({ advanced: [c as MediaTrackConstraintSet] });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const comp = caps.exposureCompensation;
+    if (comp && comp.min !== undefined && comp.max !== undefined && comp.max > comp.min) {
+      const step = comp.step && comp.step > 0 ? comp.step : (comp.max - comp.min) / 6;
+      const current = settings.exposureCompensation ?? 0;
+      const next = Math.min(comp.max, Math.max(comp.min, current + dir * step));
+      if (Math.abs(next - current) < step / 2) return null;
+      return (await apply({ exposureCompensation: next })) ? `ev ${next > 0 ? '+' : ''}${+next.toFixed(2)}` : null;
     }
-    return next;
+    const time = caps.exposureTime;
+    if (time && time.min !== undefined && time.max !== undefined && caps.exposureMode?.includes('manual')) {
+      const ceil = Math.min(time.max, EXPOSURE_TIME_MAX);
+      if (!this.manualExposure) {
+        if (dir < 0) return null; // auto is as dark as we go
+        if (settings.exposureMode !== 'continuous') return null; // someone else's manual setting: leave it
+        const first = Math.max(time.min, Math.min(ceil, EXPOSURE_TIME_FIRST));
+        if (!(await apply({ exposureMode: 'manual', exposureTime: first }))) return null;
+        this.manualExposure = true;
+        return this.readBackExposure(track, first, ceil);
+      }
+      const current = settings.exposureTime ?? EXPOSURE_TIME_FIRST;
+      const next = dir > 0 ? Math.min(ceil, current * 2) : current / 2;
+      if (dir < 0 && next < EXPOSURE_TIME_FIRST) {
+        // below the first manual step: hand control back to the camera
+        this.manualExposure = false;
+        return (await apply({ exposureMode: 'continuous' })) ? 'auto' : null;
+      }
+      if (Math.abs(next - current) < Math.max(time.step ?? 1, 1) / 2) return null;
+      if (!(await apply({ exposureMode: 'manual', exposureTime: next }))) return null;
+      const got = await this.readBackExposure(track, next, ceil);
+      if (got === null) {
+        // rounded up past the cap (a power-of-two grid): back to the value that was fine
+        await apply({ exposureMode: 'manual', exposureTime: current });
+      }
+      return got;
+    }
+    return null;
+  }
+
+  private manualExposure = false;
+
+  /** The manual time the driver actually took (it may round), or null when that is past the cap. */
+  private readBackExposure(track: MediaStreamTrack, requested: number, ceil: number): string | null {
+    const got = (track.getSettings() as ExposureSettings).exposureTime ?? requested;
+    if (got > ceil * 1.05) return null;
+    return `${(got / 10).toFixed(1)} ms`;
   }
 
   /** Stop all tracks and detach the stream. Safe to call twice. */
   stop(): void {
     this._running = false;
     if (this.stream_) {
-      for (const track of this.stream_.getTracks()) track.stop();
+      for (const track of this.stream_.getTracks()) {
+        // a manual exposure left behind here would greet the next app as a blown-out frame
+        if (this.manualExposure && typeof track.applyConstraints === 'function') {
+          track.applyConstraints({ advanced: [{ exposureMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => undefined);
+        }
+        track.stop();
+      }
       this.stream_ = null;
     }
+    this.manualExposure = false;
     this.video.srcObject = null;
     if (this.video.src) { this.video.removeAttribute('src'); this.video.load(); }
   }
@@ -206,6 +269,20 @@ export class Camera {
     }
   }
 }
+
+interface ExposureCaps {
+  exposureCompensation?: { min?: number; max?: number; step?: number };
+  exposureTime?: { min?: number; max?: number; step?: number };
+  exposureMode?: string[];
+}
+interface ExposureSettings { exposureCompensation?: number; exposureTime?: number; exposureMode?: string }
+// DECISION: manual exposure times are in 100 us units (the spec). The first
+// manual step asks for 30 ms - the longest exposure a 30 fps camera can run
+// without dropping frames (a power-of-two driver rounds it to 31.25 ms; 33
+// would round to 62.5). The cap is 62.5 ms: a frame cannot be shorter than
+// its exposure, so this holds ~15 fps, the floor the detector needs.
+const EXPOSURE_TIME_FIRST = 300;
+const EXPOSURE_TIME_MAX = 625;
 
 // Ask the camera for continuous auto exposure / white balance / focus.
 // getUserMedia leaves the track in whatever mode the driver is sitting in —

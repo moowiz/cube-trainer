@@ -95,9 +95,10 @@ const SAMPLE_MIN_MS = 80;
 // their weight, and the palette fit cannot separate colours in them
 // (scan-debug-1789348371807 read whole faces at RGB (40, 27, 14)).
 const DARK_PEAK = 55;
-// Exposure steps are at least this far apart so the camera's own control
-// loop settles between them (one nudge is one advertised step).
-const EXPOSURE_HOLD_MS = 900;
+// Exposure steps are at least this far apart: a manual step is immediate
+// but the sampled-brightness EMA needs ~1 s to say what it did, and a
+// camera handed back to auto takes ~3 s to settle (LifeCam, measured).
+const EXPOSURE_HOLD_MS = 1500;
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 // Frames kept frozen behind the live camera. The view lags the camera by
 // the detector's latency (measured, in frames) so a detection is applied
@@ -292,7 +293,7 @@ let lastSampleTs = -Infinity;
 let peakEma = 255;         // running median-ish of the brightest channel of sampled readings
 let clipEma = 0;           // running mean of the sampled readings' clipped fraction
 let exposureAt = 0;        // when the camera's exposure compensation was last nudged
-let exposureComp: number | null = null;   // the value applied (null: never / not supported)
+let exposureComp: string | null = null;   // what was applied ('ev +1', '31.2 ms', 'auto'; null: never / not supported)
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -771,7 +772,7 @@ function loop(ts: number, gen: number): void {
       updateFillUI();
       fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
       statsEl.textContent =
-        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   peak ${peakEma.toFixed(0)}${exposureComp !== null ? ` ev ${exposureComp > 0 ? '+' : ''}${exposureComp}` : ''}   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
+        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   peak ${peakEma.toFixed(0)}${exposureComp !== null ? ` exposure ${exposureComp}` : ''}   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
         + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
         + (lastTick
           ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
