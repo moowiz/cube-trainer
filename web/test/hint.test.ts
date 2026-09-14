@@ -11,6 +11,8 @@ describe('hintFor', () => {
   });
   it('is silent once any face is named, whatever else was refused', () => {
     expect(hintFor([small, 'too dark'], true)).toBeNull();
+    // dark evidence outranks a namer that is naming faces
+    expect(hintFor([small, 'too dark'], true, false, false, true)?.key).toBe('light');
   });
   it('is silent with no quads at all (nothing to act on)', () => {
     expect(hintFor([], false)).toBeNull();
