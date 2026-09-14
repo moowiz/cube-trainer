@@ -759,6 +759,29 @@ batch for stage 1 (keyboard grid + a second far cube). box13 fixes it (0.837);
 the batch 6-7 dip that came with it is run-to-run noise (box16), so box13
 is deployed.
 
+### The colour bank: the photos as a colour test set (2026-09-13)
+
+`train/export_colour_bank.py` writes every labelled frame at the app's
+resolution (long side 640) plus its quads and the centre colour each face
+label carries into `web/test/bank/colour/` (gitignored, 633 frames, 1244
+faces, 183 MB). `web/test/colour-bank.test.ts` warps each quad with the
+app's own rectify + robust sampler and, per capture session and per
+embedding, prints leave-one-out naming accuracy of the centres, the d'
+separation of red/orange and white/yellow, the worst pair, and the p10
+margin between co-visible centres. Perfect corners, so it isolates the
+colour half from the detector; only centres have truth (the cubes are
+scrambled), so it measures naming, not the decoder. Re-export after any
+label change; a centre under a thumb or blown out (the checker's verdict)
+is excluded.
+
+First run: the shipped `lab-crushed` is the worst of the five embeddings on
+red/orange in every warm indoor session (d' 1.6-2.0 where `lab-norm` has
+2.8-7.6), pooled naming 84.7% vs `lab-norm` 92.3%; `lab-norm` also locks
+four more replay captures (two verified 54/54) but does worse under the
+blue-monitor cast (32 vs 42 of 54 pre-decoder, both correctly refuse).
+The default was left alone pending that trade-off; the table prints on
+every `npm test`.
+
 ### Real-data coverage and what to shoot next
 
 Census of `data_real` + `data_real_val` after batch 7 (frames; range bins
