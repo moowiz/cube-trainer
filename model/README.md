@@ -194,7 +194,19 @@ heatmap at stride 4 with per-junction peaks - which is a different (and
 costlier on the phone) architecture, not a flag on this one. Keep
 `--points 4`.
 
-Deployed 2026-09-13 (late): `cubebox` = **box13** (batches 8-9 in; see the box table's ‡ note on stage-1 noise), `facekp` = **kpft7**
+Deployed 2026-09-14: `cubebox` = **box17**, `facekp` = **kpft8** - box13's and
+kpft7's recipes with batch 10 (webcam solves: camera above, plaid shirt, dim
+room) in `data_real` (530). On the 18 held-out batch-10 frames: stage 1 IoU
+0.564 -> 0.861 (72 % -> 17 % under 0.7, weakest frame 0.07 -> 0.94), stage 2
+7.19 -> 4.82 px median with 7 -> 1 of 60 faces missed; other batches flat or
+better (box: batch 7 15 % -> 7 % bad, 8 and 9 to 0 %; kp: 4.18 -> 3.84 mean
+over all 140). On a 28 s webcam solve replayed end to end: frames with a face
+133 -> 232, three faces in 23 % -> 71 % of them, detection gaps > 0.25 s
+20 -> 1, stage-1 misses 29 % -> 4 %. Corner precision on those frames is
+unchanged and blur-bound (~10 % of the edge against a rigid-cube fit;
+`docs/solve-tracking-design.md` section 9).
+
+Previously (2026-09-13 late): `cubebox` = box13 (batches 8-9 in; see the box table's ‡ note on stage-1 noise), `facekp` = kpft7
 (kp2/kpft3's recipe with batch 8 in `data_real`: kp4 scratch on
 `data_v5,data_real*20`, then the `*150` fine-tune). On the 114-frame val:
 
@@ -587,6 +599,7 @@ scanning range above) dominate the raw mean; report the in-range number too.
 | **box11** | dense | same, `data_real*80` | real photos at double weight; **deployed 2026-09-13** | 0.883 | 0.853 (96 frames) | 7.7%† | 7%† | 0.37† |
 | box12 | dense | same, `data_real*160` | past the sweet spot: synthetic val_iou drops too | 0.870 | 0.839 (96 frames) | - | - | - |
 | box13 | dense | same, `data_real*80` with batches 8-9 (457) | batch 9 0.744 -> 0.837 IoU, batch 8 0.816 -> 0.842; batches 6-7 0.82 (noise, see box16); **deployed 2026-09-13 late** | 0.877 | 0.835 (122 frames) | 12.8%‡ | 12.8%‡ | 0.05‡ |
+| **box17** | dense | box13's recipe, `data_real*80` with batch 10 (530) | batch 10 0.564 -> 0.861 IoU, 72 % -> 17 % under 0.7; batch 7 15 % -> 7 %, batches 8-9 to 0 %; **deployed 2026-09-14** | 0.875 | 0.836 (140 frames) | 9.6% | 9.6% | 0.06 |
 | box14 | dense | same, `data_real*65` (box11's real share) | batch 9 0.849 / 0% <0.7, batch 7 0.824, batch 6 0.793 - the same picture at a different mixing ratio | - | 0.828 (122 frames) | 12.8%‡ | 12.8%‡ | 0.49‡ |
 | box15 | dense | box13 minus batch 9 (427) | batch 7 0.820, batch 6 0.809, batch 9 back to 0.748: the batch 6-7 dip is not batch 9's doing | - | 0.828 (122 frames) | 8.5%‡ | 8.5%‡ | 0.09‡ |
 | box16 | dense | **box11's exact data (373) and recipe, rerun** | batch 7 0.837 / 13%, batch 6 0.818 / 12%, overall 0.829 / 12.8%: box11 was a lucky draw | - | 0.831 (122 frames) | 12.8%‡ | 12.8%‡ | 0.15‡ |
@@ -758,6 +771,32 @@ optimistic; box11 never saw them: **0.744 IoU, 25% under 0.7**, the weakest
 batch for stage 1 (keyboard grid + a second far cube). box13 fixes it (0.837);
 the batch 6-7 dip that came with it is run-to-run noise (box16), so box13
 is deployed.
+
+### Batch 10: webcam solves from above (2026-09-13, night)
+
+Two in-app solve recordings (`web/clips/solves/`, `Record` on scan.html):
+the webcam raised to look down at the cube in the lap against a plaid shirt
+in a dim room (59 stills, `v*`), then close and against skin (34, `w*`);
+both 640x480, 15 fps, motion blur. Extracted with
+`extract_frames.py --every 0.7 --dup 0 --long-side 640` - the whole-frame
+duplicate hash drops nearly every window when the cube is small, so `--dup 0`
+for clips like these. The deployed detector had collapsed on the first clip
+(stage-1 objectness p50 0.35, faces in 13 % of frames on replay): a cube of
+~80 px is ~20 px in stage 1's 160x120 input, in front of a grid-like shirt.
+
+Labelling: 93 frames, 486 geometry checks. Three frames had a stray face
+labelled down on the blanket (cleared); two mid-turn frames (a layer turned
+30-45 degrees, `v00035 w00015`) set aside in `batch10/skipped/` - a sheared
+face is neither a face label nor a negative (batch 7 convention); three
+cube-less frames at the end of the second clip imported as negatives.
+`w00021` names two opposite faces visible (harmless for the anonymous head).
+Split: 18 frames in four contiguous time blocks (`batch10/val-picks.json`,
+`labels-{train,val}.json`) -> `data_real_val` 140, `data_real` 530.
+
+Results: kpft8 (kp4 base, the `*150` fine-tune) and box17 (box13's recipe),
+numbers in the deployment note above. The first clip's frames remain the
+hardest in val (17 % of boxes still under 0.7, 4.8 px corners); the fix for
+the rest is light and distance, not labels.
 
 ### The colour bank: the photos as a colour test set (2026-09-13)
 

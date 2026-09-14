@@ -393,6 +393,29 @@ fine-tune both stages on; and a runtime fallback worth measuring - when
 stage 1 misses while a track died < 0.5 s ago, run stage 2 on the last
 padded box anyway. Cheaper still: cube closer to the camera, more light.
 
+### 7.2 Fifth and sixth recordings, and the batch-10 detector (2026-09-14)
+
+Clip 5 (camera above, cube close, plain background, 30 fps) with the old
+detector: 71 % of ticks found the cube, faces per frame 14 / 55 / 30 % -
+the regime section 1 assumes, so camera placement is settled: **above and
+close**. Clip 6, a 28 s solve in the same setup at 15 fps (dim room), live
+with the old detector vs replayed with box17 + kpft8 (batch 10 labelled from
+clips 4-5):
+
+| | old (box13 + kpft7) | new (box17 + kpft8) |
+|---|---|---|
+| frames with a face | 133 (4.7/s) | 232 (8.1/s) |
+| faces per frame 1 / 2 / 3 | 39 / 38 / 23 % | 3 / 27 / 71 % |
+| gaps > 0.25 s | 20, 13.1 s of 28.5 | 1, 0.3 s |
+| stage-1 misses | 29 % of ticks | 4 % |
+
+With the new detector this solve has ~4 sampled frames per turn at ~2 TPS
+and essentially no detection gaps, so the epoch budget of 2.1 holds even at
+15 fps. What has not changed: corner precision, ~10 % of the edge against a
+rigid-cube fit on these blurred 100 px faces (the side faces visibly
+overshoot the silhouette), and the finger occlusion of section 8. The
+reader's inputs are now: dense, three-faced, imprecise, partly covered.
+
 ## 8. Hands: occlusion, not a signal (2026-09-13)
 
 Section 7 shows the fingers cover 2-4 stickers of the visible face at all
