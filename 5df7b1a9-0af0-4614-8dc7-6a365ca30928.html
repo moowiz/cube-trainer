@@ -327,6 +327,8 @@
 
   <details class="eo-settings">
     <summary>Settings</summary>
+    <div class="eo-opt"><div><div class="lbl">Goal</div><span class="sub">EOCross: orient the edges and build the white cross in one go. Optimal solutions and hints follow the goal.</span></div>
+      <div class="eo-seg" data-set="goal"><button type="button" data-v="eo">EO</button><button type="button" data-v="cross">EOCross</button></div></div>
     <div class="eo-opt"><div><div class="lbl">Show bad edge count</div><span class="sub">Off hides the count so you recognise EO yourself.</span></div>
       <div class="eo-seg" data-set="count"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
     <div class="eo-opt"><div><div class="lbl">Mark bad edges</div><span class="sub">Dots on the edges that need flipping.</span></div>
@@ -1014,6 +1016,37 @@ function solveEO(cube){
 const SPATIAL={'1,0,0':'R','-1,0,0':'L','0,1,0':'U','0,-1,0':'D','0,0,1':'F','0,0,-1':'B'};
 function toSpatial(cube,moves){ const cen=centers(cube); return moves.map(m=>SPATIAL[key(cen[m.face])]+m.str.slice(1)).join(' '); }
 
+// ---------- EOCross solver: exact distance table in a worker (eocross-worker.js), started when the goal is EOCross ----------
+// The worker gets the same move tables the EO solver uses (TRANS) plus the home slots of the four white edges,
+// and answers with move indices into FACE_MOVES. The table takes a few seconds to build; requests queue behind it.
+const ident=e=>e.stickers.map(s=>s.c).sort().join('');
+const CROSS_IDS=edges(SOLVED).filter(e=>e.stickers.some(s=>s.c==='D')).map(ident);   // the four white edges
+const CROSS_HOME=CROSS_IDS.map(id=>SLOT_IDX[edges(SOLVED).find(e=>ident(e)===id).cfKey]);
+const crossSlots=cube=>{ const es=edges(cube); return CROSS_IDS.map(id=>SLOT_IDX[es.find(e=>ident(e)===id).cfKey]); };
+let xworker=null, xstatus='off', xdepth=0, xid=0; const xpending=new Map();   // xstatus: off | building | ready | failed
+function ensureXWorker(){
+  if(xworker||xstatus==='failed') return;
+  try{ xworker=new Worker('eocross-worker.js'); }catch(_){ xstatus='failed'; return; }
+  xstatus='building';
+  xworker.onerror=()=>{ xstatus='failed'; xworker=null; for(const [,p] of xpending) p.reject(); xpending.clear(); onXStatus(); };
+  xworker.onmessage=ev=>{ const m=ev.data;
+    if(m.type==='progress'){ xdepth=m.depth; onXStatus(); }
+    else if(m.type==='ready'){ xstatus='ready'; onXStatus(); }
+    else if(m.type==='solved'){ const p=xpending.get(m.id); if(!p) return; xpending.delete(m.id);
+      p.resolve({length:m.length,count:m.count,truncated:m.truncated,solutions:m.solutions.map(s=>s.map(i=>FACE_MOVES[i]))}); } };
+  xworker.postMessage({type:'init',perm:TRANS.map(t=>t.perm),flip:TRANS.map(t=>t.flip),home:CROSS_HOME});
+}
+function solveCross(cube){ return new Promise((resolve,reject)=>{ ensureXWorker(); if(!xworker) return reject();
+  const id=++xid; xpending.set(id,{resolve,reject}); xworker.postMessage({type:'solve',id,eo:eoCoord(cube),slots:crossSlots(cube),cap:3000}); }); }
+function requestCross(){ const c=cube; solveCross(c).then(r=>{ if(c!==cube) return; xsol=r; onXStatus(); }).catch(()=>{}); }
+const GOALS={eo:{name:'EO',solved:c=>badCount(c)===0},cross:{name:'EOCross',solved:c=>badCount(c)===0&&crossCount(c)===4}};
+const goal=()=>GOALS[settings.goal]||GOALS.eo;
+const goalSol=()=>settings.goal==='cross'?xsol:solution;   // optimal solutions for the goal; null while the worker is busy
+const xNote=()=>xstatus==='failed'?'The EOCross solver could not start (eocross-worker.js is missing).':xstatus==='ready'?'Solving…':`Building the EOCross table (${xdepth}/10)…`;
+const solLabel=()=>`${$('showSol').dataset.open?'Hide':'Show'} optimal ${goal().name} solutions`;
+function onXStatus(){ if($('showSol').dataset.open) showSolutions(); document.querySelectorAll('#eo-hints .eo-chip.open').forEach(b=>{ b.textContent=hintText(b.dataset.hint); }); }
+function goalChanged(){ if(settings.goal==='cross'&&!xsol) requestCross(); resetHints(); $('showSol').textContent=solLabel(); onXStatus(); render(); }
+
 function randomScramble(target){
   const faces='URFDLB', opp={U:'D',D:'U',R:'L',L:'R',F:'B',B:'F'};
   for(let attempt=0;attempt<400;attempt++){
@@ -1032,8 +1065,12 @@ function randomScramble(target){
 }
 
 // ---------- state ----------
-const settings={count:'off',mark:'off',view:'3d',target:'any'};
-let cube=null, shown=null, scramble='', startAt=null, endAt=null, solution=null, assisted=false, recorded=false;
+const settings={count:'off',mark:'off',view:'3d',target:'any',goal:'eo'};
+try{ Object.assign(settings,JSON.parse(localStorage.getItem('zz-eo-settings')||'{}')); }catch(_){}
+const saveSettings=()=>{ try{ localStorage.setItem('zz-eo-settings',JSON.stringify(settings)); }catch(_){} };
+// solution: every optimal EO solution (instant). xsol: every optimal EOCross solution for the same scramble,
+// from the worker (null until it answers, or while the goal is EO and the worker was never started)
+let cube=null, shown=null, scramble='', startAt=null, endAt=null, solution=null, xsol=null, assisted=false, recorded=false;
 const results=[];
 let view={rx:28,ry:-35};
 const DEFAULT_VIEW={rx:28,ry:-35};
@@ -1046,8 +1083,9 @@ const active=()=>!panel.hidden;
 function loadScramble(scr){
   scramble=scr.trim(); cube=solvedCube(); applyAlg(cube,scramble); shown=null;
   startAt=null; endAt=null; assisted=false; recorded=false; solution=solveEO(cube);
+  xsol=null; if(settings.goal==='cross'||xworker) requestCross();
   $('sol').value=''; $('result').classList.remove('show'); $('handoff').innerHTML='';
-  const sb=$('showSol'); sb.textContent='Show optimal EO solutions'; delete sb.dataset.open; flash('');
+  const sb=$('showSol'); delete sb.dataset.open; sb.textContent=solLabel(); flash('');
   resetHints(); render();
 }
 function newScramble(){ loadScramble(randomScramble(settings.target)||randomScramble('any')); }
@@ -1075,9 +1113,10 @@ function check(){
   const t=elapsed(); const ts=t===null?'':`, ${t.toFixed(2)}s`;
   const r=$('result'); $('handoff').innerHTML=''; $('sols').innerHTML='';
   if(b>0){ $('rTitle').textContent=`EO not solved yet: ${b} bad edge${b===1?'':'s'}`; $('rSub').textContent='The cube shows the state after your moves. Turn on the marks under Settings to see which edges are wrong.'; r.classList.add('show'); render(); return; }
-  if(!recorded){ recorded=true; results.push({t:t??0,n,opt:solution.length,assisted}); }
-  if(cr<4){ $('rTitle').textContent=`EO solved${ts}`; $('rSub').textContent=`${n} moves so far (optimal EO is ${solution.length}). Cross is ${cr}/4: add the cross moves to hand the cube to F2L.`; r.classList.add('show'); render(); return; }
-  $('rTitle').textContent=`EOCross done in ${n} moves${ts}`; $('rSub').textContent=`Optimal EO alone is ${solution.length} moves.${assisted?' You peeked at a solution.':''}`;
+  if(goal().solved(c)&&!recorded){ recorded=true; results.push({t:t??0,n,opt:settings.goal==='cross'&&xsol?xsol.length:solution.length,assisted}); }
+  const optX=xsol?`, optimal EOCross is ${xsol.length}`:'';
+  if(cr<4){ $('rTitle').textContent=`EO solved${ts}`; $('rSub').textContent=`${n} moves so far (optimal EO is ${solution.length}${optX}). Cross is ${cr}/4: add the cross moves to hand the cube to F2L.`; r.classList.add('show'); render(); return; }
+  $('rTitle').textContent=`EOCross done in ${n} moves${ts}`; $('rSub').textContent=`Optimal EO alone is ${solution.length} moves${optX}.${assisted?' You peeked at a solution.':''}`;
   const btn=document.createElement('button'); btn.type='button'; btn.className='btn eo-primary'; btn.style.marginTop='8px';
   btn.textContent='Continue to F2L with this cube';
   btn.addEventListener('click',()=>ZZ.f2l.start(scramble,txt));
@@ -1089,7 +1128,7 @@ function check(){
 // and opposite faces commute (R L = L R), so write each such pair in a fixed order
 const ORDER={U:0,D:1,R:0,L:1,F:0,B:1}, OPP={U:'D',D:'U',R:'L',L:'R',F:'B',B:'F'};
 function canonical(sol){
-  const solves=ms=>{ const c=cloneCube(cube); for(const m of ms) applyMove(c,m); return badCount(c)===0; };
+  const solves=ms=>{ const c=cloneCube(cube); for(const m of ms) applyMove(c,m); return goal().solved(c); };
   const free=[];
   const familySolves=()=>{ for(let bits=0;bits<1<<free.length;bits++){
     const alt=sol.slice(); free.forEach((j,b)=>{ if(bits>>b&1) alt[j]={face:sol[j].face,times:4-sol[j].times,str:''}; });
@@ -1099,34 +1138,45 @@ function canonical(sol){
   for(let i=0;i+1<shown.length;i++) if(OPP[shown[i].face]===shown[i+1].face&&ORDER[shown[i].face]>ORDER[shown[i+1].face]) [shown[i],shown[i+1]]=[shown[i+1],shown[i]];
   return {txt:toSpatial(cube,shown),moves:shown};
 }
-// the moves in the box up to the point EO is first solved, or null if they aren't plain face turns
-function userEO(){
+// the moves in the box up to the point the goal is first reached, or null if they aren't plain face turns
+function userSolve(){
   const toks=$('sol').value.replace(/[()]/g,' ').match(/[URFDLBMESxyzurfdlb]w?[2']*/g)||[];
   const c=cloneCube(cube), path=[];
   for(const t of toks){
-    if(badCount(c)===0) break;
+    if(goal().solved(c)) break;
     const m=parseMove(t.replace(/^([RLUDFB])w/,(x,f)=>f.toLowerCase())); if(!m||!'URFDLB'.includes(m.face)) return null;
     applyMove(c,m); path.push(m);
   }
-  return badCount(c)===0?path:null;
+  return goal().solved(c)?path:null;
+}
+// how a line is filed: EO by its F/B plan (the hint text); EOCross by how many cross-only moves follow the
+// last EO turn (0 = the last F/B turn drops the final cross edge in, the commonest shape of an optimal EOCross)
+function groupOf(moves){
+  if(settings.goal!=='cross') return fbPlans.counts(moves);
+  let last=-1; moves.forEach((m,i)=>{ if('FB'.includes(m.face)&&m.times!==2) last=i; });
+  const tail=moves.length-1-last;
+  return {counts:[tail],key:'t'+tail,text:tail===0?'the last EO turn finishes the cross':`${tail} cross move${tail===1?'':'s'} after EO`};
 }
 const PER_GROUP=6;
 function showSolutions(){
   const el=$('sols'); el.innerHTML='';
-  // group the families by F/B plan (the "Hint: F/B plan" text), biggest family first within a group
+  const gs=goalSol();
+  if(!gs){ $('rTitle').textContent=`Optimal ${goal().name}`; $('rSub').textContent=xNote(); return; }
+  $('rTitle').textContent=`Optimal ${goal().name}: ${gs.length} moves`;
+  // group the families (EO: by F/B plan, biggest family first; EOCross: by cross tail, shortest first)
   const groups=new Map(); let starred=false;
-  // the plan is read off the reordered moves (F' B' and B' F' are one line, so they must be one plan too);
-  // a family whose starred directions would give different plans is filed under its first member's
+  // the group is read off the reordered moves (F' B' and B' F' are one line, so they must be one group too);
+  // a family whose starred directions would give different groups is filed under its first member's
   const fam=new Map();
-  for(const sol of solution.solutions){
+  for(const sol of gs.solutions){
     const c=canonical(sol), f=fam.get(c.txt); if(f){ f.n++; continue; }
-    fam.set(c.txt,{n:1,plan:fbPlans.counts(c.moves)}); if(c.txt.includes('*')) starred=true;
+    fam.set(c.txt,{n:1,plan:groupOf(c.moves)}); if(c.txt.includes('*')) starred=true;
   }
   for(const [txt,f] of fam){ const g=groups.get(f.plan.key)||{plan:f.plan,lines:new Map()}; groups.set(f.plan.key,g); g.lines.set(txt,f.n); }
-  const mine=userEO(); const mineTxt=mine&&mine.length===solution.length?canonical(mine).txt:null;
-  const total=solution.solutions.length, families=[...groups.values()].reduce((n,g)=>n+g.lines.size,0);
-  $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${families<total?`, ${families} lines once turns that work either way (*) and commuting pairs are merged`:''}. From the scrambled state, white down.${mineTxt?' Yours is marked.':''}`;
-  const order=[...groups.values()].sort((a,b)=>b.lines.size-a.lines.size);
+  const mine=userSolve(); const mineTxt=mine&&mine.length===gs.length?canonical(mine).txt:null;
+  const total=gs.count??gs.solutions.length, listed=gs.solutions.length, families=[...groups.values()].reduce((n,g)=>n+g.lines.size,0);
+  $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${gs.truncated?` (first ${listed} listed)`:''}${families<listed?`, ${families} line${families===1?'':'s'} once turns that work either way (*) and commuting pairs are merged`:''}. From the scrambled state, white down.${mineTxt?' Yours is marked.':''}`;
+  const order=[...groups.values()].sort((a,b)=>settings.goal==='cross'?a.plan.counts[0]-b.plan.counts[0]:b.lines.size-a.lines.size);
   for(const g of order){
     const box=document.createElement('div'); box.className='grp';
     if(order.length>1||g.plan.counts.length){ const h=document.createElement('div'); h.className='grp-h';
@@ -1151,9 +1201,9 @@ function flash(m){ $('flash').textContent=m; }
 const HINT_LABEL={bad:'Hint: bad edges',len:'Hint: move count',plan:'Hint: F/B plan'};
 function resetHints(){ document.querySelectorAll('#eo-hints .eo-chip').forEach(b=>{ b.textContent=HINT_LABEL[b.dataset.hint]; b.classList.remove('open'); }); }
 // for each optimal solution: how many bad edges sit on the face at each F/B quarter turn
-function fbPlans(){
+function fbPlans(sols){
   const seen=new Set(), out=[];
-  for(const sol of solution.solutions){
+  for(const sol of sols){
     const p=fbPlans.counts(sol); if(seen.has(p.key)) continue; seen.add(p.key); out.push(p.counts);
   }
   return out;
@@ -1170,8 +1220,9 @@ fbPlans.counts=sol=>{
 function hintText(kind){
   const b=badCount(cube);
   if(kind==='bad') return `${b} bad edge${b===1?'':'s'}`;
-  if(kind==='len') return `${solution.length} moves`;
-  const plans=fbPlans();
+  if(kind==='len') return settings.goal==='cross'?`EO ${solution.length} · EOCross ${xsol?xsol.length:'…'}`:`${solution.length} moves`;
+  const gs=goalSol(); if(!gs) return xNote();
+  const plans=fbPlans(gs.solutions);
   return plans.map(p=>`${p.length} F/B turn${p.length===1?'':'s'}: ${p.join(' then ')}`).join(' · ')||'no F/B turns needed';
 }
 $('hints').addEventListener('click',e=>{ const b=e.target.closest('.eo-chip'); if(!b||b.classList.contains('open')) return;
@@ -1234,11 +1285,11 @@ function render(){
   $('scramble').innerHTML='Scramble: <span>'+scramble+'</span>';
   const fc=ZZ.faceColorName||(f=>({F:'blue',B:'green',R:'red'}[f]));
   $('orient').textContent=`Apply it to a solved cube held white down with ${fc('F')} facing you (${fc('R')} on the right), the same way you hold it for F2L. The picture shows what you should see.`;
-  $('sub').textContent=`Orient every edge to the ${fc('F')}/${fc('B')} axis. White down, ${fc('F')} facing you.`;
+  $('sub').textContent=`Orient every edge to the ${fc('F')}/${fc('B')} axis${settings.goal==='cross'?' and build the white cross':''}. White down, ${fc('F')} facing you.`;
   $('peekBack').style.display=settings.view==='3d'?'':'none'; $('resetView').style.display=settings.view==='3d'?'':'none'; $('hint').style.display=settings.view==='3d'?'':'none';
   const st=$('stats');
   if(results.length){ const mt=results.reduce((a,r)=>a+r.t,0)/results.length, mn=results.reduce((a,r)=>a+r.n,0)/results.length, mo=results.reduce((a,r)=>a+r.opt,0)/results.length;
-    st.textContent=`This session: ${results.length} solved, mean ${mt.toFixed(2)}s, ${mn.toFixed(1)} moves (optimal EO mean ${mo.toFixed(1)}).`; } else st.textContent='';
+    st.textContent=`This session: ${results.length} solved, mean ${mt.toFixed(2)}s, ${mn.toFixed(1)} moves (optimal ${goal().name} mean ${mo.toFixed(1)}).`; } else st.textContent='';
 }
 function tick(){ const t=elapsed(); $('timer').firstChild.nodeValue=t===null?'0.00':t.toFixed(2); requestAnimationFrame(tick); }
 
@@ -1255,9 +1306,8 @@ document.addEventListener('keydown',ev=>{
 $('next').onclick=newScramble; $('timerBtn').onclick=toggleTimer; $('timerReset').onclick=resetTimer;
 $('check').onclick=check; $('clear').onclick=()=>{ $('sol').value=''; shown=null; $('result').classList.remove('show'); flash(''); render(); };
 $('showSol').onclick=()=>{ const r=$('result'), b=$('showSol');
-  if(r.classList.contains('show')&&b.dataset.open){ r.classList.remove('show'); delete b.dataset.open; b.textContent='Show optimal EO solutions'; return; }
-  assisted=true; b.dataset.open='1'; b.textContent='Hide optimal EO solutions';
-  $('rTitle').textContent=`Optimal EO: ${solution.length} moves`; $('handoff').innerHTML='';
+  if(r.classList.contains('show')&&b.dataset.open){ r.classList.remove('show'); delete b.dataset.open; b.textContent=solLabel(); return; }
+  assisted=true; b.dataset.open='1'; b.textContent=solLabel(); $('handoff').innerHTML='';
   showSolutions(); r.classList.add('show'); };
 $('sols').addEventListener('click',e=>{
   const more=e.target.closest('button[data-more]'); if(more){ for(const d of more.parentNode.querySelectorAll('div[data-alg]')) d.hidden=false; more.remove(); return; }
@@ -1275,8 +1325,8 @@ svg.addEventListener('pointerup',()=>drag=null); svg.addEventListener('pointerca
 
 // settings segments
 document.querySelectorAll('#eo-panel .eo-seg').forEach(seg=>seg.addEventListener('click',e=>{
-  const b=e.target.closest('button'); if(!b) return; settings[seg.dataset.set]=b.dataset.v; syncSeg();
-  if(seg.dataset.set==='target') newScramble(); else render();
+  const b=e.target.closest('button'); if(!b) return; settings[seg.dataset.set]=b.dataset.v; syncSeg(); saveSettings();
+  if(seg.dataset.set==='target') newScramble(); else if(seg.dataset.set==='goal') goalChanged(); else render();
 }));
 function syncSeg(){ document.querySelectorAll('#eo-panel .eo-seg').forEach(seg=>seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===settings[seg.dataset.set]))); }
 
