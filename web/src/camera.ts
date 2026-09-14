@@ -126,6 +126,39 @@ export class Camera {
     return { width: this.video.videoWidth, height: this.video.videoHeight };
   }
 
+  /**
+   * Step the camera's exposure compensation by `dir` (+1 brighter, -1
+   * darker), one advertised step. Resolves to the value applied, or null
+   * when the camera has no such control (a clip, a webcam driver without
+   * it) or the value is already at the end of its range. Why: a webcam's
+   * metering sees the whole room - an evening session with a ceiling lamp
+   * in the frame read the cube at RGB (40, 27, 14) while the lamp was
+   * correctly exposed (scan-debug-1789348371807); the cube is the only
+   * thing this app cares about, so its brightness drives the exposure.
+   */
+  async nudgeExposure(dir: 1 | -1): Promise<number | null> {
+    const track = this.stream_?.getVideoTracks()[0];
+    if (!track || typeof track.getCapabilities !== 'function') return null;
+    let caps: { exposureCompensation?: { min?: number; max?: number; step?: number } };
+    try {
+      caps = track.getCapabilities() as typeof caps;
+    } catch {
+      return null;
+    }
+    const range = caps.exposureCompensation;
+    if (!range || range.min === undefined || range.max === undefined || range.max <= range.min) return null;
+    const step = range.step && range.step > 0 ? range.step : (range.max - range.min) / 6;
+    const current = (track.getSettings() as { exposureCompensation?: number }).exposureCompensation ?? 0;
+    const next = Math.min(range.max, Math.max(range.min, current + dir * step));
+    if (Math.abs(next - current) < step / 2) return null;
+    try {
+      await track.applyConstraints({ advanced: [{ exposureCompensation: next } as MediaTrackConstraintSet] });
+    } catch {
+      return null;
+    }
+    return next;
+  }
+
   /** Stop all tracks and detach the stream. Safe to call twice. */
   stop(): void {
     this._running = false;

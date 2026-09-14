@@ -12,9 +12,11 @@ export function srgbToLab(r: number, g: number, b: number): Lab {
     c /= 255;
     return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   };
-  const rl = lin(r);
-  const gl = lin(g);
-  const bl = lin(b);
+  return linearRgbToLab(lin(r), lin(g), lin(b));
+}
+
+/** Linear sRGB (0-1, D65 primaries) -> CIE Lab. */
+export function linearRgbToLab(rl: number, gl: number, bl: number): Lab {
   let x = 0.4124564 * rl + 0.3575761 * gl + 0.1804375 * bl;
   const y = 0.2126729 * rl + 0.7151522 * gl + 0.072175 * bl;
   let z = 0.0193339 * rl + 0.119192 * gl + 0.9503041 * bl;

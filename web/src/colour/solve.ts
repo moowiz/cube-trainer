@@ -12,7 +12,7 @@
 import { validateState, rotateCells } from '../state';
 import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
-import { DEFAULT_EMBEDDING, LAB_CRUSHED, LAB_HALF, LOGCHROMA, type Embedding } from './colorspace';
+import { DEFAULT_EMBEDDING, LAB_CRUSHED, LAB_NORM, LOGCHROMA, type Embedding } from './colorspace';
 import { coloursToFacelets, decode } from './decode';
 import { aggregateTracks, coVisible } from './evidence';
 import { groupTracks, reconcileRotations } from './faces';
@@ -392,7 +392,11 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
 // So the solve runs in all three and the certificate chooses: legal first,
 // then the largest delta, then the fewest changes. Three solves in the
 // worker cost a few hundred ms; a wrong space costs a session.
-export const ENSEMBLE: Embedding[] = [LAB_CRUSHED, LOGCHROMA, LAB_HALF];
+// DECISION 2026-09-13 (evening webcam captures): lab-norm and logchroma each
+// lock 8 of the 12 evidence fixtures, lab-crushed 5, lab-half 6; the union
+// of the first three covers every fixture any space locks, lab-half adds
+// none. Every fixture where two spaces lock has them agree on the cube.
+export const ENSEMBLE: Embedding[] = [LAB_NORM, LOGCHROMA, LAB_CRUSHED];
 
 export function solveBest(log: EvidenceLog, embeddings: readonly Embedding[] = ENSEMBLE, opts: Omit<SolveOptions, 'embedding'> = {}): Solution {
   const t0 = performance.now();

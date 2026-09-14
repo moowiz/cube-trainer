@@ -110,24 +110,30 @@ describe('colour solver replay', () => {
 });
 
 /**
+ * A capture stores each reading's weight as computed by the page at the
+ * time; the replay re-derives it from the stored patch statistics with the
+ * CURRENT patchWeight so a weighting change is measured here before it
+ * ships. The quad-level factor (blur, motion, view, size, age) is recovered
+ * as the stored weight over the patch factor of that capture's version.
+ *
  * v1 captures (no `version`) computed clipFrac as "any channel >= 250",
  * which is 1.0 for every orange sticker on the phone, and weighted those
- * readings zero. Recover: a reading whose median colour is not near white
- * was not glare; its quad weight is what its unclipped siblings imply.
+ * readings zero: a reading whose median colour is not near white was not
+ * glare, so its clipFrac is reset first.
  */
-function migrateV1(log: EvidenceLog): EvidenceLog {
-  const oldPatch = (r: Reading): number => {
+function reweight(log: EvidenceLog, version: number | undefined): EvidenceLog {
+  const patchAtCapture = (r: Reading): number => {
     const glare = r.clipFrac > 0.6 ? 0 : 1 - r.clipFrac;
     const seam = Math.max(0.1, 1 - 2 * r.darkFrac);
     const flat = Math.exp(-r.spread / 8);
-    const cens = r.censored.reduce((w, c) => (c ? w * 0.5 : w), 1);
+    const cens = r.censored.reduce((w, c) => (c ? w * (version ? 0.8 : 0.5) : w), 1);
     return glare * seam * flat * cens;
   };
   for (const q of log.quads) {
-    const qw = q.readings.filter((r) => r.clipFrac === 0 && oldPatch(r) > 0).map((r) => r.w / oldPatch(r));
+    const qw = q.readings.filter((r) => r.clipFrac === 0 && patchAtCapture(r) > 0).map((r) => r.w / patchAtCapture(r));
     const quadW = qw.length ? qw.sort((a, b) => a - b)[qw.length >> 1]! : 0.5;
     for (const r of q.readings) {
-      if (Math.min(...r.rgb) < 235) r.clipFrac = 0;
+      if (!version && Math.min(...r.rgb) < 235) r.clipFrac = 0;
       r.w = quadW * patchWeight({ rgb: r.rgb, lab: r.lab, clipFrac: r.clipFrac, darkFrac: r.darkFrac, spread: r.spread, censored: r.censored, n: 144 });
     }
   }
@@ -144,7 +150,7 @@ describe('evidence-log captures', () => {
   for (const file of files) {
     it(file, { timeout: 30000 }, () => {
       const d = read(`evidence/${file}`) as { version?: number; evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string | null; note?: string };
-      if (!d.version) migrateV1(d.evidenceLog);
+      reweight(d.evidenceLog, d.version);
       // `truth` is a confirmed state; `scrambleTruth` is what the page's
       // scramble produces from a solved cube, present only when the user
       // ticked "I applied it" before capturing

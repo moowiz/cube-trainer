@@ -77,6 +77,29 @@ also re-checked against the decoded centre colours and the decode redone
 if it moves. The palette is fitted only to tracks of lettered faces from
 the second round on (a hand beside the cube is a track too).
 
+**Evening webcam session (two "stuck" captures, ceiling lamp in frame):**
+the cube was backlit and read at RGB (40, 27, 14) on whole faces, and the
+desktop sampled every camera frame. Three findings. (1) Lab chroma is
+proportional to intensity in the dark (f is linear below Y = 0.9%): a red
+sticker at (52, 17, 10) has a,b (13, 11) and every dark sticker collapses
+onto white, in logchroma too (its soft eps is 5/255). New embedding
+`lab-norm` scales the reading's linear RGB to a fixed luminance before
+Lab; it locks 8 of the 12 evidence fixtures, best margins on the seven
+truths, and agrees with every other space wherever two lock. The ensemble
+is now lab-norm, logchroma, lab-crushed. (2) Readings carry a
+signal-to-noise weight, quadratic in the brightest channel up to 80: near-
+black readings outnumbered lit ones and the palette fitted dark greys. The
+replay test now re-derives every reading's weight from its stored patch
+statistics, so weight changes are measured on the fixtures before they
+ship. (3) The page samples at most one frame per 80 ms (the 1500-quad
+window was 20 s at 30 samples/s, the solve 1 s), shows "more light" from
+the evidence itself (running median of the brightest sampled channel below
+55) whatever the old namer says, and nudges the camera's exposure
+compensation toward the cube's brightness where the track offers it. The
+darker capture still refuses (red, orange and a brown reading are not
+separable in it) - correctly; the other locks in logchroma alone. Neither
+has a truth.
+
 Design only, as written before the implementation. Written against `docs/colour-pipeline-postmortem.md` (the
 failure log) and `docs/rubiks-vision-analysis.md` (the comparable
 scanner). Read both first; this document does not repeat them.

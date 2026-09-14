@@ -27,9 +27,16 @@ const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: strin
  * `noCube` is stage 1's miss (model/PORTRAIT-DESIGN.md section 3.2): the
  * detection tick produced nothing, so there are no reasons to read and the
  * tracker is decaying - the banner is the only thing that says why.
+ *
+ * `evidenceDark` comes from the readings themselves (scan-main's running
+ * median of the brightest channel of what is being sampled) and wins over
+ * everything: the namer happily names a face read at RGB (40, 27, 14), and
+ * the solver then spends a minute failing to find a legal cube in noise
+ * (scan-debug-1789348371807) with no banner at all.
  */
 export function hintFor(reasons: readonly string[], anyFaceNamed: boolean, cubeTooSmall = false,
-                        noCube = false): Hint | null {
+                        noCube = false, evidenceDark = false): Hint | null {
+  if (evidenceDark) return { key: 'light', text: HINTS[1]!.text };
   if (anyFaceNamed) return null;
   // The localizer saw a cube whose whole silhouette is under the face floor:
   // no face can be big enough, whether or not the face detector fired.

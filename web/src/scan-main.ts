@@ -82,6 +82,22 @@ const UI_EVERY_MS = 250;
 // recent duration (a desktop solves in 200 ms and re-solves 3x/s, a phone
 // at 1.5 s settles at one every 2 s).
 const SOLVE_MIN_MS = 300;
+// DECISION: a frame is sampled only SAMPLE_MIN_MS after the last sampled
+// one. A desktop detects every camera frame (30/s) and consecutive frames
+// are the same look at the same stickers: sampling them all filled the
+// 1500-quad log window in 20 s (the design assumed ~2 ticks/s and minutes)
+// and took the solve to 1 s, while nEff saturated on frame-to-frame copies
+// rather than independent looks. 12 samples/s is the phone's own pace.
+const SAMPLE_MIN_MS = 80;
+// The evidence is too dark to read when the running median of the
+// brightest channel of what is being sampled sits below this (sRGB): the
+// SNR weight (evidence.ts BRIGHT_FULL) has such readings at a tenth of
+// their weight, and the palette fit cannot separate colours in them
+// (scan-debug-1789348371807 read whole faces at RGB (40, 27, 14)).
+const DARK_PEAK = 55;
+// Exposure steps are at least this far apart so the camera's own control
+// loop settles between them (one nudge is one advertised step).
+const EXPOSURE_HOLD_MS = 900;
 const TICK_HISTORY = 120;    // detection ticks kept for Capture debug (~1 min at 2 fps of ticks)
 // Frames kept frozen behind the live camera. The view lags the camera by
 // the detector's latency (measured, in frames) so a detection is applied
@@ -272,6 +288,11 @@ let paused = false;
 /** The quads actually sampled this frame (source px, refined) and their sampling plan, for the overlay. */
 let sampledQuads: { track: number; quad: [number, number][]; plan: CellPlan }[] = [];
 let lastSolveTs = 0;
+let lastSampleTs = -Infinity;
+let peakEma = 255;         // running median-ish of the brightest channel of sampled readings
+let clipEma = 0;           // running mean of the sampled readings' clipped fraction
+let exposureAt = 0;        // when the camera's exposure compensation was last nudged
+let exposureComp: number | null = null;   // the value applied (null: never / not supported)
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -466,6 +487,13 @@ sampler.onSampled = (r) => {
   log.quads.push(...r.quads);
   for (const p of pairs) log.pairings.push({ frame: r.frame, ...p });
   sampledQuads = r.refined;
+  // brightness of what was read this frame, for the dark hint and the exposure loop
+  const peaks = r.quads.flatMap((q) => q.readings.map((x) => Math.max(x.rgb[0], x.rgb[1], x.rgb[2]))).sort((a, b) => a - b);
+  if (peaks.length) {
+    const clip = r.quads.flatMap((q) => q.readings.map((x) => x.clipFrac)).reduce((a, b) => a + b, 0) / peaks.length;
+    peakEma = peakEma === 255 && peaks.length ? peaks[peaks.length >> 1]! : 0.8 * peakEma + 0.2 * peaks[peaks.length >> 1]!;
+    clipEma = 0.8 * clipEma + 0.2 * clip;
+  }
   for (const q of r.refined) lastOffset.set(q.track, q.offset);
   // mirror to the worker before trimming so both logs trim identically
   solver.sync(log);
@@ -668,7 +696,8 @@ function loop(ts: number, gen: number): void {
       // the pixels the detector saw (gone from the ring only after a
       // latency spike longer than the ring - then this tick is not read)
       const src = ring.get(applied!.frame);
-      if (fresh.length && src && !sampler.busy) {
+      if (fresh.length && src && !sampler.busy && src.ts - lastSampleTs >= SAMPLE_MIN_MS) {
+        lastSampleTs = src.ts;
         const tracks: SampleTrack[] = fresh.map((t) => {
           // corners AT that frame: the filtered ones when the view is on it,
           // the raw measurement when the tick was applied late (the filtered
@@ -718,7 +747,19 @@ function loop(ts: number, gen: number): void {
     if (samplesChk.checked) drawSamplePatches();
     // Banner for refusals the user can fix (too far, too dark, glare).
     const reasons = lastTick?.result?.unnamed.map((u) => u.reason).filter(isQualityRefusal) ?? [];
-    const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube), ts);
+    const dark = confident.length > 0 && !locked && peakEma < DARK_PEAK;
+    const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube, dark), ts);
+    // Cube-metered exposure: the camera's own metering weighs the whole
+    // frame; when the stickers being read are dark (or blown out) ask the
+    // camera for one step more (less), where it offers exposure
+    // compensation at all - a no-op elsewhere.
+    if (!clipUrl && confident.length > 0 && !locked && ts - exposureAt >= EXPOSURE_HOLD_MS) {
+      const dir = dark ? 1 : clipEma > 0.3 ? -1 : 0;
+      if (dir) {
+        exposureAt = ts;
+        void camera.nudgeExposure(dir).then((v) => { if (v !== null) exposureComp = v; });
+      }
+    }
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
     fps.tick();
@@ -729,7 +770,7 @@ function loop(ts: number, gen: number): void {
       updateFillUI();
       fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
       statsEl.textContent =
-        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
+        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   peak ${peakEma.toFixed(0)}${exposureComp !== null ? ` ev ${exposureComp > 0 ? '+' : ''}${exposureComp}` : ''}   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
         + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
         + (lastTick
           ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
@@ -896,6 +937,9 @@ $('reset').addEventListener('click', () => {
   hintEl.hidden = true;
   stage1Misses = ticks = lateTicks = 0;
   sampledQuads = [];
+  lastSampleTs = -Infinity;
+  peakEma = 255;
+  clipEma = 0;
   renderedSolution = null;
   attemptEl.replaceChildren();
   tickHistory.length = 0;
@@ -929,7 +973,7 @@ captureBtn.addEventListener('click', () => {
     params: DEFAULT_PARAMS,
     locked: !!locked,
     stats: statsEl.textContent,
-    timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
+    timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, sampleMinMs: SAMPLE_MIN_MS, peak: +peakEma.toFixed(0), clip: +clipEma.toFixed(2), exposureComp, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
   const post = params.get('post');
   const sink = post

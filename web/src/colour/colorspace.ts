@@ -6,11 +6,12 @@
 // the "white is the brightest sticker on any face that has one" information
 // the old crushed-L space threw away.
 
+import { linearRgbToLab } from '../color';
 import { CHROMA_KNEE, CHROMA_SLOPE } from '../state';
 import type { Lab } from '../types';
 import type { RGB, Vec3 } from './types';
 
-export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half';
+export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half' | 'lab-norm';
 
 export interface Embedding {
   name: EmbeddingName;
@@ -97,8 +98,41 @@ export function labWeighted(name: EmbeddingName, w: number): Embedding {
 export const LAB_CRUSHED: Embedding = labWeighted('lab-crushed', 0.15);
 export const LAB_HALF: Embedding = labWeighted('lab-half', 0.5);
 
+// Lab of the reading scaled to a fixed luminance in LINEAR light, with the
+// raw face-relative lightness crushed as in lab-crushed. Why: Lab chroma is
+// proportional to intensity in the dark (f is linear below Y = 0.9%), so a
+// red sticker read at RGB (52, 17, 10) on a backlit cube has a,b (13, 11)
+// where the same sticker in the light has (60, 45): every dark sticker
+// collapses onto white and a webcam session in an evening room
+// (scan-debug-1789348371807) fits a palette of dark greys. Scaling the
+// linear RGB first puts the dark reading at (63, 52) - the multiplicative
+// model exact for shading and exposure, wrong only where the camera's black
+// level has clipped a channel (a reading's weight, not this map, carries
+// that). The luminance floor keeps a black seam from being blown up into
+// a random hue.
+const NORM_Y = 0.3;
+const NORM_Y_FLOOR = 0.002;
+
+export const LAB_NORM: Embedding = {
+  name: 'lab-norm',
+  chroma: [1, 2],
+  embedQuad(rgb, lab) {
+    const medL = median(lab.map((c) => c.L));
+    return rgb.map(([r, g, b], i) => {
+      const rl = srgbToLinear(r);
+      const gl = srgbToLinear(g);
+      const bl = srgbToLinear(b);
+      const y = 0.2126729 * rl + 0.7151522 * gl + 0.072175 * bl;
+      const k = NORM_Y / Math.max(y, NORM_Y_FLOOR);
+      const n = linearRgbToLab(rl * k, gl * k, bl * k);
+      return [(lab[i]!.L - medL) * 0.15, n.a, n.b];
+    });
+  },
+};
+
 export const EMBEDDINGS: Record<EmbeddingName, Embedding> = {
   logchroma: LOGCHROMA,
+  'lab-norm': LAB_NORM,
   'lab-rel': LAB_REL,
   'lab-crushed': LAB_CRUSHED,
   'lab-half': LAB_HALF,

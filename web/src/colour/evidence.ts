@@ -55,8 +55,21 @@ export function patchWeight(p: PatchStats): number {
   // a censored channel is a bound, not a value; MEASURED: every orange
   // reading on the phone has R at 255, so this must stay a mild discount
   const censored = p.censored.reduce((w, c) => (c ? w * 0.8 : w), 1);
-  return glare * seam * flat * censored;
+  // signal-to-noise: the sensor's noise is a few levels whatever the
+  // exposure, so a reading's chromaticity variance goes as 1/intensity^2 -
+  // inverse-variance weighting is quadratic in the brightest channel up to
+  // BRIGHT_FULL. MEASURED: a webcam session in an evening room
+  // (scan-debug-1789348371807) read whole faces at RGB (40, 27, 14); at
+  // equal weight those near-black readings outnumbered the lit ones and the
+  // palette fitted dark greys
+  const peak = Math.max(p.rgb[0], p.rgb[1], p.rgb[2]);
+  const bright = Math.min(1, (peak / BRIGHT_FULL) ** 2);
+  return glare * seam * flat * censored * Math.max(BRIGHT_MIN, bright);
 }
+
+/** Brightest channel (sRGB 0-255) at and above which a reading has full signal-to-noise weight. */
+export const BRIGHT_FULL = 80;
+export const BRIGHT_MIN = 0.02;
 
 export function makeReading(cell: number, p: PatchStats, quadW: number): Reading {
   return {
@@ -76,9 +89,11 @@ export function emptyLog(): EvidenceLog {
 }
 
 // DECISION: the log is capped so a long session stays a bounded solve. At
-// ~2 detection ticks/s and up to 3 quads each, 1500 quads is 4+ minutes of
-// scanning; the oldest quads (and the pairings/events of frames that no
-// longer have quads) drop first.
+// the page's sampling pace (SAMPLE_MIN_MS, ~12 sampled frames/s) and up to
+// 3 quads each, 1500 quads is 40+ seconds of scanning; the oldest quads
+// (and the pairings/events of frames that no longer have quads) drop
+// first. (Sampling every detection frame at 30/s filled it in 20 s, which
+// is how a desktop session forgot the faces it started with.)
 export const LOG_MAX_QUADS = 1500;
 
 export function trimLog(log: EvidenceLog): { quads: number; pairings: number; events: number } {
