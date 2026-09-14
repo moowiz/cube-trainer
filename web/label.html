@@ -216,31 +216,45 @@
     position: fixed;
     display: none;
     z-index: 70;
+    user-select: none;
+  }
+  #ctxMenu svg { display: block; overflow: visible; filter: drop-shadow(0 4px 10px rgba(0,0,0,.6)); }
+  #ctxMenu .wedge { stroke: #0a0a0a; stroke-width: 1.5; opacity: .92; cursor: pointer; transition: opacity .08s; }
+  #ctxMenu .wedge.hot { opacity: 1; stroke: #fff; stroke-width: 2.5; }
+  #ctxMenu .wl { font-weight: 700; font-size: 15px; pointer-events: none; }
+  #ctxMenu .wm { font-size: 9px; font-weight: 700; pointer-events: none; }
+  #ctxMenu .hub { fill: #202020; stroke: #444; stroke-width: 1.5; cursor: pointer; }
+  #ctxMenu .hub.hot { stroke: #888; }
+  #ctxMenu .hl { font-weight: 700; font-size: 13px; fill: var(--muted); pointer-events: none; }
+  #ctxMenu .sub {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     background: #202020;
     border: 1px solid #444;
     border-radius: 6px;
-    padding: 4px;
-    min-width: 170px;
+    padding: 3px;
+    min-width: 150px;
     box-shadow: 0 6px 20px rgba(0,0,0,.5);
   }
   #ctxMenu .mi {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 7px 10px;
+    padding: 5px 9px;
     border-radius: 4px;
     cursor: pointer;
     white-space: nowrap;
   }
   #ctxMenu .mi:hover { background: #333; }
   #ctxMenu .sw {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 3px;
     border: 1px solid rgba(0,0,0,.6);
     flex: 0 0 auto;
   }
-  #ctxMenu .sep { border-top: 1px solid #3a3a3a; margin: 4px 2px; }
+  #ctxMenu .sep { border-top: 1px solid #3a3a3a; margin: 3px 2px; }
 </style>
 
 <header>
@@ -261,6 +275,10 @@
       <ul>
         <li><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> or <kbd>'</kbd> / <kbd>.</kbd> &mdash; previous / next image</li>
         <li><kbd>u</kbd> <kbd>r</kbd> <kbd>f</kbd> <kbd>d</kbd> <kbd>l</kbd> <kbd>b</kbd> &mdash; select face, start placing</li>
+        <li>right-click &mdash; colour wheel around the cursor: flick toward a
+          colour and release (or click it) to start placing that face;
+          opposite faces sit opposite (U/D, R/L, F/B). Clear / confirm /
+          suggest hang below the wheel</li>
         <li>click 4&times; on canvas &mdash; place that face's corners going
           around the face</li>
         <li>drag a marker (no face selected) &mdash; move it; a plain click
@@ -1277,11 +1295,19 @@
     render();
   }
 
-  // ---- right-click context menu -----------------------------------------
+  // ---- right-click radial menu ------------------------------------------
+  // Six colour wedges around the cursor so a face is one short flick away;
+  // opposite faces sit diametrically opposite (U/D, R/L, F/B). Works as
+  // press-flick-release or press, then click. Secondary actions (clear,
+  // confirm, suggest) hang in a small list below the wheel.
+  const RM_R_OUT = 66, RM_R_IN = 24, RM_GAP_DEG = 3, RM_PAD = 3;
+  const RM_S = RM_R_OUT + RM_PAD; // half-size of the wheel box
   const menuEl = document.createElement('div');
   menuEl.id = 'ctxMenu';
   document.body.appendChild(menuEl);
-  function hideMenu() { menuEl.style.display = 'none'; }
+  menuEl.addEventListener('contextmenu', e => e.preventDefault());
+  const radial = { open: false, cx: 0, cy: 0, px: 0, py: 0, hot: null, flick: false, wedges: {}, hub: null };
+  function hideMenu() { menuEl.style.display = 'none'; radial.open = false; radial.hot = null; }
 
   function faceAtPoint(mx, my) {
     const faces = getFaces();
@@ -1343,46 +1369,145 @@
     render();
   }
 
-  canvas.addEventListener('contextmenu', e => {
-    e.preventDefault();
+  const RM_TEXT = { U: '#111', R: '#fff', F: '#fff', D: '#111', L: '#111', B: '#fff' };
+  function wedgeAngle(i) { return -90 + i * 60; } // degrees, screen space (y down), U at 12 o'clock
+  function sectorPath(a0, a1, r0, r1) {
+    const p = (a, r) => [r * Math.cos(a * Math.PI / 180), r * Math.sin(a * Math.PI / 180)];
+    const [x0, y0] = p(a0, r1), [x1, y1] = p(a1, r1), [x2, y2] = p(a1, r0), [x3, y3] = p(a0, r0);
+    return `M${x0} ${y0} A${r1} ${r1} 0 0 1 ${x1} ${y1} L${x2} ${y2} A${r0} ${r0} 0 0 0 ${x3} ${y3} Z`;
+  }
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+  // What the pointer is over, by geometry (works mid-drag, not just on hover):
+  // a face letter or 'hub'. Outside the ring still counts as the wedge in
+  // that direction, so an overshot flick lands too.
+  function radialHit(clientX, clientY) {
+    const dx = clientX - radial.cx, dy = clientY - radial.cy;
+    if (Math.hypot(dx, dy) < RM_R_IN) return 'hub';
+    const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+    const i = ((Math.round((ang + 90) / 60) % 6) + 6) % 6;
+    return FACE_ORDER[i];
+  }
+  function setRadialHot(hot) {
+    if (hot === radial.hot) return;
+    for (const f of FACE_ORDER) radial.wedges[f].classList.toggle('hot', hot === f);
+    radial.hub.classList.toggle('hot', hot === 'hub');
+    radial.hot = hot;
+  }
+  function chooseRadial(hit) {
+    hideMenu();
+    if (FACE_ORDER.includes(hit)) selectFace(hit);
+  }
+
+  function openRadial(clientX, clientY, flick) {
     if (!state.images[state.current]) return;
-    const [mx, my] = canvasMouseXY(e);
-    const under = faceAtPoint(mx, my);
-    menuEl.innerHTML = '';
+    const rect = canvas.getBoundingClientRect();
+    const under = faceAtPoint(clientX - rect.left, clientY - rect.top);
     const faces = getFaces();
-    for (const f of FACE_ORDER) {
+    menuEl.innerHTML = '';
+    radial.wedges = {};
+
+    const svg = svgEl('svg', {
+      width: 2 * RM_S, height: 2 * RM_S,
+      viewBox: `${-RM_S} ${-RM_S} ${2 * RM_S} ${2 * RM_S}`,
+    });
+    FACE_ORDER.forEach((f, i) => {
+      const a = wedgeAngle(i);
+      const w = svgEl('path', {
+        class: 'wedge', fill: FACE_COLORS[f],
+        d: sectorPath(a - 30 + RM_GAP_DEG / 2, a + 30 - RM_GAP_DEG / 2, RM_R_IN + 2, RM_R_OUT),
+      });
+      w.addEventListener('click', () => chooseRadial(f));
+      svg.appendChild(w);
+      radial.wedges[f] = w;
+      const rm = (RM_R_IN + RM_R_OUT) / 2 + 1;
+      const rad = a * Math.PI / 180;
+      const tx = rm * Math.cos(rad), ty = rm * Math.sin(rad);
       const done = faces[f].visible;
-      menuEl.appendChild(menuItem(
-        (done ? 'Redo ' : 'Place ') + f, FACE_COLORS[f],
-        () => selectFace(f), FACE_COLORS[f]));
+      const mark = done ? (faces[f].suggested ? '?' : '\u2713') : '';
+      const t = svgEl('text', {
+        class: 'wl', x: tx, y: ty + (mark ? -2 : 0), fill: RM_TEXT[f],
+        'text-anchor': 'middle', 'dominant-baseline': 'central',
+      });
+      t.textContent = f;
+      svg.appendChild(t);
+      if (mark) {
+        const m = svgEl('text', {
+          class: 'wm', x: tx, y: ty + 10, fill: RM_TEXT[f],
+          'text-anchor': 'middle', 'dominant-baseline': 'central',
+        });
+        m.textContent = mark;
+        svg.appendChild(m);
+      }
+    });
+    const hub = svgEl('circle', { class: 'hub', cx: 0, cy: 0, r: RM_R_IN - 2 });
+    hub.addEventListener('click', hideMenu);
+    svg.appendChild(hub);
+    radial.hub = hub;
+    if (under) {
+      const ht = svgEl('text', {
+        class: 'hl', x: 0, y: 0, fill: FACE_COLORS[under],
+        'text-anchor': 'middle', 'dominant-baseline': 'central',
+      });
+      ht.textContent = under;
+      svg.appendChild(ht);
     }
-    menuEl.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+    menuEl.appendChild(svg);
+
+    const sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.style.top = (2 * RM_S + 4) + 'px';
     if (under) {
       if (faces[under].suggested) {
-        menuEl.appendChild(menuItem('Confirm ' + under + ' (verified)', FACE_COLORS[under], () => {
+        sub.appendChild(menuItem('Confirm ' + under + ' (verified)', FACE_COLORS[under], () => {
           delete getFaces()[under].suggested;
           saveCurrentToStorage(); renderSidebar(); updateProgress(); render();
           showToast(under + ' marked verified');
         }, FACE_COLORS[under]));
       }
-      menuEl.appendChild(menuItem('Clear ' + under, FACE_COLORS[under], () => clearFaceById(under), FACE_COLORS[under]));
+      sub.appendChild(menuItem('Clear ' + under, FACE_COLORS[under], () => clearFaceById(under), FACE_COLORS[under]));
+      sub.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
     }
-    menuEl.appendChild(menuItem('Clear all faces', null, clearAllFaces));
-    menuEl.appendChild(menuItem('Suggest (model)', null, () => { void suggestFromModel(); }));
-    menuEl.appendChild(menuItem('Suggest all', null, () => { void suggestAll(); }));
+    sub.appendChild(menuItem('Clear all faces', null, clearAllFaces));
+    sub.appendChild(menuItem('Suggest (model)', null, () => { void suggestFromModel(); }));
+    sub.appendChild(menuItem('Suggest all', null, () => { void suggestAll(); }));
+    menuEl.appendChild(sub);
+
+    // Keep the wheel on screen; the hit test uses the shifted centre.
     menuEl.style.display = 'block';
-    // clamp to viewport
-    menuEl.style.left = '0px'; menuEl.style.top = '0px';
-    const r = menuEl.getBoundingClientRect();
-    menuEl.style.left = Math.min(e.clientX, window.innerWidth - r.width - 6) + 'px';
-    menuEl.style.top = Math.min(e.clientY, window.innerHeight - r.height - 6) + 'px';
-  });
+    const subH = sub.getBoundingClientRect().height + 4;
+    radial.cx = clamp(clientX, RM_S + 4, window.innerWidth - RM_S - 4);
+    radial.cy = clamp(clientY, RM_S + 4, window.innerHeight - RM_S - subH - 4);
+    menuEl.style.left = (radial.cx - RM_S) + 'px';
+    menuEl.style.top = (radial.cy - RM_S) + 'px';
+    radial.open = true;
+    radial.flick = flick;
+    radial.px = clientX; radial.py = clientY; // press point (differs from the centre when clamped)
+    radial.hot = null;
+    setRadialHot(radialHit(clientX, clientY));
+  }
+
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('pointerdown', e => { if (!menuEl.contains(e.target)) hideMenu(); }, true);
+  window.addEventListener('pointermove', e => { if (radial.open) setRadialHot(radialHit(e.clientX, e.clientY)); });
+  window.addEventListener('pointerup', e => {
+    if (!radial.open || e.button !== 2) return;
+    // Flick: the button came up over a wedge after moving off the press
+    // point. A plain right-click leaves the wheel open for a click.
+    const moved = Math.hypot(e.clientX - radial.px, e.clientY - radial.py) > 6;
+    if (radial.flick && moved && radial.hot && radial.hot !== 'hub') chooseRadial(radial.hot);
+    radial.flick = false;
+  });
   window.addEventListener('blur', hideMenu);
 
   canvas.addEventListener('pointerdown', e => {
-    if (e.pointerType === 'mouse') onMouseDown(e);
-    else onTouchDown(e);
+    if (e.pointerType === 'mouse') {
+      if (e.button === 2) { e.preventDefault(); openRadial(e.clientX, e.clientY, true); return; }
+      onMouseDown(e);
+    } else onTouchDown(e);
   });
   canvas.addEventListener('pointermove', e => { if (e.pointerType !== 'mouse') onTouchMove(e); });
   window.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') onMouseMove(e); });
@@ -1422,7 +1547,7 @@
     else if (k === '0') { fitImageToView(); render(); }
     else {
       const letter = k.length === 1 ? k.toUpperCase() : '';
-      if (FACE_ORDER.includes(letter)) { selectFace(letter); e.preventDefault(); }
+      if (FACE_ORDER.includes(letter)) { hideMenu(); selectFace(letter); e.preventDefault(); }
     }
   });
   window.addEventListener('keyup', e => {
