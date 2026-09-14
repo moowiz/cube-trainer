@@ -31,12 +31,12 @@
   },
   "task": "stage-1 cube localizer (two-stage detector): single bbox + objectness",
   "head": "dense",
-  "valIou": 0.8804519749514412,
-  "realIou": 0.8526793469439496,
-  "realBad": 0.06593406593406594,
+  "valIou": 0.8762813844021011,
+  "realIou": 0.8354605650290464,
+  "realBad": 0.11965811965811966,
   "minFaceEdgeFrac": 0.133,
-  "trainedEpoch": 41,
-  "run": "box11",
+  "trainedEpoch": 44,
+  "run": "box13",
   "checkpoint": "best.pt",
-  "exported": "2026-09-13 04:25"
+  "exported": "2026-09-13 22:24"
 }
