@@ -330,7 +330,7 @@
     <button type="button" class="eo-chip" data-hint="len">Hint: move count</button>
     <button type="button" class="eo-chip" data-hint="plan">Hint: F/B plan</button>
     <button type="button" class="eo-chip eo-strat" data-strat="short" hidden>Hint: EOCross strategy</button>
-    <button type="button" class="eo-chip eo-strat" data-strat="long" hidden>Strategy in depth</button>
+    <button type="button" class="eo-chip eo-strat" data-strat="long" hidden>Strategy for this scramble</button>
   </div>
   <div class="eo-note eo-stratnote" id="eo-strat" hidden></div>
 
@@ -1123,18 +1123,27 @@ function ensureXWorker(){
     if(m.type==='progress'){ xdepth=m.depth; onXStatus(); }
     else if(m.type==='ready'){ xstatus='ready'; onXStatus(); }
     else if(m.type==='solved'){ const p=xpending.get(m.id); if(!p) return; xpending.delete(m.id);
-      p.resolve({length:m.length,count:m.count,truncated:m.truncated,solutions:m.solutions.map(s=>s.map(i=>FACE_MOVES[i]))}); } };
+      p.resolve({length:m.length,count:m.count,truncated:m.truncated,solutions:m.solutions.map(s=>s.map(i=>FACE_MOVES[i]))}); }
+    else if(m.type==='dists'){ const p=xpending.get(m.id); if(!p) return; xpending.delete(m.id); p.resolve(m.ds); } };
   xworker.postMessage({type:'init',perm:TRANS.map(t=>t.perm),flip:TRANS.map(t=>t.flip),home:CROSS_HOME});
 }
 function solveCross(cube){ return new Promise((resolve,reject)=>{ ensureXWorker(); if(!xworker) return reject();
   const id=++xid; xpending.set(id,{resolve,reject}); xworker.postMessage({type:'solve',id,eo:eoCoord(cube),slots:crossSlots(cube),cap:3000}); }); }
-function requestCross(){ const c=cube; solveCross(c).then(r=>{ if(c!==cube) return; xsol=r; onXStatus(); }).catch(()=>{}); }
+function crossDists(items){ return new Promise((resolve,reject)=>{ ensureXWorker(); if(!xworker) return reject();
+  const id=++xid; xpending.set(id,{resolve,reject}); xworker.postMessage({type:'dists',id,items}); }); }
+// xeo: what the shortest EOs of this scramble leave behind - the cross distance after each optimal EO solution
+let xeo=null;
+function requestCross(){ const c=cube; xeo=null; solveCross(c).then(r=>{ if(c!==cube) return; xsol=r; onXStatus();
+  const eos=solution.solutions;
+  return crossDists(eos.map(s=>{ const cc=cloneCube(c); for(const m of s) applyMove(cc,m); return {eo:0,slots:crossSlots(cc)}; })).then(ds=>{
+    if(c!==cube) return; const e=solution.length, totals=ds.map(d=>e+d), best=Math.min(...totals);
+    xeo={best,good:totals.filter(t=>t===r.length).length,n:eos.length,example:eos[totals.indexOf(best)]}; onXStatus(); }); }).catch(()=>{}); }
 const GOALS={eo:{name:'EO',solved:c=>badCount(c)===0},cross:{name:'EOCross',solved:c=>badCount(c)===0&&crossCount(c)===4}};
 const goal=()=>GOALS[settings.goal]||GOALS.eo;
 const goalSol=()=>settings.goal==='cross'?xsol:solution;   // optimal solutions for the goal; null while the worker is busy
 const xNote=()=>xstatus==='failed'?'The EOCross solver could not start (eocross-worker.js is missing).':xstatus==='ready'?'Solving…':`Building the EOCross table (${xdepth}/10)…`;
 const solLabel=()=>`${$('showSol').dataset.open?'Hide':'Show'} optimal ${goal().name} solutions`;
-function onXStatus(){ if($('showSol').dataset.open) showSolutions(); document.querySelectorAll('#eo-hints .eo-chip.open').forEach(b=>{ b.textContent=hintText(b.dataset.hint); }); }
+function onXStatus(){ if($('showSol').dataset.open) showSolutions(); renderStrategy(); document.querySelectorAll('#eo-hints .eo-chip.open').forEach(b=>{ b.textContent=hintText(b.dataset.hint); }); }
 function goalChanged(){ if(settings.goal==='cross'&&!xsol) requestCross(); resetHints(); $('showSol').textContent=solLabel(); onXStatus(); render(); }
 
 function randomScramble(target){
@@ -1318,18 +1327,39 @@ function hintText(kind){
   return plans.map(p=>`${p.length} F/B turn${p.length===1?'':'s'}: ${p.join(' then ')}`).join(' · ')||'no F/B turns needed';
 }
 // what optimal EOCross looks like (docs/eocross-patterns.md), independent of the scramble: a toggle, not a peek
-const STRATEGY={
-  short:'Aim the last F/B turn at the cross: get three white edges home and the fourth onto the side of the face you will turn last (FR or FL for an F turn), with all four of that face’s edges bad. That one turn then finishes EO and the cross together.',
-  long:'<ul>'+
-    '<li><b>EO then cross costs two moves</b> (9.4 vs 7.5 on average). The EO part of an optimal EOCross is usually 2–3 moves longer than the shortest EO: a longer EO whose setup moves place white edges beats a short EO plus a cross.</li>'+
-    '<li><b>EO is finished exactly once, by the last F/B quarter turn.</b> Everything before it is setup: D turns mid-solve bring white edges under the F/B faces, R/L turns feed them in.</li>'+
-    '<li><b>The finish</b> (38% of optimal solutions): three white edges home, the fourth waiting on the side of the last F/B face, that face fully bad. Another 26% need one move after EO: an R/L insert, or a D to align a cross built offset.</li>'+
-    '<li><b>When the obvious EO leaves a 3–4 move cross,</b> look for an EO one move longer that leaves 0–1. It pays 60% of the time.</li>'+
-    '<li>Hint: F/B plan gives the bad-edge count at each F/B turn of the optimal solutions; the solution list groups them by how many cross moves follow the last EO turn.</li></ul>',
-};
+const STRATEGY_SHORT='Plan the EO with the white edges in view. EO is finished by the last F/B quarter turn; everything before it is setup, so use it to place white edges. Most often that last turn also drops in the final cross edge (three home, the fourth on that face’s side), otherwise one or two cross moves follow it. A one-move-longer EO that sets the cross up usually beats the shortest EO.';
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+// what THIS scramble's optimal EOCross solutions do, from the solver's output (see docs/eocross-patterns.md for the averages)
+function caseStrategy(){
+  if(!xsol) return '<p style="margin:0">'+esc(xNote())+'</p>';
+  const e=solution.length, L=xsol.length, sols=xsol.solutions, n=xsol.count;
+  const lastFB=s=>{ let k=-1; s.forEach((m,i)=>{ if('FB'.includes(m.face)&&m.times!==2) k=i; }); return k; };
+  const stats=sols.map(s=>{ const k=lastFB(s), c=cloneCube(cube); for(const m of s.slice(0,k)) applyMove(c,m); const before=crossCount(c); if(k>=0) applyMove(c,s[k]); const atEO=crossCount(c);
+    return {s,k,eoLen:k+1,tail:s.slice(k+1),before,atEO}; });
+  const count=arr=>{ const h=new Map(); for(const v of arr) h.set(v,(h.get(v)||0)+1); return [...h.entries()].sort((a,b)=>b[1]-a[1]); };
+  const li=[];
+  li.push(`<b>Optimal EO is ${e} moves; optimal EOCross is ${L}</b> (${plural(n,'solution')}).`);
+  if(xeo){
+    if(xeo.best>L) li.push(`Any ${e}-move EO leaves at least a ${xeo.best-e}-move cross: ${xeo.best} in all. The ${L}-move solutions spend more on EO to save more on the cross.`);
+    else li.push(`${xeo.good} of the ${plural(xeo.n,'shortest EO')} lead to an optimal EOCross (e.g. ${esc(toSpatial(cube,xeo.example))}); the others leave a longer cross.`);
+  }
+  const eoLens=count(stats.map(t=>t.eoLen));
+  const lensTxt=eoLens.map(([v,c])=>`${v}${eoLens.length>1?' ('+c+')':''}`).join(' or ');
+  const lo=Math.min(...eoLens.map(x=>x[0]))-e, hi=Math.max(...eoLens.map(x=>x[0]))-e, extraTxt=hi<=0?'a shortest EO':(lo===hi?lo:lo+'–'+hi)+' more than the shortest EO';
+  const tails=count(stats.map(t=>toSpatial(cube,t.tail)));
+  const tailTxt=tails.map(([v,c])=>(v||'nothing')+(tails.length>1?' ('+c+')':'')).join(' · ');
+  const dOnly=stats.every(t=>t.tail.length===1&&t.tail[0].face==='D'&&t.atEO===0);
+  li.push(`EO is finished after ${lensTxt} moves (${extraTxt}), then ${tails.length===1&&!tails[0][0]?'nothing: the last F/B turn completes the cross.':'these cross moves: '+esc(tailTxt)+(dOnly?' – the cross is already built, just turned; the D aligns it.':'.')}`);
+  const ins=stats.filter(t=>t.atEO>t.before).length, home=count(stats.map(t=>t.atEO));
+  li.push(`When EO is done, ${home.map(([v,c])=>`${v}/4${home.length>1?' ('+c+')':''}`).join(' or ')} white edges are home${ins?`; the last F/B turn itself drops one in (${ins===stats.length?'every solution':ins+' of '+stats.length})`:''}.`);
+  const ex=stats[0]; li.push(`For example: <span style="word-spacing:.3em">${esc(toSpatial(cube,ex.s.slice(0,ex.eoLen)))}${ex.tail.length?' <b>|</b> '+esc(toSpatial(cube,ex.tail)):''}</span> - EO, then the cross.`);
+  return '<ul>'+li.map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+}
+function renderStrategy(){ const open=document.querySelector('#eo-hints .eo-strat.open'); if(!open) return; $('strat').innerHTML=open.dataset.strat==='short'?esc(STRATEGY_SHORT):caseStrategy(); $('strat').hidden=false; }
 $('hints').addEventListener('click',e=>{ const s=e.target.closest('.eo-strat'); if(s){ const note=$('strat'), open=s.classList.contains('open');
     document.querySelectorAll('#eo-hints .eo-strat').forEach(x=>x.classList.remove('open'));
-    if(open){ note.hidden=true; } else { s.classList.add('open'); note.innerHTML=STRATEGY[s.dataset.strat]; note.hidden=false; } return; }
+    if(open){ note.hidden=true; } else { s.classList.add('open'); renderStrategy(); } return; }
   const b=e.target.closest('.eo-chip'); if(!b||b.classList.contains('open')) return;
   if(b.dataset.hint==='plan') assisted=true; b.textContent=hintText(b.dataset.hint); b.classList.add('open'); });
 
