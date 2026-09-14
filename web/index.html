@@ -174,8 +174,11 @@
   .eo-result h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
   .eo-result p { margin: 4px 0; color: var(--ink-2); font-size: 14px; line-height: 1.45; }
   .eo-sol { font-variant-numeric: tabular-nums; word-spacing: .3em; font-size: 16px; line-height: 1.7; }
-  .eo-sol div { cursor: pointer; border-radius: 6px; padding: 0 4px; margin: 0 -4px; }
-  .eo-sol div:hover { background: var(--grey-ll); }
+  .eo-sol div[data-alg] { cursor: pointer; border-radius: 6px; padding: 0 4px; margin: 0 -4px; }
+  .eo-sol div[data-alg]:hover { background: var(--grey-ll); }
+  .eo-sol .grp { margin-top: 8px; }
+  .eo-sol .grp-h { font-size: 13px; color: var(--ink-2); word-spacing: normal; line-height: 1.4; }
+  .eo-sol .yours { font-size: 12px; font-style: normal; color: var(--ink-2); background: var(--grey-ll); border-radius: 4px; padding: 1px 5px; margin-left: 6px; word-spacing: normal; }
   .eo-link { font: inherit; background: none; border: none; padding: 4px 2px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 14px; }
   .eo-settings { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 8px; }
   .eo-settings summary { cursor: pointer; color: var(--ink-2); font-size: 14px; padding: 6px 2px; }
@@ -997,10 +1000,11 @@ function step(eo,t){ let o=0; for(let i=0;i<12;i++){ let bit=(eo>>t.perm[i])&1; 
 const DIST=new Int8Array(4096).fill(-1); DIST[0]=0;
 { let q=[0]; while(q.length){ const nq=[]; for(const s of q) for(const t of TRANS){ const n=step(s,t); if(DIST[n]<0){DIST[n]=DIST[s]+1; nq.push(n);} } q=nq; } }
 function eoCoord(cube){ let v=0; for(const e of edges(cube)) if(!e.good) v|=1<<SLOT_IDX[e.cfKey]; return v; }
-function solveEO(cube,limit=8){
+function solveEO(cube){
+  // every optimal solution: the DFS only takes distance-decreasing moves, so the tree is exactly the
+  // optimal set (at most ~1500 for a 7-mover, which is also the worst case)
   const start=eoCoord(cube), res=[];
   (function dfs(s,path,lastFace){
-    if(res.length>=limit) return;
     if(DIST[s]===0){ res.push(path.slice()); return; }
     for(const t of TRANS){
       if(t.mv.face===lastFace) continue;
@@ -1044,7 +1048,7 @@ const active=()=>!panel.hidden;
 
 function loadScramble(scr){
   scramble=scr.trim(); cube=solvedCube(); applyAlg(cube,scramble); shown=null;
-  startAt=null; endAt=null; assisted=false; recorded=false; solution=solveEO(cube,64);
+  startAt=null; endAt=null; assisted=false; recorded=false; solution=solveEO(cube);
   $('sol').value=''; $('result').classList.remove('show'); $('handoff').innerHTML='';
   const sb=$('showSol'); sb.textContent='Show optimal EO solutions'; delete sb.dataset.open; flash('');
   resetHints(); render();
@@ -1082,27 +1086,63 @@ function check(){
   btn.addEventListener('click',()=>ZZ.f2l.start(scramble,txt));
   $('handoff').appendChild(btn); r.classList.add('show'); render();
 }
-function showSolutions(){
-  // an F/B quarter turn is only free in direction if the flipped edges never meet another F/B turn afterwards,
-  // so test each turn on its own: flip it, and keep it marked "either way" only if the alg still solves EO
-  const el=$('sols'); el.innerHTML=''; const seen=new Set(); let starred=false;
+// one line per family of solutions: a quarter turn is written R* when its direction doesn't matter, and the
+// stars on a line are a promise about the whole family (every combination of the starred directions solves
+// EO), so they are added greedily left to right and each candidate is checked against all 2^k combinations;
+// and opposite faces commute (R L = L R), so write each such pair in a fixed order
+const ORDER={U:0,D:1,R:0,L:1,F:0,B:1}, OPP={U:'D',D:'U',R:'L',L:'R',F:'B',B:'F'};
+function canonical(sol){
   const solves=ms=>{ const c=cloneCube(cube); for(const m of ms) applyMove(c,m); return badCount(c)===0; };
+  const free=[];
+  const familySolves=()=>{ for(let bits=0;bits<1<<free.length;bits++){
+    const alt=sol.slice(); free.forEach((j,b)=>{ if(bits>>b&1) alt[j]={face:sol[j].face,times:4-sol[j].times,str:''}; });
+    if(!solves(alt)) return false; } return true; };
+  const shown=sol.slice();
+  sol.forEach((m,i)=>{ if(m.times===2) return; free.push(i); if(familySolves()) shown[i]={face:m.face,times:1,str:m.face+'*'}; else free.pop(); });
+  for(let i=0;i+1<shown.length;i++) if(OPP[shown[i].face]===shown[i+1].face&&ORDER[shown[i].face]>ORDER[shown[i+1].face]) [shown[i],shown[i+1]]=[shown[i+1],shown[i]];
+  return toSpatial(cube,shown);
+}
+// the moves in the box up to the point EO is first solved, or null if they aren't plain face turns
+function userEO(){
+  const toks=$('sol').value.replace(/[()]/g,' ').match(/[URFDLBMESxyzurfdlb]w?[2']*/g)||[];
+  const c=cloneCube(cube), path=[];
+  for(const t of toks){
+    if(badCount(c)===0) break;
+    const m=parseMove(t.replace(/^([RLUDFB])w/,(x,f)=>f.toLowerCase())); if(!m||!'URFDLB'.includes(m.face)) return null;
+    applyMove(c,m); path.push(m);
+  }
+  return badCount(c)===0?path:null;
+}
+const PER_GROUP=6;
+function showSolutions(){
+  const el=$('sols'); el.innerHTML='';
+  // group the families by F/B plan (the "Hint: F/B plan" text), biggest family first within a group
+  const groups=new Map(); let starred=false;
   for(const sol of solution.solutions){
-    const shown=sol.map((m,i)=>{
-      if(!'FB'.includes(m.face)||m.times===2) return m;
-      const alt=sol.slice(); alt[i]={face:m.face,times:m.times===1?3:1,str:''};
-      return solves(alt) ? {face:m.face,times:1,str:m.face+'*'} : m;
+    const plan=fbPlans.counts(sol), txt=canonical(sol); if(txt.includes('*')) starred=true;
+    const g=groups.get(plan.key)||{plan,lines:new Map()}; groups.set(plan.key,g);
+    g.lines.set(txt,(g.lines.get(txt)||0)+1);
+  }
+  const mine=userEO(); const mineTxt=mine&&mine.length===solution.length?canonical(mine):null;
+  const total=solution.solutions.length, families=[...groups.values()].reduce((n,g)=>n+g.lines.size,0);
+  $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${families<total?`, ${families} lines once turns that work either way (*) and commuting pairs are merged`:''}. From the scrambled state, white down.${mineTxt?' Yours is marked.':''}`;
+  const order=[...groups.values()].sort((a,b)=>b.lines.size-a.lines.size);
+  for(const g of order){
+    const box=document.createElement('div'); box.className='grp';
+    if(order.length>1||g.plan.counts.length){ const h=document.createElement('div'); h.className='grp-h';
+      h.textContent=(g.plan.text||'no F/B turns')+` · ${g.lines.size} line${g.lines.size===1?'':'s'}`; box.appendChild(h); }
+    const lines=[...g.lines.entries()].sort((a,b)=>(b[0]===mineTxt)-(a[0]===mineTxt)||b[1]-a[1]||a[0].localeCompare(b[0]));
+    lines.forEach(([txt],i)=>{
+      const d=document.createElement('div'); d.textContent=txt; d.dataset.alg=txt.replace(/\*/g,'');
+      if(txt===mineTxt){ const y=document.createElement('em'); y.className='yours'; y.textContent='yours'; d.appendChild(y); }
+      if(i>=PER_GROUP) d.hidden=true; box.appendChild(d);
     });
-    // opposite faces commute (R L = L R), so write each such pair in a fixed order before deduping
-    const ORDER={U:0,D:1,R:0,L:1,F:0,B:1}, OPP={U:'D',D:'U',R:'L',L:'R',F:'B',B:'F'};
-    for(let i=0;i+1<shown.length;i++) if(OPP[shown[i].face]===shown[i+1].face&&ORDER[shown[i].face]>ORDER[shown[i+1].face]) [shown[i],shown[i+1]]=[shown[i+1],shown[i]];
-    const txt=toSpatial(cube,shown); if(seen.has(txt)) continue; seen.add(txt);
-    if(txt.includes('*')) starred=true;
-    const d=document.createElement('div'); d.textContent=txt; d.dataset.alg=txt.replace(/\*/g,''); el.appendChild(d);
-    if(seen.size>=8) break;
+    if(lines.length>PER_GROUP){ const b=document.createElement('button'); b.type='button'; b.className='eo-link'; b.dataset.more='1';
+      b.textContent=`Show ${lines.length-PER_GROUP} more`; box.appendChild(b); }
+    el.appendChild(box);
   }
   const n=document.createElement('p'); n.style.margin='6px 0 0'; n.style.fontSize='13px'; n.style.color='var(--ink-2)';
-  n.textContent=(starred?'F* or B* means that turn works in either direction. ':'')+'Tap one to put it in the moves box.'; el.appendChild(n);
+  n.textContent=(starred?'A * means that turn works in either direction (in any combination). ':'')+'Tap one to put it in the moves box.'; el.appendChild(n);
 }
 function flash(m){ $('flash').textContent=m; }
 
@@ -1114,16 +1154,19 @@ function resetHints(){ document.querySelectorAll('#eo-hints .eo-chip').forEach(b
 function fbPlans(){
   const seen=new Set(), out=[];
   for(const sol of solution.solutions){
-    const c=cloneCube(cube), counts=[];
-    for(const m of sol){
-      if('FB'.includes(m.face)&&m.times!==2){ const n=FACE_N[m.face], k=n.findIndex(v=>v!==0);
-        counts.push(edges(c).filter(e=>e.pos[k]===n[k]&&!e.good).length); }
-      applyMove(c,m);
-    }
-    const key=counts.join('-'); if(seen.has(key)) continue; seen.add(key); out.push(counts);
+    const p=fbPlans.counts(sol); if(seen.has(p.key)) continue; seen.add(p.key); out.push(p.counts);
   }
   return out;
 }
+fbPlans.counts=sol=>{
+  const c=cloneCube(cube), counts=[];
+  for(const m of sol){
+    if('FB'.includes(m.face)&&m.times!==2){ const n=FACE_N[m.face], k=n.findIndex(v=>v!==0);
+      counts.push(edges(c).filter(e=>e.pos[k]===n[k]&&!e.good).length); }
+    applyMove(c,m);
+  }
+  return {counts,key:counts.join('-'),text:counts.length?`${counts.length} F/B turn${counts.length===1?'':'s'}: ${counts.join(' then ')}`:''};
+};
 function hintText(kind){
   const b=badCount(cube);
   if(kind==='bad') return `${b} bad edge${b===1?'':'s'}`;
@@ -1214,9 +1257,11 @@ $('check').onclick=check; $('clear').onclick=()=>{ $('sol').value=''; shown=null
 $('showSol').onclick=()=>{ const r=$('result'), b=$('showSol');
   if(r.classList.contains('show')&&b.dataset.open){ r.classList.remove('show'); delete b.dataset.open; b.textContent='Show optimal EO solutions'; return; }
   assisted=true; b.dataset.open='1'; b.textContent='Hide optimal EO solutions';
-  $('rTitle').textContent=`Optimal EO: ${solution.length} moves`; $('rSub').textContent='From the scrambled state, white down.'; $('handoff').innerHTML='';
+  $('rTitle').textContent=`Optimal EO: ${solution.length} moves`; $('handoff').innerHTML='';
   showSolutions(); r.classList.add('show'); };
-$('sols').addEventListener('click',e=>{ const d=e.target.closest('div[data-alg]'); if(!d) return;
+$('sols').addEventListener('click',e=>{
+  const more=e.target.closest('button[data-more]'); if(more){ for(const d of more.parentNode.querySelectorAll('div[data-alg]')) d.hidden=false; more.remove(); return; }
+  const d=e.target.closest('div[data-alg]'); if(!d) return;
   $('sol').value=d.dataset.alg; flash('Put in the moves box. Add your cross moves, then Check.');
   if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(d.dataset.alg).catch(()=>{}); });
 $('resetView').onclick=()=>{ view={...DEFAULT_VIEW}; render(); };
