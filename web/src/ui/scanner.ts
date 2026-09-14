@@ -77,6 +77,8 @@ export interface ScannerHandle {
   start(): void;
   /** Release the camera; the scan's state stays until Reset. */
   stop(): void;
+  /** Forget the scan in progress (what the Reset scan button does; a no-op during a clip replay). */
+  reset(): void;
 }
 
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute readings
@@ -1302,5 +1304,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     // a clip replay is driven by its URL (and the Play clip button), not by the host's tab
     start: () => { if (!clipUrl) startCapture(); },
     stop: () => { if (running) stopAuto(); },
+    reset: () => { if (!clipUrl) $('reset').click(); },
   };
 }
