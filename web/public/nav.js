@@ -8,7 +8,7 @@
 (() => {
   const pages = [
     ['./', 'Trainer', 'index.html'],
-    ['./?tab=scan', 'Scan cube', 'index.html?tab=scan'],
+    ['./?tab=scan', 'Scan cube', 'index.html?tab=scan'],   // opens the trainer with the scan sheet up
     ['label.html', 'Labeler'],
   ];
   const here = (location.pathname.split('/').pop() || 'index.html') + (location.search.includes('tab=scan') ? '?tab=scan' : '');

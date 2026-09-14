@@ -138,11 +138,7 @@ const PERSISTED = ['pauseOnLock', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 
 
 const TEMPLATE = `
   <div class="sc-wrap">
-    <h1>Scan the cube</h1>
-    <div class="sc-version">
-      <span title="git commit · build time">build <b>${__BUILD__.hash}</b> · ${__BUILD__.time}</span>
-      <span class="sc-status">model loading…</span>
-    </div>
+    <div class="sc-version"><span class="sc-status">model loading…</span></div>
     <div class="sc-cols">
       <div class="sc-main">
         <div class="sc-scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span class="sc-scrambleAlg"></span> <label><input type="checkbox" class="sc-applied"> I applied it (from solved)</label></div>
