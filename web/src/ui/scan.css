@@ -2,7 +2,12 @@
 body { margin: 0; background: #111318; color: #e8eaf0; font: 14px system-ui, sans-serif; }
 #wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
 h1 { font-size: 18px; margin: 4px 0 10px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-h1 small { font-size: 12px; font-weight: 400; color: #8b93a3; }
+/* which build and which models: the first thing to read off a phone screenshot */
+#version { display: flex; gap: 8px 18px; flex-wrap: wrap; align-items: baseline; margin: -4px 0 10px;
+           font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; color: #f2c14e; }
+#version b { font-weight: 700; }
+#version #status { color: #7fd7c4; }
+#version #status::before { content: '▸ '; }
 #stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
 #view { width: 100%; display: block; }
 #hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; text-align: center;
@@ -49,7 +54,6 @@ button.on { background: #3a4a6a; border-color: #5a7ab0; }
 #fallback a { color: #ffb454; }
 #stats { color: #8891a0; font-variant-numeric: tabular-nums; margin-top: 6px; white-space: pre-line; }
 #msg { color: #ffb454; min-height: 1.2em; margin-top: 8px; }
-#status { color: #8891a0; }
 label { display: flex; gap: 5px; align-items: center; color: #8891a0; }
 a { color: #7aa2ff; }
 details#debug { margin-top: 12px; border: 1px solid #2a2f3a; border-radius: 8px; padding: 6px 10px; }
@@ -83,6 +87,7 @@ body.grid .auto { display: none !important; }
    scan's state (evidence, lock, decoded faces) sits beside it */
 @media (min-width: 1100px) {
   #wrap { max-width: 1900px; padding: 12px 24px; }
+  #version { font-size: 16px; margin-bottom: 12px; }
   #cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(440px, 1fr); gap: 28px; align-items: start; }
   #stage { max-width: calc((100vh - 230px) * var(--ar, 1.3333)); margin: 0 auto; }
   #side { margin-top: 8px; }
