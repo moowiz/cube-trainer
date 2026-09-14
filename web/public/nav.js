@@ -2,7 +2,9 @@
 // Plain script (no module) so it works both in vite pages and static
 // public/ pages; loaded as <script src="nav.js" defer>. Injects a small
 // fixed button that expands into links to all pages, so nothing collides
-// with each page's own layout.
+// with each page's own layout. Also a version chip in the opposite corner
+// (git revision + deployed detector runs, from version.json which the vite
+// config emits) so a phone can say exactly what it is running.
 (() => {
   const pages = [
     ['./', 'Trainer', 'index.html'],
@@ -29,6 +31,11 @@
       padding: 8px 12px; border-radius: 8px; }
     #page-nav .pn-menu a:hover { background: rgba(255,255,255,.10); }
     #page-nav .pn-menu a.pn-here { color: #7fb5ff; font-weight: 600; pointer-events: none; }
+    #page-ver { position: fixed; left: 12px; bottom: 12px; z-index: 99998; cursor: pointer;
+      font: 11px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #e8eaf0;
+      background: rgba(20,22,28,.78); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
+      padding: 4px 8px; white-space: pre; opacity: .8; backdrop-filter: blur(4px); }
+    #page-ver:hover, #page-ver.open { opacity: 1; }
   `;
 
   const box = document.createElement('div');
@@ -55,7 +62,22 @@
   document.addEventListener('click', () => box.classList.remove('open'));
 
   box.append(menu, btn);
-  const mount = () => { document.body.append(style, box); };
+
+  // version chip: short form "hash · box17 / kpft8", tap for build time and which model is which
+  const ver = document.createElement('div');
+  ver.id = 'page-ver';
+  ver.hidden = true;
+  fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((v) => {
+    const short = `${v.hash} · ${v.models.cubebox} / ${v.models.facekp}`;
+    const long = `build ${v.hash} · ${v.time}
+box ${v.models.cubebox} · corners ${v.models.facekp}`;
+    ver.textContent = short;
+    ver.title = long;
+    ver.addEventListener('click', (e) => { e.stopPropagation(); ver.classList.toggle('open'); ver.textContent = ver.classList.contains('open') ? long : short; });
+    ver.hidden = false;
+  }).catch(() => ver.remove());
+
+  const mount = () => { document.body.append(style, box, ver); };
   if (document.body) mount();
   else document.addEventListener('DOMContentLoaded', mount);
 })();

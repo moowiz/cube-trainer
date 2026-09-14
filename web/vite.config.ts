@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +14,26 @@ function gitHash(): string {
   catch { return (process.env.GITHUB_SHA ?? 'dev').slice(0, 7); }
 }
 const BUILD = { hash: gitHash(), time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC' };
+
+// version.json: the build stamp plus the deployed detector runs (the `run` field of each model's
+// sidecar), served in dev and emitted into dist. nav.js shows it in the corner of every page.
+function versionStamp(): Plugin {
+  const body = () => {
+    const models: Record<string, string> = {};
+    for (const f of ['cubebox', 'facekp']) {
+      try { models[f] = JSON.parse(readFileSync(p(`./public/models/${f}.json`), 'utf8')).run ?? '?'; }
+      catch { models[f] = 'none'; }
+    }
+    return JSON.stringify({ ...BUILD, models });
+  };
+  return {
+    name: 'version-stamp',
+    configureServer(server) {
+      server.middlewares.use('/version.json', (_req, res) => { res.setHeader('content-type', 'application/json'); res.end(body()); });
+    },
+    generateBundle() { this.emitFile({ type: 'asset', fileName: 'version.json', source: body() }); },
+  };
+}
 
 // Dev-only capture sink for headless clip replays (?tab=scan&clip=...&post=1):
 // the page POSTs its debug capture here and it lands in the evidence
@@ -46,7 +66,7 @@ export default defineConfig({
   // sets BASE_PATH accordingly. Local dev and plain builds stay at '/'.
   base: process.env.BASE_PATH ?? '/',
   // HTTPS: camera access requires a secure context on phones.
-  plugins: [basicSsl(), captureSink()],
+  plugins: [basicSsl(), captureSink(), versionStamp()],
   server: { host: true },
   build: {
     rollupOptions: {
