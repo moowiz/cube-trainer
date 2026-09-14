@@ -2,8 +2,9 @@
 // ort-web gets SharedArrayBuffer and wasm threads on GitHub Pages. First
 // visit: register, then reload once so the page loads under the worker's
 // headers; a sessionStorage flag stops any reload loop. Called when the
-// scanner mounts, not at page load: only the scanner needs it, and the
-// one-time reload should land when the user has just opened the scan tab.
+// scanner mounts, which is at page load (so the models are ready before the
+// scan sheet is first opened): the one-time reload lands before the user has
+// done anything on the page.
 
 export function ensureCrossOriginIsolated(): void {
   if (self.crossOriginIsolated || !('serviceWorker' in navigator) || location.protocol !== 'https:') return;
