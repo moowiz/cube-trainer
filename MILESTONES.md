@@ -2,6 +2,16 @@
 
 Each milestone ends with something you can run on a phone. Don't start the next one until the "done when" holds.
 
+**Where things stand (2026-09-14):** M0-M7 done. The app is a two-stage
+detector (stage-1 cube localizer -> stage-2 anonymous face quads on the
+crop, M4b below) feeding an evidence-log colour solver with an exact
+constrained decoder (M7, `docs/colour-pipeline-design.md`); the phone locks
+real scrambles. M8 hardening is mostly landed but its real-room checklist has
+never been run as a checklist. Work in flight is the solve coach
+(`docs/solve-tracking-design.md`): recordings and measurements exist, no
+move reader yet. Deployed models: `cubebox` = box17, `facekp` = kpft8
+(`model/README.md` "Deployed").
+
 ---
 
 ## M0 — Skeleton ✅ (done 2026-09)
@@ -146,16 +156,62 @@ accuracy.
 
 ---
 
-## M5 — Real-data fine-tune  🔶 (fine-tuned and DEPLOYED 2026-09-13; the deploy gate was overridden - read below)
+## M4b — Two-stage detector ✅ (designed 2026-09-12, deployed 2026-09-13)
+
+Not in the original plan; added when the single full-frame model's range
+floor and portrait input were measured to be the bottleneck. Stage 1
+(`cubebox`, `model/train/train_bbox.py`, dense head at 160x120, real IoU
+selects best.pt) finds the cube's box in the frame; stage 2 (`facekp`,
+`--head center`, 256x256) reads up to three anonymous face quads off the
+padded box. Design and measurements: `model/PORTRAIT-DESIGN.md`,
+`model/README.md` "Always two-stage". App side: `web/src/detect/twostage.ts`,
+stage-1 ROI/heatmap overlays in the debug panel, stage-1 misses counted in
+every capture.
+
+**Done when (retro-fitted):** stage 2 on stage 1's box beats the full-frame
+model on the held-out real photos, on a phone at >= 15 fps. Met: kpft1 on
+the crop vs v4ft1 full-frame (README table), phone at ~15-20 detections/s
+with inference in an ORT worker (COI service worker for wasm threads).
+
+**Known limits (measured, not fixed):** a cube of ~80 px in a 640 frame is
+~20 px in stage 1's input; against a grid-like background (plaid shirt,
+keyboard, tiles) stage 1 collapses - batch 10 was labelled for exactly this
+and took the held-out slice from IoU 0.56 to 0.86. The far/small/cluttered
+case remains the weakest thing in the val set. Stage-1 misses are the main
+cause of detection gaps in solve recordings; a fallback (run stage 2 on the
+last box when stage 1 misses within ~0.5 s) is designed, not built.
+
+---
+
+## M5 — Real-data fine-tune ✅ (the loop is the product; 670 labelled frames as of 2026-09-14)
+
+**Status (2026-09-14):** 670 hand-labelled real frames in ten batches
+(`stephens_photos/batch*/`, 530 train in `model/data_real`, 140 held out in
+`model/data_real_val`, val slices carved as contiguous time blocks for clip
+batches). Both stages are trained with real data oversampled (`*80` for
+stage 1, `*150` for the stage-2 fine-tune) and best.pt selected on the real
+val split. The loop (`check_labels` -> `import_labels --source-prefix` ->
+fine-tune ~15 epochs -> `export_*` -> commit) is documented in
+`model/README.md` "M5 labeling workflow" and has run ten times; it is how
+every new room, cube and camera angle gets absorbed. Deployed:
+box17 + kpft8 (kp4 base). Real-photo corner error 3.84 px mean at the 256
+input (~8 source px median), 8 of 280 val faces missed, 0 false positives
+on cube-less frames.
+
+The history below is kept because its decision (ship a per-batch
+regression for a removed tail) is still the precedent for deploy gates.
+
+### 2026-09-13: v4ft1 deployed over the gate (superseded by the two-stage models)
 
 Hand-label 200–400 real frames (your two GANs, several rooms, both scheme orientations). Fine-tune. Re-export.
 
 **Done when:** the detector finds faces on the M2 fixture frames without manual alignment.
 
-**Status (2026-09-13):** 199 hand-labelled real frames exist (157 train /
-42 held-out val, zero overlapping source photos - verified). `runs/v4ft1` is
-exported and deployed to `web/public/models/` (fp32, 4.66 MB, replacing the
-legacy `ft7`).
+**Status (2026-09-13, morning):** 199 hand-labelled real frames existed
+(157 train / 42 held-out val, zero overlapping source photos - verified).
+`runs/v4ft1` was exported and deployed to `web/public/models/` (fp32,
+4.66 MB, replacing the legacy `ft7`); the two-stage models replaced it the
+same evening.
 
 **THE DEPLOY GATE WAS NOT MET AS WRITTEN, AND SHIPPING ANYWAY WAS A
 DELIBERATE CALL (user, 2026-09-13).** The gate was "per-batch `real_px` no
@@ -188,45 +244,99 @@ not a model change.
 
 ---
 
-## M6 — Tracking + rectification in the app  🔶 (code complete 2026-09-12, awaiting phone verification via /scan.html)
+## M6 — Tracking + rectification in the app ✅ (phone-verified 2026-09-13)
 
 Wire the detector into `web/`. Kalman filter on corners. Run detection every 2–3 frames, interpolate. Homography warp each face to 90x90. Feed rectified faces into the M1 sampling/classification path.
 
 **Done when:** you can hold the cube at any angle and see the overlay stick to the faces smoothly; sticker colors populate without the fixed grid.
 
+**As built:** alpha-beta filter per corner with the state kept at
+measurement time (`detect/tracker.ts`); the view is delayed by the measured
+detector latency so every overlay is drawn on the frame its corners came
+from (`framering.ts`); detection cadence is adaptive; sampling runs in a
+worker on detection frames only (`colour/sampler.ts`). Coasting tracks are
+drawn dashed. The tracker follows *the quad at a place*, not a face: a track
+survives re-grips and turns and can hop faces while the cube is rotated in
+hand (measured on solve recordings, `docs/solve-tracking-design.md` 7).
+Duplicate tracks on one face happen and are vetoed downstream.
+
 ---
 
-## M7 — Any-order state assembly  🔶 (code complete 2026-09-12: orient.ts + assembly.ts + autoscan page; awaiting phone verification)
+## M7 — Any-order state assembly ✅ (redesigned and phone-verified 2026-09-13)
 
 Center-sticker face identification. Use adjacency of co-visible faces to orient each face's 9 stickers correctly in the global frame. Per-sticker voting across frames. Lock on convergence + cubejs validation. Highlight low-confidence stickers for tap-to-fix.
 
 **Done when:** you can scan a scrambled cube by just turning it around in view with no prompts, and get a valid state.
 
+**As built - not as first written.** The first implementation (centre
+exemplars naming faces, per-cell voting, `assembly.ts`) was taken to a
+phone for a day and judged structurally fragile
+(`docs/colour-pipeline-postmortem.md`); it was replaced the same day by the
+evidence-log solver in `web/src/colour/` (`docs/colour-pipeline-design.md`):
+every reading is logged with a quality weight, letter-free shared-edge
+pairings link co-visible quads, and a worker solves the whole log as a pure
+function - per-track robust aggregation, six-colour palette + per-frame
+illumination fitted under the cube's constraints, tracks grouped into faces
+with a co-visibility veto, letters and rotations from geometry, an exact
+constrained decoder (nine per colour, distinct centres, legality search)
+with a runner-up delta certificate. The lock fires only on the certificates.
+Ensemble of colour embeddings (lab-norm default) after a dark webcam session.
+
+**Evidence:** the phone locks real scrambles (the on-screen scramble + "I
+applied it" box makes every capture its own truth); 12 evidence-log captures
+in `web/test/fixtures/evidence/` replay through `colour-replay.test.ts`
+(never answers wrong; the monitor-lit day-one capture is must-refuse); the
+labelled photos double as a colour test set ("colour bank"). 268 tests.
+
+**Still true:** tap-to-fix exists only in the grid scanner; the auto path
+refuses instead of guessing and has no per-sticker override yet.
+
 ---
 
-## M8 — Hardening  🔶 (glare rejection, cube-less hard negatives in generator, grid-mode fallback done 2026-09-12; real-room checklist + low-end perf pass pending)
+## M8 — Hardening  🔶 (every item landed in some form; the real-room checklist has not been run)
 
-- Glare handling: drop samples where L is saturated, weight votes by confidence.
-- Hard-negative retraining with background grids.
-- Low-light behavior.
-- Graceful degradation: if detection confidence stays low for N seconds, offer the M1 grid mode.
-- Performance pass on a low-end phone.
+- Glare handling: ✅ readings carry a glare weight (blown-to-white, clip
+  fraction, censored channels); nothing is gated, everything is weighted.
+- Hard-negative retraining with background grids: ✅ procedural grids in
+  the generator, cube-less real frames imported as stage-1 negatives by
+  default, Roboflow/COCO negatives for stage 1. Grid-like backgrounds
+  (plaid, keyboard) still cost stage-1 recall at small cube sizes (M4b).
+- Low-light behaviour: ✅ 2026-09-13 dark-scene pass - SNR (brightness)
+  weight on readings, lab-norm embedding, exposure steering with a manual
+  fallback, a "too dark" hint. Webcams drop to 15 fps in dim rooms, which
+  halves everything downstream; light is still the cheapest fix.
+- Graceful degradation to the grid scanner: ✅ banner after 6 s of weak
+  detection; grid mode is the only path when a model file is missing.
+- Performance pass: ✅ inference in an ORT worker (own worker; ort-web's
+  proxy died under Vite), COI service worker for wasm threads, colour
+  pipeline on detection frames only, adaptive detect/solve cadence, 12 Hz
+  sampling cap. Field numbers from a mid-range Android are still not written
+  down anywhere - do that.
 
 **Done when:** it works in your kitchen, bathroom, and outdoors, on both GANs, and on a friend's stickerless cube.
+
+**Status:** not verified as a checklist. Kitchen evening (M1 fixture) and
+the desk/living room (batches 7-10) lock; outdoor clips exist for the
+sticker cube (batch 8) as detector data only; bathroom and a third cube are
+untested. Run the checklist with the scramble box ticked so each attempt is
+a fixture, then close this.
 
 ---
 
 ## Later / maybe (post-M8 — everything above stays 3x3-only until then)
 
-- **Cube-pose fit (geometry tier 2 — DO after the two-stage detector lands,
-  per user 2026-09-12).** Fit a full rigid cube (rotation + translation +
-  rough focal, ~6-7 DOF) to all tracked corners by Gauss-Newton on
-  reprojection error, then read idealized corners off the fitted cube.
-  Gives: perfect shared-vertex consistency (supersedes the tier-1 fusion in
-  orient.ts fuseSharedCorners), occluded-corner prediction, pose-level
-  tracking instead of 12 independent corners, and the mid-turn machinery
-  the solve coach needs (mid-turn = pose fit + one rotated layer). Gate it
-  with the seam veto like faces are gated today.
+- **Cube-pose fit - MEASURED 2026-09-13, scope narrowed.** Fitting a rigid
+  cube (rotation + translation, focal fixed per camera) to the 2-3 detected
+  quads does NOT sharpen corners: against hand labels the raw corners are
+  2.97 px and the snapped ones 3.25, because the labels themselves only fit
+  a pinhole cube to ~2.1 px - the model floor is at the detector's noise
+  (same verdict as seam refinement). It DOES recover the cyclic order of the
+  visible faces (26/26 photos right-handed with a visibility check against
+  the Necker mirror) and gives a per-frame consistency residual that flags
+  junk quads and merges duplicate tracks. Keep it for the solve tracker's
+  anchoring, not as a corner refiner; no pose head at training time on this
+  evidence. Tool and numbers: `tools/solve/cubefit.py`,
+  `docs/solve-tracking-design.md` 9.
 
 - **Other cube sizes (2x2–5x5).** Assessed 2026-09-12: the detector output
   (4 corners + visibility per face) is size-agnostic, and the grid checker
@@ -240,7 +350,26 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
   assembler: a real redesign of the identity/assembly layer, though not of
   the NN. The rotation-agnostic corner convention already points this way.
 
-- **Solve coach (the long-term product).** Phone camera watches a full solve;
+- **Solve coach (the long-term product) - IN FLIGHT.** Design:
+  `docs/solve-tracking-design.md` (epochs between turns, move hypotheses
+  scored against the locked start state's palette, belief sets, gaps
+  recovered by a depth-3 search; 3 visible faces make every single move
+  identifiable). Decided 2026-09-13: the reader runs *after* the solve
+  (10 s later is fine) - a decoder over the whole recording with both
+  endpoints known, not a live filter. Built so far: in-app solve recording
+  (`Record` on scan.html: camera .webm + evidence log on one clock, `Moves`
+  + "I applied it" for truth; solve mode keeps logging past the lock),
+  headless clip replay, log survey, quad-over-video overlay, rigid-cube fit
+  (`tools/solve/`). Measured on seven webcam solves: the natural chest-high
+  face-on grip shows ONE face with fingers on 2-4 stickers and turns happen
+  inside the hands; camera ABOVE and cube CLOSE shows 2-3 faces most of the
+  time; after batch 10 a 28 s solve has ~4 sampled frames per turn and one
+  detection gap. Next, in order: an occlusion (skin) veto per cell with the
+  evidence unioned over the epoch, the stage-1 miss fallback, then
+  `web/src/moves/` (segment / anchor / hypotheses / score / record) tested
+  first on a synthetic solve, then on recordings with `Moves` truth. Hands
+  are an occlusion mask, not a signal (design doc 8). The original sketch:
+  phone camera watches a full solve;
   the app reconstructs the move sequence with timestamps, segments it into
   method phases (ZZ: EO / F2L / LL), computes objective metrics (move count,
   TPS, pause map, rotations), and hands that structured record — moves and
@@ -257,7 +386,7 @@ Center-sticker face identification. Use adjacency of co-visible faces to orient 
   the solve coach).
 - Offline PWA install.
 
-## Maintenance ledger (2026-09-13 overnight pass)
+## Maintenance ledger (2026-09-13 overnight pass; re-checked 2026-09-14)
 
 Done: `model/ruff.toml` + `npm run lint` (ESLint, typescript-eslint) both
 clean; `bbox_eval/common.py` replaces seven copies of the ONNX localizer
@@ -275,18 +404,19 @@ Flagged, not fixed (each needs a decision or is out of scope for a night):
   `faces` output, `facekp.ts`'s non-anonymous decode). Exists only so
   pre-2026-09-12 checkpoints load. Nothing trains it; ~300 lines across
   both trees. Delete once `v4ft1` is no longer a reference number.
-- **Two colour paths.** The grid scanner (M1) classifies with
-  centre-seeded k-means over six captured faces (`assembleState`); the auto
-  scanner names each detected face from centre exemplars (`identify.ts`)
-  and then hands the per-sticker medians to the same `assembleState`. The
-  building blocks are shared (`normalizeFaceCells`, `CENTER_MIN_DIST`,
-  `kmeans`, `validateState`), the *decision* is made twice. Unifying means
-  the grid scanner naming faces from exemplars too - a behaviour change to
-  the proven fallback, so not done unattended.
+- **Two colour paths (still two, different second path now).** The grid
+  scanner (M1) classifies with centre-seeded k-means over six captured
+  faces (`state.ts assembleState`); the auto scanner is the evidence-log
+  solver (`web/src/colour/`). `assembly.ts` is gone; `identify.ts` survives
+  only for the overlay's face colours and the hint text. Unifying means the
+  grid scanner feeding its six faces into the solver as single-frame tracks
+  (the replay test already does this for old captures) - a behaviour change
+  to the proven fallback, so not done unattended.
 - `bbox_eval/roboflow_audit.py` needs a full-frame stage-2 checkpoint; kept
   as the record of the audit, will not run against the crop model.
-- `check_labels.py` flags opposite faces both visible as a *problem*; with
-  the anonymous head it is only a slot-naming slip. Downgrade to a note.
+- `check_labels.py` still flags opposite faces both visible as a *problem*
+  (it did again for batch 10's `w00021`); with the anonymous head it is only
+  a slot-naming slip. Downgrade to a note.
 - `facekp-decode.test.ts` is coupled to the deployed model: the fixture is
   re-dumped on every export (`dump_decode_fixture.py`). Fine as a parity
   gate, but a red suite between export and dump is expected, not a bug.
@@ -297,3 +427,13 @@ Flagged, not fixed (each needs a decision or is out of scope for a night):
   would silently stop firing if the pad colour ever changed.
 - The `export_onnx.py` int8 path is still gated off (dynamic quantization
   shifts corners ~24 px); fp32 ships. Static QDQ calibration is the fix.
+- **Solve logs are not colour-solver fixtures.** `colour-replay.test.ts`
+  picks up every file in `web/test/fixtures/evidence/`; a solve recording's
+  log mixes states and belongs in `web/clips/solves/` (gitignored) until
+  `moves-replay.test.ts` exists.
+- **Sampling stops at the lock** by design; solve mode (`?solve=1`, or while
+  recording) is the exception. The first three solve recordings logged
+  nothing after the lock because of this.
+- `watch.py` parsed epoch lines with a fixed regex and never charted a
+  stage-1 run (fixed 2026-09-14, generic key-value parsing); `train_bbox.py`
+  now writes `meta.json` like `train.py`.
