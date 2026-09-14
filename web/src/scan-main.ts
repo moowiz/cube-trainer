@@ -155,10 +155,11 @@ app.innerHTML = `
         <div id="attempt" class="grids"></div>
         <p class="note" id="legend" hidden>Each cell is painted with the colour actually measured for that sticker; the badge is the letter the decoder assigned it (<code>?</code> = too close to call, <code>·</code> = no evidence yet; the ringed cell is the centre). Header: which tracked quads fed the face and its rotation. Footer: why the solver will not lock yet — <i>changed</i> is how many stickers the cube's constraints moved off their raw best colour, <i>delta</i> how much worse the runner-up state scores, <i>min margin</i> the tightest sticker call.</p>
       </aside>
-    </div>
-    <div id="stats" class="auto"></div>
-    <details id="debug" class="auto">
-      <summary>Debug</summary>
+      <aside id="diag" class="auto">
+        <div class="ph">Pipeline</div>
+        <div id="stats"></div>
+    <details id="debug">
+      <summary>Debug controls</summary>
       <div class="row">
         <select id="ep">
           <option value="auto">EP: auto</option>
@@ -191,6 +192,8 @@ app.innerHTML = `
       <div id="exemplars" hidden></div>
       <div id="cells" class="grids"></div>
     </details>
+      </aside>
+    </div>
     <div id="grid"></div>
   </div>
 `;
@@ -213,6 +216,62 @@ const statusEl = $('status');
 const resultEl = $('result');
 const fallbackEl = $('fallback');
 const statsEl = $('stats');
+
+// The pipeline readout: one labelled value per thing worth watching, grouped
+// by stage, each with a hover explanation. Values are written in place on
+// the UI tick; the capture dumps the same text.
+const DIAG: { group: string; rows: { id: string; label: string; hint: string }[] }[] = [
+  { group: 'Camera', rows: [
+    { id: 'frame', label: 'frame', hint: 'Camera frame size and the measured frame rate. A webcam drops to 15 fps when its exposure goes past 33 ms.' },
+    { id: 'exposure', label: 'exposure', hint: "What the app last asked the camera for. 'app-controlled' steps the exposure until the stickers read well (see brightness); 'auto' is the camera's own whole-frame metering. '(step did not help)' = a step was undone and the loop is off for this session." },
+    { id: 'peak', label: 'sticker brightness', hint: 'Running median of the brightest channel (0-255) of the sticker readings being sampled, and the share of their pixels that are clipped. Under 55 is too dark to tell colours apart; over 215, or more than 12% clipped, is blown out (white and yellow merge).' },
+  ] },
+  { group: 'Detector', rows: [
+    { id: 'backend', label: 'backend', hint: 'ONNX runtime execution provider (webgpu or wasm), wasm threads, and whether inference runs in a worker.' },
+    { id: 'stage1', label: 'stage 1 (find cube)', hint: 'The localizer: ms per tick, the objectness score of the last tick (1 = sure there is a cube), and how many ticks this session found no cube at all.' },
+    { id: 'stage2', label: 'stage 2 (faces)', hint: 'The face keypoint model on the cube crop: ms per tick and how many face quads it returned on the last tick.' },
+    { id: 'latency', label: 'latency', hint: 'Detector latency in camera frames. The view is delayed by this much so every overlay is drawn on the frame its corners came from; late = ticks that arrived after the view had already passed their frame.' },
+    { id: 'tracks', label: 'tracks', hint: 'Face quads the tracker is following right now (up to 3 visible faces; a hand or a keyboard can be a false one).' },
+  ] },
+  { group: 'Sampling', rows: [
+    { id: 'sampling', label: 'per frame', hint: 'Time the sampling worker spends on one sampled frame: corner refinement, the 90x90 warp and nine patch statistics per face. dropped = frames skipped because the worker was still busy. Frames are sampled at most every 80 ms.' },
+    { id: 'log', label: 'evidence log', hint: 'What the solver sees: detection frames sampled this session, face readings (quads, nine cells each) and same-frame face pairings kept. The log keeps the newest 1500 quads (~40 s).' },
+  ] },
+  { group: 'Solver', rows: [
+    { id: 'solve', label: 'solve', hint: 'ms per solve in the solver worker (it re-runs whenever new evidence lands, never back to back) and the colour space that produced the current answer (three are tried).' },
+    { id: 'faces', label: 'faces', hint: 'Faces with a lettered centre out of six, and how many track groups the solver currently holds. More than six groups = the same face seen twice and not yet merged, or a junk quad.' },
+    { id: 'verdict', label: 'verdict', hint: 'Why the solver will not lock yet, or ok. A lock needs a legal cube, every sticker seen, and a runner-up state clearly worse.' },
+  ] },
+];
+const diagCells = new Map<string, HTMLElement>();
+for (const g of DIAG) {
+  const gh = document.createElement('div');
+  gh.className = 'dg';
+  gh.textContent = g.group;
+  statsEl.append(gh);
+  for (const r of g.rows) {
+    const row = document.createElement('div');
+    row.className = 'dr';
+    row.title = r.hint;
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = r.label;
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = '–';
+    row.append(k, v);
+    statsEl.append(row);
+    diagCells.set(r.id, v);
+  }
+}
+function setDiag(id: string, text: string): void {
+  const el = diagCells.get(id)!;
+  if (el.textContent !== text) el.textContent = text;
+}
+/** The readout as text, for the capture. */
+function diagText(): string {
+  return DIAG.map((g) => `${g.group}: ${g.rows.map((r) => `${r.label} = ${diagCells.get(r.id)!.textContent}`).join('; ')}`).join('\n');
+}
 const hintEl = $('hint');
 const msgEl = $('msg');
 const swatchEl = $('swatches');
@@ -783,15 +842,20 @@ function loop(ts: number, gen: number): void {
       if (exChk.checked) renderSolver();
       updateFillUI();
       fallbackEl.style.display = ts - lastGoodDetectionTs > FALLBACK_AFTER_MS ? 'block' : 'none';
-      statsEl.textContent =
-        `fps ${fps.fps.toFixed(1)}   view ${delay ? `-${delay} frame${delay === 1 ? '' : 's'}` : 'live'} (latency ${lagEma.toFixed(1)} frames, late ${lateTicks}/${ticks})   sampling ${sampler.msEma.toFixed(0)} ms (worker, dropped ${sampler.dropped})   peak ${peakEma.toFixed(0)}${exposureComp !== null ? ` exposure ${exposureComp}` : ''}   solve ${solveEma.toFixed(0)} ms   tracks ${tracks.length}   groups ${solution?.groups.length ?? 0}   faces ${solution?.centresSeen ?? 0}/6   quads ${log.quads.length}   pairings ${log.pairings.length}\n`
-        + (m ? `${v.videoWidth}x${v.videoHeight} ${m.detector.ep}${m.detector.threads > 1 ? ` x${m.detector.threads}` : ''}${m.detector.proxied ? ' (worker)' : ''}   ` : '')
-        + (lastTick
-          ? `stage 1 ${locateEma.toFixed(1)} ms obj ${lastTick.obj.toFixed(2)} (misses ${stage1Misses}/${ticks})   `
-            + (lastTick.result
-              ? `stage 2 ${inferEma.toFixed(1)} ms  quads ${lastTick.result.quads.length}`
-              : stage2Off.checked ? 'stage 2 off' : 'stage 2 skipped')
-          : '');
+      const sol = locked ?? solution;
+      setDiag('frame', `${v.videoWidth}×${v.videoHeight} · ${fps.fps.toFixed(1)} fps`);
+      setDiag('exposure', exposureSel.value === 'loop' ? `app-controlled${exposureComp !== null ? ` → ${exposureComp}` : ''}` : (exposureComp ?? exposureSel.value));
+      setDiag('peak', peakEma === 255 && !log.quads.length ? 'no readings yet' : `${peakEma.toFixed(0)} / 255 · ${(clipEma * 100).toFixed(0)}% clipped${peakEma < DARK_PEAK ? ' · too dark' : peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP ? ' · too bright' : ''}`);
+      setDiag('backend', m ? `${m.detector.ep}${m.detector.threads > 1 ? ` × ${m.detector.threads} threads` : ''}${m.detector.proxied ? ' · worker' : ''}` : 'loading');
+      setDiag('stage1', lastTick ? `${locateEma.toFixed(1)} ms · obj ${lastTick.obj.toFixed(2)} · no cube on ${stage1Misses} of ${ticks} ticks` : '–');
+      setDiag('stage2', lastTick ? (lastTick.result ? `${inferEma.toFixed(1)} ms · ${lastTick.result.quads.length} quad${lastTick.result.quads.length === 1 ? '' : 's'}` : stage2Off.checked ? 'off' : 'skipped (no cube)') : '–');
+      setDiag('latency', `${lagEma.toFixed(1)} frames · view ${delay ? `−${delay}` : 'live'} · late ${lateTicks} of ${ticks}`);
+      setDiag('tracks', `${tracks.length}${confident.length !== tracks.length ? ` (${confident.length} confident)` : ''}`);
+      setDiag('sampling', `${sampler.msEma.toFixed(0)} ms · dropped ${sampler.dropped}`);
+      setDiag('log', `${log.frames} frames · ${log.quads.length} quads · ${log.pairings.length} pairings`);
+      setDiag('solve', sol ? `${solveEma.toFixed(0)} ms · ${sol.embedding}` : solveEma ? `${solveEma.toFixed(0)} ms` : '–');
+      setDiag('faces', sol ? `${sol.centresSeen} of 6 · ${sol.groups.length} groups` : '–');
+      setDiag('verdict', locked ? 'locked ✓' : sol ? sol.reason : '–');
     }
     shown = frame;
   }
@@ -1088,7 +1152,7 @@ captureBtn.addEventListener('click', () => {
     solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
     params: DEFAULT_PARAMS,
     locked: !!locked,
-    stats: statsEl.textContent,
+    stats: diagText(),
     timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, sampleMinMs: SAMPLE_MIN_MS, peak: +peakEma.toFixed(0), clip: +clipEma.toFixed(2), exposureComp, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
   };
   const post = params.get('post');

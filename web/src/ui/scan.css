@@ -52,11 +52,20 @@ button.on { background: #3a4a6a; border-color: #5a7ab0; }
              color: #fff; background: #1f7a3dd9; }
 #fallback { display: none; background: #4a3320; border: 1px solid #8a6030; border-radius: 8px; padding: 8px 12px; margin-top: 8px; }
 #fallback a { color: #ffb454; }
-#stats { color: #8891a0; font-variant-numeric: tabular-nums; margin-top: 6px; white-space: pre-line; }
+/* the pipeline readout: label / value rows per stage, explanation on hover */
+#stats { font-variant-numeric: tabular-nums; background: #1a1e26; border: 1px solid #3a4150; border-radius: 8px; padding: 6px 10px 8px; }
+#stats .dg { color: #8b93a3; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 8px 0 2px; }
+#stats .dg:first-child { margin-top: 0; }
+#stats .dr { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: 10px; padding: 2px 0; font-size: 13px; cursor: help; }
+#stats .dr .k { color: #8891a0; }
+#stats .dr .v { color: #e8eaf0; font: 13px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+#stats .dr:hover .k { color: #c8ccd6; }
 #msg { color: #ffb454; min-height: 1.2em; margin-top: 8px; }
 label { display: flex; gap: 5px; align-items: center; color: #8891a0; }
 a { color: #7aa2ff; }
 details#debug { margin-top: 12px; border: 1px solid #2a2f3a; border-radius: 8px; padding: 6px 10px; }
+#diag { margin-top: 8px; }
+#diag .ph:first-child { margin-top: 0; }
 details#debug summary { cursor: pointer; color: #8b93a3; }
 #swatches { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
 #swatches .sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
@@ -93,5 +102,14 @@ body.grid .auto { display: none !important; }
   #side { margin-top: 8px; }
   #side .ph:first-child { margin-top: 0; }
   .grids { gap: 12px; }
+  /* the pipeline readout and debug controls under both columns... */
+  #diag { grid-column: 1 / -1; }
+}
+/* ...and a third column of their own when there is room for it */
+@media (min-width: 1500px) {
+  #cols { grid-template-columns: minmax(0, 2fr) minmax(400px, 1fr) minmax(300px, 0.75fr); gap: 24px; }
+  #diag { grid-column: auto; }
+  #debug .row { flex-direction: column; align-items: stretch; }
+  #debug .row select { width: 100%; }
 }
 #exemplars { font: 11px ui-monospace, monospace; white-space: pre; color: #c8ccd6; background: #1a1e26; border-radius: 8px; padding: 8px 10px; margin-top: 8px; overflow-x: auto; }
