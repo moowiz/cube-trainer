@@ -6,11 +6,10 @@
 (() => {
   const pages = [
     ['./', 'Trainer', 'index.html'],
-    ['scan.html', 'Scan (auto)'],
-    ['scan.html?mode=grid', 'Scan (grid)'],
+    ['./?tab=scan', 'Scan cube', 'index.html?tab=scan'],
     ['label.html', 'Labeler'],
   ];
-  const here = (location.pathname.split('/').pop() || 'index.html') + (location.search.includes('mode=grid') ? '?mode=grid' : '');
+  const here = (location.pathname.split('/').pop() || 'index.html') + (location.search.includes('tab=scan') ? '?tab=scan' : '');
 
   const style = document.createElement('style');
   style.textContent = `
@@ -40,8 +39,8 @@
     const a = document.createElement('a');
     a.href = href;
     a.textContent = label;
-    const file = href === './' ? (alias || 'index.html') : href;
-    if (here === file || (href === './' && here === '')) a.className = 'pn-here';
+    const file = alias || href;
+    if (here === file) a.className = 'pn-here';
     menu.appendChild(a);
   }
   const btn = document.createElement('button');

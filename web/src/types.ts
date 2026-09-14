@@ -43,6 +43,8 @@ export interface CellSample {
  */
 export type ColorName = 'white' | 'yellow' | 'red' | 'orange' | 'green' | 'blue';
 
+export const COLOR_NAMES: readonly ColorName[] = ['white', 'yellow', 'red', 'orange', 'green', 'blue'];
+
 /** Default scheme names, for UI prompts only — centers define the real scheme. */
 export const DEFAULT_SCHEME_NAMES: Record<FaceId, ColorName> = {
   U: 'white',

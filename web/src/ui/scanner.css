@@ -1,261 +1,133 @@
-/* Scanner UI. Self-contained under .cscan so it can live inside the trainer
-   page or standalone without style bleed. Palette matches the trainer. */
-
-.cscan {
-  --bg: #eceef2;
-  --panel: #f7f8fa;
-  --ink: #1b222c;
-  --ink-2: #5a6472;
-  --line: #d3d8e0;
-  --good: #1e7a46;
-  --bad: #b3261e;
-  max-width: 560px;
-  margin: 0 auto;
-  color: var(--ink);
-  font-size: 15px;
-}
-
-.cscan h1 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 4px;
-}
-
-.cscan .cs-sub {
-  color: var(--ink-2);
+/* The scanner (ui/scanner.ts), scoped to its mount root `.scan` with
+   `sc-` classes so it lives inside the trainer page without style bleed
+   either way. Palette matches the trainer; the camera stage stays dark. */
+.scan {
+  --sc-panel: #f7f8fa;
+  --sc-ctl: #dde1e7;
+  --sc-line: #d3d8e0;
+  --sc-ink: #1b222c;
+  --sc-ink-2: #5a6472;
+  --sc-ink-3: #3d4653;
+  --sc-good: #1e7a46;
+  --sc-warn: #8a5a12;
+  --sc-link: #2b5fd9;
+  color: var(--sc-ink);
   font-size: 14px;
-  margin: 0 0 12px;
-  line-height: 1.45;
 }
-
-/* stage */
-.cscan .cs-stage {
-  position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #14181f;
-  min-height: 120px;
+.scan .sc-wrap { max-width: 720px; margin: 0 auto; }
+.scan h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+/* which build and which models: the first thing to read off a phone screenshot */
+.scan .sc-version { display: flex; gap: 8px 18px; flex-wrap: wrap; align-items: baseline; margin: 0 0 10px;
+                    font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--sc-warn); }
+.scan .sc-version b { font-weight: 700; }
+.scan .sc-status { color: var(--sc-good); }
+.scan .sc-status::before { content: '▸ '; }
+.scan .sc-stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+.scan .sc-view { width: 100%; display: block; }
+.scan .sc-hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 14px; text-align: center;
+                 font-size: 16px; font-weight: 600; color: #fff; background: #c0392bd9; }
+.scan button, .scan select { background: var(--sc-panel); color: inherit; border: 1px solid var(--sc-line); border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
+.scan button:hover, .scan select:hover { border-color: var(--sc-ink-2); }
+.scan button:disabled { opacity: 0.5; cursor: default; }
+.scan button.sc-on { background: #d7e2f7; border-color: #6f93d6; }
+.scan .sc-bar, .scan .sc-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.scan .sc-scramble { background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 15px;
+                     display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.scan .sc-scrambleAlg { font: 600 17px/1.4 ui-monospace, monospace; letter-spacing: 0.02em; }
+.scan .sc-scramble label { margin-left: auto; font-size: 13px; }
+.scan .sc-solverec { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 15px; }
+.scan .sc-moves { flex: 1 1 200px; min-width: 0; background: var(--sc-panel); color: inherit; border: 1px solid var(--sc-line); border-radius: 6px; padding: 8px 10px; font: 600 15px/1.3 ui-monospace, monospace; }
+.scan .sc-rec.sc-on { background: #f3d4d4; border-color: #c04040; }
+.scan .sc-recState { font-size: 13px; color: var(--sc-ink-2); }
+/* face evidence chips: --fc is the face colour (standard scheme, then the
+   measured palette); the bar is the weakest sticker's share of the lock floor */
+.scan .sc-fill { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
+.scan .sc-chip { position: relative; border-radius: 6px; padding: 6px 8px 8px; background: var(--sc-panel); border: 1px solid var(--sc-line); border-left: 6px solid var(--fc);
+                 display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 5px; align-items: baseline; font-size: 12px; }
+.scan .sc-chip b { font-size: 13px; background: var(--fc); color: #000; padding: 0 6px; border-radius: 4px; border: 1px solid #0003; }
+.scan .sc-chip-name { color: var(--sc-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan .sc-chip-pct { color: var(--sc-ink-3); font-variant-numeric: tabular-nums; }
+.scan .sc-chip-bar { grid-column: 1 / -1; height: 6px; margin-top: 6px; border-radius: 3px; background: var(--sc-ctl); overflow: hidden; }
+.scan .sc-chip-bar i { display: block; height: 100%; width: 0; background: var(--fc); transition: width 0.25s; }
+.scan .sc-chip.sc-done { border-color: var(--fc); box-shadow: inset 0 0 0 1px var(--fc); }
+.scan .sc-ph { font-weight: 600; margin: 10px 0 2px; }
+.scan .sc-note { color: var(--sc-ink-2); font-size: 12px; line-height: 1.45; margin: 6px 0 10px; }
+.scan .sc-note code, .scan .sc-note i { color: var(--sc-ink-3); font-style: normal; }
+.scan .sc-unbound { color: var(--sc-ink-2); min-height: 1.2em; }
+/* the lock */
+.scan .sc-result { background: #e8f5ec; border: 1px solid #9fd3b0; border-radius: 8px; padding: 12px 14px; margin-top: 10px; }
+.scan .sc-result:empty { display: none; }
+.scan .sc-rt { font-size: 18px; font-weight: 700; color: var(--sc-good); }
+.scan .sc-st { font: 12px ui-monospace, monospace; color: var(--sc-ink-2); word-break: break-all; margin: 4px 0; }
+.scan .sc-cert { color: var(--sc-ink-2); font-size: 12px; }
+.scan .sc-hold { margin-top: 10px; }
+.scan .sc-sol { font: 600 20px/1.5 ui-monospace, monospace; letter-spacing: 0.03em; margin-top: 6px; word-spacing: 0.2em; }
+.scan .sc-use { margin-top: 10px; }
+.scan .sc-use button { background: var(--sc-good); color: #fff; border-color: var(--sc-good); font-weight: 600; }
+/* the move reader's ticker: sure turns bold, tentative ones dim with a ? */
+.scan .sc-read { margin-top: 10px; border-top: 1px solid #9fd3b0; padding-top: 8px; }
+.scan .sc-mh { color: var(--sc-ink-2); font-size: 12px; }
+.scan .sc-mv { font: 600 18px/1.5 ui-monospace, monospace; word-spacing: 0.2em; }
+.scan .sc-sure { color: var(--sc-ink); }
+.scan .sc-unsure { color: var(--sc-ink-2); }
+.scan .sc-gap { color: var(--sc-warn); }
+.scan .sc-movesTrace { font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace; color: var(--sc-ink-3); white-space: pre; overflow-x: auto; max-height: 260px; margin: 8px 0 0; }
+.scan .sc-movesTrace:empty { display: none; }
+.scan .sc-lockbadge { position: absolute; left: 0; right: 0; top: 0; padding: 8px 14px; text-align: center; font-size: 15px;
+                      color: #fff; background: #1f7a3dd9; }
+/* the pipeline readout: label / value rows per stage, explanation on hover */
+.scan .sc-stats { font-variant-numeric: tabular-nums; background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 8px; padding: 6px 10px 8px; }
+.scan .sc-dg { color: var(--sc-ink-2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 8px 0 2px; }
+.scan .sc-dg:first-child { margin-top: 0; }
+.scan .sc-dr { display: grid; grid-template-columns: minmax(96px, auto) minmax(0, 1fr); gap: 10px; padding: 2px 0; font-size: 13px; cursor: help; }
+.scan .sc-dr .sc-k { color: var(--sc-ink-2); }
+.scan .sc-dr .sc-v { color: var(--sc-ink); font: 13px ui-monospace, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.scan .sc-dr:hover .sc-k { color: var(--sc-ink); }
+.scan .sc-msg { color: var(--sc-warn); min-height: 1.2em; margin-top: 8px; }
+.scan label { display: flex; gap: 5px; align-items: center; color: var(--sc-ink-2); }
+.scan a { color: var(--sc-link); }
+.scan .sc-debug { margin-top: 12px; border: 1px solid var(--sc-line); border-radius: 8px; padding: 6px 10px; }
+.scan .sc-diag { margin-top: 8px; }
+.scan .sc-diag .sc-ph:first-child { margin-top: 0; }
+.scan .sc-debug summary { cursor: pointer; color: var(--sc-ink-2); }
+.scan .sc-swatches { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.scan .sc-sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+               font: 11px system-ui; color: #0006; border: 1px solid #0004; }
+.scan .sc-sw.sc-seed { opacity: 0.35; border-style: dashed; }
+.scan .sc-grids { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.scan .sc-grids:empty { display: none; }
+.scan .sc-face { background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 8px; padding: 8px 10px; }
+.scan .sc-hd { font: 11px ui-monospace, monospace; color: var(--sc-ink-2); margin-bottom: 6px; white-space: pre-line; }
+.scan .sc-hd b { color: var(--sc-ink); font-weight: 600; }
+.scan .sc-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1px solid #0008; }
+.scan .sc-g { display: grid; grid-template-columns: repeat(3, 52px); grid-auto-rows: 52px; gap: 3px; }
+.scan .sc-c { border-radius: 4px; display: flex; flex-direction: column; align-items: center;
+              justify-content: center; font: 10px/1.15 ui-monospace, monospace; border: 1px solid #0005; }
+.scan .sc-c.sc-mid { outline: 2px solid var(--sc-ink); outline-offset: 1px; }
+.scan .sc-c b { font-size: 10px; font-weight: 600; }
+/* lock attempt: the measured colour fills the cell, the decided letter is the badge */
+.scan .sc-attempt .sc-c { position: relative; }
+.scan .sc-attempt .sc-tag { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; border-radius: 50%;
+                            border: 1px solid #0008; display: grid; place-items: center; font: 700 10px ui-monospace, monospace; color: #000; }
+.scan .sc-attempt .sc-tag.sc-low { background: #fff !important; color: #c00; }
+.scan .sc-exemplars { font: 11px ui-monospace, monospace; white-space: pre; color: var(--sc-ink-3); background: var(--sc-panel); border-radius: 8px; padding: 8px 10px; margin-top: 8px; overflow-x: auto; }
+/* desktop: the camera fills the left column up to the viewport height; the
+   scan's state (evidence, lock, decoded faces) sits beside it */
+@media (min-width: 1100px) {
+  .scan .sc-wrap { max-width: 1900px; }
+  .scan .sc-version { font-size: 16px; margin-bottom: 12px; }
+  .scan .sc-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(440px, 1fr); gap: 28px; align-items: start; }
+  .scan .sc-stage { max-width: calc((100vh - 230px) * var(--ar, 1.3333)); margin: 0 auto; }
+  .scan .sc-side { margin-top: 8px; }
+  .scan .sc-side .sc-ph:first-child { margin-top: 0; }
+  .scan .sc-grids { gap: 12px; }
+  /* the pipeline readout and debug controls under both columns... */
+  .scan .sc-diag { grid-column: 1 / -1; }
 }
-
-.cscan .cs-stage canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.cscan .cs-stage.flash::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 4px solid var(--good);
-  border-radius: 12px;
-  animation: cs-flash 0.45s ease-out forwards;
-  pointer-events: none;
-}
-
-@keyframes cs-flash {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-.cscan .cs-fps {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  font-size: 12px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.45);
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-variant-numeric: tabular-nums;
-}
-
-.cscan .cs-start {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #fff;
-  padding: 16px;
-  text-align: center;
-}
-
-.cscan .cs-start p { margin: 0; font-size: 14px; color: #cfd5dd; max-width: 40ch; }
-
-/* prompt */
-.cscan .cs-prompt {
-  margin: 12px 0 4px;
-  font-size: 16px;
-  line-height: 1.4;
-  min-height: 44px;
-}
-
-.cscan .cs-prompt b { font-weight: 600; }
-
-.cscan .cs-hint {
-  color: var(--ink-2);
-  font-size: 13px;
-  margin: 2px 0 10px;
-  min-height: 18px;
-}
-
-.cscan .cs-hint.warn { color: var(--bad); }
-
-/* face progress strip */
-.cscan .cs-faces {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0 12px;
-}
-
-.cscan .cs-facechip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  font-size: 12px;
-  color: var(--ink-2);
-}
-
-.cscan .cs-facechip.cur { color: var(--ink); font-weight: 600; }
-
-.cscan .cs-mini {
-  display: grid;
-  grid-template-columns: repeat(3, 13px);
-  gap: 1px;
-  padding: 2px;
-  border-radius: 4px;
-  border: 1.5px solid var(--line);
-  background: var(--panel);
-}
-
-.cscan .cs-facechip.cur .cs-mini { border-color: var(--ink); }
-
-.cscan .cs-mini i {
-  display: block;
-  width: 13px;
-  height: 13px;
-  border-radius: 2px;
-  background: #dde1e7;
-}
-
-/* buttons */
-.cscan .cs-controls {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0;
-}
-
-.cscan button.cs-btn {
-  font: inherit;
-  font-size: 14px;
-  padding: 8px 13px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.cscan button.cs-btn:hover { border-color: var(--ink-2); }
-.cscan button.cs-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-
-.cscan button.cs-primary {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-  font-weight: 600;
-}
-
-.cscan button.cs-primary:hover { background: #2c3644; }
-
-/* review net */
-.cscan .cs-review { margin-top: 4px; }
-
-.cscan .cs-net {
-  display: grid;
-  grid-template-columns: repeat(4, auto);
-  grid-template-rows: repeat(3, auto);
-  gap: 8px;
-  justify-content: start;
-  user-select: none;
-  margin: 10px 0;
-}
-
-.cscan .cs-face {
-  display: grid;
-  grid-template-columns: repeat(3, var(--cs-s, 26px));
-  gap: 2px;
-}
-
-.cscan .cs-face[data-f='U'] { grid-column: 2; grid-row: 1; }
-.cscan .cs-face[data-f='L'] { grid-column: 1; grid-row: 2; }
-.cscan .cs-face[data-f='F'] { grid-column: 2; grid-row: 2; }
-.cscan .cs-face[data-f='R'] { grid-column: 3; grid-row: 2; }
-.cscan .cs-face[data-f='B'] { grid-column: 4; grid-row: 2; }
-.cscan .cs-face[data-f='D'] { grid-column: 2; grid-row: 3; }
-
-.cscan .cs-st {
-  width: var(--cs-s, 26px);
-  height: var(--cs-s, 26px);
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  padding: 0;
-  cursor: pointer;
-  transition: transform 0.08s;
-}
-
-.cscan .cs-st:hover { transform: scale(1.1); z-index: 1; position: relative; }
-.cscan .cs-st:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 1; position: relative; }
-.cscan .cs-st.center { cursor: default; box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25); }
-.cscan .cs-st.lowconf { box-shadow: 0 0 0 2px var(--bad); }
-.cscan .cs-st.bad { box-shadow: 0 0 0 2px var(--bad); animation: cs-pulse 1s infinite; }
-
-@keyframes cs-pulse {
-  50% { box-shadow: 0 0 0 4px rgba(179, 38, 30, 0.45); }
-}
-
-@media (max-width: 420px) {
-  .cscan { --cs-s: 22px; }
-  .cscan .cs-face { grid-template-columns: repeat(3, 22px); }
-  .cscan .cs-st { width: 22px; height: 22px; }
-}
-
-.cscan .cs-valid {
-  font-size: 14px;
-  margin: 8px 0;
-  min-height: 20px;
-}
-
-.cscan .cs-valid.ok { color: var(--good); font-weight: 600; }
-.cscan .cs-valid.err { color: var(--bad); }
-
-.cscan .cs-solution {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin: 10px 0;
-}
-
-.cscan .cs-solution h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
-
-.cscan .cs-moves {
-  font-size: 17px;
-  line-height: 1.7;
-  word-spacing: 0.25em;
-  font-variant-numeric: tabular-nums;
-}
-
-.cscan .cs-solution p { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
-
-.cscan .cs-error {
-  color: var(--bad);
-  font-size: 14px;
-  margin: 8px 0;
+/* ...and a third column of their own when there is room for it */
+@media (min-width: 1500px) {
+  .scan .sc-cols { grid-template-columns: minmax(0, 2fr) minmax(400px, 1fr) minmax(300px, 0.75fr); gap: 24px; }
+  .scan .sc-diag { grid-column: auto; }
+  .scan .sc-debug .sc-row { flex-direction: column; align-items: stretch; }
+  .scan .sc-debug .sc-row select { width: 100%; }
 }

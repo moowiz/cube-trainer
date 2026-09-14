@@ -14,7 +14,7 @@ Two halves:
 - Everything runs client-side. Never add a network call for inference or image processing.
 - Must work on a mid-range Android phone in Chrome. Target ≥15 fps end-to-end with the detector, 60 fps without it.
 - Never trust a single frame. Every sticker reading is a vote; the cube state is only "locked" after convergence and cubejs validation.
-- The user can always tap a sticker to override it.
+- The user can always tap a sticker to override it. (Not yet true of the auto scanner: it refuses to lock rather than guess; tap-to-fix went with the grid scanner on 2026-09-14 and is owed.)
 
 ## Pipeline (per frame)
 
@@ -52,7 +52,9 @@ web/
                      (track grouping), naming, decode (exact decoder), solve,
                      solve.worker + client
     state.ts         validateState (legality oracle), rotation helpers, cubejs solve
-    ui/              overlay canvas, sticker grid, tap-to-fix
+    ui/              scanner.ts (the Scan tab: camera, overlay, evidence, lock), hint, settings
+    handoff.ts       a locked scan as a scramble in the trainer's frame (white down)
+    trainer-main.ts  mounts the scanner on index.html's Scan tab, hands locks to the EO trainer
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
@@ -86,7 +88,7 @@ MILESTONES.md
   fails to bind) and hand the user that URL. Redirect training output to
   `runs/<name>-console.log` so the dashboard picks the run up.
 - Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it. For the colour solver the fixture is the phone's `Capture debug` JSON (it holds the whole evidence log): drop it in `web/test/fixtures/evidence/` with a `truth` field and `colour-replay.test.ts` picks it up.
-- Keep `model/` and `web/` independent: `web/` must run (with the grid-overlay fallback) even if no model file is present.
+- Keep `model/` and `web/` independent: `web/` must run (the trainer works, the Scan tab says no model is deployed) even if no model file is present.
 
 ## Commands
 

@@ -141,21 +141,21 @@ export function renderCellReadout(host: HTMLElement, res: DetectResult | null, e
   res.named.forEach((n, i) => {
     if (!n.cellsNorm || !n.cellRgb || !n.cells) return;
     const box = document.createElement('div');
-    box.className = 'face';
+    box.className = 'sc-face';
     const hd = document.createElement('div');
-    hd.className = 'hd';
+    hd.className = 'sc-hd';
     const best = n.ranked?.[0];
     hd.textContent = `quad ${i} · ${res.quads[i] ? res.quads[i]!.conf.toFixed(2) : '?'} · ${n.reason}\n`
       + (best ? `centre ${n.color ?? '—'} d ${best.d.toFixed(1)} · conf ${n.nameConf.toFixed(2)}` : 'not named');
     const g = document.createElement('div');
-    g.className = 'g';
+    g.className = 'sc-g';
     n.cellsNorm.forEach((lab, k) => {
       const p = cellPick(lab, exemplars);
       const label = DEFAULT_SCHEME_NAMES[p.face].slice(0, 3);
       const d = p.d;
       const rgb = n.cellRgb![k]!;
       const c = document.createElement('div');
-      c.className = 'c' + (k === 4 ? ' mid' : '');
+      c.className = 'sc-c' + (k === 4 ? ' sc-mid' : '');
       c.style.background = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
       c.style.color = d > 35 ? '#fff' : '#000';
       c.innerHTML = `<b>${label}</b><span>${d.toFixed(0)}</span>`;

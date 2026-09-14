@@ -44,23 +44,21 @@ function apply(el: HTMLElement, v: string | boolean): boolean {
 }
 
 /**
- * Restore the given controls (by element id) from the store and keep the
- * store current from now on. Returns the controls whose value was actually
- * restored, for the caller to dispatch 'change' on.
+ * Restore the given controls (keyed by their name in the store) and keep
+ * the store current from now on. Returns the controls whose value was
+ * actually restored, for the caller to dispatch 'change' on.
  */
-export function persistControls(ids: string[]): HTMLElement[] {
+export function persistControls(controls: Record<string, HTMLElement>): HTMLElement[] {
   const stored = read();
   const restored: HTMLElement[] = [];
-  for (const id of ids) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    const v = stored[id];
+  for (const [key, el] of Object.entries(controls)) {
+    const v = stored[key];
     if (v !== undefined && apply(el, v)) restored.push(el);
     el.addEventListener(el instanceof HTMLDetailsElement ? 'toggle' : 'change', () => {
       const s = read();
       const now = stateOf(el);
       if (now === null) return;
-      s[id] = now;
+      s[key] = now;
       write(s);
     });
   }
