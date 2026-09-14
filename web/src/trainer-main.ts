@@ -14,7 +14,7 @@ import { mountScanner, type ScannerHandle } from './ui/scanner';
 
 interface ZZBus {
   showTab(t: string): void;
-  openScan(): void;
+  openScan(opts?: { keep?: boolean }): void;
   closeScan(): void;
   sheetOpen(): boolean;
   toast(msg: string): void;
@@ -88,10 +88,19 @@ function ensureScanner(): ScannerHandle {
   return scanner;
 }
 
-// the camera runs only while the scan sheet is up
+// the camera runs only while the scan sheet is up. Opening starts a fresh scan unless asked to keep the
+// one in progress (the Resume button, which appears once there is something to come back to).
 const origOpen = window.ZZ.openScan;
 const origClose = window.ZZ.closeScan;
-window.ZZ.openScan = () => { origOpen(); ensureScanner().start(); };
+window.ZZ.openScan = (opts) => {
+  origOpen(opts);
+  const fresh = scanner === null;
+  const s = ensureScanner();
+  if (!fresh && !opts?.keep) s.reset();
+  s.start();
+  const resume = document.getElementById('scan-resume');
+  if (resume) resume.hidden = false;
+};
 window.ZZ.closeScan = () => { origClose(); scanner?.stop(); };
 
 // The page's startup script may already have opened the sheet (?tab=scan,

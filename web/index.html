@@ -142,8 +142,9 @@
   .tabs button.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
   .tabs button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   .tabs .sp { flex: 1; }
-  .tabs button.ico { padding: 6px 10px; margin: 0 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 14px; align-self: center; }
+  .tabs button.ico { padding: 6px 10px; margin: 0 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 14px; align-self: center; white-space: nowrap; }
   .tabs button.ico:hover { border-color: var(--ink-2); }
+  @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
   /* sheets: the scanner and the settings float over whichever stage is open */
   .sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(20,22,28,.45); overflow: auto; }
   .sheet-box { background: var(--bg); min-height: 100%; }
@@ -191,6 +192,8 @@
   .eo-chip { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink-2); cursor: pointer; }
   .eo-chip.open { color: var(--ink); background: #fff; cursor: default; }
   .eo-note { margin: 6px 4px 10px; font-size: 13px; color: var(--ink-2); }
+  .eo-stratnote { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; line-height: 1.45; }
+  .eo-stratnote ul { margin: 4px 0 0; padding-left: 18px; } .eo-stratnote li { margin: 4px 0; }
   .eo-lbl { display: block; font-size: 13px; color: var(--ink-2); margin: 0 0 6px 2px; }
   #eo-sol { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; letter-spacing: .02em; }
   #eo-sol:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
@@ -226,7 +229,8 @@
   <button type="button" data-t="ocll">OCLL</button>
   <button type="button" data-t="pll">PLL</button>
   <span class="sp"></span>
-  <button type="button" class="ico" id="scan-open" title="Scan your cube: a lock opens the stage it is at">📷 Scan</button>
+  <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
+  <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
   <button type="button" class="ico" id="settings-open" title="Settings" aria-label="Settings">⚙</button>
 </nav>
 <div id="f2l-panel">
@@ -325,7 +329,10 @@
     <button type="button" class="eo-chip" data-hint="bad">Hint: bad edges</button>
     <button type="button" class="eo-chip" data-hint="len">Hint: move count</button>
     <button type="button" class="eo-chip" data-hint="plan">Hint: F/B plan</button>
+    <button type="button" class="eo-chip eo-strat" data-strat="short" hidden>Hint: EOCross strategy</button>
+    <button type="button" class="eo-chip eo-strat" data-strat="long" hidden>Strategy in depth</button>
   </div>
+  <div class="eo-note eo-stratnote" id="eo-strat" hidden></div>
 
   <div class="eo-row">
     <button id="eo-timerBtn" class="btn eo-primary" type="button" style="flex:1">Start timer</button>
@@ -408,12 +415,18 @@ window.ZZ = {
   openSheet(id){ document.getElementById(id).hidden=false; document.body.style.overflow='hidden'; },
   closeSheet(id){ document.getElementById(id).hidden=true; if(!ZZ.sheetOpen()) document.body.style.overflow=''; },
   sheetOpen(){ return !!document.querySelector('.sheet:not([hidden])'); },
-  openScan(){ ZZ.openSheet('scan-sheet'); },
+  // opts.keep: come back to the scan in progress instead of starting a fresh one (trainer-main.ts wraps this)
+  openScan(opts){ ZZ.openSheet('scan-sheet'); },
+  resumeScan(){ ZZ.openScan({keep:true}); },
   closeScan(){ ZZ.closeSheet('scan-sheet'); },
   toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>{ t.hidden=true; },4000); },
 };
 document.querySelectorAll('.tabs button[data-t]').forEach(b=>b.addEventListener('click',()=>ZZ.showTab(b.dataset.t)));
 document.getElementById('scan-open').onclick=()=>ZZ.openScan();
+document.getElementById('scan-resume').onclick=()=>ZZ.resumeScan();
+// c / r open the scanner (fresh / resumed) from any stage; both sit under the right hand on Dvorak
+document.addEventListener('keydown',e=>{ if(ZZ.sheetOpen()||e.metaKey||e.ctrlKey||e.altKey||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) return;
+  if(e.key==='c') ZZ.openScan(); else if(e.key==='r'&&!document.getElementById('scan-resume').hidden) ZZ.resumeScan(); });
 document.getElementById('scan-close').onclick=()=>ZZ.closeScan();
 document.getElementById('settings-open').onclick=()=>ZZ.openSheet('settings-sheet');
 document.getElementById('settings-close').onclick=()=>ZZ.closeSheet('settings-sheet');
@@ -1252,7 +1265,7 @@ function showSolutions(){
   for(const [txt,f] of fam){ const g=groups.get(f.plan.key)||{plan:f.plan,lines:new Map()}; groups.set(f.plan.key,g); g.lines.set(txt,f.n); }
   const mine=userSolve(); const mineTxt=mine&&mine.length===gs.length?canonical(mine).txt:null;
   const total=gs.count??gs.solutions.length, listed=gs.solutions.length, families=[...groups.values()].reduce((n,g)=>n+g.lines.size,0);
-  $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${gs.truncated?` (first ${listed} listed)`:''}${families<listed?`, ${families} line${families===1?'':'s'} once turns that work either way (*) and commuting pairs are merged`:''}. From the scrambled state, white down.${mineTxt?' Yours is marked.':''}`;
+  $('rSub').textContent=`${total} optimal solution${total===1?'':'s'}${gs.truncated?` (first ${listed} listed)`:''}${families<listed?`, ${families} line${families===1?'':'s'} once turns that work either way (*) and commuting pairs are merged`:''}.${mineTxt?' Yours is marked.':''}`;
   const order=[...groups.values()].sort((a,b)=>settings.goal==='cross'?a.plan.counts[0]-b.plan.counts[0]:b.lines.size-a.lines.size);
   for(const g of order){
     const box=document.createElement('div'); box.className='grp';
@@ -1276,7 +1289,9 @@ function flash(m){ $('flash').textContent=m; }
 
 // ---------- hints ----------
 const HINT_LABEL={bad:'Hint: bad edges',len:'Hint: move count',plan:'Hint: F/B plan'};
-function resetHints(){ document.querySelectorAll('#eo-hints .eo-chip').forEach(b=>{ b.textContent=HINT_LABEL[b.dataset.hint]; b.classList.remove('open'); }); }
+function resetHints(){ document.querySelectorAll('#eo-hints .eo-chip[data-hint]').forEach(b=>{ b.textContent=HINT_LABEL[b.dataset.hint]; b.classList.remove('open'); });
+  // the strategy note is scramble-independent: it only follows the goal
+  document.querySelectorAll('#eo-hints .eo-strat').forEach(b=>{ b.hidden=settings.goal!=='cross'; }); if(settings.goal!=='cross'){ $('strat').hidden=true; document.querySelectorAll('#eo-hints .eo-strat').forEach(b=>b.classList.remove('open')); } }
 // for each optimal solution: how many bad edges sit on the face at each F/B quarter turn
 function fbPlans(sols){
   const seen=new Set(), out=[];
@@ -1302,7 +1317,20 @@ function hintText(kind){
   const plans=fbPlans(gs.solutions);
   return plans.map(p=>`${p.length} F/B turn${p.length===1?'':'s'}: ${p.join(' then ')}`).join(' · ')||'no F/B turns needed';
 }
-$('hints').addEventListener('click',e=>{ const b=e.target.closest('.eo-chip'); if(!b||b.classList.contains('open')) return;
+// what optimal EOCross looks like (docs/eocross-patterns.md), independent of the scramble: a toggle, not a peek
+const STRATEGY={
+  short:'Aim the last F/B turn at the cross: get three white edges home and the fourth onto the side of the face you will turn last (FR or FL for an F turn), with all four of that face’s edges bad. That one turn then finishes EO and the cross together.',
+  long:'<ul>'+
+    '<li><b>EO then cross costs two moves</b> (9.4 vs 7.5 on average). The EO part of an optimal EOCross is usually 2–3 moves longer than the shortest EO: a longer EO whose setup moves place white edges beats a short EO plus a cross.</li>'+
+    '<li><b>EO is finished exactly once, by the last F/B quarter turn.</b> Everything before it is setup: D turns mid-solve bring white edges under the F/B faces, R/L turns feed them in.</li>'+
+    '<li><b>The finish</b> (38% of optimal solutions): three white edges home, the fourth waiting on the side of the last F/B face, that face fully bad. Another 26% need one move after EO: an R/L insert, or a D to align a cross built offset.</li>'+
+    '<li><b>When the obvious EO leaves a 3–4 move cross,</b> look for an EO one move longer that leaves 0–1. It pays 60% of the time.</li>'+
+    '<li>Hint: F/B plan gives the bad-edge count at each F/B turn of the optimal solutions; the solution list groups them by how many cross moves follow the last EO turn.</li></ul>',
+};
+$('hints').addEventListener('click',e=>{ const s=e.target.closest('.eo-strat'); if(s){ const note=$('strat'), open=s.classList.contains('open');
+    document.querySelectorAll('#eo-hints .eo-strat').forEach(x=>x.classList.remove('open'));
+    if(open){ note.hidden=true; } else { s.classList.add('open'); note.innerHTML=STRATEGY[s.dataset.strat]; note.hidden=false; } return; }
+  const b=e.target.closest('.eo-chip'); if(!b||b.classList.contains('open')) return;
   if(b.dataset.hint==='plan') assisted=true; b.textContent=hintText(b.dataset.hint); b.classList.add('open'); });
 
 // ---------- rendering ----------
