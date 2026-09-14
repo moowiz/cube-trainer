@@ -127,85 +127,111 @@ export class Camera {
   }
 
   /**
-   * Step the camera's exposure by `dir` (+1 brighter, -1 darker). Resolves
-   * to a description of what was applied, or null when the camera offers
-   * no control (a clip, a driver without one) or the value is already at
-   * the end of its range. Why: a webcam's metering sees the whole room -
-   * an evening session with a ceiling lamp in the frame read the cube at
-   * RGB (40, 27, 14) while the lamp was correctly exposed
-   * (scan-debug-1789348371807); the cube is the only thing this app cares
-   * about, so its brightness drives the exposure.
+   * Exposure control. Why: a webcam's metering sees the whole room. An
+   * evening session with a ceiling lamp in the frame read the cube at RGB
+   * (40, 27, 14) (scan-debug-1789348371807); a lit session read the
+   * stickers at 228-255 with 17% of their pixels clipped, at 15 fps and
+   * motion-blurred, because auto sat at 62.5 ms (solve 1789360518933).
+   * The cube is the only thing this app cares about, so its brightness
+   * drives the exposure - from scan-main's controller, or by hand from
+   * the debug panel.
    *
-   * Two controls, in order of preference: `exposureCompensation` (phones:
-   * the camera's own metering keeps running, offset by one advertised
-   * step); else manual `exposureTime`, ONE level. MEASURED on a LifeCam
-   * HD-3000 (no compensation offered): manual times are immediate and
-   * stable, the driver rounds a request UP to its power-of-two grid (66 ms
-   * became 125 ms and 8 fps), getSettings().exposureTime under auto
-   * reports the last manual register, not what auto is using - and auto
-   * brightens a dark room mostly with GAIN, which a manual time resets:
-   * manual 31 ms read luma 57 where auto read 109 in a lit room, and in
-   * the evening room the first version of this ladder turned the picture
-   * black. So the only manual level is the longest time that keeps ~15
-   * fps (EXPOSURE_TIME_MANUAL), the caller must check that the cube got
-   * brighter and call resetExposure() if not, and stepping down goes
-   * straight back to auto. Auto is also restored when the camera stops: a
-   * manual exposure persists in the driver for the next app otherwise.
+   * Two controls: `exposureCompensation` where offered (phones: the
+   * camera's own metering keeps running, offset by a step) and manual
+   * `exposureTime` otherwise. MEASURED on a LifeCam HD-3000 (no
+   * compensation): manual times are immediate and stable; the driver
+   * rounds a request UP to its power-of-two grid (66 ms became 125 ms and
+   * 8 fps); getSettings().exposureTime under auto reports the last manual
+   * register, not what auto uses; and auto brightens a dark room with
+   * GAIN that a manual time resets - manual 62.5 ms read luma 63 where
+   * auto read 105 in the same room. So manual time is a DARKENING lever on
+   * such a camera (and a frame-rate one: 31 ms is 30 fps), and any
+   * brightening step has to be checked by the caller against what the
+   * cube actually reads. Auto is restored when the camera stops: a manual
+   * exposure persists in the driver for the next app otherwise.
    */
-  async nudgeExposure(dir: 1 | -1): Promise<string | null> {
+
+  /** Manual exposure times this camera can be set to, in ms, longest first (empty: no manual control). */
+  exposureLevelsMs(): number[] {
+    const caps = this.exposureCaps();
+    const time = caps?.exposureTime;
+    if (!caps || !time || time.min === undefined || time.max === undefined || !caps.exposureMode?.includes('manual')) return [];
+    const out: number[] = [];
+    // DECISION: halving steps from the ~15 fps cap down to the camera's
+    // floor - the grid the LifeCam rounds to, and a sane ladder elsewhere
+    for (let t = Math.min(time.max, EXPOSURE_TIME_CAP); t >= Math.max(time.min, EXPOSURE_TIME_FLOOR); t /= 2) out.push(t / 10);
+    return out;
+  }
+
+  /** Whether the camera offers exposure compensation (the phone-style control). */
+  hasExposureCompensation(): boolean {
+    const comp = this.exposureCaps()?.exposureCompensation;
+    return !!comp && comp.min !== undefined && comp.max !== undefined && comp.max > comp.min;
+  }
+
+  /**
+   * Set a manual exposure time (ms), or hand control back to auto with
+   * null. Resolves to what the driver reports it took ('31.3 ms',
+   * 'auto'), or null when unsupported or refused. A time the driver
+   * rounds past the ~15 fps cap is not kept.
+   */
+  async setExposureTime(ms: number | null): Promise<string | null> {
     const track = this.stream_?.getVideoTracks()[0];
-    if (!track || typeof track.getCapabilities !== 'function') return null;
-    let caps: ExposureCaps;
-    try {
-      caps = track.getCapabilities() as ExposureCaps;
-    } catch {
-      return null;
-    }
-    const settings = track.getSettings() as ExposureSettings;
-    const apply = async (c: Record<string, unknown>): Promise<boolean> => {
-      try {
-        await track.applyConstraints({ advanced: [c as MediaTrackConstraintSet] });
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    const comp = caps.exposureCompensation;
-    if (comp && comp.min !== undefined && comp.max !== undefined && comp.max > comp.min) {
-      const step = comp.step && comp.step > 0 ? comp.step : (comp.max - comp.min) / 6;
-      const current = settings.exposureCompensation ?? 0;
-      const next = Math.min(comp.max, Math.max(comp.min, current + dir * step));
-      if (Math.abs(next - current) < step / 2) return null;
-      return (await apply({ exposureCompensation: next })) ? `ev ${next > 0 ? '+' : ''}${+next.toFixed(2)}` : null;
+    const caps = this.exposureCaps();
+    if (!track || !caps) return null;
+    if (ms === null) {
+      if (!this.manualExposure) return null;
+      this.manualExposure = false;
+      return (await this.applyAdvanced(track, { exposureMode: 'continuous' })) ? 'auto' : null;
     }
     const time = caps.exposureTime;
-    if (time && time.min !== undefined && time.max !== undefined && caps.exposureMode?.includes('manual')) {
-      if (dir < 0) return this.manualExposure ? this.resetExposure() : null;
-      if (this.manualExposure) return null; // the one manual level is already in
-      if (settings.exposureMode !== 'continuous') return null; // someone else's manual setting: leave it
-      const want = Math.max(time.min, Math.min(time.max, EXPOSURE_TIME_MANUAL));
-      if (!(await apply({ exposureMode: 'manual', exposureTime: want }))) return null;
-      this.manualExposure = true;
-      const got = (track.getSettings() as ExposureSettings).exposureTime ?? want;
-      if (got > EXPOSURE_TIME_CAP) return this.resetExposure(); // rounded past ~15 fps: not usable
-      return `${(got / 10).toFixed(1)} ms`;
+    if (!time || time.min === undefined || time.max === undefined || !caps.exposureMode?.includes('manual')) return null;
+    const want = Math.max(time.min, Math.min(time.max, ms * 10));
+    if (!(await this.applyAdvanced(track, { exposureMode: 'manual', exposureTime: want }))) return null;
+    this.manualExposure = true;
+    const got = (track.getSettings() as ExposureSettings).exposureTime ?? want;
+    if (got > EXPOSURE_TIME_CAP * 1.05) {
+      await this.setExposureTime(null);
+      return null;
     }
-    return null;
+    return `${(got / 10).toFixed(1)} ms`;
+  }
+
+  /** Step exposure compensation by `dir` (+1 brighter); null when unsupported or at the end of the range. */
+  async nudgeCompensation(dir: 1 | -1): Promise<string | null> {
+    const track = this.stream_?.getVideoTracks()[0];
+    const comp = this.exposureCaps()?.exposureCompensation;
+    if (!track || !comp || comp.min === undefined || comp.max === undefined || comp.max <= comp.min) return null;
+    const step = comp.step && comp.step > 0 ? comp.step : (comp.max - comp.min) / 6;
+    const current = (track.getSettings() as ExposureSettings).exposureCompensation ?? 0;
+    const next = Math.min(comp.max, Math.max(comp.min, current + dir * step));
+    if (Math.abs(next - current) < step / 2) return null;
+    return (await this.applyAdvanced(track, { exposureCompensation: next })) ? `ev ${next > 0 ? '+' : ''}${+next.toFixed(2)}` : null;
+  }
+
+  /** Hand exposure back to the camera's own control. Resolves to 'auto' when it did something. */
+  resetExposure(): Promise<string | null> {
+    return this.setExposureTime(null);
   }
 
   private manualExposure = false;
 
-  /** Hand exposure back to the camera's own control. Resolves to 'auto' when it did something. */
-  async resetExposure(): Promise<string | null> {
-    if (!this.manualExposure) return null;
-    this.manualExposure = false;
+  private exposureCaps(): ExposureCaps | null {
     const track = this.stream_?.getVideoTracks()[0];
-    if (!track) return null;
+    if (!track || typeof track.getCapabilities !== 'function') return null;
     try {
-      await track.applyConstraints({ advanced: [{ exposureMode: 'continuous' } as MediaTrackConstraintSet] });
-      return 'auto';
+      return track.getCapabilities() as ExposureCaps;
     } catch {
       return null;
+    }
+  }
+
+  private async applyAdvanced(track: MediaStreamTrack, c: Record<string, unknown>): Promise<boolean> {
+    try {
+      await track.applyConstraints({ advanced: [c as MediaTrackConstraintSet] });
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -270,13 +296,14 @@ interface ExposureCaps {
   exposureMode?: string[];
 }
 interface ExposureSettings { exposureCompensation?: number; exposureTime?: number; exposureMode?: string }
-// DECISION: manual exposure times are in 100 us units (the spec). The one
-// manual level asks for 60 ms: a frame cannot be shorter than its exposure,
-// so this holds ~15 fps, the floor the detector needs (a power-of-two
-// driver rounds it to 62.5 ms; 66 would round to 125 and 8 fps). Anything
-// the driver returns above the cap is refused.
-const EXPOSURE_TIME_MANUAL = 600;
-const EXPOSURE_TIME_CAP = 660;
+// DECISION: exposure times are in 100 us units (the spec). The longest
+// manual level is 62.5 ms: a frame cannot be shorter than its exposure, so
+// this holds ~15 fps, the floor the detector needs (a power-of-two driver
+// rounds 66 to 125 ms and 8 fps, so the cap is a grid value and anything
+// the driver reports above it is refused). The floor, 3.9 ms, is four
+// halvings down - shorter than that a lit room is black.
+const EXPOSURE_TIME_CAP = 625;
+const EXPOSURE_TIME_FLOOR = 39;
 
 // Ask the camera for continuous auto exposure / white balance / focus.
 // getUserMedia leaves the track in whatever mode the driver is sitting in —
