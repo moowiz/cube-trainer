@@ -95,6 +95,12 @@ const SAMPLE_MIN_MS = 80;
 // their weight, and the palette fit cannot separate colours in them
 // (scan-debug-1789348371807 read whole faces at RGB (40, 27, 14)).
 const DARK_PEAK = 55;
+// ...and too bright when the median peak is up here or this share of the
+// sampled sticker pixels is clipped: whites and yellows both read (2xx,
+// 25x, 25x) and stop separating (solve 1789360518933: peak 228-255, clip
+// 0.17, and auto at 62.5 ms had every turn motion-blurred at 15 fps).
+const BRIGHT_PEAK = 215;
+const BRIGHT_CLIP = 0.12;
 // Exposure steps are at least this far apart: a manual step is immediate
 // but the sampled-brightness EMA needs ~1 s to say what it did, and a
 // camera handed back to auto takes ~3 s to settle (LifeCam, measured).
@@ -174,6 +180,7 @@ app.innerHTML = `
         <label><input type="checkbox" id="refusedChk"> refused quads</label>
         <label id="heatLbl" hidden><input type="checkbox" id="heat"> heatmap</label>
         <label><input type="checkbox" id="stage2off"> stage 2 off (localizer only)</label>
+        <select id="exposure" title="Exposure: the app steers the camera toward well-exposed stickers (peak/clip in the stats line), or hold a setting by hand"><option value="loop">exposure: app-controlled</option><option value="auto">exposure: camera auto</option></select>
         <label id="cellsLbl" hidden><input type="checkbox" id="cellsChk"> per-sticker readout</label>
         <label><input type="checkbox" id="exChk"> solver</label>
         <label><input type="checkbox" id="samplesChk"> sample patches</label>
@@ -219,6 +226,7 @@ const syncSel = $<HTMLSelectElement>('sync');
 const stageChk = $<HTMLInputElement>('stage1');
 const heatChk = $<HTMLInputElement>('heat');
 const stage2Off = $<HTMLInputElement>('stage2off');
+const exposureSel = $<HTMLSelectElement>('exposure');
 const cellsChk = $<HTMLInputElement>('cellsChk');
 const exChk = $<HTMLInputElement>('exChk');
 const samplesChk = $<HTMLInputElement>('samplesChk');
@@ -296,8 +304,11 @@ let peakEma = 255;         // running median-ish of the brightest channel of sam
 let clipEma = 0;           // running mean of the sampled readings' clipped fraction
 let exposureAt = 0;        // when the camera's exposure compensation was last nudged
 let exposureComp: string | null = null;   // what was applied ('ev +1', '62.5 ms', 'auto'; null: never / not supported)
-let exposurePeakBefore: number | null = null;   // the cube's brightness when the last brightening step was taken
-let exposureGaveUp = false;   // a brightening step made the cube no brighter: this camera's control is not the one to use
+let exposureLevels: number[] = [];   // manual times the camera offers (ms, longest first); empty: none
+let exposureIdx = -1;                // index into exposureLevels, -1 = camera auto
+let exposureGaveUp = false;          // a step did not move the cube's brightness the way it should: leave the camera alone
+// the step just taken, checked one hold-off later against what the cube reads
+let exposureStep: { fromIdx: number; dir: 1 | -1; peakBefore: number; clipBefore: number } | null = null;
 let stage1Misses = 0;
 let ticks = 0;
 let locateEma = 0;
@@ -759,30 +770,9 @@ function loop(ts: number, gen: number): void {
     // frame; when the stickers being read are dark (or blown out) ask the
     // camera for one step more (less), where it offers exposure
     // compensation at all - a no-op elsewhere.
-    if (!clipUrl && confident.length > 0 && !locked && !exposureGaveUp && ts - exposureAt >= EXPOSURE_HOLD_MS) {
-      // A step must prove itself: the webcam's auto mode brightens a dark
-      // room with gain that a manual exposure time resets, so the step
-      // that should have helped turned the picture black (evening session,
-      // 2026-09-13). No brighter after the hold-off means back to auto and
-      // no more steps this session.
-      if (exposurePeakBefore !== null && peakEma < exposurePeakBefore * 1.15 + 3) {
-        exposurePeakBefore = null;
-        exposureGaveUp = true;
-        exposureAt = ts;
-        void camera.resetExposure().then((v) => { if (v !== null) exposureComp = `${v} (step did not help)`; });
-      } else {
-        exposurePeakBefore = null;
-        const dir = dark ? 1 : clipEma > 0.3 ? -1 : 0;
-        if (dir) {
-          exposureAt = ts;
-          const before = peakEma;
-          void camera.nudgeExposure(dir).then((v) => {
-            if (v === null) return;
-            exposureComp = v;
-            if (dir > 0) exposurePeakBefore = before;
-          });
-        }
-      }
+    if (!clipUrl && exposureSel.value === 'loop' && confident.length > 0 && !locked && !exposureGaveUp && ts - exposureAt >= EXPOSURE_HOLD_MS) {
+      exposureAt = ts;
+      void steerExposure();
     }
     hintEl.hidden = !hint;
     if (hint) hintEl.textContent = hint.text;
@@ -807,6 +797,93 @@ function loop(ts: number, gen: number): void {
   }
   again();
 }
+
+/**
+ * One controller tick: aim the cube's brightness between DARK_PEAK and
+ * BRIGHT_PEAK/BRIGHT_CLIP with the shortest exposure that gets there (a
+ * shorter time is a higher frame rate and less motion blur). Phones with
+ * exposure compensation get a step of that; other cameras step through
+ * the manual times the camera offers. Every step is checked one hold-off
+ * later against what the cube then reads: a step that did not move it the
+ * right way is undone and the loop stops for the session - the LifeCam's
+ * auto mode brightens with gain that a manual time resets, so "brighter"
+ * turned the picture black once (2026-09-13 evening).
+ */
+async function steerExposure(): Promise<void> {
+  const tooDark = peakEma < DARK_PEAK;
+  const tooBright = peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP;
+  if (exposureStep) {
+    const st = exposureStep;
+    exposureStep = null;
+    const moved = st.dir > 0 ? peakEma > st.peakBefore * 1.15 + 3 : peakEma < st.peakBefore * 0.9 || clipEma < st.clipBefore * 0.7;
+    if (!moved) {
+      exposureGaveUp = true;
+      const back = st.fromIdx < 0 ? await camera.resetExposure() : await camera.setExposureTime(exposureLevels[st.fromIdx]!);
+      exposureIdx = st.fromIdx;
+      exposureComp = `${back ?? exposureComp ?? '?'} (step did not help)`;
+      return;
+    }
+  }
+  const dir: 1 | -1 | 0 = tooDark ? 1 : tooBright ? -1 : 0;
+  if (!dir) return;
+  if (camera.hasExposureCompensation()) {
+    const v = await camera.nudgeCompensation(dir);
+    if (v !== null) exposureComp = v;
+    return;
+  }
+  if (!exposureLevels.length) return;
+  let next: number;
+  if (exposureIdx < 0) {
+    if (dir > 0) next = 0; // the longest time: only a gain-free camera gets brighter than auto here - the check decides
+    else {
+      // DECISION: auto's own time is unknowable (the driver reports its last
+      // manual register), but the frame rate bounds it: the first darkening
+      // step is the longest level clearly under the frame period, so it is
+      // darker than auto whatever gain auto was adding
+      const period = 1000 / Math.max(1, fps.fps);
+      next = exposureLevels.findIndex((ms) => ms < period / 1.6);
+      if (next < 0) next = exposureLevels.length - 1;
+    }
+  } else {
+    next = exposureIdx - dir;
+    if (next < 0) {
+      // brighter than the longest time is auto (with its gain)
+      const before = { fromIdx: exposureIdx, dir, peakBefore: peakEma, clipBefore: clipEma };
+      const v = await camera.resetExposure();
+      if (v !== null) { exposureComp = v; exposureIdx = -1; exposureStep = before; }
+      return;
+    }
+    if (next >= exposureLevels.length) return; // as short as it goes
+  }
+  const before = { fromIdx: exposureIdx, dir, peakBefore: peakEma, clipBefore: clipEma };
+  const v = await camera.setExposureTime(exposureLevels[next]!);
+  if (v !== null) { exposureComp = v; exposureIdx = next; exposureStep = before; }
+}
+
+/** The debug panel's exposure select: app-controlled, camera auto, or one of the camera's manual times. */
+function fillExposureSelect(): void {
+  exposureLevels = camera.exposureLevelsMs();
+  for (const o of [...exposureSel.options]) if (o.value !== 'loop' && o.value !== 'auto') o.remove();
+  for (const ms of exposureLevels) {
+    const o = document.createElement('option');
+    o.value = String(ms);
+    o.textContent = `exposure: ${ms.toFixed(1)} ms manual`;
+    exposureSel.append(o);
+  }
+  exposureSel.value = 'loop';
+  exposureIdx = -1;
+  exposureStep = null;
+  exposureGaveUp = false;
+}
+exposureSel.addEventListener('change', () => {
+  exposureStep = null;
+  exposureGaveUp = false;
+  const v = exposureSel.value;
+  if (v === 'loop') return;
+  const ms = v === 'auto' ? null : Number(v);
+  exposureIdx = ms === null ? -1 : exposureLevels.indexOf(ms);
+  void camera.setExposureTime(ms).then((r) => { if (r !== null) exposureComp = r; });
+});
 
 function stopAuto(): void {
   running = false;
@@ -933,6 +1010,7 @@ startBtn.addEventListener('click', () => {
       captureBtn.disabled = false;
       pauseBtn.disabled = false;
       recBtn.disabled = !!clipUrl;
+      if (!clipUrl) fillExposureSelect();
       const gen = ++loopGen;
       vfcSeen = vfcFresh = false;
       armFrameSignal(camera.video, gen);
@@ -972,9 +1050,12 @@ $('reset').addEventListener('click', () => {
   lastSampleTs = -Infinity;
   peakEma = 255;
   clipEma = 0;
-  exposurePeakBefore = null;
+  exposureStep = null;
   exposureGaveUp = false;
-  void camera.resetExposure().then((v) => { if (v !== null) exposureComp = v; });
+  if (exposureSel.value === 'loop') {
+    exposureIdx = -1;
+    void camera.resetExposure().then((v) => { if (v !== null) exposureComp = v; });
+  }
   renderedSolution = null;
   attemptEl.replaceChildren();
   tickHistory.length = 0;
