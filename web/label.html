@@ -293,6 +293,11 @@
         <li>"Suggest (model)" &mdash; pre-fills unlabeled faces with the current
           model's guess; verify positions and fix by picking markers up.
           Needs the deployed site (not a local file).</li>
+        <li><kbd>c</kbd> or "Copy prev" &mdash; copy the previous image's
+          verified faces onto this one as suggestions (dashed); drag a corner
+          or confirm to verify. Handy for back-to-back near-identical shots</li>
+        <li><kbd>x</kbd> or "Clear suggested" &mdash; drop every unverified
+          suggestion on this image (shift-click: on every image)</li>
         <li><kbd>Esc</kbd> &mdash; cancel in-progress face</li>
         <li><kbd>Delete</kbd> or "Clear face" &mdash; remove selected face's label</li>
         <li>mouse wheel &mdash; zoom toward cursor</li>
@@ -328,6 +333,8 @@
       <button class="face-btn" data-face="B" style="background:#3f6fe0;color:#fff">B</button>
       <button id="clearFaceBtn">Clear face</button>
       <button id="clearAllBtn" title="Remove all face labels on this image">Clear all</button>
+      <button id="clearSuggestedBtn" title="Drop the model's unverified suggestions on this image (x); shift-click for every image">Clear suggested</button>
+      <button id="copyPrevBtn" title="Copy the previous image's verified faces onto this one as suggestions to adjust (c)">Copy prev</button>
       <button id="suggestBtn" title="Run the current keypoint model on this photo and pre-fill unlabeled faces">Suggest (model)</button>
       <button id="suggestAllBtn" title="Run the model on every loaded image, pre-filling unlabeled faces — verify each before exporting">Suggest all</button>
       <div id="statusLine">Load images to begin.</div>
@@ -1109,6 +1116,8 @@
   document.getElementById('exportAllBtn').addEventListener('click', exportAll);
   document.getElementById('clearFaceBtn').addEventListener('click', clearFace);
   document.getElementById('clearAllBtn').addEventListener('click', clearAllFaces);
+  document.getElementById('clearSuggestedBtn').addEventListener('click', e => clearSuggested(e.shiftKey));
+  document.getElementById('copyPrevBtn').addEventListener('click', copyFromPrevious);
   document.getElementById('prevBtn').addEventListener('click', () => selectImage(state.current - 1));
   document.getElementById('nextBtn').addEventListener('click', () => selectImage(state.current + 1));
   document.querySelectorAll('.face-btn').forEach(btn => {
@@ -1471,6 +1480,11 @@
       sub.appendChild(menuItem('Clear ' + under, FACE_COLORS[under], () => clearFaceById(under), FACE_COLORS[under]));
       sub.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
     }
+    if (countSuggested(faces)) sub.appendChild(menuItem('Clear suggested here', null, () => clearSuggested(false)));
+    if (state.images.some(en => countSuggested(state.labels.get(en.name)))) {
+      sub.appendChild(menuItem('Clear suggested (all images)', null, () => clearSuggested(true)));
+    }
+    if (state.current > 0) sub.appendChild(menuItem('Copy previous image', null, copyFromPrevious));
     sub.appendChild(menuItem('Clear all faces', null, clearAllFaces));
     sub.appendChild(menuItem('Suggest (model)', null, () => { void suggestFromModel(); }));
     sub.appendChild(menuItem('Suggest all', null, () => { void suggestAll(); }));
@@ -1488,6 +1502,67 @@
     radial.px = clientX; radial.py = clientY; // press point (differs from the centre when clamped)
     radial.hot = null;
     setRadialHot(radialHit(clientX, clientY));
+  }
+
+  function countSuggested(faces) {
+    let n = 0;
+    for (const f of FACE_ORDER) if (faces[f].visible && faces[f].suggested) n++;
+    return n;
+  }
+  function dropSuggested(faces) {
+    let n = 0;
+    for (const f of FACE_ORDER) {
+      if (faces[f].visible && faces[f].suggested) { faces[f] = { visible: false, corners: null }; n++; }
+    }
+    return n;
+  }
+  // Model suggestions are sometimes junk wholesale; this drops them without
+  // touching anything a human placed or verified.
+  function clearSuggested(everyImage) {
+    if (!state.images.length) return;
+    let n = 0, imgs = 0;
+    if (everyImage) {
+      for (const entry of state.images) {
+        const faces = state.labels.get(entry.name);
+        const k = dropSuggested(faces);
+        if (k) { n += k; imgs++; saveToStorage(entry.name, faces); }
+      }
+    } else {
+      const faces = getFaces();
+      n = dropSuggested(faces);
+      imgs = n ? 1 : 0;
+      saveCurrentToStorage();
+    }
+    if (state.activeFace && !getFaces()[state.activeFace].visible) cancelActive();
+    renderSidebar();
+    updateProgress();
+    render();
+    showToast(n ? 'Dropped ' + n + ' suggestion(s)' + (everyImage ? ' across ' + imgs + ' image(s)' : '') : 'No suggestions to drop');
+  }
+
+  // Back-to-back shots are often near-identical: seed this image with the
+  // previous one's verified faces, flagged as suggestions (dashed) so they
+  // still have to be touched or confirmed. Human-placed faces here are kept.
+  function copyFromPrevious() {
+    if (state.current <= 0) { showToast('No previous image'); return; }
+    const prev = state.labels.get(state.images[state.current - 1].name);
+    const faces = getFaces();
+    if (!prev || !faces) return;
+    let n = 0, kept = 0, none = 0;
+    for (const f of FACE_ORDER) {
+      if (!prev[f].visible || prev[f].suggested) { none++; continue; }
+      if (faces[f].visible && !faces[f].suggested) { kept++; continue; }
+      faces[f] = { visible: true, corners: prev[f].corners.map(c => [c[0], c[1]]), suggested: true };
+      n++;
+    }
+    cancelActive();
+    saveCurrentToStorage();
+    renderSidebar();
+    updateProgress();
+    render();
+    showToast(n
+      ? 'Copied ' + n + ' face(s) from the previous image' + (kept ? ' (' + kept + ' of yours kept)' : '') + ' — adjust or confirm'
+      : (none === FACE_ORDER.length ? 'Previous image has no verified faces' : 'Nothing to copy: your faces here already cover it'));
   }
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -1545,6 +1620,8 @@
     else if (k === 'Escape') { hideMenu(); cancelActive(); e.preventDefault(); }
     else if (k === 'Delete' || k === 'Backspace') { clearFace(); e.preventDefault(); }
     else if (k === '0') { fitImageToView(); render(); }
+    else if (k === 'c' || k === 'C') { copyFromPrevious(); e.preventDefault(); }
+    else if (k === 'x' || k === 'X') { clearSuggested(e.shiftKey); e.preventDefault(); }
     else {
       const letter = k.length === 1 ? k.toUpperCase() : '';
       if (FACE_ORDER.includes(letter)) { hideMenu(); selectFace(letter); e.preventDefault(); }
