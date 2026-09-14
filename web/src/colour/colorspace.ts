@@ -147,4 +147,13 @@ export const EMBEDDINGS: Record<EmbeddingName, Embedding> = {
 // stickers off red (delta 13): the soft log compresses the dark channels
 // that separate a shaded red from orange. Two real captures beat one
 // theory; lab-crushed ships, the table is printed on every run.
-export const DEFAULT_EMBEDDING: Embedding = LAB_CRUSHED;
+// DECISION 2026-09-13 (late): lab-norm ships. The colour bank
+// (test/colour-bank.test.ts, 674 labelled centres over ten capture sessions
+// with hand-labelled corners) has lab-crushed as the WORST of the five on
+// red/orange in every warm indoor session (d' 1.6-2.0; lab-norm 2.8-7.6)
+// and lab-norm naming centres at 92.3% pooled against 84.7%. On the replay
+// captures lab-norm locks four that lab-crushed refuses (two verified
+// 54/54) and refuses one it locks. Its one loss is the blue-monitor
+// capture, where white and yellow do not exist as colours in the data and
+// both refuse; that case is now must-refuse only.
+export const DEFAULT_EMBEDDING: Embedding = LAB_NORM;
