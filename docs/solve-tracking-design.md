@@ -434,3 +434,41 @@ in the order to try them:
 Underneath all four: the camera angle (section 7, item 1). Side-above
 placement turns most of the one-face epochs into two- or three-face ones
 and is free.
+
+## 9. Rigid-cube fit: measured (2026-09-13, late)
+
+`tools/solve/cubefit.py`: fit a 6-DoF cube pose (fixed focal length) to the
+2-3 quads of one frame, correspondence unknown (which quad is which face,
+cyclic start, winding: every assignment through a linear scaled-orthographic
+fit, the best few refined by perspective Gauss-Newton, mirror poses rejected
+by face visibility). Measured on the replay logs and, with truth, on the
+kpft7 `diagnose.py --dump` of `data_real_val` (81 photos with 2-3 faces).
+
+- **It does not sharpen corners.** Against hand labels the raw corners are
+  2.97 px median (256 input), the cube-snapped ones 3.25. The truth quads
+  themselves fit a rigid pinhole cube only to 2.1 px RMS (label clicks,
+  rounded vertices, principal point of the crop), so the model floor is at
+  the detector's noise and averaging cannot beat it. Same conclusion as the
+  seam refinement (`seam-refine-no-gain`): the error is model-px-bound.
+  Corners meet at the shared vertex (an inset for the corner radius makes
+  the fit worse), so `matchSharedEdge`'s assumption is right.
+- **It does recover the geometry.** 26/26 three-face photos come out as a
+  right-handed vertex triple (the 3 that disagree with the label names are
+  labels whose names are not a right-handed triple - a differently coloured
+  cube or misnamed faces; the truth quads fit their "mirror" at 1.0 px). So
+  the cyclic order of the visible faces - which one is on top given which is
+  in front - is available from geometry alone; the letter still comes from
+  the centre colours, as the pipeline does. A pose per frame is therefore
+  a sound anchor (2.2) and merges duplicate tracks on one face (dedupe by
+  centroid in the tool).
+- **Solve-clip detections are ~3x noisier than photo detections.** On the
+  val photos the predicted quads fit a cube at 2.0 px RMS median (~1.5 % of
+  a face edge); in the solve replays 7-9 px at 120 px edges (6-7 %):
+  webcam, motion blur, dim light, fingers. The fit residual is a usable
+  per-frame consistency weight and false-face veto, but nothing in these
+  clips reaches the photo quality the corner numbers in `model/README.md`
+  describe. Expect cell-centre error in solves to be 2-3x diagnose.py's.
+- Not worth a training-time pose head on this evidence (section "2." of the
+  three levels in the discussion): the per-face corners are not wrong in a
+  way a rigid constraint repairs. Revisit only if a stride-4 corner head
+  changes the noise picture.
