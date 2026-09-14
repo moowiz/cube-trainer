@@ -30,6 +30,7 @@ Two heads, `--head`:
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -246,6 +247,11 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    # watch.py reads this for the progress bar and ETA (train.py writes the same)
+    (out / "meta.json").write_text(json.dumps({
+        "epochs": args.epochs, "data": args.data, "coco": args.coco, "neg": args.neg, "batch": args.batch,
+        "workers": args.workers, "head": args.head, "lr": args.lr, "started": time.time(),
+    }, indent=1))
 
     train_parts, val_parts = [], []
     for spec in args.data.split(","):
