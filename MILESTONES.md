@@ -46,7 +46,7 @@ Save-frame button that dumps the current `ImageData` plus the detected sticker c
 
 ---
 
-## M3 — Synthetic data generator
+## M3 — Synthetic data generator ✅ (signed off 2026-09-12; realism judged good enough once M5 existed)
 
 In `model/gen/`: render a stickered and a stickerless cube with random scrambles, random camera pose (all three-face views), random lighting (including warm light and glare), random backgrounds (COCO or similar, plus procedural grids/tiles as hard negatives). Output image + per-face 4-corner labels + visibility flags. Target 20k images.
 
@@ -71,7 +71,7 @@ generated on a rented box per `model/cloud/RUNBOOK.md`.
 
 ---
 
-## M4 — Face keypoint model
+## M4 — Face keypoint model ✅ (accuracy and speed bars met 2026-09-13; superseded in the app by M4b)
 
 Small keypoint detector (MobileNetV3 or similar backbone, heatmap or direct-regression head) predicting up to 3 faces × 4 corners + per-face confidence. Train on synthetic data. Export to ONNX, int8 quantize, verify it loads in `onnxruntime-web`.
 
