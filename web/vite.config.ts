@@ -8,14 +8,14 @@ import { execSync } from 'node:child_process';
 
 const p = (rel: string) => fileURLToPath(new URL(rel, import.meta.url));
 
-// Build stamp shown on the scan page so a phone can tell which deploy it has.
+// Build stamp shown on the scan tab so a phone can tell which deploy it has.
 function gitHash(): string {
   try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
   catch { return (process.env.GITHUB_SHA ?? 'dev').slice(0, 7); }
 }
 const BUILD = { hash: gitHash(), time: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC' };
 
-// Dev-only capture sink for headless clip replays (scan.html?clip=...&post=1):
+// Dev-only capture sink for headless clip replays (?tab=scan&clip=...&post=1):
 // the page POSTs its debug capture here and it lands in the evidence
 // fixtures folder, no download dialog involved.
 function captureSink(): Plugin {
@@ -52,7 +52,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: p('index.html'),
-        scan: p('scan.html'),
         label: p('label.html'),
       },
     },

@@ -109,7 +109,7 @@ export function exemplarSwatches(host: HTMLElement, exemplars: CenterExemplars):
   if (host.dataset.sig === sig) return;   // DOM churn every frame is not free
   host.dataset.sig = sig;
   host.innerHTML = FACE_ORDER
-    .map((f) => `<span class="sw${sw[f].measured ? '' : ' seed'}" style="background:${sw[f].css}"
+    .map((f) => `<span class="sc-sw${sw[f].measured ? '' : ' sc-seed'}" style="background:${sw[f].css}"
                   title="${sw[f].measured ? 'measured center' : 'default-scheme prior'}">${f}</span>`)
     .join('');
 }

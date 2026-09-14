@@ -22,7 +22,7 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
 2. Get the files off the phone (share/email/Drive) and drop them here.
 3. Write a test that loads the fixture and asserts classification matches
    `lettersAfterFixes` — it should fail, then fix the classifier against it.
-- `scan-debug-<ts>.json` — **Capture debug** on scan.html: the naming
+- `scan-debug-<ts>.json` — **Capture debug** on the scan tab: the naming
   evidence for one detection tick (exemplars, each quad's centre/cells in the
   naming space, the ranked distances). `-1789290592829` / `-1789290604959` are
   the blue-named-green lock-in that exemplar-guard.test.ts pins down;
@@ -68,16 +68,16 @@ Workflow when the scanner misreads (e.g. red/orange under warm light):
 - `session-0913/scan-debug-*.json` — six captures of one afternoon on one
   cube (state pinned by the 08:06 lock, confirmed by photos). Three stalled
   with a colour-count error at 49-53/54 correct: a shadowed blue read as
-  white, bright reds as orange, one junk cell. session-replay.test.ts drives
-  their evidence through assembleResolved (chroma-compressed classification,
-  nine-per-colour rebalance kept only if it validates, orientation from the
-  pieces). `-154714` is a mix of two scrambles (re-scrambled mid-session);
+  white, bright reds as orange, one junk cell. colour-replay.test.ts feeds
+  their per-face cells to the solver as six single-frame tracks (the
+  k-means assembly they were captured for went with the grid scanner,
+  2026-09-14). `-154714` is a mix of two scrambles (re-scrambled mid-session);
   `-320194` / `-416187` locked on faces with 6 inliers or fit 11.6 - the lock
   gate (MIN_INLIERS 10, MAX_FIT 10) now refuses that.
 
 ## Evidence logs (the colour solver's fixtures, 2026-09-13 onwards)
 
-`Capture debug` on scan.html now writes the whole **evidence log** of the
+`Capture debug` on the scan tab now writes the whole **evidence log** of the
 session (`evidenceLog`: every quad's nine readings with their quality
 weights, every letter-free shared-edge pairing, track births/deaths) plus
 the solver's last `solution` and `params`. The solver
@@ -99,7 +99,7 @@ solver as six single-frame tracks (the dead-on-only path).
 
 ### Clip replays
 
-`scan.html?clip=/clips/<name>.mp4&autostart=1&autocapture=1&post=<file>.json`
+`index.html?tab=scan&clip=/clips/<name>.mp4&autostart=1&autocapture=1&post=<file>.json`
 plays a recording through the live pipeline and, at the end, POSTs the
 capture to the dev server, which writes it here (vite `captureSink`,
 dev only). Clips live in the gitignored `web/clips/` (transcode phone

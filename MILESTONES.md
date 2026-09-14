@@ -288,8 +288,8 @@ in `web/test/fixtures/evidence/` replay through `colour-replay.test.ts`
 (never answers wrong; the monitor-lit day-one capture is must-refuse); the
 labelled photos double as a colour test set ("colour bank"). 268 tests.
 
-**Still true:** tap-to-fix exists only in the grid scanner; the auto path
-refuses instead of guessing and has no per-sticker override yet.
+**Still true:** the auto path refuses instead of guessing and has no
+per-sticker override; tap-to-fix went with the grid scanner (2026-09-14).
 
 ---
 
@@ -305,8 +305,11 @@ refuses instead of guessing and has no per-sticker override yet.
   weight on readings, lab-norm embedding, exposure steering with a manual
   fallback, a "too dark" hint. Webcams drop to 15 fps in dim rooms, which
   halves everything downstream; light is still the cheapest fix.
-- Graceful degradation to the grid scanner: ✅ banner after 6 s of weak
-  detection; grid mode is the only path when a model file is missing.
+- Graceful degradation: the grid scanner (M1) was removed 2026-09-14 when
+  the scanner became the trainer's Scan tab (`index.html?tab=scan`,
+  `ui/scanner.ts` mounted by `trainer-main.ts`; a lock hands the cube to
+  the EO trainer in its own frame, `handoff.ts`). With no model file the
+  tab says so and nothing scans.
 - Performance pass: ✅ inference in an ORT worker (own worker; ort-web's
   proxy died under Vite), COI service worker for wasm threads, colour
   pipeline on detection frames only, adaptive detect/solve cadence, 12 Hz
@@ -408,14 +411,11 @@ Flagged, not fixed (each needs a decision or is out of scope for a night):
   `faces` output, `facekp.ts`'s non-anonymous decode). Exists only so
   pre-2026-09-12 checkpoints load. Nothing trains it; ~300 lines across
   both trees. Delete once `v4ft1` is no longer a reference number.
-- **Two colour paths (still two, different second path now).** The grid
-  scanner (M1) classifies with centre-seeded k-means over six captured
-  faces (`state.ts assembleState`); the auto scanner is the evidence-log
-  solver (`web/src/colour/`). `assembly.ts` is gone; `identify.ts` survives
-  only for the overlay's face colours and the hint text. Unifying means the
-  grid scanner feeding its six faces into the solver as single-frame tracks
-  (the replay test already does this for old captures) - a behaviour change
-  to the proven fallback, so not done unattended.
+- **Two colour paths: resolved 2026-09-14** by removing the grid scanner
+  and its k-means assembly (`state.ts assembleState` and friends, their
+  tests and grid-capture fixtures). One path remains: the evidence-log
+  solver (`web/src/colour/`). `identify.ts` survives only for the overlay's
+  face colours and the hint text.
 - `bbox_eval/roboflow_audit.py` needs a full-frame stage-2 checkpoint; kept
   as the record of the audit, will not run against the crop model.
 - `check_labels.py` still flags opposite faces both visible as a *problem*

@@ -1,4 +1,4 @@
-"""Replay solve recordings (web/clips/solves/*.webm) through scan.html in
+"""Replay solve recordings (web/clips/solves/*.webm) through the scan tab in
 headless Chrome, one at a time, in solve mode (log kept past the lock, never
 trimmed). Each run POSTs its evidence log to the dev server's capture sink,
 which writes web/test/fixtures/evidence/replay-<stem>.json; move it next to
@@ -11,12 +11,12 @@ CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 args = sys.argv[1:]
 port = "5173"
 if args and args[0] == "--port": port, args = args[1], args[2:]
-BASE = f"https://localhost:{port}/scan.html"
+BASE = f"https://localhost:{port}/"
 clips = args
 for clip in clips:
     stem = re.sub(r"\.webm$", "", os.path.basename(clip))
     out = f"replay-{stem}.json"
-    url = f"{BASE}?clip=/clips/solves/{stem}.webm&autostart=1&autocapture=1&solve=1&post={out}"
+    url = f"{BASE}?tab=scan&clip=/clips/solves/{stem}.webm&autostart=1&autocapture=1&solve=1&post={out}"
     prof = tempfile.mkdtemp(prefix="chrome-replay-")
     cmd = [CHROME, "--headless=new", f"--user-data-dir={prof}", "--ignore-certificate-errors",
            "--autoplay-policy=no-user-gesture-required", "--enable-logging=stderr", "--v=0",

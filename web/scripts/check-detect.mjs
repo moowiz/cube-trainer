@@ -1,6 +1,6 @@
 // Headless verification that the built app loads facekp.onnx in
 // onnxruntime-web and runs inference (the browser half of the M4 export
-// sanity check). Serves web/dist over loopback, opens scan.html in
+// sanity check). Serves web/dist over loopback, opens the scan tab in
 // headless Chrome (puppeteer borrowed from model/gen), and calls the page's
 // __detectSelfTest hook.
 //
@@ -13,8 +13,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(webDir, 'dist');
-if (!existsSync(join(dist, 'scan.html'))) {
-  console.error('web/dist/scan.html missing - run `npm run build` first');
+if (!existsSync(join(dist, 'index.html'))) {
+  console.error('web/dist/index.html missing - run `npm run build` first');
   process.exit(1);
 }
 const puppeteerPkg = resolve(webDir, '..', 'model', 'gen', 'node_modules', 'puppeteer');
@@ -39,14 +39,14 @@ const port = server.address().port;
 const browser = await puppeteer.launch({ headless: true, args: ['--enable-unsafe-swiftshader'] });
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-await page.goto(`http://127.0.0.1:${port}/scan.html`);
+await page.goto(`http://127.0.0.1:${port}/?tab=scan`);
 for (const ep of ['webgpu', 'wasm']) {
   try {
     const img = process.env.CHECK_FRAME || '';
     if (img) {
       const probe = await page.evaluate(async (u) => {
         const out = {};
-        for (const target of ['scan.html', u, location.origin + u]) {
+        for (const target of ['index.html', u, location.origin + u]) {
           try {
             const r = await fetch(target);
             out[target] = `${r.status} ${r.headers.get('content-type')} ${(await r.blob()).size}b`;

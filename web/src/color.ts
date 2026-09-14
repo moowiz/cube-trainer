@@ -322,18 +322,6 @@ export function labMean(samples: readonly Lab[]): Lab {
   return { L: L / n, a: a / n, b: b / n };
 }
 
-/** Largest Lab distance between any two samples — 0 means perfectly uniform. */
-export function maxPairwiseLabDistance(samples: readonly Lab[]): number {
-  let max = 0;
-  for (let i = 0; i < samples.length; i++) {
-    for (let j = i + 1; j < samples.length; j++) {
-      const d = labDistance(samples[i]!, samples[j]!);
-      if (d > max) max = d;
-    }
-  }
-  return max;
-}
-
 // DECISION: a face is hopeless only when it is BOTH dark (median L < 22) and
 // chroma-dead (median chroma < 9) — then color identity has drowned in sensor
 // noise. Dark alone is fine: the backlit-kitchen frame fixtures sit at
@@ -367,190 +355,14 @@ export function isFaceBlownOut(cells: readonly Lab[]): boolean {
   return chromas[chromas.length >> 1]! < MIN_FACE_CHROMA;
 }
 
-/**
- * Sample up to 8 patches in the region surrounding `rect` (edge midpoints and
- * corners, halfway between the rect and the image border). Used to tell a
- * cube face from bare background: background continues outside the grid,
- * a cube doesn't.
- */
-export function sampleSurroundPatches(img: ImageData, rect: Rect, patchSize = 12): CellSample[] {
-  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const half = patchSize / 2;
-  const left = rect.x / 2;
-  const right = (rect.x + rect.w + img.width) / 2;
-  const top = rect.y / 2;
-  const bottom = (rect.y + rect.h + img.height) / 2;
-  const cx = rect.x + rect.w / 2;
-  const cy = rect.y + rect.h / 2;
-  const points: Array<[number, number]> = [
-    [left, cy],
-    [right, cy],
-    [cx, top],
-    [cx, bottom],
-    [left, top],
-    [right, top],
-    [left, bottom],
-    [right, bottom],
-  ];
-  const out: CellSample[] = [];
-  for (const [px, py] of points) {
-    const x = clamp(px, half, img.width - half);
-    const y = clamp(py, half, img.height - half);
-    // Skip degenerate placements that would land back inside the grid
-    // (possible when the rect nearly fills the image).
-    if (x > rect.x && x < rect.x + rect.w && y > rect.y && y < rect.y + rect.h) continue;
-    out.push(samplePatch(img, x, y, patchSize));
-  }
-  return out;
-}
-
-// ---------- k-means in Lab ----------
-
-export interface KmeansResult {
-  centroids: Lab[];
-  /** Cluster index per input sample. */
-  labels: number[];
-}
-
-/**
- * Lloyd's k-means over Lab samples.
- *
- * `seeds` (when given) must have length k and is used as the initial
- * centroids — for cube faces we seed from the six face-center samples, which
- * is what keeps red/orange from being merged (see MILESTONES M1). Without
- * seeds, greedy farthest-point init is used.
- *
- * `anchors` (when given) pins sample `anchors[j]` to cluster `j` on every
- * iteration. For cube faces the anchors are the six center cells: a physical
- * cube's centers ARE six distinct colors, so Lloyd is never allowed to
- * collapse two center clusters into one — under a strong color cast (white
- * stickers lit by a blue monitor) it otherwise merges white into blue and
- * the whole scan dies (fixture cube-scan-1789102942492).
- */
-export function kmeans(
-  samples: readonly Lab[],
-  k: number,
-  seeds?: readonly Lab[],
-  maxIters = 32,
-  anchors?: readonly number[],
-): KmeansResult {
-  if (samples.length < k) throw new Error(`kmeans: ${samples.length} samples < k=${k}`);
-  if (anchors && anchors.length !== k) throw new Error(`kmeans: ${anchors.length} anchors != k=${k}`);
-  let centroids: Lab[];
-  if (seeds) {
-    if (seeds.length !== k) throw new Error(`kmeans: ${seeds.length} seeds != k=${k}`);
-    centroids = seeds.map((s) => ({ ...s }));
-  } else {
-    centroids = farthestPointInit(samples, k);
-  }
-
-  const labels = new Array<number>(samples.length).fill(0);
-  const pin = () => anchors?.forEach((idx, j) => (labels[idx] = j));
-  for (let iter = 0; iter < maxIters; iter++) {
-    let changed = false;
-    for (let i = 0; i < samples.length; i++) {
-      const l = nearestCentroid(samples[i]!, centroids).index;
-      if (l !== labels[i]) {
-        labels[i] = l;
-        changed = true;
-      }
-    }
-    pin();
-    // Recompute means; an empty cluster steals the sample farthest from its centroid.
-    const sums = centroids.map(() => ({ L: 0, a: 0, b: 0, n: 0 }));
-    for (let i = 0; i < samples.length; i++) {
-      const s = sums[labels[i]!]!;
-      const p = samples[i]!;
-      s.L += p.L;
-      s.a += p.a;
-      s.b += p.b;
-      s.n++;
-    }
-    for (let c = 0; c < k; c++) {
-      const s = sums[c]!;
-      if (s.n === 0) {
-        let worst = 0;
-        let worstD = -1;
-        for (let i = 0; i < samples.length; i++) {
-          if (anchors?.includes(i)) continue; // never steal a pinned center
-          const d = labDistance(samples[i]!, centroids[labels[i]!]!);
-          if (d > worstD && sums[labels[i]!]!.n > 1) {
-            worstD = d;
-            worst = i;
-          }
-        }
-        sums[labels[worst]!]!.n--;
-        labels[worst] = c;
-        centroids[c] = { ...samples[worst]! };
-        changed = true;
-      } else {
-        centroids[c] = { L: s.L / s.n, a: s.a / s.n, b: s.b / s.n };
-      }
-    }
-    if (!changed && iter > 0) break;
-  }
-  return { centroids, labels };
-}
-
-export function nearestCentroid(p: Lab, centroids: readonly Lab[]): { index: number; dist: number; secondDist: number; secondIndex: number } {
-  let index = 0;
-  let secondIndex = -1;
-  let dist = Infinity;
-  let secondDist = Infinity;
-  for (let i = 0; i < centroids.length; i++) {
-    const d = labDistance(p, centroids[i]!);
-    if (d < dist) {
-      secondDist = dist;
-      secondIndex = index;
-      dist = d;
-      index = i;
-    } else if (d < secondDist) {
-      secondDist = d;
-      secondIndex = i;
-    }
-  }
-  return { index, dist, secondDist, secondIndex };
-}
-
-function farthestPointInit(samples: readonly Lab[], k: number): Lab[] {
-  const centroids: Lab[] = [{ ...samples[0]! }];
-  while (centroids.length < k) {
-    let best = 0;
-    let bestD = -1;
-    for (let i = 0; i < samples.length; i++) {
-      const d = Math.min(...centroids.map((c) => labDistance(samples[i]!, c)));
-      if (d > bestD) {
-        bestD = d;
-        best = i;
-      }
-    }
-    centroids.push({ ...samples[best]! });
-  }
-  return centroids;
-}
-
-/** sRGB triple -> css color, for painting sampled stickers back into the UI. */
-export function rgbCss(rgb: readonly [number, number, number]): string {
-  return `rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`;
-}
-
-// ---------- balanced assignment ----------
+// ---------- assignment ----------
 //
-// DECISION 2026-09-13: a finished cube shows EXACTLY nine stickers of each
-// color, and that is evidence the classifier was throwing away. Fifty-four
-// independent nearest-centroid calls have no way to express it, so under a
-// color cast the nearest centroid wins ties in one direction and a color ends
-// up with fourteen members while another gets four. Solving it as an
-// assignment instead - 54 stickers into 6 colors x 9 slots, minimizing total
-// distance - makes "looks red, but red already has nine better candidates"
-// resolve to orange on its own. See web/src/color-notes.md item 3.
-//
-// The same argument is why the white bias on dim frames is not fixable by
-// tuning a threshold: white is the only exemplar on the neutral axis, so
-// every washed-out sample is nearest to it, and only a global constraint can
-// say "nine of you at most".
-
-const FORBIDDEN = 1e6; // finite, not Infinity: the solver subtracts potentials
+// The Hungarian solver behind every "which is which" decision that must be
+// a bijection: the six palette colours to the six colour names
+// (colour/naming.ts) and the exact decoder's per-colour quotas
+// (colour/decode.ts). Fifty-four independent nearest-centroid calls cannot
+// express "nine of each colour"; an assignment can. See
+// web/src/color-notes.md item 3.
 
 /**
  * Hungarian algorithm (O(n^3), e-maxx potentials form) on a square cost
@@ -607,44 +419,6 @@ export function solveAssignment(cost: readonly (readonly number[])[]): number[] 
   const rowToCol = new Array<number>(n).fill(-1);
   for (let j = 1; j <= m; j++) if (p[j]) rowToCol[p[j]! - 1] = j - 1;
   return rowToCol;
-}
-
-/**
- * Label `samples` with cluster indices so that every cluster gets exactly
- * `perCluster` of them, minimizing total Lab distance to `centroids`.
- *
- * `pinned` forces a sample to a cluster (the center stickers: a face's center
- * defines its color by construction, so it must never be reassigned).
- * samples.length must equal centroids.length * perCluster.
- */
-export function assignBalanced(
-  samples: readonly Lab[],
-  centroids: readonly Lab[],
-  perCluster: number,
-  pinned?: ReadonlyMap<number, number>,
-): number[] {
-  const k = centroids.length;
-  const n = samples.length;
-  if (n !== k * perCluster) {
-    throw new Error(`assignBalanced: ${n} samples cannot fill ${k} clusters x ${perCluster}`);
-  }
-  // Expand each cluster into `perCluster` interchangeable columns.
-  const cost: number[][] = [];
-  for (let i = 0; i < n; i++) {
-    const row = new Array<number>(n);
-    const force = pinned?.get(i);
-    for (let c = 0; c < k; c++) {
-      // Squared distance, not distance: the cost is then a Gaussian
-      // log-likelihood, so the solver pays quadratically to drag a sticker
-      // away from a color it sits close to and prefers to rebalance using the
-      // genuinely ambiguous ones.
-      const raw = labDistance(samples[i]!, centroids[c]!);
-      const d = force === undefined ? raw * raw : force === c ? 0 : FORBIDDEN;
-      for (let s = 0; s < perCluster; s++) row[c * perCluster + s] = d;
-    }
-    cost.push(row);
-  }
-  return solveAssignment(cost).map((col) => Math.floor(col / perCluster));
 }
 
 // ---------- robust patch statistics ----------

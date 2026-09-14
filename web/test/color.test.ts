@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { makeLcg } from './helpers';
 import {
   srgbToLab,
   labToSrgb,
@@ -8,23 +7,10 @@ import {
   samplePatch,
   sampleGridCells,
   gridCellCenters,
-  kmeans,
-  nearestCentroid,
-  rgbCss,
   labMean,
-  maxPairwiseLabDistance,
-  sampleSurroundPatches,
   type Rect,
 } from '../src/color';
 import type { Lab } from '../src/types';
-
-// ---------- deterministic noise: tiny hand-rolled LCG (no Math.random) ----------
-
-
-/** Uniform noise in [-amplitude, amplitude]. */
-function noise(rand: () => number, amplitude: number): number {
-  return (rand() * 2 - 1) * amplitude;
-}
 
 // ---------- helpers for ImageData-like fixtures (node has no ImageData) ----------
 
@@ -227,167 +213,7 @@ describe('sampling: samplePatch / gridCellCenters / sampleGridCells', () => {
   });
 });
 
-describe('kmeans', () => {
-  it('recovers well-separated clusters without seeds (farthest-point init)', () => {
-    const rand = makeLcg(1);
-    const trueCenters: Lab[] = [
-      { L: 20, a: 40, b: 40 },
-      { L: 60, a: -40, b: 0 },
-      { L: 85, a: 0, b: -40 },
-    ];
-    const samples: Lab[] = [];
-    const memberOf: number[] = [];
-    for (let c = 0; c < trueCenters.length; c++) {
-      for (let i = 0; i < 15; i++) {
-        const center = trueCenters[c]!;
-        samples.push({
-          L: center.L + noise(rand, 1),
-          a: center.a + noise(rand, 1),
-          b: center.b + noise(rand, 1),
-        });
-        memberOf.push(c);
-      }
-    }
-    const { labels } = kmeans(samples, 3);
-    // Every pair of samples from the same true cluster must share a label,
-    // and samples from different true clusters must have different labels.
-    for (let i = 0; i < samples.length; i++) {
-      for (let j = i + 1; j < samples.length; j++) {
-        if (memberOf[i] === memberOf[j]) {
-          expect(labels[i]).toBe(labels[j]);
-        } else {
-          expect(labels[i]).not.toBe(labels[j]);
-        }
-      }
-    }
-  });
-
-  it('keeps red and orange separate when seeded at their true centers, even with noise comparable to their separation', () => {
-    // Real cube-sticker colors: red (#E2433C) and orange (#F58F2A) from
-    // DEFAULT_SCHEME_HEX, converted to Lab. These are the "hard case" the
-    // module's own docs call out (see MILESTONES M1 / CLAUDE.md known hard cases).
-    const redCenter = srgbToLab(0xe2, 0x43, 0x3c);
-    const orangeCenter = srgbToLab(0xf5, 0x8f, 0x2a);
-    const separation = labDistance(redCenter, orangeCenter);
-    expect(separation).toBeGreaterThan(0); // sanity: the two centers are distinct
-
-    // Noise amplitude comparable to the separation, but small enough that no
-    // single sample's noise vector (up to amplitude on each of L, a, b) can
-    // cross the midline between the two seeded centers (a safety margin of
-    // amplitude * sqrt(3) < separation / 2).
-    const amplitude = separation * 0.2;
-    const rand = makeLcg(42);
-
-    const samples: Lab[] = [];
-    const memberOf: number[] = []; // 0 = red, 1 = orange
-    for (let i = 0; i < 25; i++) {
-      samples.push({
-        L: redCenter.L + noise(rand, amplitude),
-        a: redCenter.a + noise(rand, amplitude),
-        b: redCenter.b + noise(rand, amplitude),
-      });
-      memberOf.push(0);
-    }
-    for (let i = 0; i < 25; i++) {
-      samples.push({
-        L: orangeCenter.L + noise(rand, amplitude),
-        a: orangeCenter.a + noise(rand, amplitude),
-        b: orangeCenter.b + noise(rand, amplitude),
-      });
-      memberOf.push(1);
-    }
-
-    const { labels } = kmeans(samples, 2, [redCenter, orangeCenter]);
-    for (let i = 0; i < samples.length; i++) {
-      expect(labels[i]).toBe(memberOf[i]);
-    }
-  });
-
-  it('throws when seeds length does not match k', () => {
-    const samples: Lab[] = [
-      { L: 10, a: 0, b: 0 },
-      { L: 20, a: 0, b: 0 },
-      { L: 30, a: 0, b: 0 },
-    ];
-    expect(() => kmeans(samples, 3, [{ L: 0, a: 0, b: 0 }, { L: 50, a: 0, b: 0 }])).toThrow();
-  });
-
-  it('throws when there are fewer samples than k', () => {
-    const samples: Lab[] = [
-      { L: 10, a: 0, b: 0 },
-      { L: 20, a: 0, b: 0 },
-    ];
-    expect(() => kmeans(samples, 3)).toThrow();
-  });
-
-  it('gives every centroid at least one sample even when a seed starts far from all data', () => {
-    const rand = makeLcg(7);
-    const c1: Lab = { L: 30, a: 20, b: 20 };
-    const c2: Lab = { L: 70, a: -20, b: -20 };
-    const farSeed: Lab = { L: 0, a: 127, b: -127 }; // deliberately far from both clusters
-
-    const samples: Lab[] = [];
-    for (let i = 0; i < 10; i++) {
-      samples.push({ L: c1.L + noise(rand, 1), a: c1.a + noise(rand, 1), b: c1.b + noise(rand, 1) });
-    }
-    for (let i = 0; i < 10; i++) {
-      samples.push({ L: c2.L + noise(rand, 1), a: c2.a + noise(rand, 1), b: c2.b + noise(rand, 1) });
-    }
-
-    const { labels } = kmeans(samples, 3, [c1, c2, farSeed]);
-    const owned = new Set(labels);
-    expect(owned.size).toBe(3);
-    expect(owned.has(0)).toBe(true);
-    expect(owned.has(1)).toBe(true);
-    expect(owned.has(2)).toBe(true);
-  });
-});
-
-describe('nearestCentroid', () => {
-  it('returns the correct index, dist, and secondDist on a hand-built case', () => {
-    const centroids: Lab[] = [
-      { L: 0, a: 0, b: 0 }, // index 0
-      { L: 10, a: 0, b: 0 }, // index 1 -> dist 10
-      { L: 3, a: 4, b: 0 }, // index 2 -> dist 5 (3-4-5 triangle)
-    ];
-    const p: Lab = { L: 0, a: 0, b: 0 };
-    const result = nearestCentroid(p, centroids);
-    // Distances to centroids: [0, 10, 5]. Nearest is index 0 (dist 0),
-    // second-nearest is index 2 (dist 5).
-    expect(result.index).toBe(0);
-    expect(result.dist).toBe(0);
-    expect(result.secondDist).toBe(5);
-    expect(result.secondDist).toBeGreaterThanOrEqual(result.dist);
-  });
-
-  it('handles a case where the second-nearest is not the last centroid checked', () => {
-    const centroids: Lab[] = [
-      { L: 100, a: 0, b: 0 }, // dist 100
-      { L: 1, a: 0, b: 0 }, // dist 1 -> nearest
-      { L: 5, a: 0, b: 0 }, // dist 5 -> second-nearest
-      { L: 50, a: 0, b: 0 }, // dist 50
-    ];
-    const p: Lab = { L: 0, a: 0, b: 0 };
-    const result = nearestCentroid(p, centroids);
-    expect(result.index).toBe(1);
-    expect(result.dist).toBe(1);
-    expect(result.secondDist).toBe(5);
-    expect(result.secondDist).toBeGreaterThanOrEqual(result.dist);
-  });
-});
-
-describe('rgbCss', () => {
-  it('formats an rgb triple as a css rgb() string', () => {
-    expect(rgbCss([255, 0, 128])).toBe('rgb(255, 0, 128)');
-    expect(rgbCss([0, 0, 0])).toBe('rgb(0, 0, 0)');
-  });
-
-  it('rounds fractional components', () => {
-    expect(rgbCss([254.6, 0.2, 127.5])).toBe('rgb(255, 0, 128)');
-  });
-});
-
-describe('labMean / maxPairwiseLabDistance', () => {
+describe('labMean', () => {
   it('labMean averages component-wise and throws on empty', () => {
     const m = labMean([
       { L: 10, a: -4, b: 6 },
@@ -395,54 +221,6 @@ describe('labMean / maxPairwiseLabDistance', () => {
     ]);
     expect(m).toEqual({ L: 20, a: 0, b: 8 });
     expect(() => labMean([])).toThrow();
-  });
-
-  it('maxPairwiseLabDistance is 0 for uniform input and finds the widest pair', () => {
-    const u = { L: 50, a: 0, b: 0 };
-    expect(maxPairwiseLabDistance([u, u, u])).toBe(0);
-    const spread = [u, { L: 53, a: 4, b: 0 }, { L: 50, a: 0, b: 40 }];
-    expect(maxPairwiseLabDistance(spread)).toBeCloseTo(labDistance(spread[1]!, spread[2]!), 5);
-  });
-});
-
-describe('sampleSurroundPatches', () => {
-  // 100x100 image: a 40x40 "cube" rect at (30,30) painted red, everything
-  // else (the background) painted gray.
-  function makeScene(bg: readonly [number, number, number]): { img: ImageData; rect: Rect } {
-    const img = makeImage(100, 100);
-    const rect: Rect = { x: 30, y: 30, w: 40, h: 40 };
-    for (let y = 0; y < 100; y++) {
-      for (let x = 0; x < 100; x++) {
-        const inside = x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
-        setPixel(img, x, y, inside ? [200, 40, 40] : bg);
-      }
-    }
-    return { img, rect };
-  }
-
-  it('samples only outside the rect and sees the background color', () => {
-    const { img, rect } = makeScene([120, 120, 120]);
-    const patches = sampleSurroundPatches(img, rect, 8);
-    expect(patches.length).toBe(8);
-    const gray = srgbToLab(120, 120, 120);
-    for (const p of patches) {
-      expect(labDistance(p.lab, gray)).toBeLessThan(1);
-    }
-  });
-
-  it('distinguishes cube-against-background from wall-to-wall background', () => {
-    const { img, rect } = makeScene([120, 120, 120]);
-    const faceMean = srgbToLab(200, 40, 40); // the "cube" color
-    const patches = sampleSurroundPatches(img, rect, 8);
-    const similar = patches.filter((p) => labDistance(p.lab, faceMean) < 16).length;
-    expect(similar).toBe(0); // contrasting background: no surround patch matches the face
-
-    // Now a "ceiling": the whole frame is the face color.
-    const wall = makeImage(100, 100);
-    for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) setPixel(wall, x, y, [200, 40, 40]);
-    const wallPatches = sampleSurroundPatches(wall, rect, 8);
-    const wallSimilar = wallPatches.filter((p) => labDistance(p.lab, faceMean) < 16).length;
-    expect(wallSimilar).toBe(wallPatches.length); // everything matches -> not a cube
   });
 });
 

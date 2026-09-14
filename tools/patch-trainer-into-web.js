@@ -1,5 +1,6 @@
 // Regenerates web/index.html from the original ZZ trainer HTML at the repo
-// root, wiring in the scanner's "Scan cube" tab. Run from the repo root:
+// root, wiring in the "Scan cube" tab (src/trainer-main.ts mounts the
+// scanner there). Run from the repo root:
 //   node tools/patch-trainer-into-web.js
 // Re-run this if the trainer HTML file is ever updated, instead of editing
 // web/index.html by hand.
@@ -24,10 +25,11 @@ const patches = [
   ],
   // 3. include scan in the tab switcher
   ["for(const k of ['eo','f2l'])", "for(const k of ['eo','f2l','scan'])"],
-  // 4. allow restoring the scan tab on load
+  // 4. allow restoring the scan tab on load, and ?tab=scan to open it (the
+  //    URL the replay tooling and the labeler's nav use)
   [
     "ZZ.showTab(tab==='eo'?'eo':'f2l');",
-    "ZZ.showTab(['eo','f2l','scan'].includes(tab)?tab:'f2l');",
+    "tab=new URLSearchParams(location.search).get('tab')||tab;\nZZ.showTab(['eo','f2l','scan'].includes(tab)?tab:'f2l');",
   ],
   // 5. scanner module (deferred; runs after all inline scripts) + shared
   //    floating page switcher (public/nav.js, same on every page)

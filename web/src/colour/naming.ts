@@ -16,10 +16,8 @@
 import { solveAssignment } from '../color';
 import { sharedEdge } from '../detect/orient';
 import type { ColorName, FaceId, Lab } from '../types';
-import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
+import { COLOR_NAMES as NAMES, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { FaceGroup, Pairing } from './types';
-
-const NAMES: readonly ColorName[] = ['white', 'yellow', 'red', 'orange', 'green', 'blue'];
 
 function ranks(values: readonly (number | null)[], desc: boolean): number[] {
   const idx = values.map((v, i) => ({ v, i })).filter((x) => x.v !== null);

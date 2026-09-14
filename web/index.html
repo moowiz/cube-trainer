@@ -1241,6 +1241,7 @@ syncSeg(); newScramble(); tick();
 </script>
 <script>
 let tab='f2l'; try{ tab=localStorage.getItem('zz-tab')||'f2l'; }catch(_){}
+tab=new URLSearchParams(location.search).get('tab')||tab;
 ZZ.showTab(['eo','f2l','scan'].includes(tab)?tab:'f2l');
 </script>
 <script type="module" src="/src/trainer-main.ts"></script>
