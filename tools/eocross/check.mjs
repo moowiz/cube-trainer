@@ -25,7 +25,7 @@ const page = await browser.newPage();
 page.on('pageerror', e => console.error('[pageerror]', e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/`);
 await page.evaluate(() => ZZ.showTab('eo'));
-await page.evaluate(() => document.querySelector('#eo-panel .eo-seg[data-set="goal"] button[data-v="cross"]').click()); // inside a closed <details>
+await page.evaluate(() => document.querySelector('#eo-settings .eo-seg[data-set="goal"] button[data-v="cross"]').click()); // lives in the settings sheet
 const t0 = Date.now();
 await page.waitForFunction(() => { document.getElementById('eo-showSol').click(); const s = document.getElementById('eo-rSub').textContent; document.getElementById('eo-showSol').click(); return /optimal solution/.test(s) && /EOCross/.test(document.getElementById('eo-rTitle').textContent); }, { timeout: 60000, polling: 500 });
 console.log(`table ready in ${((Date.now() - t0) / 1000).toFixed(1)} s`);

@@ -52,9 +52,10 @@ web/
                      (track grouping), naming, decode (exact decoder), solve,
                      solve.worker + client
     state.ts         validateState (legality oracle), rotation helpers, cubejs solve
-    ui/              scanner.ts (the Scan tab: camera, overlay, evidence, lock), hint, settings
+    ui/              scanner.ts (the scan sheet: camera, overlay, evidence, lock), hint, settings
     handoff.ts       a locked scan as a scramble in the trainer's frame (white down)
-    trainer-main.ts  mounts the scanner on index.html's Scan tab, hands locks to the EO trainer
+    stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
+    trainer-main.ts  mounts the scanner in index.html's scan sheet, routes a lock to its stage's tab
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
@@ -88,7 +89,8 @@ MILESTONES.md
   fails to bind) and hand the user that URL. Redirect training output to
   `runs/<name>-console.log` so the dashboard picks the run up.
 - Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it. For the colour solver the fixture is the phone's `Capture debug` JSON (it holds the whole evidence log): drop it in `web/test/fixtures/evidence/` with a `truth` field and `colour-replay.test.ts` picks it up.
-- Keep `model/` and `web/` independent: `web/` must run (the trainer works, the Scan tab says no model is deployed) even if no model file is present.
+- Keep `model/` and `web/` independent: `web/` must run (the trainer works, the scan sheet says no model is deployed) even if no model file is present.
+- `web/index.html` is the trainer page itself (stage tabs EO / F2L / OCLL / PLL, the scan and settings sheets, the `window.ZZ` bus, and the inline EO and F2L trainers). Edit it directly; there is no generator any more.
 
 ## Commands
 
