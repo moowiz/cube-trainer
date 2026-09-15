@@ -3,6 +3,7 @@
 // actually running it, not guessed - see the comment on the y/R test.
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
+import { features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
   SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, scrambleFor, solution, state, tokens,
@@ -287,5 +288,25 @@ describe('chainPartner(): the case an alg leaves on a solved cube', () => {
 describe('algHtml(): the alg with its triggers labelled', () => {
   it('brackets sexy and sledge in the Y perm and leaves the rest as text', () => {
     expect(algHtml("F R U R' U' R' F R F'")).toBe(`F <span class="ll-trig">R U R' U'<i>sexy</i></span> <span class="ll-trig">R' F R F'<i>sledge</i></span>`);
+  });
+});
+
+describe('features(): what a PLL case looks like, the same in every AUF', () => {
+  const line = (id: string) => { const f = features(state(inverse(PLL_CASES.find((c) => c.id === id)!.alg)))!; return `${f.corners} / ${f.edges} / ${f.sides.bar3}${f.sides.headlights}${f.sides.bar2}${f.sides.none}`; };
+  it('reads the cycle types and the side patterns (bar of three, headlights, bar of two, nothing)', () => {
+    expect(line('T')).toBe('adjacent swap / opposite swap / 0121');
+    expect(line('H')).toBe('solved / two swaps / 0400');
+    expect(line('Ua')).toBe('solved / 3-cycle / 1300');
+    expect(line('Aa')).toBe('3-cycle / solved / 0121');
+    expect(line('E')).toBe('two swaps / solved / 0004');
+    expect(line('Na')).toBe('diagonal swap / opposite swap / 0040');
+    expect(line('Y')).toBe('diagonal swap / adjacent swap / 0022');
+    expect(line('Ga')).toBe('adjacent swap / 3-cycle / 0112');
+    expect(line('Ja')).toBe('adjacent swap / adjacent swap / 1030');
+  });
+  it('is the same whichever way the layer is turned, and null off PLL', () => {
+    const t = PLL_CASES.find((c) => c.id === 'T')!.alg;
+    for (const auf of ['U', "U'", 'U2']) expect(features(state(`${auf} ${inverse(t)} ${auf}`))).toEqual(features(state(inverse(t))));
+    expect(features(state(inverse(OCLL_CASES[0]!.alg)))).toBeNull();
   });
 });

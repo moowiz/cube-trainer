@@ -103,7 +103,7 @@ export function scrambleFor(setup: string, rng: () => number = Math.random): str
 // ---- PLL arrows: where each top-layer piece has to go ----
 // U turns the layer (x, z) -> (-z, x); the AUF that leaves the most pieces home is the frame the
 // arrows are drawn in (a case is defined up to AUF), each piece pointing at its slot in that frame.
-const rotU = (p: Vec, k: number): Vec => { let [x, y, z] = p; for (let i = 0; i < k; i++) [x, z] = [-z, x]; return [x, y, z]; };
+const rotU = (p: Vec, k: number): Vec => { let [x, z] = [p[0], p[2]]; const y = p[1]; for (let i = 0; i < k; i++) [x, z] = [-z, x]; return [x, y, z]; };
 const U_LAYER_POS: readonly Vec[] = [[-1, 1, -1], [0, 1, -1], [1, 1, -1], [-1, 1, 0], [1, 1, 0], [-1, 1, 1], [0, 1, 1], [1, 1, 1]];
 /** Arrows (from, to) between top-layer positions, or null when the top layer is not a PLL (corners not oriented). */
 export function pllArrows(f: string): { from: Vec; to: Vec }[] | null {
