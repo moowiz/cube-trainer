@@ -6,7 +6,9 @@
 // answers the callbacks, and never touches timer or box mechanics.
 
 import { moveCount } from '../cube/alg';
-import { sheetOpen } from '../shell';
+import { toWca, WCA_HOLD } from '../cube/frame';
+import { activeTab, sheetOpen, stages, trainerHold } from '../shell';
+import { openFingertricks } from './fingertricks';
 
 export interface DrillSpec {
   /** element id prefix (`eo-`, `ocll-`): the ids the headless checks and the settings sheet use */
@@ -160,6 +162,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
         <div class="eo-row">
           <button id="${id('check')}" class="btn eo-primary" type="button">Check</button>
           <button id="${id('clear')}" class="btn" type="button">Clear</button>
+          <button id="${id('tricks')}" class="btn" type="button" title="Finger by finger: the moves in the box, or the scramble when the box is empty">✋ Fingertricks</button>
         </div>
         <div class="eo-flash" id="${id('flash')}"></div>
         <div class="eo-result" id="${id('result')}">
@@ -217,6 +220,14 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
   $('timerReset').onclick = () => timer.reset();
   $('check').onclick = check;
   $('clear').onclick = () => { box.value = ''; result.hide(); flash(''); h.onClear?.(); };
+  // the moves typed (tap a listed solution to put it there), else the scramble as it is shown - WCA hold
+  $('tricks').onclick = () => {
+    const typed = box.value.trim();
+    if (typed) { if (!openFingertricks(typed, { title: 'Your moves', hold: trainerHold() })) flash('Could not read the moves in the box.'); return; }
+    const scr = stages[activeTab()]?.scramble();
+    if (!scr) { flash('Nothing to show: type some moves, or tap a solution.'); return; }
+    openFingertricks(toWca(scr), { title: spec.id === 'eo' ? 'The scramble' : 'The setup', hold: WCA_HOLD });
+  };
   $('hints').addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (h.onHintsClick?.(t)) return;

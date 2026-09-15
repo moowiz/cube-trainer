@@ -17,6 +17,7 @@ import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { stageOf } from '../stage';
 import { showTab, stages, type Stage } from '../shell';
+import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
   acnUrl, describe, explain, findCase, fullAlg, genF2L, genFull, isSlot, normalizeAlg, randomCase, slotOf, slotSolved, slotState,
@@ -146,7 +147,8 @@ const MARKUP = `
       <label for="pretext" id="prelabel"></label>
       <textarea id="pretext" rows="2" placeholder="Leave empty for an F2L practice scramble"></textarea>
       <div class="scrbtns"><button class="btn" type="button" id="applyscr">Apply to the cube</button>
-        <button class="btn" type="button" id="stoptrack">Stop tracking</button></div>
+        <button class="btn" type="button" id="stoptrack">Stop tracking</button>
+        <button class="btn" type="button" id="scrtricks" title="Finger by finger: the scramble, or the EOCross moves under it when there are any">✋ Fingertricks</button></div>
       <p class="scrmsg" id="scrmsg"></p>
     </div>
   </details>
@@ -528,6 +530,13 @@ export function mountF2L(root: HTMLElement): Stage {
   $('genFull').onclick = newScramble;
   $('applyscr').onclick = applyScramble;
   $('stoptrack').onclick = () => { tracked = null; trackMsg('Tracking stopped.'); render(); };
+  // the EOCross moves (trainer frame) when there are any, else the scramble (WCA)
+  $('scrtricks').onclick = () => {
+    const pre = preBox.value.trim(), scr = scrBox.value.trim();
+    const ok = pre ? openFingertricks(pre, { title: 'Your EOCross moves', hold: hold() }) : scr ? openFingertricks(scr, { title: 'The scramble', hold: WCA_HOLD }) : null;
+    if (ok === null) trackMsg('Enter or generate a scramble first.', true);
+    else if (!ok) trackMsg('Could not read the moves.', true);
+  };
   $('toEO').onclick = () => {
     let scr = scrBox.value.trim();
     if (!scr) { scr = toWca(genFull()); scrBox.value = scr; preBox.value = ''; saveUrl(); }

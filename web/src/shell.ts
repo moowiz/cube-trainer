@@ -2,7 +2,7 @@
 // the keyboard shortcuts, and the bus the stages and the scanner bridge talk
 // through. The markup lives in index.html; this wires it.
 
-import { FRONT_OPTIONS, frontIndex, setFrontIndex } from './cube/scheme';
+import { FRONT_OPTIONS, faceColorName, frontIndex, setFrontIndex } from './cube/scheme';
 
 export const TABS = ['eo', 'f2l', 'ocll', 'pll'] as const;
 export type Tab = (typeof TABS)[number];
@@ -39,7 +39,12 @@ export function showTab(t: Tab): void {
   try { localStorage.setItem('zz-tab', t); } catch { /* no storage */ }
 }
 
-// ---- sheets: the scanner and the settings float over whichever stage is open ----
+/** How the trainer holds the cube, in words, for the moves typed into it. */
+export function trainerHold(): string {
+  return `white down, ${faceColorName('F')} facing you`;
+}
+
+// ---- sheets: the scanner, the settings and the fingertricks float over whichever stage is open ----
 export function sheetOpen(): boolean {
   return !!document.querySelector('.zz-sheet:not([hidden])');
 }
@@ -92,6 +97,7 @@ export function initShell(): void {
   el('scan-close').onclick = () => closeScan();
   el('settings-open').onclick = () => openSheet('settings-sheet');
   el('settings-close').onclick = () => closeSheet('settings-sheet');
+  el('tricks-close').onclick = () => closeSheet('tricks-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
   document.querySelectorAll<HTMLElement>('.zz-sheet').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s) closeSheetEl(s); }));
   // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed) from any stage - both under the right hand on Dvorak
@@ -119,7 +125,9 @@ export function initShell(): void {
 declare global {
   interface Window { ZZ: unknown }
 }
-window.ZZ = {
-  tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, sheetOpen, toast, expectedScramble, stages,
-  get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
-};
+if (typeof window !== 'undefined') { // importable from node tests (fingertricks.test.ts)
+  window.ZZ = {
+    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, sheetOpen, toast, expectedScramble, stages,
+    get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
+  };
+}
