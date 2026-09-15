@@ -52,7 +52,8 @@ const STYLE = `
   .ll-case b { font-weight: 600; }
   .ll-moves { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; letter-spacing: .02em; }
   .ll-moves:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-  .ll-alg { font-size: 16px; word-spacing: .3em; margin: 6px 0; }
+  .ll-alg { font-size: 16px; word-spacing: .3em; margin: 6px 0; cursor: pointer; border-radius: 6px; padding: 0 4px; margin-left: -4px; }
+  .ll-alg:hover { background: var(--grey-ll); }
   .ll-alg small { display: block; font-size: 13px; color: var(--ink-2); word-spacing: normal; margin-top: 2px; }
 `;
 
@@ -232,6 +233,13 @@ export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer 
 
   // wiring
   $('next').onclick = newCase;
+  // tap the alg line to put it in the moves box (as the EO solution list does)
+  $('rAlg').addEventListener('click', (e) => {
+    if (!sol || !(e.target as HTMLElement).closest('.ll-alg')) return;
+    ($('sol') as HTMLTextAreaElement).value = algLine();
+    flash('Put in the moves box. Press Check when you have done it.');
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(algLine()).catch(() => undefined);
+  });
   $('timerBtn').onclick = toggleTimer;
   $('timerReset').onclick = resetTimer;
   $('check').onclick = check;
