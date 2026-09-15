@@ -100,12 +100,13 @@ export function initShell(): void {
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
   document.querySelectorAll<HTMLElement>('.zz-sheet').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s) closeSheetEl(s); }));
-  // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed) from any stage - both under the right hand on Dvorak
+  // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed), s the settings, from any stage - all under the right hand on Dvorak
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { const s = document.querySelector<HTMLElement>('.zz-sheet:not([hidden])'); if (s) closeSheetEl(s); return; }
     if (sheetOpen() || e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
     if (e.key === 'c') openScan();
     else if (e.key === 'r' && !el('scan-resume').hidden) resumeScan();
+    else if (e.key === 's') openSheet('settings-sheet');
   });
   // the colour scheme select
   const sel = el('frontc') as HTMLSelectElement;

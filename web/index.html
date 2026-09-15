@@ -68,7 +68,7 @@
   <span class="sp"></span>
   <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
   <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
-  <button type="button" class="ico" id="settings-open" title="Settings" aria-label="Settings">⚙</button>
+  <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙<span class="key"> (s)</span></button>
 </nav>
 <!-- every stage is mounted here by src/main.ts -->
 <div id="eo-panel" hidden></div>
@@ -84,7 +84,7 @@
 </div>
 <div id="settings-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Settings</b><span class="sub"></span><button type="button" class="btn" id="settings-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Settings</b><span class="sub">Keys on any stage: c scan, r resume, s settings, n new, Space timer, Esc close. Dvorak-friendly on purpose.</span><button type="button" class="btn" id="settings-close">Close</button></div>
     <div class="zz-sheet-body">
       <section class="set-sec"><h3>Cube</h3>
         <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every stage, scramble and scan uses this.</span></div>
