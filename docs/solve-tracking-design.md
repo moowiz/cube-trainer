@@ -462,6 +462,66 @@ Underneath all four: the camera angle (section 7, item 1). Side-above
 placement turns most of the one-face epochs into two- or three-face ones
 and is free.
 
+### 8.1 Hand pose: measured (2026-09-15)
+
+Item 4 was an assumption; `tools/solve/hands_survey.py` tested it. MediaPipe
+HandLandmarker (1.0.1, `hand_landmarker.task`, two hands, VIDEO mode, CPU)
+over the eight webcam solve recordings, landmarks aligned with each replay
+log by `recording.startedAt`; overlays in `web/clips/solves/hands-*.mp4`.
+
+| clip | setup | fps | both hands | one | none | longest two-hand run |
+|---|---|---|---|---|---|---|
+| 1789348802837 | chest height, face-on | 30 | 89 % | 10 % | 0 % | 40 s |
+| 1789348884643 | chest height, face-on | 30 | 72 % | 27 % | 1 % | 20 s |
+| 1789348960376 | chest height, face-on | 30 | 70 % | 20 % | 10 % | 31 s |
+| 1789360474064 | far, dim (cube ~55 px) | 15 | 79 % | 21 % | 0 % | 6 s |
+| 1789361029992 | hands low, cube ~110 px | 30 | 9 % | 82 % | 9 % | 1.1 s |
+| 1789367308690 | far, dim (design clip 6) | 15 | 0.5 % | 99.5 % | 0 % | 0.1 s |
+| 1789369770950 | hands low, cube ~90 px | 30 | 17 % | 83 % | 0 % | 1.3 s |
+| 1789448465141 | above and close, cube ~150 px | 30 | 50 % | 26 % | 25 % | 3.1 s |
+
+Latency 13-14 ms/frame on the desktop CPU (Python; the browser build would
+be the same order on a desktop GPU and several times that on a phone, on
+top of our own detector). Handedness labels are stable (flips < 1 % of
+matched hands except 4 % on the far clip); the one hand it finds is found
+continuously (single runs of 30-65 s).
+
+What the overlays show:
+
+- **The hand it tracks is the one whose palm faces the camera** (your
+  left, image right). Its skeleton wraps the cube plausibly. **The hand
+  whose palm is behind the cube - thumb on the front face, fingertips
+  over the top - is the one that is missed**, and that is the hand doing
+  the turning. In the clips with the hands low, the second hand is found
+  in 9-17 % of frames; above and close, 50 %.
+- Lowering all three confidences to 0.2 raises the second hand to 16 / 55
+  / 67 % on those three clips, but part of the gain is phantoms (a 0.53
+  hand at the frame edge) and where the hand is real its finger geometry
+  is only roughly right: the thumb, the one finger that matters, is
+  rarely on the sticker it is actually on.
+- Close in (13 s of the last clip: fingers filling the left third of the
+  frame, palm hidden) the detector returns nothing at all.
+- **Occlusion mask value is real but partial.** Cells under a tracked
+  finger (palm polygon, or within 0.14 palm-widths of a finger segment)
+  get lower reading weights than uncovered cells in every clip (mean 0.13-
+  0.23 vs 0.20-0.42), yet 13-53 % of covered cells still carry w > 0.3:
+  the "finger reads as a sticker" failure of item 1, made visible. But the
+  mask only exists for the hand it finds, and the thumb it places worst
+  is the one over the front face.
+- **Not a turn signal as-is.** Fingertip speed relative to the cube centre
+  gives 1-4 bursts/s at median length one frame, against ~1 move/s - the
+  landmark jitter (median fingertip motion 4-8 px/frame while the hands
+  are at rest) is of the order of a turn. No recording has typed moves yet,
+  so nothing finer could be scored.
+
+Verdict: item 4 stays last. The landmarker cannot see the turning hand
+often enough to be a layer/direction tie-breaker, its per-frame cost is
+the whole phone budget, and the one thing it does deliver - a partial
+occlusion mask - is what item 1 gets from the colour statistics for both
+hands at no cost. Re-measure only if the camera setup changes to one that
+shows both palms, or if a recording with typed moves shows the colour
+evidence alone cannot separate `R` from `R'`.
+
 ## 9. Rigid-cube fit: measured (2026-09-13, late)
 
 `tools/solve/cubefit.py`: fit a 6-DoF cube pose (fixed focal length) to the
