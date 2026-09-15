@@ -49,7 +49,8 @@ export function mountEO(root: HTMLElement): Stage {
       <div class="eo-status"><div class="eo-bad" id="eo-bad"></div><div class="eo-timer" id="eo-timer">0.00</div></div>
       <div class="eo-scramble" id="eo-scramble"></div>
       <p class="eo-note" id="eo-orient"></p>`,
-  }, { onNew: newScramble, onCheck: check, onHint: hintText, onShow: onShow, onHintsClick: onHintsClick, onKey: onKey, onClear: () => { shown = null; render(); } });
+  }, { onNew: newScramble, onCheck: check, onHint: hintText, onShow: onShow, onHintsClick: onHintsClick, onKey: onKey, onClear: () => { shown = null; render(); },
+    base: () => scramble, onApply: (alg) => { shown = state(`${scramble} ${alg}`); render(); } });
   // the strategy chips sit with the hints but toggle a note instead of revealing anything about the scramble
   drill.$('hints').insertAdjacentHTML('beforeend',
     '<button type="button" class="eo-chip eo-strat" data-strat="short" hidden>Hint: EOCross strategy</button>' +
@@ -189,8 +190,8 @@ export function mountEO(root: HTMLElement): Stage {
       if (order.length > 1 || g.group.text) { const h = document.createElement('div'); h.className = 'grp-h'; h.textContent = `${g.group.text || 'no F/B turns'} · ${g.lines.size} line${g.lines.size === 1 ? '' : 's'}`; box.appendChild(h); }
       const lines = [...g.lines.entries()].sort((a, b) => Number(b[0] === mineTxt) - Number(a[0] === mineTxt) || b[1] - a[1] || a[0].localeCompare(b[0]));
       lines.forEach(([txt], i) => {
-        const d = document.createElement('div'); d.textContent = txt; d.dataset.alg = txt.replace(/[*()]/g, '');
-        if (txt === mineTxt) { const y = document.createElement('em'); y.className = 'yours'; y.textContent = 'yours'; d.appendChild(y); }
+        const d = drill.algLine(txt, txt.replace(/[*()]/g, ''));
+        if (txt === mineTxt) { const y = document.createElement('em'); y.className = 'yours'; y.textContent = 'yours'; d.insertBefore(y, d.querySelector('.eo-apply')); }
         if (i >= PER_GROUP) d.hidden = true;
         box.appendChild(d);
       });
@@ -202,7 +203,7 @@ export function mountEO(root: HTMLElement): Stage {
       el.appendChild(box);
     }
     const n = document.createElement('p'); n.style.cssText = 'margin:6px 0 0;font-size:13px;color:var(--ink-2)';
-    n.textContent = `${starred ? 'A * means that turn works in either direction (in any combination). ' : ''}${bracketed ? 'Turns in (brackets) can be done in any order. ' : ''}Tap one to put it in the moves box.`;
+    n.textContent = `${starred ? 'A * means that turn works in either direction (in any combination). ' : ''}${bracketed ? 'Turns in (brackets) can be done in any order. ' : ''}Tap a line to put it in the moves box, ▶ to see it on the picture; hover a move to see what it does.`;
     el.appendChild(n);
   }
 

@@ -5,10 +5,14 @@
 // tap-to-fill on anything carrying data-alg. A stage fills the left column,
 // answers the callbacks, and never touches timer or box mechanics.
 
-import { moveCount } from '../cube/alg';
+import { moveCount, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
+import { STICKERS } from '../cube/geometry';
+import { DEFAULT_VIEW, render3d, type Cell } from '../cube/render';
+import { faceHex } from '../cube/scheme';
+import { state } from '../cube/state';
 import { activeTab, sheetOpen, stages, trainerHold } from '../shell';
-import { openFingertricks } from './fingertricks';
+import { moveWhat, openFingertricks } from './fingertricks';
 
 export interface DrillSpec {
   /** element id prefix (`eo-`, `ocll-`): the ids the headless checks and the settings sheet use */
@@ -42,6 +46,10 @@ export interface DrillHandlers {
   /** extra keys while the stage is active and no field has focus; return true when handled */
   onKey?(ev: KeyboardEvent): boolean;
   onClear?(): void;
+  /** the alg from solved whose state the picture shows before any moves (the scramble, the setup): the move peek starts from it */
+  base?(): string;
+  /** show the state after `alg` (from base) on the picture - the ▶ button on a listed line */
+  onApply?(alg: string): void;
 }
 
 export interface Timer {
@@ -68,6 +76,11 @@ export interface Drill {
   setMoves(text: string): void;
   /** put an alg in the moves box, copy it, say so */
   fill(alg: string, msg: string): void;
+  /**
+   * A listed line: `shown` is the text (stars, brackets, [AUF]s allowed), `alg` the plain moves. Every move
+   * is a span the peek popover hangs off, and a ▶ at the end applies the line to the picture (onApply).
+   */
+  algLine(shown: string, alg: string): HTMLElement;
   /** back to the chips' labels */
   resetHints(): void;
   /** re-ask onHint for every open chip (something it depends on changed) */
@@ -133,6 +146,17 @@ export const STYLE = `
   .eo-sol .yours { font-size: 12px; font-style: normal; color: var(--ink-2); background: var(--grey-ll); border-radius: 4px; padding: 1px 5px; margin-left: 6px; word-spacing: normal; }
   .eo-link { font: inherit; background: none; border: none; padding: 4px 2px; color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: 14px; }
   .eo-stats { color: var(--ink-2); font-size: 13px; padding: 10px 2px 0; }
+  .eo-result .mv { border-radius: 4px; padding: 0 1px; }
+  .eo-result .mv:hover, .eo-result .mv.on { background: var(--ink); color: var(--bg); }
+  .eo-apply { font: inherit; font-size: 13px; line-height: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; margin-left: 8px; cursor: pointer; color: var(--ink-2); vertical-align: middle; word-spacing: normal; }
+  .eo-apply:hover { border-color: var(--ink-2); color: var(--ink); }
+  .zz-peek { position: fixed; z-index: 1200; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; box-shadow: 0 8px 28px rgba(0,0,0,.18); pointer-events: none; max-width: 300px; }
+  .zz-peek .row { display: flex; align-items: center; gap: 6px; }
+  .zz-peek svg { width: 110px; height: 110px; display: block; }
+  .zz-peek svg polygon { stroke: #2b3340; stroke-width: 1.2; }
+  .zz-peek .arr { font-size: 22px; color: var(--ink-2); }
+  .zz-peek .cap { font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.35; word-spacing: normal; }
+  .zz-peek .cap b { color: var(--ink); font-size: 15px; margin-right: 6px; }
   .ll-alg { font-size: 16px; word-spacing: .3em; margin: 6px 0; }
   .ll-alg small { display: block; font-size: 13px; color: var(--ink-2); word-spacing: normal; margin-top: 2px; }
 `;
@@ -244,12 +268,45 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     h.onShow(true);
     result.show($('rTitle').textContent ?? '', $('rSub').textContent ?? '');
   };
-  // tap-to-fill: anything with data-alg inside the result, and the alg line
+  // tap-to-fill: anything with data-alg inside the result, and the alg line; ▶ also applies it to the picture
   $('result').addEventListener('click', (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-alg]');
     if (!el) return;
-    drill.fill(el.dataset.alg!, spec.id === 'eo' ? 'Put in the moves box. Add your cross moves, then Check.' : 'Put in the moves box. Press Check when you have done it.');
+    const apply = (e.target as HTMLElement).closest('.eo-apply');
+    drill.fill(el.dataset.alg!, apply ? 'On the picture, and in the moves box. Press Check when you have done it on your cube.' : spec.id === 'eo' ? 'Put in the moves box. Add your cross moves, then Check.' : 'Put in the moves box. Press Check when you have done it.');
+    if (apply) { hidePeek(); h.onApply?.(el.dataset.alg!); }
   });
+
+  // ---- the move peek: hover (or tap) a move in a listed line to see the cube before and after it ----
+  let peek: HTMLElement | null = null;
+  const hidePeek = () => { if (peek) { peek.remove(); peek = null; } root.querySelectorAll('.mv.on').forEach((m) => m.classList.remove('on')); };
+  const cellsOf = (f: string): Cell[] => STICKERS.map((s) => ({ fill: faceHex(f[s.idx]!) }));
+  function showPeek(mv: HTMLElement): void {
+    const line = mv.closest<HTMLElement>('[data-alg]');
+    const base = h.base?.();
+    if (!line || base === undefined) return;
+    const toks = tokens(line.dataset.alg!);
+    const k = Number(mv.dataset.i);
+    const move = toks[k];
+    if (!move) return;
+    const before = state(`${base} ${toks.slice(0, k).join(' ')}`), after = state(`${base} ${toks.slice(0, k + 1).join(' ')}`);
+    hidePeek();
+    mv.classList.add('on');
+    peek = document.createElement('div'); peek.className = 'zz-peek';
+    peek.innerHTML = '<div class="row"><svg viewBox="-170 -170 340 340"></svg><span class="arr">→</span><svg viewBox="-170 -170 340 340"></svg></div><div class="cap"><b></b><span></span></div>';
+    const [s1, s2] = peek.querySelectorAll('svg');
+    render3d(s1 as SVGSVGElement, cellsOf(before), DEFAULT_VIEW); render3d(s2 as SVGSVGElement, cellsOf(after), DEFAULT_VIEW);
+    peek.querySelector('b')!.textContent = move; peek.querySelector('.cap span')!.textContent = moveWhat(move);
+    document.body.appendChild(peek);
+    const r = mv.getBoundingClientRect(), w = peek.offsetWidth, hgt = peek.offsetHeight;
+    const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const y = r.bottom + 8 + hgt > window.innerHeight ? r.top - hgt - 8 : r.bottom + 8;
+    peek.style.left = `${x}px`; peek.style.top = `${Math.max(8, y)}px`;
+  }
+  $('result').addEventListener('mouseover', (e) => { const mv = (e.target as HTMLElement).closest<HTMLElement>('.mv'); if (mv) showPeek(mv); });
+  $('result').addEventListener('mouseleave', hidePeek);
+  $('result').addEventListener('mouseout', (e) => { if ((e.target as HTMLElement).closest('.mv') && !(e.relatedTarget as HTMLElement | null)?.closest?.('.mv')) hidePeek(); });
+  window.addEventListener('scroll', hidePeek, { passive: true });
   document.addEventListener('keydown', (ev) => {
     if (!active()) return;
     const tag = (ev.target as HTMLElement).tagName;
@@ -268,6 +325,18 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     fill(alg, msg) {
       box.value = alg; flash(msg);
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(alg).catch(() => undefined);
+    },
+    algLine(shown, alg) {
+      const d = document.createElement('div'); d.dataset.alg = alg;
+      let i = 0;
+      for (const word of shown.split(/\s+/).filter(Boolean)) {
+        if (d.childNodes.length) d.appendChild(document.createTextNode(' '));
+        const s = document.createElement('span'); s.textContent = word;
+        if (word.replace(/[*()[\]]/g, '')) { s.className = 'mv'; s.dataset.i = String(i++); }
+        d.appendChild(s);
+      }
+      if (h.onApply) { const b = document.createElement('button'); b.type = 'button'; b.className = 'eo-apply'; b.textContent = '▶'; b.title = 'Show the cube after these moves (and put them in the box)'; d.appendChild(b); }
+      return d;
     },
     resetHints() { root.querySelectorAll<HTMLButtonElement>('.eo-chip[data-hint]').forEach((b) => { b.textContent = labels[b.dataset.hint!]; b.classList.remove('open'); }); },
     refreshHints() { root.querySelectorAll<HTMLButtonElement>('.eo-chip[data-hint].open').forEach((b) => { b.textContent = h.onHint(b.dataset.hint!); }); },
