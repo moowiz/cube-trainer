@@ -6,7 +6,7 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
-import { trainerScramble, type ScannedCube } from './handoff';
+import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } from './handoff';
 import { mountLL } from './ll/trainer';
 import { stageOf, type StageReport } from './stage';
 import { COLOR_NAMES, type ColorName } from './types';
@@ -17,6 +17,7 @@ interface ZZBus {
   openScan(opts?: { keep?: boolean }): void;
   closeScan(): void;
   sheetOpen(): boolean;
+  expectedScramble?(): string | null;
   toast(msg: string): void;
   eo?: { load(scramble: string): void };
   f2l?: { start(scramble: string, pre: string): void };
@@ -47,13 +48,29 @@ function frontColour(): ColorName {
   return (COLOR_NAMES as readonly string[]).includes(name ?? '') ? (name as ColorName) : 'blue';
 }
 
-/** What a stage report says in words, for the toast. */
+/** What a stage report says in words, for the toast: the stage to solve, no hints about the state. */
 function describe(r: StageReport): string {
   if (r.stage === 'solved') return 'Your cube is solved.';
-  if (r.stage === 'eo') return r.eoBad ? `${r.eoBad} bad edge${r.eoBad === 1 ? '' : 's'}, cross ${r.cross}/4 → EO trainer` : `EO solved, cross ${r.cross}/4 → EO trainer`;
-  if (r.stage === 'f2l') return `EOCross done, ${r.pairs}/4 pairs → F2L`;
+  if (r.stage === 'eo') return 'EOCross to solve → EO trainer';
+  if (r.stage === 'f2l') return 'EOCross done → F2L';
   if (r.stage === 'ocll') return 'F2L done → OCLL';
   return 'Corners oriented → PLL';
+}
+
+/** The current scramble as the scanner should expect it, or null when the open stage has none. */
+function expected(): { scramble: string; hold: { down: 'white'; front: ColorName } } | null {
+  const s = window.ZZ.expectedScramble?.();
+  return s ? { scramble: s, hold: { down: 'white', front: frontColour() } } : null;
+}
+
+/** Does the locked scan match the expected scramble? '' when there is nothing to compare. */
+function matchText(scan: ScannedCube): string {
+  const exp = expected();
+  if (!exp) return '';
+  try {
+    const wrong = diffFacelets(expectedFacelets(exp.scramble, exp.hold, scan.colourOf), scan.facelets.split('')).wrong.length;
+    return wrong === 0 ? 'This is the scramble ✓' : `Not the scramble (${wrong} sticker${wrong === 1 ? '' : 's'} differ)`;
+  } catch { return ''; }
 }
 
 function useInTrainer(scan: ScannedCube): void {
@@ -66,6 +83,8 @@ function useInTrainer(scan: ScannedCube): void {
     alert(`Cannot show this cube in the trainer: ${err instanceof Error ? err.message : err}`);
     return;
   }
+  // was it the scramble the stage asked for? decided before the stage is given the new one
+  const match = matchText(scan);
   // the scramble reproduces the scan from solved in the trainer's frame, so the state it reaches
   // is the scanned cube with white as D - what stage.ts reads
   const report = stageOf(new Cube().move(scramble).asString());
@@ -77,7 +96,7 @@ function useInTrainer(scan: ScannedCube): void {
     case 'solved': break;
   }
   ZZ.closeScan();
-  ZZ.toast(describe(report));
+  ZZ.toast((match ? match + ' · ' : '') + describe(report));
   window.scrollTo({ top: 0 });
 }
 
@@ -85,7 +104,7 @@ let scanner: ScannerHandle | null = null;
 let scanned = false; // a scan has been started since the last reset
 
 function ensureScanner(): ScannerHandle {
-  scanner ??= mountScanner(panel!, { onUseInTrainer: useInTrainer });
+  scanner ??= mountScanner(panel!, { onUseInTrainer: useInTrainer, expected });
   return scanner;
 }
 
@@ -93,14 +112,17 @@ function ensureScanner(): ScannerHandle {
 // one in progress (the Resume button, which appears once there is something to come back to).
 const origOpen = window.ZZ.openScan;
 const origClose = window.ZZ.closeScan;
+function scanStarted(): void {
+  scanned = true;
+  const resume = document.getElementById('scan-resume');
+  if (resume) resume.hidden = false;
+}
 window.ZZ.openScan = (opts) => {
   origOpen(opts);
   const s = ensureScanner();
   if (scanned && !opts?.keep) s.reset();
   s.start();
-  scanned = true;
-  const resume = document.getElementById('scan-resume');
-  if (resume) resume.hidden = false;
+  scanStarted();
 };
 window.ZZ.closeScan = () => { origClose(); scanner?.stop(); };
 
@@ -108,7 +130,7 @@ window.ZZ.closeScan = () => { origClose(); scanner?.stop(); };
 // the camera still waits for start(). The page's startup script may already
 // have opened the sheet (?tab=scan, the replay tooling's URL).
 ensureScanner();
-if (!sheet.hidden) { scanner!.start(); scanned = true; }
+if (!sheet.hidden) { scanner!.start(); scanStarted(); }
 
 // Free the camera when the page is hidden; take it back when it shows again.
 document.addEventListener('visibilitychange', () => {

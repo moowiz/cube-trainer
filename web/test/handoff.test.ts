@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
-import { frameMap, relabelMoves, trainerScramble, type ScannedCube } from '../src/handoff';
+import { diffFacelets, expectedFacelets, frameMap, relabelMoves, trainerScramble, type ScannedCube } from '../src/handoff';
 import { randomScramble, scrambleState } from '../src/scramble';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../src/types';
 import type { ColorName, FaceId } from '../src/types';
@@ -77,5 +77,32 @@ describe('trainerScramble', () => {
 
   it('refuses a scan whose down and front colours are not adjacent', () => {
     expect(() => trainerScramble(scan('R U'), { down: 'white', front: 'yellow' })).toThrow();
+  });
+});
+
+describe('expectedFacelets (the scan check)', () => {
+  it('undoes trainerScramble: the trainer scramble of a scan, expected back in the solver frame, is the scan', () => {
+    const rnd = makeLcg(7);
+    for (let i = 0; i < 40; i++) {
+      const scr = randomScramble(20, rnd);
+      const facelets = scrambleState(scr);
+      // the solver frame with a shuffled colour naming, so the trainer frame differs from it by a real rotation
+      const colours: ColorName[] = ['white', 'red', 'green', 'yellow', 'orange', 'blue'];
+      const colourOf = Object.fromEntries(FACE_ORDER.map((f, k) => [f, colours[k]])) as Record<FaceId, ColorName>;
+      const scan: ScannedCube = { facelets, colourOf, solution: Cube.inverse(scr) }; // any solving alg will do
+      for (const front of ['red', 'green', 'orange', 'blue'] as ColorName[]) {
+        const hold = { down: 'white' as ColorName, front };
+        const scramble = trainerScramble(scan, hold);
+        expect(expectedFacelets(scramble, hold, colourOf)).toBe(facelets);
+      }
+    }
+  });
+  it('diffFacelets counts read stickers and the ones that differ, ignoring unread slots', () => {
+    const want = scrambleState('R U');
+    const got = want.split('').map((c, i) => (i % 3 === 0 ? null : c));
+    got[1] = got[1] === 'U' ? 'R' : 'U';
+    const d = diffFacelets(want, got);
+    expect(d.read).toBe(36);
+    expect(d.wrong).toEqual([1]);
   });
 });

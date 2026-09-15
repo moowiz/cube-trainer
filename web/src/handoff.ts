@@ -82,3 +82,28 @@ export function trainerScramble(scan: ScannedCube, hold: Hold): string {
   };
   return relabelMoves(Cube.inverse(scan.solution), frameMap(letter(hold.down), letter(hold.front)));
 }
+
+/**
+ * The other direction: the facelets the solver should see for a cube that had `scramble` applied
+ * while held `hold`, in the solver's letters (`colourOf` = the colour on each of its faces' centres).
+ * Throws when a colour is missing or the hold is impossible. Used to check a scan against the
+ * trainer's scramble, live and at the lock.
+ */
+export function expectedFacelets(scramble: string, hold: Hold, colourOf: Record<FaceId, ColorName>): string {
+  const letter = (c: ColorName): FaceId => {
+    const f = FACE_ORDER.find((k) => colourOf[k] === c);
+    if (!f) throw new Error(`no ${c} centre`);
+    return f;
+  };
+  const toTrainer = frameMap(letter(hold.down), letter(hold.front));
+  const toSolver = Object.fromEntries(Object.entries(toTrainer).map(([s, t]) => [t, s])) as Record<FaceId, FaceId>;
+  return new Cube().move(relabelMoves(scramble, toSolver)).asString();
+}
+
+/** How a (possibly partial) reading compares with an expected state: stickers read, and which of them differ. */
+export function diffFacelets(expected: string, got: readonly (string | null)[]): { read: number; wrong: number[] } {
+  const wrong: number[] = [];
+  let read = 0;
+  got.forEach((g, i) => { if (g === null || g === undefined) return; read++; if (g !== expected[i]) wrong.push(i); });
+  return { read, wrong };
+}

@@ -57,7 +57,7 @@ import { matchSharedEdge } from '../detect/orient';
 import { mapUV, squareToQuad } from '../rectify';
 import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
-import type { ScannedCube } from '../handoff';
+import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
 import { persistControls } from './settings';
 import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
@@ -70,6 +70,11 @@ export interface ScannerOptions {
    * move reader are the point.
    */
   onUseInTrainer?: (scan: ScannedCube) => void;
+  /**
+   * The scramble the host expects the cube to be in (a stage's current scramble, in the frame it is
+   * held), or null. Every solve is checked against it and the check is shown live; the lock reports it.
+   */
+  expected?: () => { scramble: string; hold: Hold } | null;
 }
 
 export interface ScannerHandle {
@@ -143,6 +148,7 @@ const TEMPLATE = `
     <div class="sc-version"><span class="sc-status">model loading…</span></div>
     <div class="sc-cols">
       <div class="sc-main">
+        <div class="sc-expect" hidden><b>Check</b> <span class="sc-expectAlg"></span> <span class="sc-expectState"></span></div>
         <div class="sc-scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span class="sc-scrambleAlg"></span> <label><input type="checkbox" class="sc-applied"> I applied it (from solved)</label></div>
         <div class="sc-solverec" title="Record the camera feed while you turn the cube: the .webm and the debug capture download together, aligned on the same clock, and become a move-tracking fixture. Type the moves you will make (or leave blank for a free solve)"><b>Moves</b> <input class="sc-moves" placeholder="R U R' U' - what you will turn while recording" spellcheck="false" autocapitalize="characters"> <button class="sc-rec" disabled>Record</button> <span class="sc-recState"></span></div>
         <div class="sc-bar">
@@ -689,9 +695,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       // the solution's moves are named by centre: U is the face whose centre
       // is the U colour, F the F colour - say so, or the moves are meaningless
       const hold = `Hold the cube with the ${colourOf[st[4] as FaceId]} centre on top and the ${colourOf[st[22] as FaceId]} centre facing you.`;
+      const chk = checkExpected(locked, st.split(''));
+      const match = !chk || chk.note ? '' : chk.wrong.length === 0 ? '<div class="sc-match sc-ok">This is the scramble ✓</div>' : `<div class="sc-match sc-bad">Not the scramble: ${chk.wrong.length} sticker${chk.wrong.length === 1 ? '' : 's'} differ</div>`;
       const cert = `${locked.decode!.changed} sticker(s) moved by the cube's constraints; runner-up state ${locked.decode!.delta === Infinity ? 'none' : `${locked.decode!.delta.toFixed(1)} worse`}`;
       // facelets and moves are letters from the solver, never user text
-      resultEl.innerHTML = `<div class="sc-rt">Locked ✓</div><div class="sc-st">${st}</div><div class="sc-cert">${cert}</div><div class="sc-hold">${hold}</div><div class="sc-sol">solving…</div><div class="sc-use" hidden></div><div class="sc-read" hidden><div class="sc-mh">Moves read</div><div class="sc-mv"></div></div>`;
+      resultEl.innerHTML = `<div class="sc-rt">Locked ✓</div>${match}<div class="sc-st">${st}</div><div class="sc-cert">${cert}</div><div class="sc-hold">${hold}</div><div class="sc-sol">solving…</div><div class="sc-use" hidden></div><div class="sc-read" hidden><div class="sc-mh">Moves read</div><div class="sc-mv"></div></div>`;
       const solEl = resultEl.querySelector('.sc-sol')!;
       void solveState(st)
         .then((s) => {
@@ -727,6 +735,42 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     });
     return out;
   }
+  /** coloursOf, but only once the solver has named every face - a partial naming would check against the wrong frame. */
+  function coloursOfStrict(sol: Solution): Record<FaceId, ColorName> | null {
+    const named = sol.colourLetter.filter((l, c) => l && sol.naming.names[c]).length;
+    return named === 6 ? coloursOf(sol) : null;
+  }
+
+  // ---- the host's scramble: is the cube in view the one the trainer thinks it is? ----
+  const expectEl = $('expect');
+  /** The check against the host's scramble for a (partial) reading; null when there is nothing to check. */
+  function checkExpected(sol: Solution, letters: readonly (string | null)[]): { scramble: string; read: number; wrong: number[]; note?: string } | null {
+    const exp = opts.expected?.();
+    if (!exp) return null;
+    const colourOf = coloursOfStrict(sol);
+    if (!colourOf) return { scramble: exp.scramble, read: 0, wrong: [], note: 'waiting for all six centres' };
+    try {
+      const want = expectedFacelets(exp.scramble, exp.hold, colourOf);
+      return { scramble: exp.scramble, ...diffFacelets(want, letters) };
+    } catch (err) {
+      return { scramble: exp.scramble, read: 0, wrong: [], note: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  function renderExpected(sol: Solution | null): void {
+    const exp = opts.expected?.();
+    expectEl.hidden = !exp;
+    $('scramble').hidden = !!exp; // the scanner's own random scramble is a fixture tool; a stage's scramble replaces it
+    if (!exp) return;
+    $('expectAlg').textContent = exp.scramble;
+    const st = $('expectState');
+    const chk = sol ? checkExpected(sol, sol.slotLetter) : null;
+    if (!chk) { st.textContent = 'scan to compare'; st.className = 'sc-expectState'; return; }
+    if (chk.note) { st.textContent = chk.note; st.className = 'sc-expectState'; return; }
+    const w = chk.wrong.length;
+    st.textContent = chk.read === 0 ? 'no stickers read yet' : w === 0 ? `${chk.read} of 54 stickers read, all match ✓` : `${chk.read} read, ${w} differ${w <= 3 ? ' (close)' : ''}`;
+    st.className = 'sc-expectState ' + (chk.read === 0 ? '' : w === 0 ? 'sc-ok' : w <= 3 ? 'sc-near' : 'sc-bad');
+  }
+  renderExpected(null);
 
   /** The ticker: turns the reader is sure of in full, the rest dimmed with a '?', plus the reader's trace in the debug panel. */
   function renderMoves(): void {
@@ -910,6 +954,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
           if (locked) return;
           solution = sol;
           solveEma = solveEma === 0 ? sol.ms : 0.2 * sol.ms + 0.8 * solveEma;
+          renderExpected(sol);
           if (sol.lockable) locked = sol;
         });
       }
@@ -1302,7 +1347,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
 
   return {
     // a clip replay is driven by its URL (and the Play clip button), not by the host's tab
-    start: () => { if (!clipUrl) startCapture(); },
+    start: () => { renderExpected(locked ?? solution); if (!clipUrl) startCapture(); }, // the host's scramble may have changed
     stop: () => { if (running) stopAuto(); },
     reset: () => { if (!clipUrl) $('reset').click(); },
   };
