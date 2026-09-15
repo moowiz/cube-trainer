@@ -38,6 +38,8 @@
   @media (min-width: 820px) {
     .zz-sheet { padding: 28px 18px; }
     .zz-sheet-box { max-width: 900px; margin: 0 auto; min-height: 0; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); overflow: hidden; }
+    /* the scanner lays itself out in columns (camera, state, pipeline) past 1100px: give it the width */
+    #scan-sheet .zz-sheet-box { max-width: 1900px; }
     .zz-sheet-head { border-radius: 14px 14px 0 0; }
   }
   .set-sec { max-width: 560px; margin: 0 auto 8px; }
