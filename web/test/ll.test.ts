@@ -3,8 +3,9 @@
 // actually running it, not guessed - see the comment on the y/R test.
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
+import { algHtml, chainSummary } from '../src/ll/reference';
 import {
-  SOLVED, aufToSolve, done, identify, inverse, moveCount, pllArrows, randomSetup, scrambleFor, solution, state, tokens,
+  SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, scrambleFor, solution, state, tokens,
 } from '../src/ll/model';
 import { stageOf } from '../src/stage';
 
@@ -266,5 +267,25 @@ describe('pllArrows()', () => {
   });
   it('is null when the corners are not oriented', () => {
     expect(pllArrows(state("R U R' U R U2 R'"))).toBeNull();
+  });
+});
+
+describe('chainPartner(): the case an alg leaves on a solved cube', () => {
+  const chains = (kind: 'ocll' | 'pll') => CASES[kind].map((c) => `${c.id}>${chainPartner(kind, c)?.id ?? '-'}`).join(' ');
+  it('PLL: A, U and G perms pair up, the rest are their own inverse', () => {
+    expect(chains('pll')).toBe('Aa>Ab Ab>Aa E>E F>F Ga>Gb Gb>Ga Gc>Gd Gd>Gc H>H Ja>Ja Jb>Jb Na>Na Nb>Nb Ra>Ra Rb>Rb T>T Ua>Ub Ub>Ua V>V Y>Y Z>Z');
+    const { self, pairs, oneWay } = chainSummary('pll');
+    expect([pairs.map(([a, b]) => `${a.id}-${b.id}`), oneWay.length, self.length]).toEqual([['Aa-Ab', 'Ga-Gb', 'Gc-Gd', 'Ua-Ub'], 0, 13]);
+  });
+  it('OCLL: Sune and Anti-Sune pair up, T and L too; the headlights alg permutes, so it chains one way to L', () => {
+    expect(chains('ocll')).toBe('S>AS AS>S H>H Pi>Pi U>L T>L L>T');
+    const { self, pairs, oneWay } = chainSummary('ocll');
+    expect([pairs.map(([a, b]) => `${a.id}-${b.id}`), oneWay.map(([a, b]) => `${a.id}-${b.id}`), self.map((c) => c.id)]).toEqual([['S-AS', 'T-L'], ['U-L'], ['H', 'Pi']]);
+  });
+});
+
+describe('algHtml(): the alg with its triggers labelled', () => {
+  it('brackets sexy and sledge in the Y perm and leaves the rest as text', () => {
+    expect(algHtml("F R U R' U' R' F R F'")).toBe(`F <span class="ll-trig">R U R' U'<i>sexy</i></span> <span class="ll-trig">R' F R F'<i>sledge</i></span>`);
   });
 });

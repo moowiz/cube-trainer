@@ -63,8 +63,9 @@ web/
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
-    ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF), scramble (an
-                     optimal phase-2 solver: face-turn scrambles for PLL states), trainer
+    ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner),
+                     scramble (an optimal phase-2 solver: face-turn scrambles for PLL states), pic (the top-down
+                     picture), reference (the case list sheet: pictures, algs with triggers, chains), trainer
     handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check
     follow.ts        following a solve: lock + turns read -> trainer scramble, and the settled stage change
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
