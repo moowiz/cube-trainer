@@ -52,12 +52,20 @@ web/
                      (track grouping), naming, decode (exact decoder), solve,
                      solve.worker + client
     state.ts         validateState (legality oracle), rotation helpers, cubejs solve
-    ui/              scanner.ts (the scan sheet: camera, overlay, evidence, lock), hint, settings
-    handoff.ts       a locked scan as a scramble in the trainer's frame (white down)
+    cube/            THE cube code every trainer shares: alg (one parser for turns/slices/wide/rotations),
+                     state (facelets from an alg, rotations undone), geometry (facelet -> 3D), pieces
+                     (edge/corner tables, EO bits, the 12-edge move model the solvers and the EOCross
+                     worker use), render (3D + net SVG), scheme (colour setting), frame (trainer / WCA /
+                     solver letter maps)
+    ui/              drill.ts (the timed-drill scaffold EO/OCLL/PLL sit on), scanner.ts (the scan sheet:
+                     camera, overlay, evidence, lock, live scramble check), hint, settings
+    shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
+    eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
+    f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
+    ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF), trainer
+    handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
-    ll/              last-layer trainers: cases (OCLL 7, PLL 21, algs verified by test), model (cubejs
-                     alg strings: normalise rotations, identify a case modulo AUF, random setups), trainer UI
-    trainer-main.ts  mounts the scanner in index.html's scan sheet, routes a lock to its stage's tab
+    main.ts          mounts every stage into index.html, wires the shell, bridges the scanner
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
@@ -92,7 +100,8 @@ MILESTONES.md
   `runs/<name>-console.log` so the dashboard picks the run up.
 - Test fixtures beat mocks. When something misbehaves on a real frame, save the frame to `web/test/fixtures/` and write a test against it. For the colour solver the fixture is the phone's `Capture debug` JSON (it holds the whole evidence log): drop it in `web/test/fixtures/evidence/` with a `truth` field and `colour-replay.test.ts` picks it up.
 - Keep `model/` and `web/` independent: `web/` must run (the trainer works, the scan sheet says no model is deployed) even if no model file is present.
-- `web/index.html` is the trainer page itself (stage tabs EO / F2L / OCLL / PLL, the scan and settings sheets, the `window.ZZ` bus, and the inline EO and F2L trainers). Edit it directly; there is no generator any more.
+- `web/index.html` is markup only (tab bar, four empty stage panels, the scan and settings sheets, the toast) plus `src/main.ts`. No inline scripts: every trainer is a TypeScript module on `src/cube/*`. Do not add a second cube model, parser, or renderer - extend `src/cube/`.
+- Scrambles are SHOWN and TYPED in WCA orientation (white up, green front: `cube/frame.ts` toWca/fromWca); every trainer WORKS in its own frame (white down, the chosen colour in front), which is what the pictures and the moves you type use.
 
 ## Commands
 

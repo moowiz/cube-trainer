@@ -1,6 +1,7 @@
-// Headless check of the trainer's EOCross goal: serves web/ over loopback, switches the goal, waits for the
-// worker's table, and verifies every listed optimal solution through the trainer's own Check button. Also
-// compares the optimal length with the independent node model in tools/eocross/model.js.
+// Headless check of the trainer's EOCross goal: serves the built page (web/dist - run `npm run build`
+// first) over loopback, switches the goal, waits for the worker's table, and verifies every listed
+// optimal solution through the trainer's own Check button. Also compares the optimal length with the
+// independent node model in tools/eocross/model.js.
 //   node tools/eocross/check.mjs [scrambles=5]
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -15,8 +16,9 @@ const { default: puppeteer } = await import(pathToFileURL(join(root, 'model', 'g
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x').pathname;
-  const file = url === '/' ? join(root, 'web', 'index.html') : join(root, 'web', 'public', url.replaceAll('..', ''));
-  try { const body = await readFile(file); res.writeHead(200, { 'content-type': url.endsWith('.js') ? 'text/javascript' : 'text/html' }); res.end(body); }
+  const file = join(root, 'web', 'dist', url === '/' ? 'index.html' : url.replaceAll('..', ''));
+  const type = /\.m?js$/.test(url) ? 'text/javascript' : url.endsWith('.css') ? 'text/css' : url.endsWith('.json') ? 'application/json' : url.endsWith('.wasm') ? 'application/wasm' : 'text/html';
+  try { const body = await readFile(file); res.writeHead(200, { 'content-type': type }); res.end(body); }
   catch { res.writeHead(404); res.end(); }
 });
 await new Promise(ok => server.listen(0, '127.0.0.1', ok));
@@ -38,8 +40,8 @@ for (let i = 0; i < +(process.argv[2] || 5); i++) {
   await page.click('#eo-showSol');
   await page.waitForFunction(() => /optimal solution/.test(document.getElementById('eo-rSub').textContent), { timeout: 20000 });
   const out = await page.evaluate(() => ({ title: document.getElementById('eo-rTitle').textContent, sub: document.getElementById('eo-rSub').textContent,
-    groups: [...document.querySelectorAll('#eo-sols .grp')].map(g => ({ head: g.querySelector('.grp-h')?.textContent, n: g.querySelectorAll('div[data-alg]').length, first: g.querySelector('div[data-alg]')?.textContent })),
-    algs: [...document.querySelectorAll('#eo-sols div[data-alg]')].map(d => d.dataset.alg) }));
+    groups: [...document.querySelectorAll('#eo-rBody .grp')].map(g => ({ head: g.querySelector('.grp-h')?.textContent, n: g.querySelectorAll('div[data-alg]').length, first: g.querySelector('div[data-alg]')?.textContent })),
+    algs: [...document.querySelectorAll('#eo-rBody div[data-alg]')].map(d => d.dataset.alg) }));
   await page.click('#eo-showSol');
   const len = +/(\d+) moves/.exec(out.title)[1];
   console.log(`\n${scr}\n  ${out.title} | ${out.sub}\n  node model says ${ref.length} moves, ${ref.count} solutions`);
@@ -54,7 +56,7 @@ for (let i = 0; i < +(process.argv[2] || 5); i++) {
   // the yours tag: type the last listed alg with a trailing U move and expect it pinned
   const alg = out.algs[out.algs.length - 1];
   await page.evaluate(a => { document.getElementById('eo-sol').value = a + ' U'; }, alg); await page.click('#eo-showSol');
-  const yours = await page.evaluate(() => [...document.querySelectorAll('#eo-sols div[data-alg]')].filter(d => d.querySelector('.yours')).map(d => d.dataset.alg));
+  const yours = await page.evaluate(() => [...document.querySelectorAll('#eo-rBody div[data-alg]')].filter(d => d.querySelector('.yours')).map(d => d.dataset.alg));
   await page.click('#eo-showSol');
   if (yours.length !== 1 || yours[0] !== alg) { fails++; console.log(`  FAIL yours: typed ${alg}, tagged ${JSON.stringify(yours)}`); } else console.log(`  yours tag ok (${alg})`);
   const hints = await page.evaluate(() => { const o = {}; for (const b of document.querySelectorAll('#eo-hints .eo-chip')) { b.click(); o[b.dataset.hint] = b.textContent; } return o; });

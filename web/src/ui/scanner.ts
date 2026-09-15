@@ -74,7 +74,9 @@ export interface ScannerOptions {
    * The scramble the host expects the cube to be in (a stage's current scramble, in the frame it is
    * held), or null. Every solve is checked against it and the check is shown live; the lock reports it.
    */
-  expected?: () => { scramble: string; hold: Hold } | null;
+  expected?: () => { scramble: string; hold: Hold; shown?: string } | null;
+  /** The host can give the open stage a fresh scramble (the Check line's New scramble button). */
+  onNewScramble?: () => void;
 }
 
 export interface ScannerHandle {
@@ -148,7 +150,7 @@ const TEMPLATE = `
     <div class="sc-version"><span class="sc-status">model loading…</span></div>
     <div class="sc-cols">
       <div class="sc-main">
-        <div class="sc-expect" hidden><b>Check</b> <span class="sc-expectAlg"></span> <span class="sc-expectState"></span></div>
+        <div class="sc-expect" hidden><b>Check</b> <span class="sc-expectAlg"></span> <span class="sc-expectState"></span> <button class="sc-expectNew" title="A fresh scramble for the open stage; the scan starts over">New scramble</button></div>
         <div class="sc-scramble" title="Apply this to a solved cube before scanning and tick the box: the capture then carries the true state and becomes a regression fixture on its own"><b>Scramble</b> <span class="sc-scrambleAlg"></span> <label><input type="checkbox" class="sc-applied"> I applied it (from solved)</label></div>
         <div class="sc-solverec" title="Record the camera feed while you turn the cube: the .webm and the debug capture download together, aligned on the same clock, and become a move-tracking fixture. Type the moves you will make (or leave blank for a free solve)"><b>Moves</b> <input class="sc-moves" placeholder="R U R' U' - what you will turn while recording" spellcheck="false" autocapitalize="characters"> <button class="sc-rec" disabled>Record</button> <span class="sc-recState"></span></div>
         <div class="sc-bar">
@@ -763,7 +765,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     expectEl.hidden = !exp;
     $('scramble').hidden = !!exp; // the scanner's own random scramble is a fixture tool; a stage's scramble replaces it
     if (!exp) return;
-    $('expectAlg').textContent = exp.scramble;
+    $('expectAlg').textContent = exp.shown ?? exp.scramble;
     const st = $('expectState');
     const chk = sol ? checkExpected(sol, sol.slotLetter) : null;
     if (!chk) { st.textContent = 'scan to compare'; st.className = 'sc-expectState'; return; }
@@ -773,6 +775,8 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     st.className = 'sc-expectState ' + (chk.read === 0 ? '' : w === 0 ? 'sc-ok' : w <= 3 ? 'sc-near' : 'sc-bad');
   }
   renderExpected(null);
+  $('expectNew').hidden = !opts.onNewScramble;
+  $('expectNew').addEventListener('click', () => { opts.onNewScramble?.(); $('reset').click(); renderExpected(null); });
 
   /** The ticker: turns the reader is sure of in full, the rest dimmed with a '?', plus the reader's trace in the debug panel. */
   function renderMoves(): void {
