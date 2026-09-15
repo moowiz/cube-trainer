@@ -36,7 +36,10 @@ import { labToSrgb, minFaceEdgePx, type CellPlan } from '../color';
 import { SolverClient } from '../colour/client';
 import type { MovesResult } from '../colour/solve.worker';
 import { commitmentsFrom } from '../moves/anchor';
-import { formatItems } from '../moves/record';
+import { applySeq, type Move } from '../moves/moves';
+import { formatItems, recordMoves, type MoveRecord } from '../moves/record';
+import { colourString } from '../follow';
+import { renderNet } from '../cube/render';
 import { formatTrace } from '../moves/reader';
 import { emptyLog, trimLog } from '../colour/evidence';
 import { SamplerClient } from '../colour/sampler';
@@ -77,6 +80,15 @@ export interface ScannerOptions {
   expected?: () => { scramble: string; hold: Hold; shown?: string } | null;
   /** The host can give the open stage a fresh scramble (the Check line's New scramble button). */
   onNewScramble?: () => void;
+  /**
+   * Follow mode, a few times a second after the lock: the lock the reader
+   * started from and the turns it has read since (the solver's letters), so
+   * the host can move the trainer along with the cube. A fresh lock that
+   * disagrees with the reader comes through `onUseInTrainer` again first.
+   */
+  onFollow?: (scan: ScannedCube, moves: readonly Move[], record: MoveRecord) => void;
+  /** The follow strip's Stop button. */
+  onStopFollow?: () => void;
 }
 
 export interface ScannerHandle {
@@ -86,6 +98,10 @@ export interface ScannerHandle {
   stop(): void;
   /** Forget the scan in progress (what the Reset scan button does; a no-op during a clip replay). */
   reset(): void;
+  /** Follow mode is on: the camera keeps watching after the lock and the host is fed the cube's progress. */
+  following(): boolean;
+  /** Lay the scanner out as a dock (camera view and follow strip only) or in full. */
+  setDocked(on: boolean): void;
 }
 
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute readings
@@ -143,7 +159,7 @@ const LIVE_POS_ALPHA = 0.55;
 // Which controls survive a refresh (values only; 'change' is dispatched at
 // the end of mount, once every listener is attached). The exposure select
 // is not among them: its options are per camera.
-const PERSISTED = ['pauseOnLock', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 'refusedChk', 'heat', 'stage2off', 'cellsChk', 'exChk', 'samplesChk', 'debug'] as const;
+const PERSISTED = ['pauseOnLock', 'followChk', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 'refusedChk', 'heat', 'stage2off', 'cellsChk', 'exChk', 'samplesChk', 'debug'] as const;
 
 const TEMPLATE = `
   <div class="sc-wrap">
@@ -159,8 +175,14 @@ const TEMPLATE = `
           <button class="sc-pause" disabled title="Freeze the frame and the overlay to inspect what was sampled">Pause</button>
           <button class="sc-save" disabled title="Download the raw camera frame (no overlay) for labeling">Save frame</button>
           <label title="Freeze the view on the frame that locked the cube instead of streaming a feed nothing reads any more"><input type="checkbox" class="sc-pauseOnLock" checked> pause on lock</label>
+          <label title="After the lock the camera keeps watching while you solve: the turns it reads move the trainer from stage to stage, and pausing to show the cube around re-reads it in full"><input type="checkbox" class="sc-followChk" checked> follow my solve</label>
         </div>
         <div class="sc-stage"><canvas class="sc-view" width="640" height="480"></canvas><div class="sc-hint" hidden></div><div class="sc-lockbadge" hidden>Locked ✓ — camera paused. <b>Resume</b> keeps watching, <b>Reset scan</b> starts over.</div></div>
+        <div class="sc-follow" hidden>
+          <svg class="sc-followNet" viewBox="0 0 400 300" aria-label="the cube as followed"></svg>
+          <div class="sc-followText"><div class="sc-followState">Following…</div><div class="sc-followAlg"></div></div>
+          <button class="sc-followStop" title="Stop watching: the camera goes off">Stop</button>
+        </div>
       </div>
       <aside class="sc-side">
         <div class="sc-ph">Face evidence</div>
@@ -326,6 +348,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   const attemptEl = $('attempt');
   const exEl = $('exemplars');
   const pauseOnLockChk = $<HTMLInputElement>('pauseOnLock');
+  const followChk = $<HTMLInputElement>('followChk');
 
   const restoredControls = persistControls(Object.fromEntries(PERSISTED.map((k) => [k, $(k)])));
 
@@ -337,7 +360,16 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   // growing after the start lock - sampling continues, nothing is trimmed -
   // so the moves that follow the lock are in the capture. The solver still
   // stops at the lock; its Solution is the start state, not a running read.
-  const solveMode = (): boolean => params.get('solve') === '1' || recorder !== null;
+  const solveMode = (): boolean => params.get('solve') === '1' || recorder !== null || following();
+  // Follow mode (the checkbox; a clip replay follows only when its URL says
+  // ?follow=1, so the replay tooling's captures are unchanged): after the
+  // lock the reader runs, the camera stays on, and the solver keeps working
+  // on the current EPOCH - the evidence since the last turn read - so a
+  // pause to show the cube around re-locks it in full. A re-lock that
+  // agrees with the reader confirms it; one that disagrees replaces it.
+  const following = (): boolean => followChk.checked && (!clipUrl || params.get('follow') === '1');
+  // the whole log is kept only where it is the point (a recording, ?solve=1); following alone trims like a scan
+  const keepWholeLog = (): boolean => params.get('solve') === '1' || recorder !== null;
 
   const camera = new Camera();
   const fps = new FpsCounter();
@@ -362,6 +394,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   let movesResult: MovesResult | null = null;
   let lastMovesTs = -Infinity;
   const MOVES_POLL_MS = 250;
+  // follow mode: the epoch the solver re-reads (wall-clock ms; evidence before it is a cube that has since been turned),
+  // the lock handed to the host (its cubejs solution is what the trainer needs), and the last re-lock's verdict
+  let epochFromT = -Infinity;
+  let followScan: ScannedCube | null = null;
+  let relockNote = '';
   let logVersion = 0;
   let solvedVersion = -1;
   let solveEma = 0;
@@ -626,7 +663,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     // mirror to the worker before trimming so both logs trim identically
     solver.sync(log);
     // solve mode keeps the whole log (every epoch of a solve is evidence)
-    const dropped = solveMode() ? { quads: 0, pairings: 0, events: 0 } : trimLog(log);
+    const dropped = keepWholeLog() ? { quads: 0, pairings: 0, events: 0 } : trimLog(log);
     solver.trimmed(dropped.quads, dropped.pairings, dropped.events);
     logVersion++;
   };
@@ -718,15 +755,19 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
           const useEl = resultEl.querySelector<HTMLElement>('.sc-use')!;
           useEl.replaceChildren(btn);
           useEl.hidden = false;
-          // a live scan is for the trainer: hand it over as soon as it is read
-          if (!clipUrl && !recorder) use(scan);
+          // a live scan is for the trainer: hand it over as soon as it is read (following: every lock, a clip too)
+          if (following()) followScan = scan;
+          if (following() || (!clipUrl && !recorder)) use(scan);
+          renderFollow();
         })
         .catch((e) => { solEl.textContent = `solver failed: ${e}`; });
       // The cube is read: freeze the view on the frame that locked it (the
       // overlay stays up) rather than keep streaming a feed nothing reads any
       // more. A clip must play to its end so the autocapture hook fires.
       // (not while recording a solve: the moves come after the lock)
-      if (!clipUrl && !recorder && pauseOnLockChk.checked) setPaused(true);
+      if (!clipUrl && !recorder && !following() && pauseOnLockChk.checked) setPaused(true);
+      epochFromT = Date.now();
+      followEl.hidden = !following();
     }
     if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
   }
@@ -802,8 +843,55 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       mv.append(span, ' ');
     }
     if (!r.record.items.length) mv.textContent = 'no turns yet';
+    renderFollow();
     setDiag('moves', `${r.frames} frames · ${(r.msPerFrame + r.anchorMsPerFrame).toFixed(1)} ms/frame · margin ${r.record.margin === Infinity ? 'inf' : r.record.margin.toFixed(1)}`);
     movesTraceEl.textContent = `${r.tracks.map((t) => `#${t.track}: ${t.face}, rotation ${t.k}, ${t.gain}`).join('\n')}\n${formatTrace(r.trace, { from: r.record.t0 })}\n${formatItems(r.record)}`;
+  }
+
+  // ---- follow mode: the strip under the camera, and the host ----
+  const followEl = $('follow');
+  const followNet = $('followNet') as unknown as SVGSVGElement;
+  $('followStop').addEventListener('click', () => opts.onStopFollow?.());
+  /** The turns read so far along the reader's leading path (the solver's letters). */
+  const readMovesSoFar = (): Move[] => (movesResult ? recordMoves(movesResult.record) : []);
+  /** The cube the app believes is in your hands, in the lock's letters. */
+  const believed = (): string | null => (locked?.facelets ? applySeq(locked.facelets, readMovesSoFar()) : null);
+  /** The follow strip: the believed cube as a net in its own colours, the turns read, the last re-lock's verdict; and the host hears the progress. */
+  function renderFollow(): void {
+    if (!following() || !locked?.facelets) return;
+    const state = believed()!;
+    const colourOf = coloursOf(locked);
+    const hexOfColour = (c: ColorName): string => DEFAULT_SCHEME_HEX[FACE_ORDER.find((f) => DEFAULT_SCHEME_NAMES[f] === c) ?? 'U'];
+    renderNet(followNet, state.split('').map((l) => ({ fill: hexOfColour(colourOf[l as FaceId]) })));
+    const r = movesResult;
+    const moves = readMovesSoFar();
+    const alg = r ? r.record.items.map((it) => (it.kind === 'gap' ? `(${it.minMoves}+?)` : it.kind === 'move' ? it.move + (it.sure ? '' : '?') : `(${it.moves.join(' ')})${it.sure ? '' : '?'}`)).join(' ') : '';
+    $('followAlg').textContent = alg || 'no turns read yet';
+    $('followState').textContent = relockNote || (r ? `${moves.length} turn${moves.length === 1 ? '' : 's'} read` : 'watching');
+    if (followScan && r && opts.onFollow) opts.onFollow(followScan, moves, r.record);
+  }
+  /**
+   * A solve of the current epoch came back while following. Lockable and the
+   * same cube (by colour, so the letters need not match) as the reader
+   * believes: confirmation. Lockable and different: the reader lost the
+   * cube; this lock is the truth from here - the reader restarts from it and
+   * the host is handed it like a first lock. Not lockable: nothing (a pause
+   * with the cube in view is what makes an epoch lockable).
+   */
+  function onRelock(sol: Solution): void {
+    if (!locked?.facelets) return;
+    if (!sol.lockable || !sol.facelets) return;
+    const same = colourString(sol.facelets, coloursOf(sol)) === colourString(believed()!, coloursOf(locked));
+    if (same) { relockNote = 're-read ✓ agrees'; renderFollow(); return; }
+    relockNote = 're-read: the cube was not where the reader thought - following from this lock';
+    locked = sol;
+    solution = sol;
+    tracking = false;      // the reader restarts from the new commitments (loop)
+    movesResult = null;
+    followScan = null;
+    solved = false;        // renderSolution hands the new lock to the host and redraws the result panel
+    epochFromT = Date.now();
+    renderExpected(sol);
   }
 
   function loop(ts: number, gen: number): void {
@@ -954,10 +1042,12 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         const pipeMs = performance.now() - pipeStart;
         pipeEma = pipeEma === 0 ? pipeMs : 0.1 * pipeMs + 0.9 * pipeEma;
       }
-      if (!locked && !solver.busy && logVersion !== solvedVersion && ts - lastSolveTs >= Math.max(SOLVE_MIN_MS, 1.5 * solveEma)) {
+      if ((!locked || following()) && !solver.busy && logVersion !== solvedVersion && ts - lastSolveTs >= Math.max(SOLVE_MIN_MS, 1.5 * solveEma)) {
         lastSolveTs = ts;
         solvedVersion = logVersion;
-        void solver.requestSolve().then((sol) => {
+        const relock = locked !== null;
+        void solver.requestSolve(relock ? epochFromT : undefined).then((sol) => {
+          if (relock) { solveEma = 0.2 * sol.ms + 0.8 * solveEma; onRelock(sol); return; }
           if (locked) return;
           solverError = null;
           solution = sol;
@@ -978,7 +1068,14 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       }
       if (tracking && !solver.movesBusy && ts - lastMovesTs >= MOVES_POLL_MS) {
         lastMovesTs = ts;
-        void solver.requestMoves().then((r) => { if (r) { movesResult = r; renderMoves(); } });
+        void solver.requestMoves().then((r) => {
+          if (!r) return;
+          movesResult = r;
+          // the evidence up to the last turn read is a cube that no longer exists: the epoch starts after it
+          const last = r.record.items[r.record.items.length - 1];
+          if (last) epochFromT = Math.max(epochFromT, last.t1);
+          renderMoves();
+        });
       }
 
       if (!confident.length || locked) sampledQuads = [];
@@ -1276,6 +1373,10 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     movesResult = null;
     lastMovesTs = -Infinity;
     movesTraceEl.textContent = '';
+    epochFromT = -Infinity;
+    followScan = null;
+    relockNote = '';
+    followEl.hidden = true;
     logVersion = 0;
     solvedVersion = -1;
     solver.reset();
@@ -1362,5 +1463,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     start: () => { renderExpected(locked ?? solution); if (!clipUrl) startCapture(); }, // the host's scramble may have changed
     stop: () => { if (running) stopAuto(); },
     reset: () => { if (!clipUrl) $('reset').click(); },
+    following,
+    setDocked: (on) => root.classList.toggle('sc-docked', on),
   };
 }

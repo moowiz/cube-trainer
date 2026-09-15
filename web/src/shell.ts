@@ -45,24 +45,28 @@ export function trainerHold(): string {
 }
 
 // ---- sheets: the scanner, the settings and the fingertricks float over whichever stage is open ----
+// A DOCKED sheet (the scanner following a solve, shrunk to a corner) is up but not open: the stage under it is live.
 export function sheetOpen(): boolean {
-  return !!document.querySelector('.zz-sheet:not([hidden])');
+  return !!document.querySelector('.zz-sheet:not([hidden]):not(.docked)');
 }
 export function openSheet(id: string): void {
   el(id).hidden = false;
+  el(id).classList.remove('docked');
   document.body.style.overflow = 'hidden';
 }
 export function closeSheet(id: string): void {
   el(id).hidden = true;
+  el(id).classList.remove('docked');
   if (!sheetOpen()) document.body.style.overflow = '';
 }
 
-/** The scanner bridge fills these in: run the camera while the scan sheet is up. */
-export const scanHooks: { onOpen(opts?: { keep?: boolean }): void; onClose(): void } = { onOpen: () => undefined, onClose: () => undefined };
+/** The scanner bridge fills these in: run the camera while the scan sheet is up; lay it out docked or in full. */
+export const scanHooks: { onOpen(opts?: { keep?: boolean }): void; onClose(): void; onDock(on: boolean): void } = { onOpen: () => undefined, onClose: () => undefined, onDock: () => undefined };
 
 /** Open the scanner; a fresh scan unless `keep` asks for the one in progress. */
 export function openScan(opts?: { keep?: boolean }): void {
   openSheet('scan-sheet');
+  scanHooks.onDock(false);
   scanHooks.onOpen(opts);
 }
 export function closeScan(): void {
@@ -70,6 +74,16 @@ export function closeScan(): void {
   scanHooks.onClose();
 }
 export function resumeScan(): void { openScan({ keep: true }); }
+/** Shrink the open scan sheet to a corner dock (the camera keeps running) or bring it back up in full. */
+export function dockScan(on: boolean): void {
+  const s = el('scan-sheet');
+  if (s.hidden) return;
+  s.classList.toggle('docked', on);
+  el('scan-dock').hidden = on;
+  document.body.style.overflow = sheetOpen() ? 'hidden' : '';
+  scanHooks.onDock(on);
+}
+export function scanDocked(): boolean { return !el('scan-sheet').hidden && el('scan-sheet').classList.contains('docked'); }
 /** Show the Resume button once there is a scan to come back to. */
 export function scanStarted(): void { el('scan-resume').hidden = false; }
 
@@ -95,6 +109,9 @@ export function initShell(): void {
   el('scan-open').onclick = () => openScan();
   el('scan-resume').onclick = () => resumeScan();
   el('scan-close').onclick = () => closeScan();
+  el('scan-dock').onclick = () => dockScan(true);
+  // a click on the dock (not on its Stop button) brings the sheet back up
+  el('scan-sheet').addEventListener('click', (e) => { if (scanDocked() && !(e.target as HTMLElement).closest('button')) dockScan(false); });
   el('settings-open').onclick = () => openSheet('settings-sheet');
   el('settings-close').onclick = () => closeSheet('settings-sheet');
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
@@ -128,7 +145,7 @@ declare global {
 }
 if (typeof window !== 'undefined') { // importable from node tests (fingertricks.test.ts)
   window.ZZ = {
-    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, sheetOpen, toast, expectedScramble, stages,
+    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages,
     get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
   };
 }

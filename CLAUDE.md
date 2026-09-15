@@ -65,6 +65,7 @@ web/
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF), trainer
     handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check
+    follow.ts        following a solve: lock + turns read -> trainer scramble, and the settled stage change
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
     main.ts          mounts every stage into index.html, wires the shell, bridges the scanner
     debug/           HSV/Lab views, frame dump, fps counter

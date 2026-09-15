@@ -375,6 +375,15 @@ a fixture, then close this.
   result panel, trace in the debug panel); the two dim-room recordings
   are `hard` fixtures it cannot read (one lit face), so the next step is
   recordings from above and close with `Moves` truth, then calibration.
+  2026-09-14 (late): **follow mode** shipped (design doc section 11) -
+  with "follow my solve" on, the scan sheet docks in a corner after the
+  lock, the reader runs live, `web/src/follow.ts` turns lock + read turns
+  into the trainer's scramble and the stages advance as the cube crosses
+  them (loaded once, at each boundary); the colour solver keeps re-reading
+  the epoch since the last read turn, so pausing to show the cube re-locks
+  it in full and a lock that disagrees with the reader replaces it. Runs
+  end to end on recordings; the reader-driven switch awaits a real
+  follow session in good light.
   Hands are an occlusion mask, not a signal (design doc 8). The original sketch:
   phone camera watches a full solve;
   the app reconstructs the move sequence with timestamps, segments it into

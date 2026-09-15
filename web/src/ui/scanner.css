@@ -139,3 +139,20 @@
   .scan .sc-debug .sc-row { flex-direction: column; align-items: stretch; }
   .scan .sc-debug .sc-row select { width: 100%; }
 }
+
+/* follow mode: the strip under the camera - the cube as followed, the turns read, Stop */
+.scan .sc-follow { display: flex; gap: 10px; align-items: center; margin: 8px 0; padding: 6px 8px; background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 8px; }
+.scan .sc-followNet { width: 96px; height: 72px; flex: none; }
+.scan .sc-followNet rect { stroke: #2b3340; stroke-width: 1; }
+.scan .sc-followText { flex: 1; min-width: 0; font-size: 13px; }
+.scan .sc-followState { color: var(--sc-ink-2); }
+.scan .sc-followAlg { font: 600 14px/1.4 ui-monospace, monospace; word-break: break-word; }
+.scan .sc-followStop { padding: 6px 10px; font-size: 13px; }
+/* docked (shell.ts dockScan): the camera view and the strip only, small */
+.scan.sc-docked .sc-version, .scan.sc-docked .sc-expect, .scan.sc-docked .sc-scramble, .scan.sc-docked .sc-solverec, .scan.sc-docked .sc-bar,
+.scan.sc-docked .sc-side, .scan.sc-docked .sc-diag, .scan.sc-docked .sc-lockbadge { display: none !important; }
+.scan.sc-docked .sc-wrap { max-width: none; }
+.scan.sc-docked .sc-cols { display: block; }
+.scan.sc-docked .sc-stage { border-radius: 12px 12px 0 0; max-width: none; }
+.scan.sc-docked .sc-follow { margin: 0; border: 0; border-radius: 0 0 12px 12px; }
+.scan.sc-docked .sc-followNet { width: 72px; height: 54px; }
