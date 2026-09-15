@@ -1423,6 +1423,9 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       // the truth only when the user says the scramble was applied from solved
       scrambleApplied: appliedChk.checked,
       scrambleTruth: appliedChk.checked ? scrambleState(scramble) : null,
+      // the host stage's scramble and hold, what the Check line compared the scan against
+      // (null when the sheet was opened without a stage): a replay can redo the comparison
+      expected: opts.expected?.() ?? null,
       // solve recording (null when none): the .webm's name and wall-clock span
       // (video time = QuadObs.t - startedAt), the moves the user said they
       // turned, and the resulting state when scramble and moves are both truth
