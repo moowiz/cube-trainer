@@ -53,7 +53,7 @@ const STYLE = `
   .ll-moves { width: 100%; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; letter-spacing: .02em; }
   .ll-moves:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
   .ll-alg { font-size: 16px; word-spacing: .3em; margin: 6px 0; }
-  .ll-alg small { font-size: 13px; color: var(--ink-2); word-spacing: normal; }
+  .ll-alg small { display: block; font-size: 13px; color: var(--ink-2); word-spacing: normal; margin-top: 2px; }
 `;
 
 export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer {
@@ -183,11 +183,16 @@ export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer 
   function resetTimer(): void { startAt = null; endAt = null; $('timerBtn').textContent = 'Start timer'; }
   function tick(): void { const t = elapsed(); $('timer').textContent = t === null ? '0.00' : t.toFixed(2); requestAnimationFrame(tick); }
 
-  /** The standard solution as a line: AUF, alg, AUF. */
+  /** The standard solution as a line: the alg with its AUFs in brackets, [U] R U R' ... [U'] (moves counted are the plain form). */
   function algLine(): string {
     if (!sol) return '';
     return [sol.pre, sol.case.alg, sol.post].filter(Boolean).join(' ');
   }
+  function algShown(): string {
+    if (!sol) return '';
+    return [sol.pre && `[${sol.pre}]`, sol.case.alg, sol.post && `[${sol.post}]`].filter(Boolean).join(' ');
+  }
+  const AUF_NOTE = ' <small>[U] is the AUF: turn the top layer that way first, the alg is what follows' + (kind === 'pll' ? '; a bracket at the end lines the layer up after it' : '') + '.</small>';
 
   function check(): void {
     const txt = ($('sol') as HTMLTextAreaElement).value.trim();
@@ -215,7 +220,7 @@ export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer 
     if (!recorded) { recorded = true; results.push({ t: t ?? 0, n, std: sol ? moveCount(algLine()) : n }); }
     $('rTitle').textContent = `${TITLE[kind]} done in ${n} moves${ts}`;
     $('rSub').textContent = (sol ? `Case: ${sol.case.name}. The standard alg is ${moveCount(algLine())} moves.` : '') + note + (assisted ? ' You peeked at the alg.' : '');
-    if (sol) $('rAlg').innerHTML = `<div class="ll-alg">${algLine()}</div>`;
+    if (sol) $('rAlg').innerHTML = `<div class="ll-alg">${algShown()}${sol.pre || sol.post ? AUF_NOTE : ''}</div>`;
     if (kind === 'ocll' && bus.pll) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
       btn.textContent = 'Continue to PLL with this cube';
@@ -247,7 +252,7 @@ export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer 
     else {
       $('rTitle').textContent = `${sol.case.name}: ${moveCount(algLine())} moves`;
       $('rSub').textContent = sol.case.hint;
-      $('rAlg').innerHTML = `<div class="ll-alg">${algLine()}${sol.pre || sol.post ? ' <small>(with the AUF for this angle)</small>' : ''}</div>`;
+      $('rAlg').innerHTML = `<div class="ll-alg">${algShown()}${sol.pre || sol.post ? AUF_NOTE : ''}</div>`;
     }
     r.classList.add('show');
   };
