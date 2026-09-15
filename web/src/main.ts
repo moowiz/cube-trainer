@@ -13,7 +13,8 @@ import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } fro
 import { mountLL } from './ll/trainer';
 import { activeTab, closeScan, expectedScramble, initShell, scanHooks, scanStarted, showTab, stages, toast } from './shell';
 import { stageOf, type StageReport } from './stage';
-import { COLOR_NAMES, type ColorName } from './types';
+import { solveState } from './state';
+import { COLOR_NAMES, DEFAULT_SCHEME_NAMES, type ColorName } from './types';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 
 const panel = (id: string): HTMLElement => {
@@ -81,6 +82,11 @@ function useInTrainer(scan: ScannedCube): void {
   toast((match ? `${match} · ` : '') + describe(report));
   window.scrollTo({ top: 0 });
 }
+
+// For the console and the headless checks: hand a facelet string (the solver's letters, as the lock
+// panel prints it) to the trainer as if the scanner had just locked it, standard scheme unless told.
+(window.ZZ as { handoff?: unknown }).handoff = (facelets: string, colourOf: Record<string, ColorName> = DEFAULT_SCHEME_NAMES) =>
+  solveState(facelets).then((solution) => useInTrainer({ facelets, colourOf: colourOf as ScannedCube['colourOf'], solution }));
 
 let scanner: ScannerHandle | null = null;
 let scanned = false; // a scan has been started since the last reset
