@@ -69,10 +69,10 @@
   ver.hidden = true;
   fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((v) => {
     const short = `${v.hash} · ${v.models.cubebox} / ${v.models.facekp}`;
-    const long = `build ${v.hash} · ${v.time}
-box ${v.models.cubebox} · corners ${v.models.facekp}`;
+    const detail = `App version: git commit ${v.hash}, built ${v.time}\nScanner models: ${v.models.cubebox} (finds the cube), ${v.models.facekp} (finds face corners)`;
+    const long = `${detail}\nTap to shrink`;
     ver.textContent = short;
-    ver.title = long;
+    ver.title = `${detail}\nTap for details`;
     ver.addEventListener('click', (e) => { e.stopPropagation(); ver.classList.toggle('open'); ver.textContent = ver.classList.contains('open') ? long : short; });
     ver.hidden = false;
   }).catch(() => ver.remove());

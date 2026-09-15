@@ -166,13 +166,15 @@ const TEMPLATE = `
         <div class="sc-unbound"></div>
         <p class="sc-note">One bar per face of the cube, named by its centre (U up, R right, F front, D down, L left, B back; the colours are the standard scheme until the solver has measured the cube's own). The bar is the weakest sticker of that face: how much of the lock floor (${DEFAULT_PARAMS.nMin} weighted readings) it has collected. Turn the cube until every bar is full.</p>
         <div class="sc-result"></div>
-        <div class="sc-ph sc-attemptHd" hidden>Decoded faces</div>
+        <details class="sc-fold sc-attemptHd" hidden><summary class="sc-ph">Decoded faces</summary>
         <div class="sc-attempt sc-grids"></div>
         <p class="sc-note sc-legend" hidden>Each cell is painted with the colour actually measured for that sticker; the badge is the letter the decoder assigned it (<code>?</code> = too close to call, <code>·</code> = no evidence yet; the ringed cell is the centre). Header: which tracked quads fed the face and its rotation. Footer: why the solver will not lock yet — <i>changed</i> is how many stickers the cube's constraints moved off their raw best colour, <i>delta</i> how much worse the runner-up state scores, <i>min margin</i> the tightest sticker call.</p>
+        </details>
       </aside>
       <aside class="sc-diag">
-        <div class="sc-ph">Pipeline</div>
+        <details class="sc-fold"><summary class="sc-ph">Pipeline</summary>
         <div class="sc-stats"></div>
+        </details>
         <details class="sc-debug">
           <summary>Debug controls</summary>
           <div class="sc-row">
