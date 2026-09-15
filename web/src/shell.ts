@@ -115,6 +115,7 @@ export function initShell(): void {
   el('settings-open').onclick = () => openSheet('settings-sheet');
   el('settings-close').onclick = () => closeSheet('settings-sheet');
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
+  el('ref-close').onclick = () => closeSheet('ref-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
   document.querySelectorAll<HTMLElement>('.zz-sheet').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s) closeSheetEl(s); }));
   // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed), s the settings, from any stage - all under the right hand on Dvorak

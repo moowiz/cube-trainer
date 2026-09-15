@@ -50,6 +50,15 @@ export function identify(kind: LLKind, alg: string): LLCase | null {
   return caseKeys(kind).get(kind === 'ocll' ? orientationPattern(f) : f) ?? null;
 }
 
+/**
+ * The case a solved cube is at after doing `c`'s alg: what the drill chains to. Its alg undoes
+ * `c`'s, so the two can be practised back to back without a scramble; a case that chains to
+ * itself is its own inverse.
+ */
+export function chainPartner(kind: LLKind, c: LLCase): LLCase | null {
+  return identify(kind, c.alg);
+}
+
 /** The tabled solution for the state after `alg`: the AUF to do first, the case, and (PLL) the AUF after. */
 export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase; post: string } | null {
   const c = identify(kind, alg);
