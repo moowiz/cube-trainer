@@ -17,10 +17,10 @@ import { CASES, type LLCase, type LLKind } from './cases';
 export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const AUFS = ['', 'U', "U'", 'U2'];
 
-/** Tokens cubejs accepts: parentheses dropped, Rw-style wide moves lowered. Throws on anything else. */
+/** Tokens cubejs accepts: parentheses and AUF brackets dropped, Rw-style wide moves lowered. Throws on anything else. */
 export function tokens(alg: string): string[] {
   const out: string[] = [];
-  for (const t of alg.replace(/[()]/g, ' ').trim().split(/\s+/).filter(Boolean)) {
+  for (const t of alg.replace(/[()[\]]/g, ' ').trim().split(/\s+/).filter(Boolean)) {
     const m = /^([URFDLBMESxyzurfdlb])(w?)(2|')?$/.exec(t);
     if (!m) throw new Error(`Could not read: ${t}`);
     out.push((m[2] ? m[1].toLowerCase() : m[1]) + (m[3] ?? ''));
