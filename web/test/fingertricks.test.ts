@@ -2,7 +2,7 @@
 // matched as one unit (longest first), opposite-face pairs become a both-hands row, and the
 // rows cover the alg exactly.
 import { describe, expect, it } from 'vitest';
-import { annotate } from '../src/ui/fingertricks';
+import { annotate, triggers } from '../src/ui/fingertricks';
 
 describe('fingertricks', () => {
   it('describes every face, slice, wide and rotation token', () => {
@@ -18,6 +18,12 @@ describe('fingertricks', () => {
     const sexy = annotate("F R U R' U' F'");
     expect(sexy.map((r) => r.name ?? r.moves.join(' '))).toEqual(['F', 'Sexy move', "F'"]);
     expect(annotate("R' F R F'")[0]!.name).toBe('Sledgehammer');
+  });
+
+  it('names the triggers in a PLL by position: Y perm ends sexy, sledge', () => {
+    expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
+    expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 4, label: 'sexy' }, { at: 8, n: 4, label: 'reverse sexy' }]); // T perm
+    expect(triggers("R U2 R' U' R U' R'")).toEqual([]); // R U2 R' is a unit but not a named trigger
   });
 
   it('pairs opposite layers as one both-hands step, but not a wide move', () => {

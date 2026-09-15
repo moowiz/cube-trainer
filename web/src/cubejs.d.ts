@@ -1,6 +1,12 @@
 declare module 'cubejs' {
   export default class Cube {
     constructor(state?: unknown);
+    /** which corner cubie sits in each of the 8 corner slots (URF UFL ULB UBR DFR DLF DBL DRB), and its twist */
+    cp: number[];
+    co: number[];
+    /** which edge cubie sits in each of the 12 edge slots (UR UF UL UB DR DF DL DB FR FL BL BR), and its flip */
+    ep: number[];
+    eo: number[];
     static initSolver(): void;
     static scramble(): string;
     static inverse(alg: string): string;

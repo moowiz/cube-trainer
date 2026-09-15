@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import {
-  SOLVED, aufToSolve, done, identify, inverse, moveCount, pllArrows, randomSetup, solution, state, tokens,
+  SOLVED, aufToSolve, done, identify, inverse, moveCount, pllArrows, randomSetup, scrambleFor, solution, state, tokens,
 } from '../src/ll/model';
 import { stageOf } from '../src/stage';
 
@@ -114,6 +114,39 @@ describe('solution() finds the tabled fix for random drills', () => {
       expect([setup, done('pll', finished)]).toEqual([setup, true]);
       expect([setup, state(finished)]).toEqual([setup, SOLVED]);
     }
+  });
+
+  it('PLL: the drawn case comes up from every side (a random AUF before the inverse alg)', () => {
+    const rng = makeRng(3);
+    const t = PLL_CASES.find((c) => c.id === 'T')!;
+    const seen = new Set<string>();
+    for (let i = 0; i < 400 && seen.size < 4; i++) {
+      const { setup, case: c } = randomSetup('pll', rng);
+      if (c.id !== t.id) continue;
+      // which side the permutation faces: the state modulo the AUF after the setup
+      for (const pre of ['', 'U', "U'", 'U2']) for (const post of ['', 'U', "U'", 'U2']) if (state(`${setup} ${post}`) === state(`${pre} ${inverse(t.alg)}`)) seen.add(pre);
+    }
+    expect([...seen].sort()).toEqual(['', 'U', "U'", 'U2']);
+  });
+});
+
+describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
+  it('reaches the same state as the setup with face turns only, 15 moves at most', () => {
+    const rng = makeRng(4);
+    for (const c of PLL_CASES) {
+      for (const pre of ['', 'U2']) {
+        const setup = `${pre} ${inverse(c.alg)}`;
+        const scr = scrambleFor(setup, rng)!;
+        expect([c.id, scr]).toEqual([c.id, expect.stringMatching(/^([URFDLB][2']? ?)+$/)]);
+        expect([c.id, state(scr)]).toEqual([c.id, state(setup)]);
+        expect([c.id, moveCount(scr) <= 15]).toEqual([c.id, true]);
+      }
+    }
+  });
+
+  it('is null off G1: an OCLL drill has twisted corners', () => {
+    expect(scrambleFor(inverse(OCLL_CASES[0]!.alg))).toBeNull();
+    expect(scrambleFor('')).toBe('');
   });
 });
 

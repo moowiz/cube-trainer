@@ -7,6 +7,7 @@ import { inverse } from '../cube/alg';
 import { facesAt, NORMAL, type Vec } from '../cube/geometry';
 import { SOLVED, aufToSolve, state } from '../cube/state';
 import { stageOf } from '../stage';
+import { solveG1 } from './scramble';
 import { CASES, type LLCase, type LLKind } from './cases';
 
 export { inverse, moveCount, tokens } from '../cube/alg';
@@ -65,15 +66,29 @@ export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase
 /**
  * A random drill: the inverse of a random case's alg, in a random AUF. OCLL drills also get a
  * random corner/edge permutation first (a PLL alg without whole-cube rotations, so the setup can be
- * applied to a real cube as written), since after F2L the permutation is random too.
+ * applied to a real cube as written), since after F2L the permutation is random too. PLL drills
+ * get a random AUF before the inverse too: the same permutation seen from any of its four sides,
+ * which is what recognition has to cope with.
  */
 export function randomSetup(kind: LLKind, rng: () => number = Math.random): { setup: string; case: LLCase } {
   const pick = <T,>(a: T[]): T => a[Math.floor(rng() * a.length)];
   const c = pick(CASES[kind]);
   const parts: string[] = [];
   if (kind === 'ocll' && rng() < 0.8) parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
+  if (kind === 'pll') parts.push(pick(AUFS));
   parts.push(inverse(c.alg), pick(AUFS));
   return { setup: parts.filter(Boolean).join(' '), case: c };
+}
+
+/**
+ * A scramble for a PLL drill's state: face turns only (no rotations, no slices, nothing that reads
+ * as a known alg backwards), so it can be applied to a real cube from solved. The optimal phase-2
+ * solution inverted (see ./scramble.ts), 7-13 moves; null when the state is not a PLL (an OCLL
+ * drill's corners are twisted, so its setup stays the alg as written).
+ */
+export function scrambleFor(setup: string, rng: () => number = Math.random): string | null {
+  const sol = solveG1(state(setup), rng);
+  return sol === null ? null : inverse(sol);
 }
 
 // ---- PLL arrows: where each top-layer piece has to go ----

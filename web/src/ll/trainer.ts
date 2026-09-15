@@ -12,8 +12,9 @@ import { state } from '../cube/state';
 import { stageOf } from '../stage';
 import { showTab, stages, type Stage } from '../shell';
 import { mountDrill } from '../ui/drill';
+import { triggers } from '../ui/fingertricks';
 import { type LLKind } from './cases';
-import { aufToSolve, done, pllArrows, randomSetup, solution } from './model';
+import { aufToSolve, done, pllArrows, randomSetup, scrambleFor, solution } from './model';
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
 const BLURB: Record<LLKind, string> = {
@@ -33,6 +34,8 @@ const STYLE = `
   .ll-pic svg { display: block; width: 100%; height: auto; }
   .ll-pic rect { stroke: #2b3340; stroke-width: 1.2; }
   .ll-case { font-size: 16px; min-height: 22px; }
+  .ll-trig { display: inline-block; position: relative; padding: 0 2px 13px; margin: 0 2px; border-bottom: 2px solid var(--ink-2); line-height: 1.3; }
+  .ll-trig i { position: absolute; left: 0; right: 0; bottom: -1px; font-size: 11px; font-style: normal; line-height: 1; text-align: center; white-space: nowrap; color: var(--ink-2); word-spacing: normal; letter-spacing: .02em; }
   .ll-case b { font-weight: 600; }
 `;
 
@@ -57,6 +60,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
   let setup = '';
+  let scramble: string | null = null; // PLL: a short face-turn scramble for `setup` (the setup itself is an alg backwards)
+  let scrambleGen = 0;
   let sol: ReturnType<typeof solution> = null;
   let shown: string | null = null; // the alg whose state the picture shows (setup + moves after a Check)
   let assisted = false, recorded = false;
@@ -108,9 +113,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const named = root.querySelector('.eo-chip[data-hint="name"].open');
     drill.$('case').innerHTML = named || (drill.result.visible() && recorded) || !sol ? caseText() : '';
     const su = drill.$('setup');
-    su.innerHTML = setup ? 'Setup: <span></span>' : '';
-    if (setup) su.querySelector('span')!.textContent = toWca(setup);
-    drill.$('orient').textContent = `Apply the setup to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the top layer match the picture.`;
+    const pending = kind === 'pll' && scramble === null;
+    su.innerHTML = setup ? `${kind === 'pll' ? 'Scramble' : 'Setup'}: <span></span>` : '';
+    if (setup) su.querySelector('span')!.textContent = pending ? '…' : toWca(scramble ?? setup);
+    drill.$('orient').textContent = `Apply the ${kind === 'pll' ? 'scramble' : 'setup'} to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the top layer match the picture.`;
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, ms = results.reduce((a, r) => a + r.std, 0) / results.length;
       drill.setStats(`This session: ${results.length} solved, mean ${mt.toFixed(2)}s, ${mn.toFixed(1)} moves (standard algs mean ${ms.toFixed(1)}).`);
@@ -121,6 +127,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     setup = alg.trim();
     sol = solution(kind, setup);
     shown = null; assisted = false; recorded = false;
+    // the setup is an alg backwards (rotations, slices, 20 moves for an N perm): a PLL drill shows
+    // a short face-turn scramble for the same state instead. DECISION: solved on a timeout, not
+    // here: the first solve builds the pruning tables (~200 ms), which would otherwise sit in the
+    // page's mount; the setup is shown if the state is somehow not a PLL.
+    scramble = null;
+    const gen = ++scrambleGen;
+    if (kind === 'pll') setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup) ?? setup; render(); });
     drill.begin();
     render();
   }
@@ -133,9 +146,22 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const algLine = (): HTMLElement | null => {
     if (!sol) return null;
     const d = drill.algLine(algShown(), algPlain()); d.classList.add('ll-alg');
+    markTriggers(d, sol.case.alg, sol.pre ? 1 : 0);
     if (sol.pre || sol.post) d.insertAdjacentHTML('beforeend', AUF_NOTE);
     return d;
   };
+  /** Label the named triggers (sexy, sledge...) on a built alg line: the case's moves start at move `offset` (after a [U] AUF). */
+  function markTriggers(line: HTMLElement, alg: string, offset: number): void {
+    const mvs = [...line.querySelectorAll<HTMLElement>('.mv')];
+    for (const g of triggers(alg)) {
+      const first = mvs[offset + g.at], last = mvs[offset + g.at + g.n - 1];
+      if (!first || !last) continue;
+      const wrap = document.createElement('span'); wrap.className = 'll-trig';
+      first.before(wrap);
+      for (let node: ChildNode | null = first; node; ) { const next: ChildNode | null = node.nextSibling; wrap.appendChild(node); if (node === last) break; node = next; }
+      const lab = document.createElement('i'); lab.textContent = g.label; wrap.appendChild(lab);
+    }
+  }
   const putAlgLine = () => { drill.result.body.innerHTML = ''; const d = algLine(); if (d) drill.result.body.appendChild(d); };
 
   function check(txt: string): void {
@@ -182,5 +208,5 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => setup || null, newScramble: newCase };
+  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase };
 }
