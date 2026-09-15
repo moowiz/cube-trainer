@@ -38,7 +38,9 @@ export interface MovesResult {
 
 export type SolverResponse =
   | { type: 'solution'; id: number; solution: Solution }
-  | { type: 'moves'; id: number; result: MovesResult | null };
+  | { type: 'moves'; id: number; result: MovesResult | null }
+  /** solve threw: the page must hear it, or the client waits forever and the scan looks stuck */
+  | { type: 'error'; id: number; message: string };
 
 let log: EvidenceLog = emptyLog();
 let tracking: { anchorer: Anchorer; reader: MoveReader; fromT: number; anchorMs: number; lastTracks: Set<number> } | null = null;
@@ -96,7 +98,11 @@ export function handle(msg: SolverRequest, post: (out: SolverResponse) => void):
     }
     post({ type: 'moves', id: msg.id, result });
   } else {
-    post({ type: 'solution', id: msg.id, solution: solveBest(log) });
+    try {
+      post({ type: 'solution', id: msg.id, solution: solveBest(log) });
+    } catch (err) {
+      post({ type: 'error', id: msg.id, message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) });
+    }
   }
 }
 

@@ -365,6 +365,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   let logVersion = 0;
   let solvedVersion = -1;
   let solveEma = 0;
+  let solverError: string | null = null; // the last solve threw: shown in the verdict row instead of a silent freeze
   const solver = new SolverClient();
   const sampler = new SamplerClient();
   // pairings of a frame wait for the sampler's quads so the log stays in frame order
@@ -691,7 +692,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       chip.querySelector<HTMLElement>('.sc-chip-bar i')!.style.width = `${frac * 100}%`;
       chip.querySelector('.sc-chip-pct')!.textContent = `${Math.round(frac * 100)}%`;
     }
-    $('unbound').textContent = sol && !locked ? `${sol.centresSeen}/6 faces - ${sol.reason}` : '';
+    $('unbound').textContent = solverError && !locked ? `solver failed: ${solverError.split('\n')[0]}` : sol && !locked ? `${sol.centresSeen}/6 faces - ${sol.reason}` : '';
     if (locked && !solved) {
       solved = true;
       const st = locked.facelets!;
@@ -958,10 +959,14 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         solvedVersion = logVersion;
         void solver.requestSolve().then((sol) => {
           if (locked) return;
+          solverError = null;
           solution = sol;
           solveEma = solveEma === 0 ? sol.ms : 0.2 * sol.ms + 0.8 * solveEma;
           renderExpected(sol);
           if (sol.lockable) locked = sol;
+        }).catch((err: unknown) => {
+          solverError = err instanceof Error ? err.message : String(err);
+          console.error('solver failed', err);
         });
       }
 
@@ -1020,7 +1025,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         setDiag('log', `${log.frames} frames · ${log.quads.length} quads · ${log.pairings.length} pairings`);
         setDiag('solve', sol ? `${solveEma.toFixed(0)} ms · ${sol.embedding}` : solveEma ? `${solveEma.toFixed(0)} ms` : '–');
         setDiag('faces', sol ? `${sol.centresSeen} of 6 · ${sol.groups.length} groups` : '–');
-        setDiag('verdict', locked ? 'locked ✓' : sol ? sol.reason : '–');
+        setDiag('verdict', locked ? 'locked ✓' : solverError ? `solver failed: ${solverError.split('\n')[0]} (Capture debug and file it)` : sol ? sol.reason : '–');
       }
       shown = frame;
     }
@@ -1265,6 +1270,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     nthOf.clear();
     knownTracks = new Set();
     solution = null;
+    solverError = null;
     locked = null;
     tracking = false;
     movesResult = null;
