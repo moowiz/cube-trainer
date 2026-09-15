@@ -18,6 +18,8 @@ export interface TrickRow {
   moves: string[];
   /** a trigger's name, when the row is one */
   name?: string;
+  /** the short label a named trigger gets on an alg line ("sexy", "sledge"); unset for a trigger named by its moves */
+  label?: string;
   /** the finger and the motion */
   how: string;
   /** a grip / regrip note from the context, when there is one */
@@ -67,14 +69,14 @@ const MOVE: Record<string, string> = {
 const WIDE: Record<string, string> = { r: 'R', l: 'L', u: 'U', d: 'D', f: 'F', b: 'B' };
 
 // ---- triggers, longest first ----
-const TRIGGERS: { moves: string; name: string; how: string }[] = [
-  { moves: "R U R' U'", name: 'Sexy move', how: 'One unit, no regrip: wrist up, U with the left index (or the right index pulling), wrist down, U\' with the right index flick.' },
-  { moves: "U R U' R'", name: 'Inverse sexy', how: 'One unit: U left index, wrist up, U\' right index flick, wrist down.' },
-  { moves: "R' U' R U", name: 'Reverse sexy', how: 'One unit: wrist down, U\' right index flick, wrist up, U left index.' },
-  { moves: "U' R' U R", name: 'Inverse reverse sexy', how: 'One unit: U\' right index, wrist down, U left index, wrist up.' },
-  { moves: "L' U' L U", name: 'Left sexy', how: 'The mirror: left wrist up, U\' with the right index, left wrist down, U with the left index.' },
-  { moves: "R' F R F'", name: 'Sledgehammer', how: 'Right wrist down, F with the left index pushing the top edge right, wrist up, F\' with the right index pulling the top edge left. No regrip if the thumb stays on the front.' },
-  { moves: "F R' F' R", name: 'Hedgeslammer', how: 'Sledgehammer backwards: F left index, wrist down, F\' right index, wrist up.' },
+const TRIGGERS: { moves: string; name: string; label?: string; how: string }[] = [
+  { moves: "R U R' U'", name: 'Sexy move', label: 'sexy', how: 'One unit, no regrip: wrist up, U with the left index (or the right index pulling), wrist down, U\' with the right index flick.' },
+  { moves: "U R U' R'", name: 'Inverse sexy', label: 'inverse sexy', how: 'One unit: U left index, wrist up, U\' right index flick, wrist down.' },
+  { moves: "R' U' R U", name: 'Reverse sexy', label: 'reverse sexy', how: 'One unit: wrist down, U\' right index flick, wrist up, U left index.' },
+  { moves: "U' R' U R", name: 'Inverse reverse sexy', label: 'inv. reverse sexy', how: 'One unit: U\' right index, wrist down, U left index, wrist up.' },
+  { moves: "L' U' L U", name: 'Left sexy', label: 'left sexy', how: 'The mirror: left wrist up, U\' with the right index, left wrist down, U with the left index.' },
+  { moves: "R' F R F'", name: 'Sledgehammer', label: 'sledge', how: 'Right wrist down, F with the left index pushing the top edge right, wrist up, F\' with the right index pulling the top edge left. No regrip if the thumb stays on the front.' },
+  { moves: "F R' F' R", name: 'Hedgeslammer', label: 'hedge', how: 'Sledgehammer backwards: F left index, wrist down, F\' right index, wrist up.' },
   { moves: "R U2 R'", name: 'R U2 R\'', how: 'Wrist up, double flick, wrist down - keep the right hand on the layer throughout.' },
   { moves: "R U R'", name: 'R U R\'', how: 'Wrist up, U with the left index, wrist down. The right hand never leaves the layer.' },
   { moves: "R U' R'", name: 'R U\' R\'', how: 'Wrist up, U\' with the right index flick, wrist down.' },
@@ -101,7 +103,7 @@ export function annotate(alg: string): TrickRow[] {
   while (i < toks.length) {
     const trig = TRIGGER_TOKENS.find((t) => t.toks.every((m, k) => toks[i + k] === m));
     if (trig) {
-      rows.push({ moves: trig.toks.slice(), name: trig.name, how: trig.how });
+      rows.push({ moves: trig.toks.slice(), name: trig.name, how: trig.how, ...(trig.label && { label: trig.label }) });
       i += trig.toks.length;
       continue;
     }
@@ -117,6 +119,14 @@ export function annotate(alg: string): TrickRow[] {
     i++;
   }
   return rows;
+}
+
+/** The named triggers in `alg` (sexy, sledge...): where each starts, how many moves, and its short label. */
+export function triggers(alg: string): { at: number; n: number; label: string }[] {
+  const out: { at: number; n: number; label: string }[] = [];
+  let at = 0;
+  for (const r of annotate(alg)) { if (r.label) out.push({ at, n: r.moves.length, label: r.label }); at += r.moves.length; }
+  return out;
 }
 
 /** The first sentence: what the layer does, no fingers ("Middle slice between front and back, same way as F"). */
