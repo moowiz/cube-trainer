@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import {
-  SOLVED, aufToSolve, done, identify, inverse, moveCount, randomSetup, solution, state, tokens,
+  SOLVED, aufToSolve, done, identify, inverse, moveCount, pllArrows, randomSetup, solution, state, tokens,
 } from '../src/ll/model';
 import { stageOf } from '../src/stage';
 
@@ -215,5 +215,23 @@ describe('moveCount()', () => {
 
   it('counts slice moves even though they touch no single face (H perm, all M)', () => {
     expect(moveCount('M2 U M2 U2 M2 U M2')).toBe(7);
+  });
+});
+
+describe('pllArrows()', () => {
+  it('draws one arrow per moved piece, the same count in every AUF, none when solved', () => {
+    expect(pllArrows(state(''))).toEqual([]);
+    for (const c of PLL_CASES) {
+      const counts = ['', 'U', "U'", 'U2'].map((auf) => pllArrows(state(`${inverse(c.alg)} ${auf}`))!.length);
+      expect(new Set(counts).size, c.name).toBe(1);
+      expect(counts[0]!, c.name).toBeGreaterThanOrEqual(3);
+      expect(counts[0]!, c.name).toBeLessThanOrEqual(8);
+    }
+    // a 2-cycle is two arrows (drawn as one double-headed); T moves four pieces, Ua three, H four, E four
+    const n = (name: string) => pllArrows(state(inverse(PLL_CASES.find((c) => c.name === name)!.alg)))!.length;
+    expect([n('T'), n('Ua'), n('H'), n('E')]).toEqual([4, 3, 4, 4]);
+  });
+  it('is null when the corners are not oriented', () => {
+    expect(pllArrows(state("R U R' U R U2 R'"))).toBeNull();
   });
 });
