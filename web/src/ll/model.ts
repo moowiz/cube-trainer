@@ -4,6 +4,7 @@
 // modulo AUF, and for OCLL modulo the permutation too.
 
 import { inverse } from '../cube/alg';
+import { facesAt, NORMAL, type Vec } from '../cube/geometry';
 import { SOLVED, aufToSolve, state } from '../cube/state';
 import { stageOf } from '../stage';
 import { CASES, type LLCase, type LLKind } from './cases';
@@ -73,4 +74,28 @@ export function randomSetup(kind: LLKind, rng: () => number = Math.random): { se
   if (kind === 'ocll' && rng() < 0.8) parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
   parts.push(inverse(c.alg), pick(AUFS));
   return { setup: parts.filter(Boolean).join(' '), case: c };
+}
+
+// ---- PLL arrows: where each top-layer piece has to go ----
+// U turns the layer (x, z) -> (-z, x); the AUF that leaves the most pieces home is the frame the
+// arrows are drawn in (a case is defined up to AUF), each piece pointing at its slot in that frame.
+const rotU = (p: Vec, k: number): Vec => { let [x, y, z] = p; for (let i = 0; i < k; i++) [x, z] = [-z, x]; return [x, y, z]; };
+const U_LAYER_POS: readonly Vec[] = [[-1, 1, -1], [0, 1, -1], [1, 1, -1], [-1, 1, 0], [1, 1, 0], [-1, 1, 1], [0, 1, 1], [1, 1, 1]];
+/** Arrows (from, to) between top-layer positions, or null when the top layer is not a PLL (corners not oriented). */
+export function pllArrows(f: string): { from: Vec; to: Vec }[] | null {
+  if (f.slice(0, 9) !== 'UUUUUUUUU') return null;
+  const pieces = U_LAYER_POS.map((pos) => {
+    const letters = facesAt(pos).map((i) => f[i]!);
+    if (!letters.includes('U')) return null;
+    const home = letters.reduce<[number, number, number]>((a, l) => [a[0] + NORMAL[l]![0], a[1] + NORMAL[l]![1], a[2] + NORMAL[l]![2]], [0, 0, 0]);
+    return { pos, home: home as Vec };
+  });
+  if (pieces.some((p) => !p)) return null;
+  const same = (a: Vec, b: Vec) => a[0] === b[0] && a[2] === b[2];
+  let best = 0, bestN = -1;
+  for (let k = 0; k < 4; k++) {
+    const n = pieces.filter((p) => same(rotU(p!.pos, k), p!.home)).length;
+    if (n > bestN) { bestN = n; best = k; }
+  }
+  return pieces.flatMap((p) => { const to = rotU(p!.home, (4 - best) % 4); return same(p!.pos, to) ? [] : [{ from: p!.pos, to }]; });
 }
