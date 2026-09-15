@@ -1,56 +1,17 @@
-// The last-layer trainers' cube model, on top of cubejs. Everything is an
-// alg string applied to a solved cube (no state objects to keep valid): a
-// drill's state is `setup`, the check is `setup + the moves typed`.
-//
-// Frames: the trainer holds white down (D) with a chosen colour in front.
-// cubejs applies rotations physically (after `y` the old R face is in
-// front), so a facelet string is first NORMALISED - relabelled so a letter
-// names the face whose centre currently shows it - which reads the cube in
-// its current holding. stage.ts then makes sense of it as long as white is
-// still underneath.
+// The last-layer trainers' cube model: everything is an alg string applied
+// to a solved cube (no state objects to keep valid); a drill's state is
+// `setup`, the check is `setup + the moves typed`. Case identification is
+// modulo AUF, and for OCLL modulo the permutation too.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import { inverse } from '../cube/alg';
+import { SOLVED, aufToSolve, state } from '../cube/state';
 import { stageOf } from '../stage';
 import { CASES, type LLCase, type LLKind } from './cases';
 
-export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+export { inverse, moveCount, tokens } from '../cube/alg';
+export { SOLVED, aufToSolve, state } from '../cube/state';
+
 const AUFS = ['', 'U', "U'", 'U2'];
-
-/** Tokens cubejs accepts: parentheses and AUF brackets dropped, Rw-style wide moves lowered. Throws on anything else. */
-export function tokens(alg: string): string[] {
-  const out: string[] = [];
-  for (const t of alg.replace(/[()[\]]/g, ' ').trim().split(/\s+/).filter(Boolean)) {
-    const m = /^([URFDLBMESxyzurfdlb])(w?)(2|')?$/.exec(t);
-    if (!m) throw new Error(`Could not read: ${t}`);
-    out.push((m[2] ? m[1].toLowerCase() : m[1]) + (m[3] ?? ''));
-  }
-  return out;
-}
-
-/** The inverse alg: tokens reversed, quarter turns flipped. */
-export function inverse(alg: string): string {
-  return tokens(alg).reverse().map((t) => (t.endsWith("'") ? t.slice(0, -1) : t.endsWith('2') ? t : t + "'")).join(' ');
-}
-
-/** Facelets after `alg` from solved, relabelled by centres (see the header). */
-export function state(alg: string): string {
-  const raw = new Cube().move(tokens(alg).join(' ')).asString();
-  const map: Record<string, string> = {};
-  'URFDLB'.split('').forEach((face, i) => { map[raw[i * 9 + 4]] = face; });
-  return raw.split('').map((c) => map[c]).join('');
-}
-
-/** True iff the white centre is still underneath - the only holding the checks understand. */
-export function whiteDown(alg: string): boolean {
-  return new Cube().move(tokens(alg).join(' ')).asString()[31] === 'D';
-}
-
-/** '' when `alg` solves the cube, the U turn that would finish it, or null. */
-export function aufToSolve(alg: string): string | null {
-  for (const auf of AUFS) if (state(`${alg} ${auf}`) === SOLVED) return auf;
-  return null;
-}
 
 /** The case stage is done: OCLL when F2L is intact and every corner is oriented; PLL when solved. */
 export function done(kind: LLKind, alg: string): boolean {
@@ -112,9 +73,4 @@ export function randomSetup(kind: LLKind, rng: () => number = Math.random): { se
   if (kind === 'ocll' && rng() < 0.8) parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
   parts.push(inverse(c.alg), pick(AUFS));
   return { setup: parts.filter(Boolean).join(' '), case: c };
-}
-
-/** Number of face/slice/wide turns in an alg (rotations are free). */
-export function moveCount(alg: string): number {
-  return tokens(alg).filter((t) => !/^[xyz]/.test(t)).length;
 }

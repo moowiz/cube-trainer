@@ -17,8 +17,8 @@ export interface LLCase {
 }
 
 export const OCLL_CASES: LLCase[] = [
-  { id: 'S', name: 'Sune', alg: "R U R' U R U2 R'", hint: 'one corner oriented, its neighbours show yellow on the left' },
-  { id: 'AS', name: 'Anti-Sune', alg: "R U2 R' U' R U' R'", hint: 'one corner oriented, its neighbours show yellow on the right' },
+  { id: 'S', name: 'Sune', alg: "R U R' U R U2 R'", hint: 'one corner has yellow on top. Turn the top layer so it sits front-left: the front face then shows a yellow sticker at its top-right (the other two yellows are on the right and back faces)' },
+  { id: 'AS', name: 'Anti-Sune', alg: "R U2 R' U' R U' R'", hint: 'one corner has yellow on top. Turn the top layer so it sits front-left: the front face then shows no yellow; the yellow sits at the front end of the right face (and on the back and left faces)' },
   { id: 'H', name: 'H', alg: "R U2 R' U' R U R' U' R U' R'", hint: 'no corner oriented, two yellow bars on opposite sides' },
   { id: 'Pi', name: 'Pi', alg: "R U2 R2 U' R2 U' R2 U2 R", hint: 'no corner oriented, one bar of yellow and two singles on the opposite side' },
   { id: 'U', name: 'U (headlights)', alg: "R2 D R' U2 R D' R' U2 R'", hint: 'two adjacent corners oriented, headlights facing you on the other two' },

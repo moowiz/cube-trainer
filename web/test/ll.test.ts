@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import {
-  SOLVED, aufToSolve, done, identify, inverse, moveCount, randomSetup, solution, state, tokens, whiteDown,
+  SOLVED, aufToSolve, done, identify, inverse, moveCount, randomSetup, solution, state, tokens,
 } from '../src/ll/model';
 import { stageOf } from '../src/stage';
 
@@ -180,28 +180,16 @@ describe('state() normalisation', () => {
     expect(state("z'")).toBe(SOLVED);
   });
 
-  // Verified by running it, not guessed: state('y R') equals neither state('F')
-  // nor state('B') - the centre-relabelling after `y` doesn't line up with a
-  // bare F or B turn from solved. What does hold, checked the same way: it's
-  // still just one face turn away from solved, landing at the eo stage with
-  // three of four cross edges, two F2L pairs, and no corners oriented yet -
-  // the same shape a lone quarter turn produces elsewhere in this suite.
-  it('y then R is one face turn away from solved, read from the eo stage', () => {
-    const r = stageOf(state('y R'));
-    expect(r).toEqual({ stage: 'eo', eoBad: 0, cross: 3, pairs: 2, ocll: false });
-  });
 });
 
-describe('whiteDown()', () => {
-  it('stays true after a y rotation, a U turn, or a pair-breaking trigger', () => {
-    expect(whiteDown('y')).toBe(true);
-    expect(whiteDown('U')).toBe(true);
-    expect(whiteDown("R U R' U'")).toBe(true);
-  });
-
-  it('goes false once the cube is tipped onto its side', () => {
-    expect(whiteDown('x')).toBe(false);
-    expect(whiteDown("z'")).toBe(false);
+describe('state() undoes rotations', () => {
+  it('reads the same cube whichever way it was turned: x, z and y rotations vanish', () => {
+    expect(state('x')).toBe(SOLVED);
+    expect(state("z'")).toBe(SOLVED);
+    expect(state('y')).toBe(SOLVED);
+    // a turn made after tipping the cube is the same physical turn: x then R is the trainer's R
+    expect(state('x R')).toBe(state('R'));
+    expect(state('y R')).toBe(state('B'));
   });
 });
 

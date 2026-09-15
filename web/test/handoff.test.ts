@@ -45,8 +45,10 @@ describe('relabelMoves', () => {
   it('keeps the turn, renames the face', () => {
     expect(relabelMoves("U R2 F' D", frameMap('U', 'B'))).toBe("D R2 B' U");
   });
-  it('rejects rotations and slices (not face turns)', () => {
-    expect(() => relabelMoves('x U', frameMap('D', 'F'))).toThrow();
+  it('carries rotations, slices and wide moves too: they turn like a face, so they follow it', () => {
+    // white down, blue front is x2: R stays R, U<->D, F<->B; x (like R) stays x, y (like U) becomes y', M (like L) stays M, E (like D) becomes E'
+    expect(relabelMoves("x U y M E r", frameMap('U', 'B'))).toBe("x D y' M E' r");
+    expect(() => relabelMoves('Q', frameMap('U', 'B'))).toThrow();
   });
 });
 
