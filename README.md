@@ -32,7 +32,7 @@ npm run build  # typecheck + production build
 
 `web/index.html` is markup only; `src/main.ts` mounts the four stage trainers (`src/eo`, `src/f2l`, `src/ll`) on one shared cube core (`src/cube`: alg parser, states, geometry, pieces, renderer, colour scheme, frames) and one drill scaffold (`src/ui/drill.ts`), wires the shell (`src/shell.ts`) and bridges the scanner. Scrambles are shown in WCA orientation (white up, green front); the trainers work white down with your chosen colour in front.
 
-Scanner replays without a phone: `?tab=scan&clip=/clips/<name>.mp4` plays a recording through the real pipeline (see `web/src/ui/scanner.ts` for the flags). `node tools/eocross/check.mjs` checks the EOCross solver headlessly.
+Scanner replays without a phone: `?tab=scan&clip=/clips/<name>.mp4` plays a recording through the real pipeline (see `web/src/ui/scanner.ts` for the flags). `cd web && npx vite-node --root .. ../tools/eocross/check.ts` checks the EOCross solver headlessly against the built page.
 
 Pushing to `main` deploys to GitHub Pages via [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml).
 

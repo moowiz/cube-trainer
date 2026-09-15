@@ -1,23 +1,23 @@
+// @ts-nocheck - an analysis script; the typed surface is lib.ts
 // What does optimal EOCross look like, and how close do human-executable strategies get?
-//   node tools/eocross/analyse.js [scrambles=3000] [seed=1]
-const M = require('./model.js'); require('../../web/public/eocross-worker.js'); const W = globalThis.EOCross;
-W.setPost(() => {});
+//   cd web && npx vite-node ../tools/eocross/analyse.ts [scrambles=3000] [seed=1]
+import * as M from './lib';
+const W = M.W;
 const N = +(process.argv[2] || 3000); let seed = +(process.argv[3] || 1);
 const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
-const r = W.build(M.MOVES.map(m => m.perm), M.MOVES.map(m => m.flip), M.HOME);
+const r = M.buildTable();
 const tot = r.hist.reduce((a, b) => a + b), mean = r.hist.reduce((a, b, i) => a + b * i, 0) / tot;
 console.log(`EOCross table: ${tot} states, mean optimal ${mean.toFixed(2)}, by length: ${r.hist.map((n, i) => `${i}:${(100 * n / tot).toFixed(1)}%`).join(' ')}`);
 
-// EO-only distance table over the same move tables
-const EOD = new Int8Array(4096).fill(-1); EOD[0] = 0;
-{ let q = [0]; while (q.length) { const nq = []; for (const s of q) for (const m of M.MOVES) { const n = M.apply({ eo: s, slots: M.HOME }, m).eo; if (EOD[n] < 0) { EOD[n] = EOD[s] + 1; nq.push(n); } } q = nq; } }
+// EO-only distances come from the app's solver
+const EOD = { at: (eo) => M.eoDist(eo) };
 const isFB = m => M.MOVES[m].flip;
 // every EO solution of exactly `len` moves (len >= optimal), as move-index arrays
 function eoSolutions(st, len) {
   const out = [];
   (function dfs(s, path, last) {
     if (path.length === len) { if (s === 0) out.push(path.slice()); return; }
-    if (EOD[s] > len - path.length) return;
+    if (EOD.at(s) > len - path.length) return;
     for (let m = 0; m < 18; m++) { if (M.MOVES[m].face === last) continue;
       path.push(m); dfs(M.apply({ eo: s, slots: M.HOME }, M.MOVES[m]).eo, path, M.MOVES[m].face); path.pop(); }
   })(st.eo, [], null);
@@ -33,7 +33,7 @@ const S = { opt: [], eo: [], anyEO: [], bestEO: [], bestEO1: [], gapBest: [], ga
 for (let i = 0; i < N; i++) {
   const st = M.run(M.SOLVED(), M.randomScramble(rng));
   const sol = W.solve(st.eo, st.slots, 3000); const L = sol.length; S.opt.push(L); S.nOpt.push(sol.count);
-  const e = EOD[st.eo]; S.eo.push(e);
+  const e = EOD.at(st.eo); S.eo.push(e);
   // strategy: solve EO optimally (any solution) then finish optimally; or pick the best optimal-EO solution; or allow EO+1
   const eos = eoSolutions(st, e); S.nEOopt.push(eos.length);
   const totals = eos.map(s => e + W.dist(0, after(st, s).slots));
@@ -78,7 +78,7 @@ hist('number of D moves in the solution', S.dMoves);
 seed = +(process.argv[3] || 1);
 const S2 = { eoExtra: [], tail1: [], tailComp: [], homeBeforeLast: [], tail0eoExtra: [], dPos: [], lastFBinserts: [] };
 for (let i = 0; i < N; i++) {
-  const st = M.run(M.SOLVED(), M.randomScramble(rng)); const e = EOD[st.eo];
+  const st = M.run(M.SOLVED(), M.randomScramble(rng)); const e = EOD.at(st.eo);
   const sol = W.solve(st.eo, st.slots, 3000);
   for (const s of sol.solutions) {
     let lastFB = -1; for (let k = 0; k < s.length; k++) if (isFB(s[k])) lastFB = k;
