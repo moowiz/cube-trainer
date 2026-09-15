@@ -418,6 +418,11 @@ window.ZZ = {
   // opts.keep: come back to the scan in progress instead of starting a fresh one (trainer-main.ts wraps this)
   openScan(opts){ ZZ.openSheet('scan-sheet'); },
   resumeScan(){ ZZ.openScan({keep:true}); },
+  // the scramble the open stage expects the cube to be in (its frame: white down, the chosen colour in front), or null
+  expectedScramble(){ const t=ZZ.tabs.find(k=>!document.getElementById(k+'-panel').hidden);
+    if(t==='eo') return ZZ.eo?.scramble()||null;
+    if(t==='f2l'){ const s=[document.getElementById('scrtext').value,document.getElementById('pretext').value].map(x=>x.trim()).filter(Boolean).join(' '); return s||null; }
+    return ZZ[t]?.setup()||null; },
   closeScan(){ ZZ.closeSheet('scan-sheet'); },
   toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.hidden=false; clearTimeout(t._h); t._h=setTimeout(()=>{ t.hidden=true; },4000); },
 };
@@ -1465,7 +1470,7 @@ document.querySelectorAll('#eo-settings .eo-seg').forEach(seg=>seg.addEventListe
 }));
 function syncSeg(){ document.querySelectorAll('#eo-settings .eo-seg').forEach(seg=>seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.v===settings[seg.dataset.set]))); }
 
-ZZ.eo={ load(scr){ loadScramble(scr); }, render };
+ZZ.eo={ load(scr){ loadScramble(scr); }, render, scramble:()=>scramble };
 syncSeg(); newScramble(); tick();
 })();
 </script>

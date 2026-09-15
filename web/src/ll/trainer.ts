@@ -23,6 +23,8 @@ export interface LLTrainer {
   /** Show the cube reached by `scramble` from solved (white down, the chosen colour in front). */
   load(scramble: string): void;
   render(): void;
+  /** The alg from solved that reaches the case shown (empty when none). */
+  setup(): string;
 }
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
@@ -260,7 +262,7 @@ export function mountLL(root: HTMLElement, kind: LLKind, bus: LLBus): LLTrainer 
   });
 
   newCase(); tick();
-  return { load: start, render };
+  return { load: start, render, setup: () => setup };
 }
 
 export type { LLCase };

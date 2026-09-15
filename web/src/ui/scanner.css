@@ -35,6 +35,11 @@
                      display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .scan .sc-scrambleAlg { font: 600 17px/1.4 ui-monospace, monospace; letter-spacing: 0.02em; }
 .scan .sc-scramble label { margin-left: auto; font-size: 13px; }
+.scan .sc-expect { background: var(--sc-panel); border: 1px solid var(--sc-line); border-radius: 8px; padding: 8px 12px; margin: 8px 0; font-size: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.scan .sc-expectAlg { font: 600 15px/1.4 ui-monospace, monospace; letter-spacing: 0.02em; }
+.scan .sc-expectState { margin-left: auto; font-size: 13px; color: var(--sc-ink-2); }
+.scan .sc-ok { color: #1E7A46; font-weight: 600; } .scan .sc-near { color: #9a6b00; font-weight: 600; } .scan .sc-bad { color: #B3261E; font-weight: 600; }
+.scan .sc-match { font-size: 15px; margin: 2px 0 6px; }
 .scan .sc-solverec { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 15px; }
 .scan .sc-moves { flex: 1 1 200px; min-width: 0; background: var(--sc-panel); color: inherit; border: 1px solid var(--sc-line); border-radius: 6px; padding: 8px 10px; font: 600 15px/1.3 ui-monospace, monospace; }
 .scan .sc-rec.sc-on { background: #f3d4d4; border-color: #c04040; }
