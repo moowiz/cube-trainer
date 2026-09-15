@@ -125,7 +125,7 @@
   .scan .sc-wrap { max-width: 1900px; }
   .scan .sc-version { font-size: 16px; margin-bottom: 12px; }
   .scan .sc-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(440px, 1fr); gap: 28px; align-items: start; }
-  .scan .sc-stage { max-width: calc((100vh - 230px) * var(--ar, 1.3333)); margin: 0 auto; }
+  .scan .sc-stage { max-width: calc((100vh - 330px) * var(--ar, 1.3333)); margin: 0 auto; }
   .scan .sc-side { margin-top: 8px; }
   .scan .sc-side .sc-ph:first-child { margin-top: 0; }
   .scan .sc-grids { gap: 12px; }
