@@ -58,7 +58,8 @@ web/
                      worker use), render (3D + net SVG), scheme (colour setting), frame (trainer / WCA /
                      solver letter maps)
     ui/              drill.ts (the timed-drill scaffold EO/OCLL/PLL sit on), scanner.ts (the scan sheet:
-                     camera, overlay, evidence, lock, live scramble check), hint, settings
+                     camera, overlay, evidence, lock, live scramble check), fingertricks.ts (the tricks
+                     sheet: a move sequence finger by finger, triggers as one step), hint, settings
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
