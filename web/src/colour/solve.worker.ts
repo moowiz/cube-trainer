@@ -17,7 +17,8 @@ import { MoveReader, type FrameTrace } from '../moves/reader';
 
 export type SolverRequest =
   | { type: 'append'; quads: QuadObs[]; pairings: Pairing[]; events: TrackEvent[]; frames: number }
-  | { type: 'solve'; id: number }
+  /** `fromT`: solve only the evidence sampled at or after this wall-clock ms (the current epoch of a followed solve). */
+  | { type: 'solve'; id: number; fromT?: number }
   | { type: 'track'; commit: Commitments; fromT: number }
   | { type: 'moves'; id: number }
   | { type: 'reset' };
@@ -43,6 +44,14 @@ export type SolverResponse =
   | { type: 'error'; id: number; message: string };
 
 let log: EvidenceLog = emptyLog();
+
+/** The log from `fromT` on: the quads sampled since, and the pairings and events of their frames. */
+export function windowLog(full: EvidenceLog, fromT: number): EvidenceLog {
+  const quads = full.quads.filter((q) => q.t >= fromT);
+  const frames = new Set(quads.map((q) => q.frame));
+  return { quads, pairings: full.pairings.filter((p) => frames.has(p.frame)), events: full.events.filter((e) => e.t >= fromT), frames: full.frames };
+}
+
 let tracking: { anchorer: Anchorer; reader: MoveReader; fromT: number; anchorMs: number; lastTracks: Set<number> } | null = null;
 
 function trackFrames(quads: readonly QuadObs[], pairings: readonly Pairing[]): void {
@@ -99,7 +108,7 @@ export function handle(msg: SolverRequest, post: (out: SolverResponse) => void):
     post({ type: 'moves', id: msg.id, result });
   } else {
     try {
-      post({ type: 'solution', id: msg.id, solution: solveBest(log) });
+      post({ type: 'solution', id: msg.id, solution: solveBest(msg.fromT === undefined ? log : windowLog(log, msg.fromT)) });
     } catch (err) {
       post({ type: 'error', id: msg.id, message: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) });
     }

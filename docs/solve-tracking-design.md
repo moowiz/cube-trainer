@@ -603,6 +603,49 @@ and the truth itself is unverified (it assumes the displayed solution was
 followed exactly; the two phone sessions of the same morning each slipped
 one move). Decode 2.3-3.5 ms/frame on 100-150 frames.
 
+## 11. Follow mode (2026-09-14): the trainer moves along with the cube
+
+What the reader is *for* in the app today. With **follow my solve** ticked
+on the scan sheet (the default), a lock does what it always did - the
+stage the cube is at opens with it loaded - and then the sheet shrinks to
+a corner dock (camera view, the believed cube as a net, the turns read,
+Stop) instead of closing, the camera keeps watching, and the reader runs
+live in the solve worker from the lock's commitments. A few times a
+second `web/src/follow.ts` turns *lock + turns read* into a trainer-frame
+scramble (the lock's scramble, then the read turns relabelled into the
+trainer's letters - the same physical turns, other names) and asks
+`stage.ts` where that cube is; once the stage has changed on two polls in
+a row the next stage opens with the cube at hand loaded (F2L shows the
+pairs you actually have, OCLL / PLL the case you actually reached), and a
+solved cube is announced with the turn count and time. A stage is loaded
+once, at the boundary: its picture is the case, not a live mirror; the
+live mirror is the net in the dock.
+
+**Two sources of progress, either one enough.** The reader is one. The
+other is the colour solver itself, which keeps running after the lock on
+the current **epoch** - the evidence sampled since the last turn the reader
+read (`solve` with `fromT`; the worker filters its log). While you turn,
+epochs are a second long with two faces in view and nothing locks; when
+you pause and show the cube around, the epoch locks the full state. A lock
+that agrees with the reader's believed cube (compared by colour, so the
+letters need not match) confirms it; one that disagrees is the truth from
+there: the reader restarts from the new commitments and the stage is routed
+again, exactly as a first lock is. So when the reader loses the cube - a
+run of one-face frames, a re-grip it could not follow - the fix is to show
+the cube for a couple of seconds, which a solver pauses to do anyway.
+Measured on the synthetic scan-turn-scan log (`test/follow.test.ts`): the
+whole log spanning the turn does NOT lock ("no legal cube within budget"),
+the epoch since the turn locks the turned cube - the window is what makes
+the re-read possible.
+
+Status: the plumbing runs end to end on the two newest recordings in
+headless follow mode (lock at 10.7 s, dock, no exceptions), but neither
+clip has turns after its lock under good light, so the reader-driven
+switch has still only been exercised synthetically. The first real test is
+a follow session at the settled camera setup (above, close, lamp on):
+scan, then solve without stopping; the dock's net shows what the reader
+believes and the toasts show the stages it crosses.
+
 ### 10.3 Next
 
 1. **Recordings that can be read:** camera above and close (7.2), the cube

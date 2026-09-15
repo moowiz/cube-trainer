@@ -9,10 +9,13 @@ import { toWca } from './cube/frame';
 import { faceColorName } from './cube/scheme';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
+import { followReport, followScramble, StageFollower } from './follow';
 import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } from './handoff';
 import { mountLL } from './ll/trainer';
-import { activeTab, closeScan, expectedScramble, initShell, scanHooks, scanStarted, showTab, stages, toast } from './shell';
-import { stageOf, type StageReport } from './stage';
+import type { Move } from './moves/moves';
+import type { MoveRecord } from './moves/record';
+import { activeTab, closeScan, dockScan, expectedScramble, initShell, scanHooks, scanStarted, showTab, stages, toast } from './shell';
+import { stageOf, type Stage, type StageReport } from './stage';
 import { solveState } from './state';
 import { COLOR_NAMES, DEFAULT_SCHEME_NAMES, type ColorName } from './types';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
@@ -71,15 +74,50 @@ function useInTrainer(scan: ScannedCube): void {
     alert(`Cannot show this cube in the trainer: ${err instanceof Error ? err.message : err}`);
     return;
   }
-  // was it the scramble the stage asked for? decided before the stage is given the new one
-  const match = matchText(scan);
+  // was it the scramble the stage asked for? decided before the stage is given the new one; while
+  // following, only the first lock is (later ones are re-reads of a cube we have moved the stage along with)
+  const match = followLocks++ === 0 ? matchText(scan) : '';
   // the scramble reproduces the scan from solved in the trainer's frame, so the state it reaches
   // is the scanned cube with white as D - what stage.ts reads
   const report = stageOf(new Cube().move(scramble).asString());
   const target = report.stage === 'solved' ? null : report.stage;
   if (target) { stages[target]?.load(scramble); showTab(target); }
-  closeScan();
+  // following: the camera keeps watching from a corner and every lock (this one, or a re-read that
+  // corrected the reader) restarts the follow from here; otherwise the scan is done
+  if (scanner?.following()) { follower.reset(report.stage); dockScan(true); console.log(`FOLLOW lock ${followLocks} stage=${report.stage}`); } else closeScan();
   toast((match ? `${match} · ` : '') + describe(report));
+  window.scrollTo({ top: 0 });
+}
+
+// ---- following a solve: the reader's turns move the trainer along ----
+const follower = new StageFollower();
+let followLocks = 0; // locks since the scan sheet was last opened fresh
+let solvedToldFor: string | null = null;
+/**
+ * The scanner's follow poll: the lock plus the turns read since, as the cube in your hands. When that
+ * cube has settled into another stage, that stage opens with it loaded (a stage's picture is the case
+ * at hand, so it is loaded once, at the boundary, not on every turn). A solved cube is announced once.
+ */
+function onFollow(scan: ScannedCube, moves: readonly Move[], record: MoveRecord): void {
+  let scramble: string;
+  try { scramble = followScramble(scan, moves, { down: 'white', front: frontColour() }); } catch { return; }
+  const report = followReport(scramble);
+  const next: Stage | null = follower.update(report.stage);
+  if (!next) return;
+  if (next === 'solved') {
+    const key = `${scan.facelets}:${moves.length}`;
+    if (solvedToldFor === key) return;
+    solvedToldFor = key;
+    const first = record.items[0], last = record.items[record.items.length - 1];
+    const secs = first && last ? ((last.t1 - first.t0) / 1000).toFixed(1) : null;
+    console.log(`FOLLOW solved after ${moves.length} turns`);
+    toast(`Solved ✓ ${moves.length} turns${secs ? ` in ${secs} s` : ''}`);
+    return;
+  }
+  console.log(`FOLLOW stage=${next} after ${moves.length} turns: ${moves.join(' ')}`);
+  stages[next]?.load(scramble);
+  showTab(next);
+  toast(describe(report));
   window.scrollTo({ top: 0 });
 }
 
@@ -91,19 +129,21 @@ function useInTrainer(scan: ScannedCube): void {
 let scanner: ScannerHandle | null = null;
 let scanned = false; // a scan has been started since the last reset
 function ensureScanner(): ScannerHandle {
-  scanner ??= mountScanner(panel('scan-panel'), { onUseInTrainer: useInTrainer, expected, onNewScramble: () => stages[activeTab()]?.newScramble() });
+  scanner ??= mountScanner(panel('scan-panel'), { onUseInTrainer: useInTrainer, expected, onNewScramble: () => stages[activeTab()]?.newScramble(), onFollow, onStopFollow: () => closeScan() });
   return scanner;
 }
 // the camera runs only while the scan sheet is up. Opening starts a fresh scan unless asked to keep the
 // one in progress (the Resume button, which appears once there is something to come back to).
 scanHooks.onOpen = (opts) => {
   const s = ensureScanner();
-  if (scanned && !opts?.keep) s.reset();
+  if (scanned && !opts?.keep) { s.reset(); followLocks = 0; solvedToldFor = null; }
   s.start();
   scanned = true;
   scanStarted();
+  panel('scan-dock').hidden = !s.following();
 };
-scanHooks.onClose = () => scanner?.stop();
+scanHooks.onClose = () => { scanner?.stop(); scanner?.setDocked(false); };
+scanHooks.onDock = (on) => scanner?.setDocked(on);
 
 // Mount at page load so the detector is loaded by the time the sheet opens; the camera still waits for
 // start(). initShell may already have opened the sheet (?tab=scan, the replay tooling's URL).
