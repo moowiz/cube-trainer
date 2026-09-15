@@ -86,8 +86,51 @@ export function canonical(start: EdgeState, sol: readonly Move[], solved: (st: E
       [starred[i], starred[i + 1]] = [starred[i + 1], starred[i]];
     }
   }
-  const txt = moves.map((m, i) => (starred[i] ? `${m.face}*` : moveStr(m))).join(' ');
+  // runs of adjacent turns whose order doesn't matter for the goal - D' L2 and L2 D' reach different cubes but
+  // the same EO - are written in (brackets), sorted, so the orderings are one line. Checked for every ordering
+  // of the run together with every starred direction, so a bracket is a promise like a star. A lone pair of
+  // opposite faces is the same cube either way and stays unbracketed.
+  const stars = starred.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+  const solvesEveryWay = (order: number[]): boolean => {
+    for (let bits = 0; bits < 1 << stars.length; bits++) {
+      const alt = moves.slice();
+      stars.forEach((j, b) => { if ((bits >> b) & 1) alt[j] = flipMove(alt[j]); });
+      if (!solved(applyMoves(start, order.map((k) => alt[k])))) return false;
+    }
+    return true;
+  };
+  const orderFree = (a: number, b: number): boolean => {
+    if (b - a > 3) return false; // 4 turns at most: 24 orderings
+    const idx = Array.from({ length: moves.length }, (_, k) => k);
+    const run = idx.slice(a, b + 1);
+    for (const perm of permutations(run)) { if (!solvesEveryWay([...idx.slice(0, a), ...perm, ...idx.slice(b + 1)])) return false; }
+    return true;
+  };
+  const groups: [number, number][] = [];
+  for (let i = 0; i < moves.length;) {
+    let j = i;
+    while (j + 1 < moves.length && orderFree(i, j + 1)) j++;
+    const opposites = j === i + 1 && OPP[moves[i].face] === moves[j].face;
+    if (j > i && !opposites) groups.push([i, j]);
+    i = j + 1;
+  }
+  // a fixed order inside each bracket so every ordering reads the same
+  for (const [a, b] of groups) {
+    const part = moves.slice(a, b + 1).map((m, k) => ({ m, s: starred[a + k] }));
+    part.sort((x, y) => 'URFDLB'.indexOf(x.m.face) - 'URFDLB'.indexOf(y.m.face) || x.m.times - y.m.times);
+    part.forEach((p, k) => { moves[a + k] = p.m; starred[a + k] = p.s; });
+  }
+  const open = new Set(groups.map(([a]) => a)), close = new Set(groups.map(([, b]) => b));
+  const txt = moves.map((m, i) => `${open.has(i) ? '(' : ''}${starred[i] ? `${m.face}*` : moveStr(m)}${close.has(i) ? ')' : ''}`).join(' ');
   return { txt, moves, starred };
+}
+
+function* permutations<T>(items: T[]): Generator<T[]> {
+  if (items.length <= 1) { yield items.slice(); return; }
+  for (let i = 0; i < items.length; i++) {
+    const rest = items.slice(0, i).concat(items.slice(i + 1));
+    for (const p of permutations(rest)) yield [items[i], ...p];
+  }
 }
 
 export interface Group { key: string; text: string; order: number }

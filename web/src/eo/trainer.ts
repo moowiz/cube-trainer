@@ -164,13 +164,14 @@ export function mountEO(root: HTMLElement): Stage {
     // they must be one group too); a family whose starred directions would give different groups is filed
     // under its first member's
     const fam = new Map<string, { n: number; group: Group }>();
-    let starred = false;
+    let starred = false, bracketed = false;
     for (const sol of gs.solutions) {
       const c = canonical(start, sol, goal().solved);
       const f = fam.get(c.txt);
       if (f) { f.n++; continue; }
       fam.set(c.txt, { n: 1, group: groupOf(c.moves) });
       if (c.starred.some(Boolean)) starred = true;
+      if (c.txt.includes('(')) bracketed = true;
     }
     const groups = new Map<string, { group: Group; lines: Map<string, number> }>();
     for (const [txt, f] of fam) {
@@ -188,7 +189,7 @@ export function mountEO(root: HTMLElement): Stage {
       if (order.length > 1 || g.group.text) { const h = document.createElement('div'); h.className = 'grp-h'; h.textContent = `${g.group.text || 'no F/B turns'} · ${g.lines.size} line${g.lines.size === 1 ? '' : 's'}`; box.appendChild(h); }
       const lines = [...g.lines.entries()].sort((a, b) => Number(b[0] === mineTxt) - Number(a[0] === mineTxt) || b[1] - a[1] || a[0].localeCompare(b[0]));
       lines.forEach(([txt], i) => {
-        const d = document.createElement('div'); d.textContent = txt; d.dataset.alg = txt.replace(/\*/g, '');
+        const d = document.createElement('div'); d.textContent = txt; d.dataset.alg = txt.replace(/[*()]/g, '');
         if (txt === mineTxt) { const y = document.createElement('em'); y.className = 'yours'; y.textContent = 'yours'; d.appendChild(y); }
         if (i >= PER_GROUP) d.hidden = true;
         box.appendChild(d);
@@ -201,7 +202,7 @@ export function mountEO(root: HTMLElement): Stage {
       el.appendChild(box);
     }
     const n = document.createElement('p'); n.style.cssText = 'margin:6px 0 0;font-size:13px;color:var(--ink-2)';
-    n.textContent = `${starred ? 'A * means that turn works in either direction (in any combination). ' : ''}Tap one to put it in the moves box.`;
+    n.textContent = `${starred ? 'A * means that turn works in either direction (in any combination). ' : ''}${bracketed ? 'Turns in (brackets) can be done in any order. ' : ''}Tap one to put it in the moves box.`;
     el.appendChild(n);
   }
 
