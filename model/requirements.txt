@@ -11,3 +11,4 @@ onnxruntime
 matplotlib   # train/viz_nms.py only - the training/export path never imports it
 opencv-python  # train/detect_server.py only - webcam capture + JPEG encode
 websockets     # train/detect_server.py only - frames + quads to the web app on localhost
+mediapipe      # tools/solve/hands_survey.py only - the hand-pose experiment (design doc 8.1); pulls opencv-contrib

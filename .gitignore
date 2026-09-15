@@ -23,6 +23,8 @@ model/backgrounds/
 model/negatives/
 model/val2017.zip
 model/train/runs/
+# downloaded third-party models (tools/solve/hands_survey.py: mediapipe hand_landmarker.task)
+model/runs/
 model/export/out/
 __pycache__/
 *.local
