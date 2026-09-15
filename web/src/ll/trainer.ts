@@ -52,7 +52,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble" id="${id('setup')}"></div>
       <p class="eo-note" id="${id('orient')}"></p>`,
-  }, { onNew: newCase, onCheck: check, onHint: hintText, onShow: onShow, onClear: () => { shown = null; render(); } });
+  }, { onNew: newCase, onCheck: check, onHint: hintText, onShow: onShow, onClear: () => { shown = null; render(); },
+    base: () => setup, onApply: (alg) => { shown = `${setup} ${alg}`; render(); } });
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
   let setup = '';
@@ -129,7 +130,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const algPlain = () => (sol ? [sol.pre, sol.case.alg, sol.post].filter(Boolean).join(' ') : '');
   const algShown = () => (sol ? [sol.pre && `[${sol.pre}]`, sol.case.alg, sol.post && `[${sol.post}]`].filter(Boolean).join(' ') : '');
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first, the alg is what follows${kind === 'pll' ? '; a bracket at the end lines the layer up after it' : ''}.</small>`;
-  const algLine = () => (sol ? `<div class="ll-alg" data-alg="${algPlain().replace(/"/g, '&quot;')}">${algShown()}${sol.pre || sol.post ? AUF_NOTE : ''}</div>` : '');
+  const algLine = (): HTMLElement | null => {
+    if (!sol) return null;
+    const d = drill.algLine(algShown(), algPlain()); d.classList.add('ll-alg');
+    if (sol.pre || sol.post) d.insertAdjacentHTML('beforeend', AUF_NOTE);
+    return d;
+  };
+  const putAlgLine = () => { drill.result.body.innerHTML = ''; const d = algLine(); if (d) drill.result.body.appendChild(d); };
 
   function check(txt: string): void {
     let toks: string[];
@@ -148,7 +155,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     }
     if (!recorded) { recorded = true; results.push({ t: t ?? 0, n, std: sol ? moveCount(algPlain()) : n }); }
     drill.result.show(`${TITLE[kind]} done in ${n} moves${ts}`, (sol ? `Case: ${sol.case.name}. The standard alg is ${moveCount(algPlain())} moves.` : '') + note + (assisted ? ' You peeked at the alg.' : ''));
-    drill.result.body.innerHTML = algLine();
+    putAlgLine();
     if (kind === 'ocll' && stages.pll) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
       btn.textContent = 'Continue to PLL with this cube';
@@ -170,7 +177,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     assisted = true;
     if (!sol) { drill.result.show('No tabled alg', caseText().replace(/<[^>]+>/g, '')); drill.result.body.innerHTML = ''; return; }
     drill.result.show(`${sol.case.name}: ${moveCount(algPlain())} moves`, sol.case.hint);
-    drill.result.body.innerHTML = algLine();
+    putAlgLine();
   }
 
   onSchemeChange(render);

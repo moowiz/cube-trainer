@@ -119,6 +119,11 @@ export function annotate(alg: string): TrickRow[] {
   return rows;
 }
 
+/** The first sentence: what the layer does, no fingers ("Middle slice between front and back, same way as F"). */
+export function moveWhat(t: string): string {
+  return describe(t).split('. ')[0]!.replace(/\.$/, '');
+}
+
 function describe(t: string): string {
   const w = WIDE[t[0]!];
   if (w) {
