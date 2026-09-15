@@ -93,7 +93,9 @@
 .scan a { color: var(--sc-link); }
 .scan .sc-debug { margin-top: 12px; border: 1px solid var(--sc-line); border-radius: 8px; padding: 6px 10px; }
 .scan .sc-diag { margin-top: 8px; }
-.scan .sc-diag .sc-ph:first-child { margin-top: 0; }
+.scan .sc-diag > :first-child .sc-ph { margin-top: 0; }
+.scan .sc-fold > summary { cursor: pointer; list-style: revert; }
+.scan .sc-fold > summary:hover { color: var(--sc-ink-2); }
 .scan .sc-debug summary { cursor: pointer; color: var(--sc-ink-2); }
 .scan .sc-swatches { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
 .scan .sc-sw { width: 34px; height: 22px; border-radius: 4px; display: grid; place-items: center;
