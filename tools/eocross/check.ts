@@ -1,17 +1,16 @@
 // Headless check of the trainer's EOCross goal: serves the built page (web/dist - run `npm run build`
 // first) over loopback, switches the goal, waits for the worker's table, and verifies every listed
 // optimal solution through the trainer's own Check button. Also compares the optimal length with the
-// independent node model in tools/eocross/model.js.
-//   node tools/eocross/check.mjs [scrambles=5]
+// table built in node from the same move tables (tools/eocross/lib.ts).
+//   cd web && npx vite-node --root .. ../tools/eocross/check.ts [scrambles=5]
+// @ts-nocheck - a headless check script; the typed surface is lib.ts
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as M from './lib';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const require = createRequire(import.meta.url);
-const M = require('./model.js'); require(join(root, 'web', 'public', 'eocross-worker.js')); const W = globalThis.EOCross;
-W.setPost(() => {}); W.build(M.MOVES.map(m => m.perm), M.MOVES.map(m => m.flip), M.HOME);
+const W = M.W; M.buildTable();
 const { default: puppeteer } = await import(pathToFileURL(join(root, 'model', 'gen', 'node_modules', 'puppeteer', 'lib', 'esm', 'puppeteer', 'puppeteer.js')).href);
 
 const server = createServer(async (req, res) => {

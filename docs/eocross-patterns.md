@@ -1,6 +1,6 @@
 # EOCross: what optimal solutions look like
 
-Measured 2026-09-14 with `tools/eocross/analyse.js` (4000 random scrambles,
+Measured 2026-09-14 with `tools/eocross/analyse.ts` (4000 random scrambles,
 every optimal solution of each, 69 518 solutions in all) over the exact
 EOCross distance table in `web/public/eocross-worker.js`. EOCross = every
 edge oriented to the front/back axis and the four white edges home, white
@@ -93,7 +93,11 @@ shows EO and EOCross optimal lengths side by side.
 
 ## Tools
 
-- `tools/eocross/model.js` - independent 12-edge model (EO + cross slots).
-- `tools/eocross/analyse.js [n] [seed]` - the tables above.
-- `tools/eocross/check.mjs [n]` - headless check that the trainer's worker
-  agrees with the node model and every listed line passes the trainer's Check.
+All run from `web/` with `npx vite-node --root .. ../tools/eocross/<script>`
+and use the app's own cube code (`web/src/cube`, `web/src/eo/solver.ts`) plus
+the worker's table builder - there is no separate node model.
+- `tools/eocross/lib.ts` - the shared bits for the scripts.
+- `tools/eocross/analyse.ts [n] [seed]` - the tables above.
+- `tools/eocross/find.ts <eo> <eocross> [tail]` - a scramble of a given shape.
+- `tools/eocross/check.ts [n]` - headless check that the trainer's worker agrees
+  with the table built in node and every listed line passes the trainer's Check.
