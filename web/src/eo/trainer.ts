@@ -15,6 +15,7 @@ import { stageOf } from '../stage';
 import { showTab, stages, type Stage } from '../shell';
 import { mountDrill, type Drill } from '../ui/drill';
 import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook } from './eocross';
+import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, randomScramble, solveEO, type Group, type SolutionSet } from './solver';
 
 interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; goal: 'eo' | 'cross' }
@@ -53,8 +54,8 @@ export function mountEO(root: HTMLElement): Stage {
     base: () => scramble, onApply: (alg) => { shown = state(`${scramble} ${alg}`); render(); } });
   // the strategy chips sit with the hints but toggle a note instead of revealing anything about the scramble
   drill.$('hints').insertAdjacentHTML('beforeend',
-    '<button type="button" class="eo-chip eo-strat" data-strat="short" hidden>Hint: EOCross strategy</button>' +
-    '<button type="button" class="eo-chip eo-strat" data-strat="long" hidden>Strategy for this scramble</button>');
+    '<button type="button" class="eo-chip eo-strat" data-strat="short">Hint: EO strategy</button>' +
+    '<button type="button" class="eo-chip eo-strat" data-strat="long">Strategy for this scramble</button>');
   const svg = drill.$('cube') as unknown as SVGSVGElement;
 
   // ---- state ----
@@ -227,15 +228,18 @@ export function mountEO(root: HTMLElement): Stage {
   }
   const stratChips = () => [...root.querySelectorAll<HTMLButtonElement>('.eo-strat')];
   function resetStrategy(): void {
-    // the strategy note is scramble-independent in the short form and only follows the goal
-    stratChips().forEach((b) => { b.hidden = settings.goal !== 'cross'; });
-    if (settings.goal !== 'cross') { drill.$('strat').hidden = true; stratChips().forEach((b) => b.classList.remove('open')); }
+    // the short note is scramble-independent and follows the goal; the long one is re-rendered per scramble
+    const chip = stratChips().find((b) => b.dataset.strat === 'short');
+    if (chip) chip.textContent = `Hint: ${goal().name} strategy`;
+    renderStrategy();
   }
   function renderStrategy(): void {
     const open = stratChips().find((b) => b.classList.contains('open'));
     if (!open) return;
     const note = drill.$('strat');
-    note.innerHTML = open.dataset.strat === 'short' ? STRATEGY_SHORT : xsol ? caseStrategy(start, solution, xsol, outlook) : `<p style="margin:0">${xc.note()}</p>`;
+    if (open.dataset.strat === 'long') assisted = true;
+    if (settings.goal === 'cross') note.innerHTML = open.dataset.strat === 'short' ? STRATEGY_SHORT : xsol ? caseStrategy(start, solution, xsol, outlook) : `<p style="margin:0">${xc.note()}</p>`;
+    else note.innerHTML = open.dataset.strat === 'short' ? EO_STRATEGY_SHORT : eoCaseStrategy(start, solution);
     note.hidden = false;
   }
   function onHintsClick(t: HTMLElement): boolean {
