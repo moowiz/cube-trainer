@@ -22,13 +22,22 @@ import { FACE_ORDER, type ColorName, type FaceId } from './types';
 export function followScramble(scan: ScannedCube, moves: readonly Move[], hold: Hold): string {
   const base = trainerScramble(scan, hold);
   if (moves.length === 0) return base;
+  const turned = relabelTurns(scan.colourOf, moves, hold);
+  return base ? `${base} ${turned}` : turned;
+}
+
+/**
+ * Turns called by a source's letters (`colourOf` = the colour of each), as the trainer's letters
+ * for a cube held `hold`. A turn is the same physical turn in either frame; only the face's name
+ * changes. Throws when the hold's colours are not on the source's faces, or not adjacent.
+ */
+export function relabelTurns(colourOf: Record<FaceId, ColorName>, moves: readonly Move[], hold: Hold): string {
   const letter = (c: ColorName): FaceId => {
-    const f = FACE_ORDER.find((k) => scan.colourOf[k] === c);
-    if (!f) throw new Error(`the scan has no ${c} centre`);
+    const f = FACE_ORDER.find((k) => colourOf[k] === c);
+    if (!f) throw new Error(`the source has no ${c} centre`);
     return f;
   };
-  const turned = relabel(moves.join(' '), frameMap(letter(hold.down), letter(hold.front)));
-  return base ? `${base} ${turned}` : turned;
+  return relabel(moves.join(' '), frameMap(letter(hold.down), letter(hold.front)));
 }
 
 /** The stage a trainer-frame scramble leaves the cube at. */

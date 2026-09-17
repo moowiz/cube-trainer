@@ -202,6 +202,29 @@ each turn shows on the live view within ~100 ms; a deliberately drifted
 cube is resynced from a scan lock; one captured session replays through
 the tests and the EO drill completes itself from cube turns.
 
+**Built 2026-09-16, before the cube arrived (everything but its first
+run):** `moves/source.ts` (the contract), `smart/` (adapter over
+`smartcube-web-bluetooth` 4.0 with the MAC dialog, `ClockFit`, the belief
+reducer with the settle window, JSONL capture + replay, `CubeSource`),
+`moves/drive.ts` (the driver: arms at the scramble state, feeds the turns
+after it, re-arms on an undo, starts over on a new scramble, disarms on a
+resync), `ui/cubeview.ts` (the Cube sheet, key `l`: 3D + net in the
+trainer's hold via a cached whole-cube rotation, the source badge, the
+last turn, connect / disconnect / save, the three resyncs and the drift
+warning), `Stage.feed` on the EO and last-layer tabs with `isDone` per
+stage (EO's goal setting decides EO vs EOCross; the last layer counts the
+AUF), the camera's belief on the sheet while following. The report poll
+runs every 4 s once the cube has been idle 2 s. Tests:
+`test/smart.test.ts`, `test/drive.test.ts`, fixture
+`fixtures/smart/synthetic-session.jsonl`; end to end without a cube:
+`node scripts/check-smart.mjs` replays a scramble-then-undo capture
+through the built page via `window.ZZ.smart.replay` and checks that the
+EO drill armed at the scramble, boxed the undo in the trainer's letters,
+timed it from the cube's stamps (0.90 s for six turns 180 ms apart) and
+checked itself at EOCross. Not built: the scan-dock hosting of the view,
+gestures, the 90 degree tween (the view snaps). Open until the cube is
+here: section 8.
+
 ---
 
 ## 4. M10: the timer and the recording rig

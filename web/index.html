@@ -75,6 +75,7 @@
   <span class="sp"></span>
   <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
   <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
+  <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)">🧊<span class="txt"> Cube</span><span class="key"> (l)</span></button>
   <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙<span class="key"> (s)</span></button>
 </nav>
 <!-- every stage is mounted here by src/main.ts -->
@@ -114,6 +115,12 @@
         <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="advanced"> Show advanced algs (D, F2, slice and wide moves)</label></div></div>
       </section>
     </div>
+  </div>
+</div>
+<div id="cube-sheet" class="zz-sheet" hidden>
+  <div class="zz-sheet-box">
+    <div class="zz-sheet-head"><b>Your cube</b><span class="sub">What the app believes your cube looks like: from a smart cube when one is connected, else from the camera while it follows a solve. With a smart cube, every stage's timer starts and checks itself as you turn.</span><button type="button" class="btn" id="cube-close">Close</button></div>
+    <div class="zz-sheet-body" id="cube-panel"></div>
   </div>
 </div>
 <div id="tricks-sheet" class="zz-sheet" hidden>

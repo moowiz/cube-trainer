@@ -17,6 +17,8 @@ export interface Stage {
   scramble(): string | null;
   /** A fresh random scramble / case. */
   newScramble(): void;
+  /** The turns made so far on a cube that was at this stage's scramble (trainer letters), at host time `t`; true once they reach the target. */
+  feed?(text: string, t: number): boolean;
 }
 
 export const stages: Partial<Record<Tab, Stage>> = {};
@@ -114,6 +116,8 @@ export function initShell(): void {
   el('scan-sheet').addEventListener('click', (e) => { if (scanDocked() && !(e.target as HTMLElement).closest('button')) dockScan(false); });
   el('settings-open').onclick = () => openSheet('settings-sheet');
   el('settings-close').onclick = () => closeSheet('settings-sheet');
+  el('cube-open').onclick = () => openSheet('cube-sheet');
+  el('cube-close').onclick = () => closeSheet('cube-sheet');
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
   el('ref-close').onclick = () => closeSheet('ref-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
@@ -125,6 +129,7 @@ export function initShell(): void {
     if (e.key === 'c') openScan();
     else if (e.key === 'r' && !el('scan-resume').hidden) resumeScan();
     else if (e.key === 's') openSheet('settings-sheet');
+    else if (e.key === 'l') openSheet('cube-sheet');
   });
   // the colour scheme select
   const sel = el('frontc') as HTMLSelectElement;
