@@ -42,7 +42,7 @@ async function suggest(img: HTMLImageElement | HTMLCanvasElement): Promise<Label
 
 (window as unknown as { __labelSuggest: typeof suggest }).__labelSuggest = suggest;
 
-// build stamp, same as scan.html
+// build stamp, same as the trainer's (nav.js shows version.json)
 const stamp = document.createElement('div');
 stamp.style.cssText = 'position:fixed;left:8px;bottom:6px;font:11px system-ui;opacity:.6';
 stamp.textContent = `build ${__BUILD__.hash} · ${__BUILD__.time}`;

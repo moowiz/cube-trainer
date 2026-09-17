@@ -86,11 +86,12 @@ EO has none yet (M11 will tag the pattern family), so it is optional.
 ## 5. Prune the old dev pages  (half an hour, after a look)
 
 `public/{scan,autoscan,bbox,detect,scanner}.html` predate the single-page
-trainer. Grep `tools/`, `scripts/`, `model/`, the docs and the milestones
-for references; keep whatever the replay or labelling tooling still opens
-(the milestones mention `scan.html` for `Record` and `?solve=1`), remove
-the rest, update the references. A list of what references each page
-comes before any deletion.
+trainer. **Done 2026-09-17:** an audit found all five to be identical
+redirect stubs to `index.html?tab=scan` with no code, tooling or CI
+reference (the `Record` / `?solve=1` flow runs on the trainer via
+`tools/solve/replay_clips.py`). Four were deleted; `scan.html` stays as
+the one redirect for old phone bookmarks. Doc mentions are historical and
+were left.
 
 ---
 
