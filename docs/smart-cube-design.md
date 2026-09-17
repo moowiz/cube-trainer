@@ -280,9 +280,13 @@ with `?append=1` for appends, writing under `<repo>/recordings/<session>/`
 (gitignored: gigabytes, personal). `web/src/rig/stream.ts`
 `RecordingStream` is the page's client: one ordered queue of small POSTs,
 a retry then a failure count, `available()` false on the deployed site so
-the download path stays. Not yet wired into the scan sheet's recorder or
-the cube capture (that is the next step, after the reader-as-source
-cleanup lands, since both touch the same files).
+the download path stays. Wired the same evening: `app/rig.ts` holds the
+current session; the scan sheet's Record starts one when the sink probe
+succeeds and streams each one-second chunk as it arrives, the smart cube's
+capture header and every event go to `cube.jsonl` (`app/smart.ts`), the
+timer files each solve's host-clock window to `solves.jsonl`, and the
+capture that Stop triggers becomes `evidence.json` and closes the session.
+`node scripts/check-rig.mjs` exercises it headless with a fake camera.
 
 - The existing recorder (scan sheet `Record`: camera `.webm` + the
   evidence-log capture on one clock) gains the cube's events on the same

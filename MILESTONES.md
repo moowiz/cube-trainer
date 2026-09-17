@@ -391,12 +391,17 @@ export. The store (`web/src/store/`): IndexedDB always, with an optional
 Firestore sync (Google sign-in, per-user rules in `firebase/`, the SDK
 loaded only when sync is on). Checked headless: a replayed capture arms
 the timer at its own scramble, times the undo from the cube's stamps and
-saves the solve with its turns. Not yet: the recording rig (continuous
-video + cube events streamed to the dev server), the latency
-calibration, the fixture tool's cube truth, the reader numbers.
+saves the solve with its turns. **2026-09-17, later:** the recording
+rig's sink half is built and wired: the dev server's `/__recording`
+route, the page's ordered stream and session layer (`web/src/rig/`,
+`web/src/app/rig.ts`), and the scan sheet's Record streams video chunks,
+the cube's events and the evidence log into `recordings/<session>/` when
+the sink exists (the deployed site still downloads); the timer files each
+solve's window into the session. Not yet: the latency calibration, the
+fixture tool's cube truth, the reader numbers - all need the cube.
 
-**Housekeeping before M11 (candidates, 2026-09-17; the detailed plan with
-decision points is `docs/housekeeping-plan.md`):** (1) wrap the camera
+**Housekeeping before M11 - DONE 2026-09-17** (`docs/housekeeping-plan.md`
+has the status; the list below is what was proposed): (1) wrap the camera
 reader as a `MoveSource` and route follow mode through the same driver
 the cube uses, so the drills and the timer can be fed by the camera and
 M13 lands into one code path (half a day; the structural one); (2) rename

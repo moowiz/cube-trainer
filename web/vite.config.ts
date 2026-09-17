@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { createWriteStream, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { fileURLToPath } from 'node:url';
@@ -86,10 +86,16 @@ function recordingSink(): Plugin {
         if (parts.length !== 2 || !NAME.test(parts[0]!) || !NAME.test(parts[1]!)) { res.statusCode = 400; res.end('bad name'); return; }
         const dir = join(root, parts[0]!);
         mkdirSync(dir, { recursive: true });
-        const out = createWriteStream(join(dir, parts[1]!), { flags: url.searchParams.get('append') === '1' ? 'a' : 'w' });
-        req.pipe(out);
-        out.on('finish', () => { res.statusCode = 200; res.end('ok'); });
-        out.on('error', (err) => { res.statusCode = 500; res.end(String(err)); });
+        const file = join(dir, parts[1]!);
+        const append = url.searchParams.get('append') === '1';
+        // read the whole body, then one write: works the same over HTTP/1.1 (curl) and HTTP/2 (the browser)
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          try { (append ? appendFileSync : writeFileSync)(file, Buffer.concat(chunks)); res.statusCode = 200; res.end('ok'); }
+          catch (err) { res.statusCode = 500; res.end(String(err)); }
+        });
+        req.on('error', (err) => { res.statusCode = 500; res.end(String(err)); });
       });
     },
   };
