@@ -2,6 +2,7 @@
 // to the right paths, appends flagged, a failure retried once then counted,
 // and the probe says whether a sink exists.
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RecordingSession, sessionName } from '../src/rig/session';
 import { RecordingStream } from '../src/rig/stream';
 
 type Call = { url: string; method?: string; body?: unknown };
@@ -53,6 +54,32 @@ describe('RecordingStream', () => {
     await s.append('b.bin', 'y');
     expect(s.failed()).toBe(1);
     expect(s.count()).toBe(1);
+  });
+
+  it('a session names its files, keeps the meta current, and closes with the failure count', async () => {
+    const { f, calls } = fakeFetch(ok);
+    globalThis.fetch = f;
+    const s = new RecordingSession(new RecordingStream('2026-09-21-120400', '/'), { now: () => 1000, device: 'test' });
+    await s.writeMeta();
+    await s.videoChunk(new Blob(['v']), 1500.4);
+    await s.videoChunk(new Blob(['w']), 2500);
+    await s.cubeHeader({ version: 1 }, { name: 'GAN', protocol: 'gen2', scheme: { U: 'white' } });
+    await s.cubeHeader({ version: 1 }, { name: 'GAN', protocol: 'gen2', scheme: { U: 'white' } }); // once
+    await s.cubeEvent({ kind: 'move', t: 2000, move: 'R' });
+    await s.solve({ id: 'a', when: 1, t0: 1500, t1: 2500, scramble: 'R', time: 1000 });
+    await s.evidence('{"log":[]}');
+    const meta = await s.stop();
+    expect(calls.map((c) => c.url.replace('/__recording/2026-09-21-120400/', ''))).toEqual([
+      'meta.json', 'video.webm?append=1', 'video.webm?append=1', 'cube.jsonl?append=1', 'cube.jsonl?append=1', 'solves.jsonl?append=1', 'evidence.json', 'meta.json',
+    ]);
+    expect(calls[3].body).toBe('{"header":{"version":1}}\n');
+    expect(meta).toMatchObject({ version: 2, session: '2026-09-21-120400', t0: 1000, device: 'test', chunks: 2, chunkT: [1500, 2500], solves: 1, failed: 0, cube: { name: 'GAN' } });
+    expect(typeof meta.endedAt).toBe('number');
+    expect(JSON.parse(String(calls[7].body)).endedAt).toBe(meta.endedAt);
+  });
+
+  it('names a session from the clock', () => {
+    expect(sessionName(new Date(2026, 8, 21, 12, 4, 9))).toBe('2026-09-21-120409');
   });
 
   it('refuses bad names and probes the sink', async () => {
