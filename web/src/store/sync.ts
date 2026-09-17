@@ -6,7 +6,7 @@
 // (the later edit wins). Firebase itself loads lazily (firebase.ts).
 
 import type { Coll, Store } from './local';
-import type { SessionRecord, SolveRecord } from './types';
+import type { AttemptRecord, SessionRecord, SolveRecord } from './types';
 
 export interface SyncState {
   status: 'off' | 'loading' | 'signed-out' | 'syncing' | 'synced' | 'error';
@@ -17,11 +17,18 @@ export interface SyncState {
 }
 
 type FB = typeof import('./firebase');
-const COLLS: Coll[] = ['solves', 'sessions'];
+const COLLS: Coll[] = ['solves', 'sessions', 'attempts'];
 const ON_KEY = 'cube.sync.on';
 
 export function syncWanted(): boolean { try { return localStorage.getItem(ON_KEY) === '1'; } catch { return false; } }
 function setWanted(on: boolean): void { try { if (on) localStorage.setItem(ON_KEY, '1'); else localStorage.removeItem(ON_KEY); } catch { /* no storage */ } }
+
+/** How to fetch one record by id, per collection (sessions has no get-by-id on Store). */
+const getters: Record<Coll, (store: Store, id: string) => Promise<SolveRecord | SessionRecord | AttemptRecord | undefined>> = {
+  solves: (store, id) => store.getSolve(id),
+  sessions: async (store, id) => (await store.allSessions()).find((s) => s.id === id),
+  attempts: (store, id) => store.getAttempt(id),
+};
 
 export class Sync {
   private fb: FB | null = null;
@@ -107,7 +114,7 @@ export class Sync {
             if (at === null) continue; // our own pending write, not yet stamped by the server
             const rec = { ...data } as Record<string, unknown>;
             delete rec.updatedAt;
-            const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord);
+            const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord & AttemptRecord);
             if (applied === 'applied') pulled++;
             if (at > newest) newest = at;
           }
@@ -138,7 +145,7 @@ export class Sync {
         const batch = fb.writeBatch(fb.db);
         const done: typeof chunk = [];
         for (const { coll, id } of chunk) {
-          const rec = coll === 'solves' ? await this.store.getSolve(id) : (await this.store.allSessions()).find((s) => s.id === id);
+          const rec = await getters[coll](this.store, id);
           if (!rec) { await this.store.clearDirty(coll, id); continue; }
           batch.set(fb.doc(this.col(coll), id), { ...strip(rec), updatedAt: fb.serverTimestamp() });
           done.push({ coll, id });
