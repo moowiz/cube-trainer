@@ -395,7 +395,8 @@ saves the solve with its turns. Not yet: the recording rig (continuous
 video + cube events streamed to the dev server), the latency
 calibration, the fixture tool's cube truth, the reader numbers.
 
-**Housekeeping before M11 (candidates, 2026-09-17):** (1) wrap the camera
+**Housekeeping before M11 (candidates, 2026-09-17; the detailed plan with
+decision points is `docs/housekeeping-plan.md`):** (1) wrap the camera
 reader as a `MoveSource` and route follow mode through the same driver
 the cube uses, so the drills and the timer can be fed by the camera and
 M13 lands into one code path (half a day; the structural one); (2) rename
@@ -495,6 +496,11 @@ phone follows a real solve without the cube.
   anchoring, not as a corner refiner; no pose head at training time on this
   evidence. Tool and numbers: `tools/solve/cubefit.py`,
   `docs/solve-tracking-design.md` 9.
+
+- **Other puzzles (2x2-5x5, Skewb, Pyraminx, Megaminx).** Surveyed in
+  full 2026-09-17: `docs/other-puzzles-survey.md` (per puzzle, the
+  `Puzzle` abstraction everything needs, training data, an order with
+  estimates). The 2026-09-12 note below still holds for the cubes.
 
 - **Other cube sizes (2x2–5x5).** Assessed 2026-09-12: the detector output
   (4 corners + visibility per face) is size-agnostic, and the grid checker
