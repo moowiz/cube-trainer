@@ -89,8 +89,8 @@ describe('ScrambleTracker', () => {
 });
 
 describe('the local store', () => {
-  const solve = (over: Partial<SolveRecord> = {}): SolveRecord => ({ id: newId(), session: 's1', when: Date.now(), scramble: 'R', time: 10_000, penalty: 0, source: 'keyboard', editedAt: 1, ...over });
-  const session: SessionRecord = { id: 's1', name: 'main', createdAt: 1, editedAt: 1 };
+  const solve = (over: Partial<SolveRecord> = {}): SolveRecord => ({ id: newId(), puzzle: '333', session: 's1', when: Date.now(), scramble: 'R', time: 10_000, penalty: 0, source: 'keyboard', editedAt: 1, ...over });
+  const session: SessionRecord = { id: 's1', puzzle: '333', name: 'main', createdAt: 1, editedAt: 1 };
 
   it('keeps solves per session, marks them dirty, survives a reopen', async () => {
     const name = `t-${Math.random()}`;
