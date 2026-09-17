@@ -8,6 +8,10 @@
 
 export type Penalty = 0 | 2 | -1; // none, +2, DNF
 
+/** Which puzzle a record is for; only the 3x3 exists today, the rest are reserved names. */
+export type PuzzleId = '333' | '222' | '444' | '555' | 'skewb' | 'pyram' | 'minx';
+export const DEFAULT_PUZZLE: PuzzleId = '333';
+
 export interface SolveMove {
   /** the turn, WCA letters */
   m: string;
@@ -19,6 +23,7 @@ export interface SolveMove {
 
 export interface SolveRecord {
   id: string;
+  puzzle: PuzzleId;
   session: string;
   /** wall clock at the first turn (or the timer start), ms */
   when: number;
@@ -42,8 +47,38 @@ export interface SolveRecord {
 
 export interface SessionRecord {
   id: string;
+  puzzle: PuzzleId;
   name: string;
   createdAt: number;
+  editedAt: number;
+  deleted?: boolean;
+}
+
+export type AttemptStage = 'eo' | 'f2l' | 'ocll' | 'pll' | 'plan';
+
+export interface AttemptRecord {
+  id: string;
+  puzzle: PuzzleId;
+  stage: AttemptStage;
+  /** wall clock, ms */
+  when: number;
+  /** the scramble or setup the attempt started from, trainer letters */
+  scramble: string;
+  /** the moves typed or fed, as one alg string (trainer letters) */
+  moves: string;
+  /** ms, the drill's timer; null when the timer was not used */
+  time: number | null;
+  /** ms from the scramble being on the cube to the first turn, when a source fed the drill */
+  recognition?: number;
+  /** ms from the first to the last turn, when a source fed the drill */
+  execution?: number;
+  /** the case, when the stage has one (a last-layer case name) */
+  caseId?: string;
+  /** the optimal move count the drill knew, when it did */
+  optimal?: number;
+  /** the user peeked at a hint or a solution */
+  assisted: boolean;
+  source: 'typed' | 'cube' | 'camera';
   editedAt: number;
   deleted?: boolean;
 }
