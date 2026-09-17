@@ -1,5 +1,14 @@
 # Housekeeping plan before M11 (2026-09-17)
 
+**Status 2026-09-17, evening: items 1-5 done** (three by sonnet agents in
+worktrees, merged; the wiring and the split in the main thread), plus the
+recording sink, its client and session layer, and Record streaming to it;
+the `puzzle` field is on every record. The `Puzzle` abstraction was
+deferred by decision (`docs/other-puzzles-survey.md` 5: do it with the
+2x2). Not done from section 6: the M11 phase splitting. Decisions taken
+as proposed: unsure camera turns feed the drills (marked `?`), attempts
+sync like solves.
+
 The smart cube arrives Monday 2026-09-21. This is what to do with the
 three days before it: the cleanup that pays for M11 and M13, in the order
 that keeps every step shippable, plus what else can be built without the
