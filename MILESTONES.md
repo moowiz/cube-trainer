@@ -455,6 +455,19 @@ phone follows a real solve without the cube.
   (precache ~35 MB of wasm and models inside the isolation worker, plus an
   update prompt) - do it only when the app must open with no network.
 
+- **Timer extras csTimer has (written down 2026-09-17, not now),** in the
+  order they would matter: a time trend graph with the averages as lines
+  and a distribution histogram (~2 h); subset scrambles for timed sessions
+  (EOCross solved, last layer only, EO solved) from a constrained
+  random-state generator with parity tests (~3 h); a picture of the
+  scrambled state for hand scrambles (net renderer exists, ~30 min); a
+  previous-scramble button (matters more with next-by-itself, ~30 min);
+  solve details (copy the scramble, edit a comment, the move list) and
+  sessions renamed / deleted (~1 h); manual splits by Space for a plain
+  cube (low: the cube, and later the camera, give splits). Not copying:
+  inspection, the keyboard virtual cube, other puzzles, StackMat, online
+  competitions, csTimer's cross / EOLine solvers (the trainer's do more).
+
 - **Cube-pose fit - MEASURED 2026-09-13, scope narrowed.** Fitting a rigid
   cube (rotation + translation, focal fixed per camera) to the 2-3 detected
   quads does NOT sharpen corners: against hand labels the raw corners are
