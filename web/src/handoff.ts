@@ -9,6 +9,7 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
+import type { Move } from './moves/moves';
 import type { ColorName, FaceId } from './types';
 import { FACE_ORDER } from './types';
 
@@ -28,7 +29,7 @@ export interface Hold {
 }
 
 export { frameMap, relabel as relabelMoves } from './cube/frame';
-import { frameMap, invertMap, relabel } from './cube/frame';
+import { frameMap, invertMap, relabel, type FrameMap } from './cube/frame';
 
 /**
  * A scramble that reproduces the scanned cube when applied to a solved cube
@@ -66,4 +67,27 @@ export function diffFacelets(expected: string, got: readonly (string | null)[]):
   let read = 0;
   got.forEach((g, i) => { if (g === null || g === undefined) return; read++; if (g !== expected[i]) wrong.push(i); });
   return { read, wrong };
+}
+
+/**
+ * Turns called by a source's letters (`colourOf` = the colour of each), as the trainer's letters
+ * for a cube held `hold`. A turn is the same physical turn in either frame; only the face's name
+ * changes. Throws when the hold's colours are not on the source's faces, or not adjacent.
+ */
+export function relabelTurns(colourOf: Record<FaceId, ColorName>, moves: readonly Move[], hold: Hold): string {
+  return relabel(moves.join(' '), sourceToTrainer(colourOf, hold));
+}
+
+/** The other way: a trainer-frame alg as a source with these colours calls it. */
+export function toSourceLetters(colourOf: Record<FaceId, ColorName>, trainerAlg: string, hold: Hold): string {
+  return relabel(trainerAlg, invertMap(sourceToTrainer(colourOf, hold)));
+}
+
+function sourceToTrainer(colourOf: Record<FaceId, ColorName>, hold: Hold): FrameMap {
+  const letter = (c: ColorName): FaceId => {
+    const f = FACE_ORDER.find((k) => colourOf[k] === c);
+    if (!f) throw new Error(`the source has no ${c} centre`);
+    return f;
+  };
+  return frameMap(letter(hold.down), letter(hold.front));
 }

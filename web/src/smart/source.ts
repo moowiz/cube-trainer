@@ -7,7 +7,7 @@ import type { MoveEvent, MoveSource, ResyncItem, SourceItem } from '../moves/sou
 import type { ColorName, FaceId } from '../types';
 import { Capture, type CaptureEvent, type CaptureHeader } from './capture';
 import { ClockFit } from './clock';
-import { EMPTY_STATUS, reduce, type CubeStatus } from './sync';
+import { EMPTY_STATUS, reduce, type CubeStatus } from './belief';
 
 export class CubeSource implements MoveSource {
   readonly kind: 'cube' | 'replay';

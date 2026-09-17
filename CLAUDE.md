@@ -66,7 +66,7 @@ web/
                      consumer of turns reads (source.ts: cube / camera / typed / replay) and the drill
                      driver (drive.ts: arms at the scramble state, feeds the turns after it)
     smart/           the smart cube (docs/smart-cube-design.md): adapter.ts (the only file that imports
-                     smartcube-web-bluetooth), clock (two-clock fit), sync (the belief reducer), capture
+                     smartcube-web-bluetooth), clock (two-clock fit), belief (the belief reducer), capture
                      (JSONL + replay), source (CubeSource). Fixtures in test/fixtures/smart/; the headless
                      check `node scripts/check-smart.mjs` replays one through the built page
     timer/           the Solve tab (the timer that replaces csTimer): trainer (the tab), stats (averages,
@@ -80,9 +80,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner),
                      scramble (an optimal phase-2 solver: face-turn scrambles for PLL states), pic (the top-down
                      picture), reference (the case list sheet: pictures, algs with triggers, chains), trainer
-    handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check
-    follow.ts        following a solve: lock + turns read -> trainer scramble, turns relabelled between
-                     frames (relabelTurns), and the settled stage change
+    handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check;
+                     turns relabelled between frames (relabelTurns)
+    follow.ts        following a solve: lock + turns read -> trainer scramble, and the settled stage change
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
     main.ts          mounts every stage into index.html, wires the shell, bridges the scanner
     debug/           HSV/Lab views, frame dump, fps counter

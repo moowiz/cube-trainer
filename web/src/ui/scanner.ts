@@ -49,7 +49,7 @@ import type { EvidenceLog, Solution } from '../colour/types';
 import { ensureCrossOriginIsolated } from '../detect/coi';
 import type { Ep } from '../detect/facekp';
 import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from '../debug/detect-overlay';
-import { captureDebug, downloadBlob, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
+import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
 import { installDetectSelfTest } from '../debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/models';
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
@@ -61,6 +61,7 @@ import { mapUV, squareToQuad } from '../rectify';
 import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
 import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
+import { downloadBlob } from './download';
 import { persistControls } from './settings';
 import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
@@ -1292,7 +1293,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     recorder.addEventListener('stop', () => {
       const rec = recording!;
       rec.stoppedAt = Date.now();
-      downloadBlob(new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }), rec.file);
+      downloadBlob(rec.file, new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }));
       recChunks = [];
       recorder = null;
       recBtn.textContent = 'Record';
