@@ -274,6 +274,16 @@ graph, sessions renamed or deleted, and the recording rig below.
 
 ### 4.2 The recording rig (desktop)
 
+**Built 2026-09-17, the sink half:** `vite.config.ts` `recordingSink()`
+serves `/__recording/` (a probe) and `POST /__recording/<session>/<file>`
+with `?append=1` for appends, writing under `<repo>/recordings/<session>/`
+(gitignored: gigabytes, personal). `web/src/rig/stream.ts`
+`RecordingStream` is the page's client: one ordered queue of small POSTs,
+a retry then a failure count, `available()` false on the deployed site so
+the download path stays. Not yet wired into the scan sheet's recorder or
+the cube capture (that is the next step, after the reader-as-source
+cleanup lands, since both touch the same files).
+
 - The existing recorder (scan sheet `Record`: camera `.webm` + the
   evidence-log capture on one clock) gains the cube's events on the same
   clock (section 7, capture v2). With "record solves" on, every timed

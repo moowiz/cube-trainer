@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig, type Plugin } from 'vite';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import basicSsl from '@vitejs/plugin-basic-ssl';
 import { fileURLToPath } from 'node:url';
@@ -60,13 +60,48 @@ function captureSink(): Plugin {
   };
 }
 
+// Dev-only recording sink (docs/smart-cube-design.md 4.2): the page streams a
+// session's video chunks, cube events and captures here, one small POST at
+// a time, and they land under <repo>/recordings/<session>/ (gitignored), so
+// a crash loses nothing and the browser never holds a whole recording.
+//   GET  /__recording/                       -> 200 {ok, dir}   (the page probes this; 404 on Pages)
+//   POST /__recording/<session>/<file>       -> overwrite
+//   POST /__recording/<session>/<file>?append=1 -> append
+// Names are [A-Za-z0-9._-]; anything else is 400.
+function recordingSink(): Plugin {
+  const NAME = /^[A-Za-z0-9._-]{1,120}$/;
+  const root = p('../recordings/');
+  return {
+    name: 'recording-sink',
+    configureServer(server) {
+      server.middlewares.use('/__recording', (req, res) => {
+        const url = new URL(req.url ?? '/', 'http://x');
+        if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '')) {
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ ok: true, dir: root }));
+          return;
+        }
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length !== 2 || !NAME.test(parts[0]!) || !NAME.test(parts[1]!)) { res.statusCode = 400; res.end('bad name'); return; }
+        const dir = join(root, parts[0]!);
+        mkdirSync(dir, { recursive: true });
+        const out = createWriteStream(join(dir, parts[1]!), { flags: url.searchParams.get('append') === '1' ? 'a' : 'w' });
+        req.pipe(out);
+        out.on('finish', () => { res.statusCode = 200; res.end('ok'); });
+        out.on('error', (err) => { res.statusCode = 500; res.end(String(err)); });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   define: { __BUILD__: JSON.stringify(BUILD) },
   // GitHub Pages serves project sites from /<repo>/ — the deploy workflow
   // sets BASE_PATH accordingly. Local dev and plain builds stay at '/'.
   base: process.env.BASE_PATH ?? '/',
   // HTTPS: camera access requires a secure context on phones.
-  plugins: [basicSsl(), captureSink(), versionStamp()],
+  plugins: [basicSsl(), captureSink(), recordingSink(), versionStamp()],
   server: { host: true },
   build: {
     rollupOptions: {
