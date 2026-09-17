@@ -134,6 +134,20 @@ check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solv
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
 
+// ---- installable: the manifest the page links to resolves and has what Chrome asks for ----
+const manifest = await page.evaluate(async () => {
+  const link = document.querySelector('link[rel="manifest"]');
+  if (!link) return { error: 'no manifest link' };
+  const r = await fetch(link.href);
+  if (!r.ok) return { error: `manifest ${r.status}` };
+  const m = await r.json();
+  const icons = await Promise.all((m.icons ?? []).map(async (i) => ({ src: i.src, ok: (await fetch(new URL(i.src, link.href))).ok })));
+  return { name: m.name, display: m.display, start_url: m.start_url, icons };
+});
+console.log(JSON.stringify(manifest));
+check(!manifest.error && manifest.display === 'standalone' && !!manifest.name && !!manifest.start_url, 'the manifest is served with name, start_url and standalone display');
+check(!manifest.error && manifest.icons.length >= 2 && manifest.icons.every((i) => i.ok), 'every manifest icon is served');
+
 await browser.close();
 server.close();
 console.log(failed ? `${failed} check(s) FAILED` : 'all checks passed');

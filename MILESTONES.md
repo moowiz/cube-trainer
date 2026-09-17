@@ -448,8 +448,12 @@ phone follows a real solve without the cube.
   (metronome with adherence, TPS cap, pause flags, blind execution), LLM
   commentary over the abstract solve record (opt-in), alg spaced
   repetition and bigger last-layer sets (COLL / ZBLL), gestures on the
-  cube, sounds, PWA install. Catalogue with sizes:
-  `docs/smart-cube-trainer-survey.md` 3. No social features.
+  cube. Catalogue with sizes: `docs/smart-cube-trainer-survey.md` 3. No
+  social features. Installable as a PWA since 2026-09-17 (manifest +
+  icons; the isolation service worker satisfies the install check);
+  offline caching of the app is NOT done and is the expensive half
+  (precache ~35 MB of wasm and models inside the isolation worker, plus an
+  update prompt) - do it only when the app must open with no network.
 
 - **Cube-pose fit - MEASURED 2026-09-13, scope narrowed.** Fitting a rigid
   cube (rotation + translation, focal fixed per camera) to the 2-3 detected
