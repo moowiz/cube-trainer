@@ -18,8 +18,8 @@ export interface Stage {
   scramble(): string | null;
   /** A fresh random scramble / case. */
   newScramble(): void;
-  /** The turns made so far on a cube that was at this stage's scramble (trainer letters), at host time `t`; true once they reach the target. */
-  feed?(text: string, t: number): boolean;
+  /** The turns made so far on a cube that was at this stage's scramble (trainer letters), at host time `t`, from a smart cube or the camera; true once they reach the target. */
+  feed?(text: string, t: number, source?: 'cube' | 'camera'): boolean;
   /** The cube that feeds this stage reached its scramble at host time `t` (inspection may start). */
   armed?(t: number): void;
   /** The belief of the cube that feeds this stage changed (its letters coloured `colourOf`), before arming too. */

@@ -29,6 +29,9 @@ export class DrillDriver {
 
   isArmed(): boolean { return this.armed && !this.done; }
 
+  /** Forget everything (the source changed): the next step() starts over from that source's current items. */
+  reset(): void { this.key = null; this.armed = false; this.done = false; this.cursor = 0; this.start = 0; }
+
   /** The attempt ended (the stage judged it): further turns are ignored until the next scramble. */
   finish(): void { this.done = true; }
 

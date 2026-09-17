@@ -34,7 +34,7 @@ export function mountEO(root: HTMLElement): Stage {
   const goal = () => GOALS[settings.goal] ?? GOALS.eo;
 
   const drill: Drill = mountDrill(root, {
-    id: 'eo', title: 'EO trainer', blurb: '', newLabel: 'New scramble',
+    id: 'eo', stage: 'eo', title: 'EO trainer', blurb: '', newLabel: 'New scramble',
     hints: [{ key: 'bad', label: 'Hint: bad edges' }, { key: 'len', label: 'Hint: move count' }, { key: 'plan', label: 'Hint: F/B plan' }],
     afterHints: '<div class="eo-note eo-stratnote" id="eo-strat" hidden></div>',
     movesLabel: 'Moves you did (EO, then the cross)', placeholder: "e.g. F R' B U F  R2 D L' D2",
@@ -128,7 +128,12 @@ export function mountEO(root: HTMLElement): Stage {
       render(); return;
     }
     const done = settings.goal === 'cross' ? rep.cross === 4 : true;
-    if (done && !recorded) { recorded = true; results.push({ t: t ?? 0, n, opt: settings.goal === 'cross' && xsol ? xsol.length : solution.length }); }
+    if (done && !recorded) {
+      recorded = true;
+      const opt = settings.goal === 'cross' && xsol ? xsol.length : solution.length;
+      results.push({ t: t ?? 0, n, opt });
+      drill.save({ scramble, moves: toks.join(' '), optimal: opt, assisted });
+    }
     const optX = xsol ? `, optimal EOCross is ${xsol.length}` : '';
     if (rep.cross < 4) {
       drill.result.show(`EO solved${ts}`, `${n} moves so far (optimal EO is ${solution.length}${optX}). Cross is ${rep.cross}/4: add the cross moves to hand the cube to F2L.`);
@@ -307,5 +312,5 @@ export function mountEO(root: HTMLElement): Stage {
   newScramble();
   drill.setShowLabel(solLabel());
 
-  return { load, render, scramble: () => scramble, newScramble, feed: (text, t) => drill.feed(text, t) };
+  return { load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t) };
 }

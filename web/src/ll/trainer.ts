@@ -38,7 +38,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const drill = mountDrill(root, {
-    id: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
+    id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
     hints: [{ key: 'name', label: 'Hint: case name' }, { key: 'look', label: 'Hint: what to look for' }],
     movesLabel: 'Moves you did', placeholder: kind === 'pll' ? "e.g. U R U R' U' R' F R2 U' R' U' R U R' F' U2" : "e.g. U2 R U R' U R U2 R'",
     note: 'Solve it on your cube. Space starts and stops the timer, N is a new case.',
@@ -143,7 +143,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       drill.result.show(`${TITLE[kind]} not done yet`, rep.pairs < 4 ? `F2L is broken (${rep.pairs}/4 pairs).` : rep.eoBad ? `${rep.eoBad} edge${rep.eoBad === 1 ? ' is' : 's are'} flipped.` : !rep.ocll ? 'Some corners are still not oriented.' : 'The last layer is not permuted yet.');
       render(); return;
     }
-    if (!recorded) { recorded = true; results.push({ t: t ?? 0, n, std: sol ? moveCount(algPlain()) : n }); }
+    if (!recorded) {
+      recorded = true;
+      results.push({ t: t ?? 0, n, std: sol ? moveCount(algPlain()) : n });
+      drill.save({ scramble: setup, moves: toks.join(' '), optimal: sol ? moveCount(algPlain()) : undefined, caseId: sol?.case.name, assisted });
+    }
     drill.result.show(`${TITLE[kind]} done in ${n} moves${ts}`, (sol ? `Case: ${sol.case.name}. The standard alg is ${moveCount(algPlain())} moves.` : '') + note + (assisted ? ' You peeked at the alg.' : ''));
     putAlgLine();
     if (kind === 'ocll' && stages.pll) {
@@ -177,5 +181,5 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t) => drill.feed(text, t) };
+  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t) };
 }

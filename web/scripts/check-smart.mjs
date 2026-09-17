@@ -92,6 +92,13 @@ check(after.box.trim() === inverse(TRAINER_SCRAMBLE).split(/\s+/).flatMap((m) =>
 check(after.result && /EOCross done/i.test(after.title), `the drill checked itself at the goal: "${after.title}"`);
 check(Math.abs(Number(after.timer) - ((solveTurns - 1) * 180) / 1000) < 0.02, `the timer ran from the first to the last turn of the solve (${after.timer} s)`);
 
+// the drill filed its attempt with the store
+const attempts = await page.evaluate(() => window.ZZ.store.attempts());
+console.log(JSON.stringify(attempts.map((a) => ({ stage: a.stage, source: a.source, time: a.time, execution: a.execution, moves: a.moves, optimal: a.optimal, puzzle: a.puzzle }))));
+check(attempts.length === 1 && attempts[0].stage === 'eo' && attempts[0].source === 'cube' && attempts[0].puzzle === '333', 'one EO attempt filed, from the cube, for the 3x3');
+check(attempts[0]?.time === 900 && attempts[0]?.execution === 900, `the attempt's time and execution are the cube's 0.90 s (${attempts[0]?.time}, ${attempts[0]?.execution})`);
+check(attempts[0]?.moves === after.box, 'the attempt holds the moves');
+
 // the Cube sheet shows the belief
 await page.click('#cube-open');
 const sheet = await page.evaluate(() => ({

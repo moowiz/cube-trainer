@@ -84,7 +84,13 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      turns relabelled between frames (relabelTurns)
     follow.ts        following a solve: lock + turns read -> trainer scramble, and the settled stage change
     stage.ts         which ZZ stage a cube is at (EO / F2L / OCLL / PLL), off a facelet string
-    main.ts          mounts every stage into index.html, wires the shell, bridges the scanner
+    main.ts          mounts every stage into index.html, wires the shell, starts the app modules
+    app/             the page's wiring (docs/housekeeping-plan.md 3): context (hold, store, last scan),
+                     sources (the active MoveSource + the drill driver over it), smart (the cube, the
+                     Cube sheet's live view, ZZ.smart), scanner-bridge (locks, follow mode, the reader
+                     as a source, Record -> rig), sync-ui (the settings row), rig (the recording session)
+    rig/             the recording rig's client: stream (ordered POSTs to the dev server's sink),
+                     session (one folder per sitting: video chunks, cube events, solves, evidence)
     debug/           HSV/Lab views, frame dump, fps counter
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
