@@ -12,13 +12,13 @@ import Cube from 'cubejs';
 import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
-import { toSourceLetters } from '../follow';
-import type { Hold } from '../handoff';
+import { toSourceLetters, type Hold } from '../handoff';
 import { sheetOpen, toast, type Stage } from '../shell';
 import { solveState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
 import type { ColorName, FaceId } from '../types';
+import { downloadText } from '../ui/download';
 import { exportCsTimer, importCsTimer } from './cstimer';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
@@ -278,17 +278,13 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       await loadSessions();
     } catch (err) { toast(`Import failed: ${err instanceof Error ? err.message : err}`); }
   });
-  const download = (name: string, text: string, type = 'application/json') => {
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-  };
   hist('hist-export')?.addEventListener('click', async () => {
     const st = await deps.store;
-    download(`cube-coach-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 1, sessions: await st.allSessions(), solves: await st.allSolves() }));
+    downloadText(`cube-coach-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 1, sessions: await st.allSessions(), solves: await st.allSolves() }));
   });
   hist('hist-export-cs')?.addEventListener('click', async () => {
     const st = await deps.store;
-    download(`cstimer-${new Date().toISOString().slice(0, 10)}.txt`, exportCsTimer(await st.allSessions(), await st.allSolves()), 'text/plain');
+    downloadText(`cstimer-${new Date().toISOString().slice(0, 10)}.txt`, exportCsTimer(await st.allSessions(), await st.allSolves()), 'text/plain');
   });
 
   // settings segments in the sheet

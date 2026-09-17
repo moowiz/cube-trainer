@@ -10,9 +10,9 @@ import { faceColorName } from './cube/scheme';
 import { SOLVED } from './cube/state';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
-import { followReport, followScramble, relabelTurns, StageFollower } from './follow';
+import { followReport, followScramble, StageFollower } from './follow';
 import { invertMap } from './cube/frame';
-import { diffFacelets, expectedFacelets, frameMap, relabelMoves, trainerScramble, type Hold, type ScannedCube } from './handoff';
+import { diffFacelets, expectedFacelets, frameMap, relabelMoves, relabelTurns, trainerScramble, type Hold, type ScannedCube } from './handoff';
 import { mountLL } from './ll/trainer';
 import { DrillDriver } from './moves/drive';
 import { applySeq, type Move } from './moves/moves';
@@ -28,6 +28,7 @@ import { Sync, syncWanted, type SyncState } from './store/sync';
 import { mountTimer } from './timer/trainer';
 import { COLOR_NAMES, DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from './types';
 import { mountCubeView } from './ui/cubeview';
+import { downloadText } from './ui/download';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
 
 const panel = (id: string): HTMLElement => {
@@ -205,14 +206,6 @@ let cube: CubeSource | null = null;     // the connected cube, or a replayed cap
 let lastScan: ScannedCube | null = null;
 const driver = new DrillDriver();
 
-function downloadText(name: string, text: string): void {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
-}
-
 const cubeView = mountCubeView(panel('cube-panel'), {
   bluetooth: bluetoothAvailable(),
   connect: connectSmartCube,
@@ -229,7 +222,7 @@ const cubeView = mountCubeView(panel('cube-panel'), {
     refreshCubeView();
   },
   hasScan: () => lastScan !== null,
-  save() { if (cube) downloadText(`smart-${cube.capture.header.startedAt}.jsonl`, cube.capture.toJSONL()); },
+  save() { if (cube) downloadText(`smart-${cube.capture.header.startedAt}.jsonl`, cube.capture.toJSONL(), 'application/x-ndjson'); },
   hold,
 });
 
