@@ -9,6 +9,8 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
   const r = e.request;
   if (r.cache === 'only-if-cached' && r.mode !== 'same-origin') return;
+  // the sign-in page needs its popup to reach window.opener, which COOP same-origin severs: serve it as is
+  if (r.mode === 'navigate' && new URL(r.url).pathname.endsWith('/signin.html')) return;
   e.respondWith(fetch(r).then((res) => {
     if (res.status === 0 || res.type === 'opaque') return res;
     const h = new Headers(res.headers);
