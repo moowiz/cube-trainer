@@ -23,7 +23,10 @@ import { exportCsTimer, importCsTimer } from './cstimer';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
 
-interface Settings { inspection: 'off' | '15'; autonext: 'off' | 'on'; beep: 'off' | 'on' }
+// DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
+// timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
+// still recorded on the solve for later.
+interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on' }
 const SETTINGS_KEY = 'zz-timer-settings';
 const SESSION_META = 'timer/session';
 
@@ -32,7 +35,8 @@ export interface TimerDeps {
   hold(): Hold;
 }
 
-type Phase = 'idle' | 'inspecting' | 'solving';
+/** ready = the scramble is on the cube (or Space was pressed once with inspection): the first turn starts the timer */
+type Phase = 'idle' | 'ready' | 'solving';
 
 const STYLE = `
   .tm { max-width: 560px; margin: 0 auto; }
@@ -65,7 +69,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   if (!document.getElementById('timer-style')) {
     const s = document.createElement('style'); s.id = 'timer-style'; s.textContent = STYLE; document.head.appendChild(s);
   }
-  const settings: Settings = { inspection: '15', autonext: 'on', beep: 'on' };
+  const settings: Settings = { autonext: 'on', beep: 'on' };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
 
@@ -142,7 +146,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
 
   function armed(t: number): void {
     if (phase === 'solving') return;
-    phase = 'inspecting'; armedAt = t; startAt = null; moves = [];
+    phase = 'ready'; armedAt = t; startAt = null; moves = [];
     beep(880, 70);
     render();
   }
@@ -151,7 +155,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function feed(text: string, t: number): boolean {
     const txt = text.trim();
     if (!txt) { // back at the scramble: the attempt starts over
-      phase = 'inspecting'; armedAt ??= t; startAt = null; moves = [];
+      phase = 'ready'; armedAt ??= t; startAt = null; moves = [];
       render(); return false;
     }
     let toks: string[];
@@ -170,14 +174,13 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (startAt === null) return;
     const time = Math.max(0, Math.round(tEnd - startAt));
     const inspection = armedAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
-    let penalty: Penalty = 0;
-    if (settings.inspection === '15' && inspection !== undefined) penalty = inspection > 17_000 ? -1 : inspection > 15_000 ? 2 : 0;
+    const penalty: Penalty = 0; // +2 / DNF are the buttons under the time, never automatic
     const rec: SolveRecord = {
       id: newId(), session: session?.id ?? 'main', when: Date.now() - (performance.now() - startAt), scramble, time, penalty,
       moves: source === 'cube' ? moves.slice() : undefined, source, inspection, editedAt: Date.now(),
     };
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
-    lastLine = `${formatTime(effectiveTime(rec))}${penalty === 2 ? ' (+2)' : ''}${tps}${inspection !== undefined ? ` · inspection ${(inspection / 1000).toFixed(1)} s` : ''}`;
+    lastLine = `${formatTime(effectiveTime(rec))}${tps}`;
     resetAttempt();
     beep(1320, 120);
     void deps.store.then((st) => st.putSolve(rec)).then(() => { selected = rec.id; });
@@ -185,7 +188,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (settings.autonext === 'on') newScramble();
   }
 
-  // ---- keyboard: Space starts inspection / the solve / stops it; Esc cancels; n new ----
+  // ---- keyboard: Space starts the solve and stops it; Esc cancels; n new ----
   const active = () => !root.hidden && !sheetOpen();
   document.addEventListener('keydown', (ev) => {
     if (!active() || ev.metaKey || ev.ctrlKey || ev.altKey) return;
@@ -193,12 +196,9 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (ev.key === ' ') {
       ev.preventDefault();
       const now = performance.now();
-      if (phase === 'idle') {
-        if (!scramble) return;
-        if (settings.inspection === '15') { phase = 'inspecting'; armedAt = now; startAt = null; }
-        else { phase = 'solving'; startAt = now; source = 'keyboard'; moves = []; }
-      } else if (phase === 'inspecting') { phase = 'solving'; startAt = now; source = 'keyboard'; moves = []; }
-      else { source = 'keyboard'; finish(now); return; }
+      if (phase === 'solving') { source = 'keyboard'; finish(now); return; }
+      if (!scramble) return;
+      phase = 'solving'; startAt = now; source = 'keyboard'; moves = [];
       render();
     } else if (ev.key === 'Escape') { resetAttempt(); render(); }
     else if (ev.key.toLowerCase() === 'n') newScramble();
@@ -334,12 +334,9 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function renderTime(): void {
     const el = $('time');
     el.className = 'tm-time';
-    if (phase === 'inspecting' && armedAt !== null) {
-      const left = 15 - (performance.now() - armedAt) / 1000;
+    if (phase === 'ready') {
       el.classList.add('insp');
-      if (settings.inspection !== '15') el.textContent = 'ready';
-      else if (left > 0) { el.textContent = String(Math.ceil(left)); if (left < 3) el.classList.add('warn'); }
-      else { el.textContent = left > -2 ? '+2' : 'DNF'; el.classList.add('warn'); }
+      el.textContent = 'ready';
     } else if (phase === 'solving' && startAt !== null) {
       el.textContent = formatTime(performance.now() - startAt, 1);
     } else {
@@ -351,9 +348,9 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     renderScramble();
     renderTime();
     const st = $('state');
-    if (phase === 'inspecting') st.textContent = settings.inspection === '15' ? 'Inspect · the first turn starts the timer' : 'The first turn starts the timer';
+    if (phase === 'ready') st.textContent = 'Scrambled · the first turn starts the timer';
     else if (phase === 'solving') st.textContent = 'Solving…';
-    else st.textContent = lastLine || (track ? 'Scramble the cube' : 'Space starts inspection, Space again the solve, Space stops it');
+    else st.textContent = lastLine || (track ? 'Scramble the cube' : 'Space starts the timer, Space stops it');
     // the last (or selected) solve's controls
     const cur = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
     $('last').hidden = !cur || phase !== 'idle';

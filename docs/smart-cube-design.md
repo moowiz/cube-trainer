@@ -257,8 +257,10 @@ file both ways, `track.ts` scramble following) and `web/src/store/`
 import, loaded lazily). The driver's `armed` and `watch` hooks on
 `Stage` carry the cube's belief and the arming moment to the tab. Records
 are in WCA notation (a standard smart cube's own letters). Decisions:
-inspection starts at the moment the scramble is matched (no put-down /
-pick-up gesture: the loop is hands-free); the next scramble is
+**no inspection countdown and no inspection penalties** (user,
+2026-09-17: start at the first turn, stop at solved; +2 / DNF are buttons
+only); the gap from "scrambled" to the first turn is still stored on the
+solve as `inspection` for later; the next scramble is
 prefetched so it appears the instant a solve ends; the sync pulls with a
 snapshot listener on `updatedAt > last seen` (server timestamps) and
 pushes dirty records in batches of 400. Firestore rules:
