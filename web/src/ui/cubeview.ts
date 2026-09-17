@@ -16,7 +16,7 @@ import { faceColorName, faceHex } from '../cube/scheme';
 import { SOLVED } from '../cube/state';
 import type { Hold } from '../handoff';
 import type { SourceKind } from '../moves/source';
-import type { CubeStatus } from '../smart/sync';
+import type { CubeStatus } from '../smart/belief';
 import { FACE_ORDER, type ColorName, type FaceId } from '../types';
 
 export interface Belief {

@@ -8,11 +8,10 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
-import { frameMap, invertMap, relabel, type FrameMap } from './cube/frame';
-import { trainerScramble, type Hold, type ScannedCube } from './handoff';
+import { relabelTurns, trainerScramble, type Hold, type ScannedCube } from './handoff';
 import type { Move } from './moves/moves';
 import { stageOf, type Stage, type StageReport } from './stage';
-import { FACE_ORDER, type ColorName, type FaceId } from './types';
+import type { ColorName, FaceId } from './types';
 
 /**
  * The trainer-frame scramble that reaches the followed cube: the lock's
@@ -24,29 +23,6 @@ export function followScramble(scan: ScannedCube, moves: readonly Move[], hold: 
   if (moves.length === 0) return base;
   const turned = relabelTurns(scan.colourOf, moves, hold);
   return base ? `${base} ${turned}` : turned;
-}
-
-/**
- * Turns called by a source's letters (`colourOf` = the colour of each), as the trainer's letters
- * for a cube held `hold`. A turn is the same physical turn in either frame; only the face's name
- * changes. Throws when the hold's colours are not on the source's faces, or not adjacent.
- */
-export function relabelTurns(colourOf: Record<FaceId, ColorName>, moves: readonly Move[], hold: Hold): string {
-  return relabel(moves.join(' '), sourceToTrainer(colourOf, hold));
-}
-
-/** The other way: a trainer-frame alg as a source with these colours calls it. */
-export function toSourceLetters(colourOf: Record<FaceId, ColorName>, trainerAlg: string, hold: Hold): string {
-  return relabel(trainerAlg, invertMap(sourceToTrainer(colourOf, hold)));
-}
-
-function sourceToTrainer(colourOf: Record<FaceId, ColorName>, hold: Hold): FrameMap {
-  const letter = (c: ColorName): FaceId => {
-    const f = FACE_ORDER.find((k) => colourOf[k] === c);
-    if (!f) throw new Error(`the source has no ${c} centre`);
-    return f;
-  };
-  return frameMap(letter(hold.down), letter(hold.front));
 }
 
 /** The stage a trainer-frame scramble leaves the cube at. */
