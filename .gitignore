@@ -41,3 +41,5 @@ model/data_v5_part*/
 model/gen/logs/
 # the recording rig's sessions (video + cube events; gigabytes, personal): local only
 recordings/
+# agent worktrees (Claude Code)
+.claude/worktrees/
