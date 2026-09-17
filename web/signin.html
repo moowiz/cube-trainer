@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in</title>
+<style>
+  :root { --bg: #ECEEF2; --panel: #F7F8FA; --ink: #1B222C; --ink-2: #5A6472; --line: #D3D8E0; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; }
+  main { max-width: 420px; margin: 12vh auto; padding: 0 18px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  p { color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+  button { font: inherit; font-size: 16px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: #fff; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  a { color: var(--ink); }
+  #status { min-height: 22px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sync times</h1>
+  <p>Sign in with Google to keep your solves in the cloud and share them between the phone and the desktop. Nothing but the solve records goes up.</p>
+  <button id="go" type="button">Continue with Google</button>
+  <p id="status"></p>
+  <p><a id="back" href="./">Back to the trainer</a></p>
+</main>
+<script type="module" src="/src/signin.ts"></script>
+</body>
+</html>

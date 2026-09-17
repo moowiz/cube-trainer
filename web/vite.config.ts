@@ -73,6 +73,7 @@ export default defineConfig({
       input: {
         main: p('index.html'),
         label: p('label.html'),
+        signin: p('signin.html'),
       },
     },
   },

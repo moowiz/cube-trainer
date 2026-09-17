@@ -262,8 +262,13 @@ pick-up gesture: the loop is hands-free); the next scramble is
 prefetched so it appears the instant a solve ends; the sync pulls with a
 snapshot listener on `updatedAt > last seen` (server timestamps) and
 pushes dirty records in batches of 400. Firestore rules:
-`firebase/firestore.rules`. Not built: a time graph, sessions renamed or
-deleted, and the recording rig below.
+`firebase/firestore.rules`. Sign-in happens on `signin.html`: the app
+runs cross-origin isolated (COOP same-origin, for wasm threads), which
+cuts a popup off from its opener and made the in-app popup end in
+`auth/popup-closed-by-user` on the first try (2026-09-17); the service
+worker serves the sign-in page without those headers and the app reads
+the user back from the shared IndexedDB persistence. Not built: a time
+graph, sessions renamed or deleted, and the recording rig below.
 
 ### 4.2 The recording rig (desktop)
 

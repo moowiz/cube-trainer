@@ -50,12 +50,16 @@ export class Sync {
     window.addEventListener('online', () => this.schedulePush());
   }
 
-  async signIn(): Promise<void> {
+  /**
+   * Sign in on signin.html and come back. The app runs cross-origin isolated (COOP same-origin, for
+   * wasm threads), which cuts a popup off from its opener and makes an in-app popup sign-in fail
+   * with auth/popup-closed-by-user; the sign-in page is served without those headers and shares
+   * this origin's auth persistence, so start() finds the user on return.
+   */
+  signIn(): Promise<void> {
     setWanted(true);
-    await this.start();
-    if (!this.fb) return;
-    try { await this.fb.signInWithGoogle(); }
-    catch (err) { this.set({ status: 'error', error: `Sign-in failed: ${err instanceof Error ? err.message : err}` }); }
+    location.href = `${import.meta.env.BASE_URL}signin.html?return=${encodeURIComponent(location.pathname + location.search)}`;
+    return Promise.resolve();
   }
 
   async signOut(): Promise<void> {
