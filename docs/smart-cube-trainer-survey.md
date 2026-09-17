@@ -492,3 +492,11 @@ if the bundle matters. cubing.js is *not* needed (we have `cube/`).
 10. **LLM commentary** over the solve record: still wanted as an opt-in?
 11. **Gyro / 3D live view / sounds / PWA install**: any of these matter to
     you, or are they polish for later?
+
+**Answered 2026-09-16** (the design is `docs/smart-cube-design.md`):
+GAN356 i Carry E (no gyro); Android phone and desktop Chrome with the
+webcam; everything is useful, no ranking; ZZ with EOCross; replace csTimer;
+keep and calibrate the camera reader, and learn a video move model from
+cube-labelled recordings (the cube is temporary: a labelling instrument);
+lookahead tools written down, not now; planning drills yes; no social; LLM
+opt-in; the live view of the app's belief yes; PWA nice, not needed.

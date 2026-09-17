@@ -12,6 +12,14 @@ never been run as a checklist. Work in flight is the solve coach
 move reader yet. Deployed models: `cubebox` = box17, `facekp` = kpft8
 (`model/README.md` "Deployed").
 
+**Update (2026-09-16):** a GAN356 i Carry E smart cube is on order. It is a
+labelling instrument, not the product: ground truth for the camera move
+reader and training data for a video move model, plus the timer that
+replaces csTimer so that every desk solve records itself. The plan is
+M9-M13 below; decisions and design in `docs/smart-cube-design.md`, the
+landscape and the full feature catalogue in
+`docs/smart-cube-trainer-survey.md`. **Current milestone: M9.**
+
 ---
 
 ## M0 — Skeleton ✅ (done 2026-09)
@@ -326,7 +334,102 @@ a fixture, then close this.
 
 ---
 
+## M9 — Cube in the loop (current; design: `docs/smart-cube-design.md` 3)
+
+Every consumer of moves (drills, follow mode, the live view, later the
+timer and the analysis) takes a `MoveSource`; the smart cube, the camera
+reader, the typed moves box and a capture replay are the four sources.
+`web/src/smart/`: adapter over `smartcube-web-bluetooth` (MIT), the
+two-clock timestamp fit, the belief vs the cube's own report, resync three
+ways (solved / a scan lock / a fix alg), JSONL capture + replay. A live
+view of the app's belief (3D + net, animated per move, source badge) in the
+scan sheet's dock and as its own sheet. Drills fill their moves box from
+the source, start the timer on the first turn and Check themselves when
+`stage.ts` says the target holds.
+
+Everything but the adapter's first run can be built before the cube
+arrives (the camera reader as a source gives follow mode the live view
+today). The cube has no gyro: the view is in the trainer's hold.
+
+**Done when:** the i Carry E connects on the phone and on desktop Chrome;
+each turn shows on the live view within ~100 ms; a deliberately drifted
+cube is resynced from a scan lock; a captured session replays through the
+tests; the EO drill completes itself from cube turns.
+
+---
+
+## M10 — Timer and recording rig (design doc 4)
+
+The "Solve" tab replaces csTimer: random-state scrambles, scramble
+following with a misturn fix, inspection, auto start/stop, penalties,
+ao5/12/50/100, PBs, a graph, IndexedDB sessions with the full move stream
+per solve, csTimer import/export. On the desktop with the webcam on, every
+timed solve records itself: `.webm` + evidence log + cube events on one
+clock (capture v2, design doc 7). Once per cube and device: the cube's
+report latency and skew measured on camera. `moves_fixture.py --truth
+cube`. Then the first honest calibration of `web/src/moves/` over the
+labelled recordings (turns read, false turns, gaps, timing error,
+certificate calibration), written into `docs/solve-tracking-design.md`.
+
+**Done when:** csTimer is retired with its history imported; twenty
+solves exist as cube-labelled recordings; the reader's numbers are written
+down.
+
+---
+
+## M11 — ZZ analysis and coaching (design doc 6.1)
+
+`web/src/analysis/`, pure functions over a solve record, tested on
+recordings: phase splits from `stage.ts` predicates (EO, EOCross, pairs
+1-4 in solved order, OCLL, PLL, AUF) with time / moves / TPS / recognition
+vs execution each; pauses located in phase and pair; EO and EOCross
+compared to optimal for the scramble, pairs and last-layer algs to their
+tables, executed alg identified up to AUF with misturns; case tagging into
+a per-case memory; the bottleneck card against the user's own median;
+trends per session. A replay scrubber over the live view.
+
+**Done when:** every solve in the store shows its splits and the card,
+and a week of solves has a trend line.
+
+---
+
+## M12 — Planning drills and cube-judged drills (design doc 6.2)
+
+EOCross planning (unlimited timed inspection, optional declared plan,
+judged: solved / moves vs optimal / planned vs executed / inspection vs
+8 s), EOCross+1 (planned slot vs done, the transition pause), and
+recognition vs execution per attempt in the four stage tabs feeding the
+per-case memory.
+
+**Done when:** a planning session's attempts are stored with their
+verdicts and the stage tabs show recognition and execution separately.
+
+---
+
+## M13 — Video move model (design doc 5; start once M10 has a few dozen solves)
+
+A twist head on stage 2 (which layer is mid-turn, which way, how far),
+trained synthetic-first (the generator's layer twist opened to 0-90
+degrees, motion blur, hands) and fine-tuned on cube-labelled frames,
+consumed by the beam reader as one more evidence channel; the video-window
+model is the fallback if the single-frame twist signal is too weak under
+blur. Exported inside `facekp.onnx`, the camera becomes a complete
+`MoveSource`, the cube goes in a drawer.
+
+**Done when:** on held-out real recordings the reader with the twist
+channel beats the M10 baseline on turns read, false turns and gaps, and a
+phone follows a real solve without the cube.
+
+---
+
 ## Later / maybe (post-M8 — everything above stays 3x3-only until then)
+
+- **Trainer extras, written down (2026-09-16), not now:** lookahead tools
+  (metronome with adherence, TPS cap, pause flags, blind execution), LLM
+  commentary over the abstract solve record (opt-in), alg spaced
+  repetition and bigger last-layer sets (COLL / ZBLL), gestures on the
+  cube, sounds, PWA install. Catalogue with sizes:
+  `docs/smart-cube-trainer-survey.md` 3. No social features.
 
 - **Cube-pose fit - MEASURED 2026-09-13, scope narrowed.** Fitting a rigid
   cube (rotation + translation, focal fixed per camera) to the 2-3 detected
