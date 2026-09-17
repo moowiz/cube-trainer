@@ -49,6 +49,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="eo-scramble" id="${id('setup')}"></div>
       <p class="eo-note" id="${id('orient')}"></p>`,
   }, { onNew: newCase, onCheck: check, onHint: hintText, onShow: onShow, onClear: () => { shown = null; render(); },
+    // a cube feeding the box is done when the case is (the AUF included: it is timed too)
+    isDone: (txt) => { try { return done(kind, `${setup} ${tokens(txt).join(' ')}`); } catch { return false; } },
     base: () => setup, onApply: (alg) => { shown = `${setup} ${alg}`; render(); } });
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
@@ -175,5 +177,5 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase };
+  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t) => drill.feed(text, t) };
 }

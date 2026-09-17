@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "cubejs": "^1.3.2",
-    "onnxruntime-web": "^1.29.0"
+    "onnxruntime-web": "^1.29.0",
+    "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

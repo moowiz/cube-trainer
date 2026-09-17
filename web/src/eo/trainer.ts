@@ -51,7 +51,9 @@ export function mountEO(root: HTMLElement): Stage {
       <div class="eo-scramble" id="eo-scramble"></div>
       <p class="eo-note" id="eo-orient"></p>`,
   }, { onNew: newScramble, onCheck: check, onHint: hintText, onShow: onShow, onHintsClick: onHintsClick, onKey: onKey, onClear: () => { shown = null; render(); },
-    base: () => scramble, onApply: (alg) => { shown = state(`${scramble} ${alg}`); render(); } });
+    base: () => scramble, onApply: (alg) => { shown = state(`${scramble} ${alg}`); render(); },
+    // a cube feeding the box is done at the goal: EO, or EO and the white cross
+    isDone: (txt) => { try { const rep = stageOf(state(`${scramble} ${tokens(txt).join(' ')}`)); return rep.eoBad === 0 && (settings.goal !== 'cross' || rep.cross === 4); } catch { return false; } } });
   // the strategy chips sit with the hints but toggle a note instead of revealing anything about the scramble
   drill.$('hints').insertAdjacentHTML('beforeend',
     '<button type="button" class="eo-chip eo-strat" data-strat="short">Hint: EO strategy</button>' +
@@ -305,5 +307,5 @@ export function mountEO(root: HTMLElement): Stage {
   newScramble();
   drill.setShowLabel(solLabel());
 
-  return { load, render, scramble: () => scramble, newScramble };
+  return { load, render, scramble: () => scramble, newScramble, feed: (text, t) => drill.feed(text, t) };
 }

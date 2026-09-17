@@ -37,6 +37,8 @@ export interface DrillHandlers {
   onNew(): void;
   /** the moves box was checked (non-empty, trimmed) */
   onCheck(text: string): void;
+  /** do these moves reach the stage's target? (a source feeding the box checks itself when they do) */
+  isDone?(text: string): boolean;
   /** a hint chip was opened: return its text */
   onHint(key: string): string;
   /** the reveal link toggled; `open` is the new state */
@@ -74,6 +76,12 @@ export interface Drill {
   };
   moves(): string;
   setMoves(text: string): void;
+  /**
+   * The moves so far from a source (a smart cube, the camera) at host time `t`: into the box, the
+   * timer started at the first one, and Check fired by itself when the stage says they are done
+   * (true). Empty text clears the box and the timer (the cube went back to the scramble).
+   */
+  feed(text: string, t: number): boolean;
   /** put an alg in the moves box, copy it, say so */
   fill(alg: string, msg: string): void;
   /**
@@ -322,6 +330,16 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     $, timer, flash, result, active,
     moves: () => box.value,
     setMoves: (t) => { box.value = t; },
+    feed(text, t) {
+      const txt = text.trim();
+      box.value = txt;
+      if (!txt) { timer.reset(); result.hide(); flash(''); return false; }
+      if (!timer.running()) { startAt = t; endAt = null; $('timerBtn').textContent = 'Stop'; }
+      if (!h.isDone?.(txt)) return false;
+      endAt = t; $('timerBtn').textContent = 'Start timer';
+      h.onCheck(txt);
+      return true;
+    },
     fill(alg, msg) {
       box.value = alg; flash(msg);
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(alg).catch(() => undefined);

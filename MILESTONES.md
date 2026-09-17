@@ -356,6 +356,11 @@ each turn shows on the live view within ~100 ms; a deliberately drifted
 cube is resynced from a scan lock; a captured session replays through the
 tests; the EO drill completes itself from cube turns.
 
+**Status (2026-09-16):** built and checked without the cube (design doc 3,
+"Built"): a synthetic capture replays through the page and the EO drill
+arms, boxes, times and checks itself; the Cube sheet draws the belief.
+What remains is the cube's first run (design doc 8) on both devices.
+
 ---
 
 ## M10 — Timer and recording rig (design doc 4)

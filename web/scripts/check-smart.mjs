@@ -1,0 +1,112 @@
+// Headless check of the smart-cube path without a cube (M9): serves
+// web/dist, opens the trainer, loads a known scramble into the EO tab, then
+// replays a capture through window.ZZ.smart - the same path a live cube
+// takes - in which the cube is scrambled with that scramble and then
+// solved by undoing it. The drill must arm at the scramble, fill its moves
+// box with the undo in the trainer's letters, time it from the cube's
+// stamps, and check itself; the Cube sheet must show the belief.
+//
+//   node scripts/check-smart.mjs        (run `npm run build` first)
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { join, dirname, extname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const dist = join(webDir, 'dist');
+if (!existsSync(join(dist, 'index.html'))) {
+  console.error('web/dist/index.html missing - run `npm run build` first');
+  process.exit(1);
+}
+const puppeteerPkg = resolve(webDir, '..', 'model', 'gen', 'node_modules', 'puppeteer');
+const { default: puppeteer } = await import(pathToFileURL(join(puppeteerPkg, 'lib', 'esm', 'puppeteer', 'puppeteer.js')).href);
+
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const server = createServer(async (req, res) => {
+  const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const file = join(dist, url === '/' ? 'index.html' : url.replaceAll('..', ''));
+  try {
+    const body = await readFile(file);
+    res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
+    res.end(body);
+  } catch { res.writeHead(404); res.end(); }
+});
+await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+const port = server.address().port;
+
+const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
+const inverse = (alg) => alg.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m.slice(0, -1) : m.endsWith('2') ? m : m + "'")).join(' ');
+/** A capture in which the cube goes from solved through `scrambleAlg` (the cube's letters) and then `solveAlg`, 180 ms a turn. */
+function capture(scrambleAlg, solveAlg) {
+  const lines = [JSON.stringify({ header: { version: 1, startedAt: Date.now(), t0: 0, scheme: { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' }, note: 'check-smart' } })];
+  let t = 1000;
+  lines.push(JSON.stringify({ kind: 'connect', t, name: 'GAN-check', mac: '00:00:00:00:00:00', protocol: 'synthetic', caps: { gyroscope: false, battery: true, facelets: true, hardware: false, reset: true } }));
+  lines.push(JSON.stringify({ kind: 'facelets', t: (t += 100), facelets: SOLVED }));
+  const turns = [];
+  for (const m of `${scrambleAlg} ${solveAlg}`.split(/\s+/).filter(Boolean)) turns.push(...(m.endsWith('2') ? [m[0], m[0]] : [m]));
+  for (const m of turns) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
+  return { text: lines.join('\n') + '\n', turns: turns.length, span: (turns.length - 1) * 180 };
+}
+
+let failed = 0;
+const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++; };
+
+const browser = await puppeteer.launch({ headless: true });
+const page = await browser.newPage();
+page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+await page.goto(`http://127.0.0.1:${port}/?tab=eo`, { waitUntil: 'networkidle0' });
+
+// the EO tab's goal: EOCross, so the drill is done only when the undo is complete (with the goal EO
+// alone it would check itself the moment EO is solved, part way through the undo - also right)
+await page.click('#settings-open');
+await page.click('#eo-settings [data-set="goal"] [data-v="cross"]');
+await page.click('#settings-close');
+
+// a scramble in the trainer's letters, and the same turns as the cube would report them
+const TRAINER_SCRAMBLE = "R U F' L2 B";
+const cubeScramble = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), TRAINER_SCRAMBLE);
+console.log(`trainer scramble ${TRAINER_SCRAMBLE} -> cube letters ${cubeScramble}`);
+await page.evaluate((s) => window.ZZ.eo.load(s), TRAINER_SCRAMBLE);
+
+const cap = capture(cubeScramble, inverse(cubeScramble));
+await page.evaluate((text) => window.ZZ.smart.replay(text), cap.text);
+// the timer's display catches up on the next frames
+await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
+const after = await page.evaluate(() => ({
+  box: document.getElementById('eo-sol').value,
+  result: document.getElementById('eo-result').classList.contains('show'),
+  title: document.getElementById('eo-rTitle').textContent,
+  timer: document.getElementById('eo-timer').textContent,
+  status: window.ZZ.smart.status(),
+  items: window.ZZ.smart.items().length,
+}));
+console.log(JSON.stringify({ ...after, status: { belief: after.status.belief, moves: after.status.moves } }));
+const solveTurns = inverse(cubeScramble).split(/\s+/).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m])).length;
+check(after.status.belief === SOLVED, 'the belief is solved at the end');
+check(after.status.moves === cap.turns, `the source counted every turn (${after.status.moves} of ${cap.turns})`);
+check(after.items === cap.turns + 1, 'items: the first report plus every turn');
+check(after.box.split(/\s+/).filter(Boolean).length === solveTurns, `the moves box holds the solve (${solveTurns} turns) and not the scrambling: "${after.box}"`);
+check(after.box.trim() === inverse(TRAINER_SCRAMBLE).split(/\s+/).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m])).join(' '), 'the moves box is in the trainer\'s letters');
+check(after.result && /EOCross done/i.test(after.title), `the drill checked itself at the goal: "${after.title}"`);
+check(Math.abs(Number(after.timer) - ((solveTurns - 1) * 180) / 1000) < 0.02, `the timer ran from the first to the last turn of the solve (${after.timer} s)`);
+
+// the Cube sheet shows the belief
+await page.click('#cube-open');
+const sheet = await page.evaluate(() => ({
+  open: !document.getElementById('cube-sheet').hidden,
+  badge: document.getElementById('cv-badge').textContent,
+  polys: document.querySelectorAll('#cv-3d polygon').length,
+  rects: document.querySelectorAll('#cv-net rect').length,
+  chip: document.getElementById('cv-chip').textContent,
+}));
+console.log(JSON.stringify(sheet));
+check(sheet.open, 'the Cube sheet opens');
+check(/replayed capture/.test(sheet.badge) && /last turn/.test(sheet.badge), 'the badge names the source and the last turn');
+check(sheet.polys === 27 && sheet.rects === 54, `the 3D picture (${sheet.polys} stickers) and the net (${sheet.rects}) are drawn`);
+
+await browser.close();
+server.close();
+console.log(failed ? `${failed} check(s) FAILED` : 'all checks passed');
+process.exit(failed ? 1 : 0);

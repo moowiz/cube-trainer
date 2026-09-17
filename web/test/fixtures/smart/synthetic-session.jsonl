@@ -1,0 +1,14 @@
+{"header":{"version":1,"startedAt":1789500000000,"t0":1000,"scheme":{"U":"white","R":"red","F":"green","D":"yellow","L":"orange","B":"blue"},"note":"synthetic, not a real cube: R U R' U' R U R' U' from solved; the cube's clock runs 2% fast and each event arrives 8-30 ms late (BLE); then the cube's own report of the state reached, a battery level, and a disconnect"}}
+{"kind":"connect","t":1000,"name":"GAN-synthetic","mac":"00:00:00:00:00:00","protocol":"synthetic","caps":{"gyroscope":false,"battery":true,"facelets":true,"hardware":false,"reset":true}}
+{"kind":"facelets","t":1200,"facelets":"UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB"}
+{"kind":"move","t":2012,"move":"R","tRaw":540,"tLocal":2012}
+{"kind":"move","t":2205,"move":"U","tRaw":724,"tLocal":2205}
+{"kind":"move","t":2358,"move":"R'","tRaw":897,"tLocal":2358}
+{"kind":"move","t":2530,"move":"U'","tRaw":1050,"tLocal":2530}
+{"kind":"move","t":2715,"move":"R","tRaw":1254,"tLocal":2715}
+{"kind":"move","t":2920,"move":"U","tRaw":1458,"tLocal":2920}
+{"kind":"move","t":3060,"move":"R'","tRaw":1611,"tLocal":3060}
+{"kind":"move","t":3218,"move":"U'","tRaw":1764,"tLocal":3218}
+{"kind":"facelets","t":3600,"facelets":"LFBUUUUUFUBURRRFRRFFRFFUFFDDDRDDDDDDBLLLLLLLLRRUBBBBBB"}
+{"kind":"battery","t":3700,"level":87}
+{"kind":"disconnect","t":5000}
