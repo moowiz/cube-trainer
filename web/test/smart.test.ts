@@ -8,7 +8,7 @@ import { movesOf } from '../src/moves/source';
 import { Capture, replay, type CaptureEvent } from '../src/smart/capture';
 import { ClockFit } from '../src/smart/clock';
 import { CubeSource } from '../src/smart/source';
-import { EMPTY_STATUS, reduce, REPORT_SETTLE_MS, statusAfter } from '../src/smart/sync';
+import { EMPTY_STATUS, reduce, REPORT_SETTLE_MS, statusAfter } from '../src/smart/belief';
 import { DEFAULT_SCHEME_NAMES } from '../src/types';
 import { SOLVED } from '../src/cube/state';
 

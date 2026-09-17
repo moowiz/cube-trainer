@@ -132,7 +132,7 @@ sets (survey 3.5), gestures on the cube, sounds, PWA install.
 |---|---|
 | `adapter.ts` | the only file that imports `smartcube-web-bluetooth` (MIT, installed from GitHub). `connectSmartCube()`, `conn.capabilities`, `conn.events$` -> our events; letters -> colours via the scheme; `REQUEST_FACELETS` on connect and every few seconds while idle (drift check); `REQUEST_BATTERY` on connect and every minute |
 | `clock.ts` | the two-clock fit: every move keeps `tRaw` (cube ms) and host `t`; a running linear fit (the csTimer method, `cubeTimestampLinearFit` in the library) gives `tFit`; per-move timing uses `tFit`, never host time, while the record keeps all three |
-| `sync.ts` | the belief: facelets at connect (or the last resync) plus every move applied with `cube/state.ts`; compared with each `FACELETS` report; on disagreement the chip goes amber and offers the three resyncs |
+| `belief.ts` | the belief: facelets at connect (or the last resync) plus every move applied with `cube/state.ts`; compared with each `FACELETS` report; on disagreement the chip goes amber and offers the three resyncs |
 | `capture.ts` | one JSONL line per event (`connect`, `facelets`, `move`, `battery`, `resync`, `disconnect`) with both clocks; `replay(lines)` feeds the same reducer chain; fixtures in `web/test/fixtures/smart/` |
 | `source.ts` | `CubeSource implements MoveSource` |
 | `ui.ts` | the chip: connect / name / battery / link age / state agreement; the MAC step; the resync menu |
