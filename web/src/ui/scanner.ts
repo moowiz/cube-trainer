@@ -62,6 +62,7 @@ import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
 import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
 import { downloadBlob } from './download';
+import type { RecordingSession } from '../rig/session';
 import { persistControls } from './settings';
 import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
@@ -90,6 +91,13 @@ export interface ScannerOptions {
   onFollow?: (scan: ScannedCube, moves: readonly Move[], record: MoveRecord) => void;
   /** The follow strip's Stop button. */
   onStopFollow?: () => void;
+  /**
+   * Record was pressed: a recording session to stream the video and the capture into, or null to
+   * keep the download behaviour (no sink on the deployed site).
+   */
+  onRecordStart?: () => Promise<RecordingSession | null>;
+  /** The recording's capture has been written: close the session. */
+  onRecordStop?: () => Promise<void>;
 }
 
 export interface ScannerHandle {
@@ -1262,6 +1270,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   const recStateEl = $('recState');
   let recorder: MediaRecorder | null = null;
   let recChunks: Blob[] = [];
+  let rigSession: RecordingSession | null = null; // the recording rig's session while one streams this recording
   let recording: { startedAt: number; stoppedAt: number | null; file: string; mime: string } | null = null;
   let recTimer = 0;
   const MOVES_RE = /^(\s*[URFDLBurfdlbMESxyz][2']?)*\s*$/;
@@ -1279,7 +1288,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     }
     return '';
   }
-  function startRecording(): void {
+  async function startRecording(): Promise<void> {
     const stream = camera.stream;
     if (!running || !stream || typeof MediaRecorder === 'undefined') { msgEl.textContent = 'recording needs the live camera'; return; }
     const mime = pickMime();
@@ -1287,21 +1296,29 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
     recording = { startedAt, stoppedAt: null, file: `solve-rec-${startedAt}.${ext}`, mime };
     recChunks = [];
+    // the recording rig, when the dev server's sink is there: chunks stream to disk as they come
+    rigSession = (await opts.onRecordStart?.()) ?? null;
+    const session = rigSession;
     // DECISION: 2.5 Mbps at 640x480 - ~20 MB/min, clean enough to re-run the detector on
     recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2_500_000 } : undefined);
-    recorder.addEventListener('dataavailable', (e) => { if (e.data.size) recChunks.push(e.data); });
+    recorder.addEventListener('dataavailable', (e) => {
+      if (!e.data.size) return;
+      if (session) void session.videoChunk(e.data, performance.now());
+      else recChunks.push(e.data);
+    });
     recorder.addEventListener('stop', () => {
       const rec = recording!;
       rec.stoppedAt = Date.now();
-      downloadBlob(rec.file, new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }));
+      if (!session) downloadBlob(rec.file, new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }));
       recChunks = [];
       recorder = null;
       recBtn.textContent = 'Record';
       recBtn.classList.remove('sc-on');
       movesInput.disabled = false;
       clearInterval(recTimer);
-      recStateEl.textContent = `saved ${rec.file} (${((rec.stoppedAt - rec.startedAt) / 1000).toFixed(1)} s)`;
-      // the paired evidence log; a second download prompt on Android is expected
+      const secs = ((rec.stoppedAt - rec.startedAt) / 1000).toFixed(1);
+      recStateEl.textContent = session ? `streamed to recordings/${session.stream.session} (${secs} s)` : `saved ${rec.file} (${secs} s)`;
+      // the paired evidence log: into the session, or a second download (a second prompt on Android is expected)
       setTimeout(() => captureBtn.click(), 800);
     });
     recorder.start(1000);
@@ -1443,9 +1460,13 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, sampleMinMs: SAMPLE_MIN_MS, peak: +peakEma.toFixed(0), clip: +clipEma.toFixed(2), exposureComp, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
     };
     const post = params.get('post');
-    const sink = post
-      ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
-      : undefined;
+    const session = rigSession;
+    const sink = session
+      // a recording streamed to the rig: the evidence log is the session's, and that closes it
+      ? async (json: string) => { rigSession = null; await session.evidence(json); await opts.onRecordStop?.(); }
+      : post
+        ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
+        : undefined;
     void captureDebug(lastTick?.result ?? null, models.detector, exportFrame(), 'scan-debug', tickHistory, extra, sink)
       .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); });
   });

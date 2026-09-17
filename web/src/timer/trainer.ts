@@ -33,6 +33,8 @@ const SESSION_META = 'timer/session';
 export interface TimerDeps {
   store: Promise<Store>;
   hold(): Hold;
+  /** a solve just finished: its window on the host clock, for the recording rig to cut the video by */
+  onSolve?(s: { id: string; when: number; t0: number; t1: number; scramble: string; time: number; moves?: unknown }): void;
 }
 
 /** ready = the scramble is on the cube (or Space was pressed once with inspection): the first turn starts the timer */
@@ -181,6 +183,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     };
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
     lastLine = `${formatTime(effectiveTime(rec))}${tps}`;
+    deps.onSolve?.({ id: rec.id, when: rec.when, t0: startAt, t1: tEnd, scramble, time, moves: rec.moves });
     resetAttempt();
     beep(1320, 120);
     void deps.store.then((st) => st.putSolve(rec)).then(() => { selected = rec.id; });

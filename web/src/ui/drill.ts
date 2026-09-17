@@ -12,11 +12,18 @@ import { DEFAULT_VIEW, render3d, type Cell } from '../cube/render';
 import { faceHex } from '../cube/scheme';
 import { state } from '../cube/state';
 import { activeTab, sheetOpen, stages, trainerHold } from '../shell';
+import { newId, type AttemptRecord, type AttemptStage } from '../store/types';
 import { moveWhat, openFingertricks } from './fingertricks';
+
+// where finished attempts go (the solve store); nothing is kept when no sink is set (tests)
+let attemptSink: ((a: AttemptRecord) => void) | null = null;
+export function setAttemptSink(fn: ((a: AttemptRecord) => void) | null): void { attemptSink = fn; }
 
 export interface DrillSpec {
   /** element id prefix (`eo-`, `ocll-`): the ids the headless checks and the settings sheet use */
   id: string;
+  /** what the store files this drill's attempts under */
+  stage: AttemptStage;
   title: string;
   blurb: string;
   newLabel: string;
@@ -81,7 +88,14 @@ export interface Drill {
    * timer started at the first one, and Check fired by itself when the stage says they are done
    * (true). Empty text clears the box and the timer (the cube went back to the scramble).
    */
-  feed(text: string, t: number): boolean;
+  feed(text: string, t: number, source?: 'cube' | 'camera'): boolean;
+  /** The source's cube reached this drill's scramble at host time `t` (recognition is measured from here). */
+  armed(t: number): void;
+  /**
+   * File the attempt just judged by attempt() with the store: the scramble it started from, the
+   * moves, what the drill knew (the optimal count, the case) and whether a hint or solution was seen.
+   */
+  save(extra: { scramble: string; moves: string; optimal?: number; caseId?: string; assisted: boolean }): void;
   /** put an alg in the moves box, copy it, say so */
   fill(alg: string, msg: string): void;
   /**
@@ -102,8 +116,8 @@ export interface Drill {
   begin(): void;
   /** the stage is on screen and no sheet covers it */
   active(): boolean;
-  /** what a result records: the moves typed as a count, and the time */
-  attempt(text: string): { n: number; t: number | null; ts: string };
+  /** what a result records: the moves typed as a count, the time, where the moves came from, and the source's recognition / execution split */
+  attempt(text: string): { n: number; t: number | null; ts: string; source: 'typed' | 'cube' | 'camera'; recognition?: number; execution?: number };
 }
 
 export const STYLE = `
@@ -215,8 +229,11 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
   const box = $('sol') as HTMLTextAreaElement;
   const labels = Object.fromEntries(spec.hints.map((c) => [c.key, c.label]));
 
-  // timer
+  // timer, and where the attempt's moves came from
   let startAt: number | null = null, endAt: number | null = null;
+  let armedAt: number | null = null;
+  let fedBy: 'cube' | 'camera' | null = null;
+  let lastAttempt: { n: number; t: number | null; source: 'typed' | 'cube' | 'camera'; recognition?: number; execution?: number } | null = null;
   const timer: Timer = {
     running: () => startAt !== null && endAt === null,
     elapsed: () => (startAt === null ? null : ((endAt ?? performance.now()) - startAt) / 1000),
@@ -330,15 +347,26 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     $, timer, flash, result, active,
     moves: () => box.value,
     setMoves: (t) => { box.value = t; },
-    feed(text, t) {
+    feed(text, t, source) {
       const txt = text.trim();
       box.value = txt;
+      fedBy = source ?? fedBy ?? 'cube';
       if (!txt) { timer.reset(); result.hide(); flash(''); return false; }
       if (!timer.running()) { startAt = t; endAt = null; $('timerBtn').textContent = 'Stop'; }
       if (!h.isDone?.(txt)) return false;
       endAt = t; $('timerBtn').textContent = 'Start timer';
       h.onCheck(txt);
       return true;
+    },
+    armed(t) { armedAt = t; },
+    save(extra) {
+      if (!attemptSink || !lastAttempt) return;
+      const a = lastAttempt;
+      attemptSink({
+        id: newId(), puzzle: '333', stage: spec.stage, when: Date.now(), scramble: extra.scramble, moves: extra.moves,
+        time: a.t === null ? null : Math.round(a.t * 1000), recognition: a.recognition, execution: a.execution,
+        caseId: extra.caseId, optimal: extra.optimal, assisted: extra.assisted, source: a.source, editedAt: Date.now(),
+      });
     },
     fill(alg, msg) {
       box.value = alg; flash(msg);
@@ -364,8 +392,17 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     begin() {
       timer.reset(); box.value = ''; result.hide(); result.handoff.innerHTML = ''; result.body.innerHTML = '';
       closeShow(); drill.resetHints(); flash('');
+      armedAt = null; fedBy = null; lastAttempt = null;
     },
-    attempt(text) { if (timer.running()) timer.toggle(); const t = timer.elapsed(); return { n: moveCount(text), t, ts: t === null ? '' : `, ${t.toFixed(2)}s` }; },
+    attempt(text) {
+      if (timer.running()) timer.toggle();
+      const t = timer.elapsed();
+      const source = fedBy ?? 'typed';
+      const recognition = fedBy && armedAt !== null && startAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
+      const execution = fedBy && startAt !== null && endAt !== null ? Math.max(0, Math.round(endAt - startAt)) : undefined;
+      lastAttempt = { n: moveCount(text), t, source, recognition, execution };
+      return { ...lastAttempt, ts: t === null ? '' : `, ${t.toFixed(2)}s` };
+    },
   };
   tick();
   return drill;
