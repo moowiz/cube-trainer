@@ -176,7 +176,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const inspection = armedAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
     const penalty: Penalty = 0; // +2 / DNF are the buttons under the time, never automatic
     const rec: SolveRecord = {
-      id: newId(), session: session?.id ?? 'main', when: Date.now() - (performance.now() - startAt), scramble, time, penalty,
+      id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Date.now() - (performance.now() - startAt), scramble, time, penalty,
       moves: source === 'cube' ? moves.slice() : undefined, source, inspection, editedAt: Date.now(),
     };
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
@@ -215,7 +215,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const st = await deps.store;
     sessions = await st.listSessions();
     if (!sessions.length) {
-      const s: SessionRecord = { id: newId(), name: 'main', createdAt: Date.now(), editedAt: Date.now() };
+      const s: SessionRecord = { id: newId(), puzzle: '333', name: 'main', createdAt: Date.now(), editedAt: Date.now() };
       await st.putSession(s); sessions = [s];
     }
     const want = await st.getMeta<string>(SESSION_META);
@@ -239,7 +239,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const name = window.prompt('Name for the new session:', `session ${sessions.length + 1}`);
     if (!name) return;
     void deps.store.then(async (st) => {
-      const s: SessionRecord = { id: newId(), name: name.trim(), createdAt: Date.now(), editedAt: Date.now() };
+      const s: SessionRecord = { id: newId(), puzzle: '333', name: name.trim(), createdAt: Date.now(), editedAt: Date.now() };
       await st.putSession(s); sessions.push(s); await pickSession(s.id);
     });
   };

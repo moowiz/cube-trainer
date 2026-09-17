@@ -28,12 +28,14 @@ export function importCsTimer(text: string, now = Date.now()): Imported {
     const num = key.slice(7);
     const id = `cs-${newId(now)}-${num}`;
     const first = Math.min(...rows.map((r) => Number((r as CsSolve)[3]) * 1000).filter((t) => Number.isFinite(t) && t > 0), now);
-    sessions.push({ id, name: names[num]?.name || `csTimer ${num}`, createdAt: first, editedAt: now });
+    // DECISION: csTimer has no puzzle field of its own (its sessions are configured for a puzzle
+    // in its UI, not the export); every session we import here is 3x3, so stamp '333' outright.
+    sessions.push({ id, puzzle: '333', name: names[num]?.name || `csTimer ${num}`, createdAt: first, editedAt: now });
     for (const r of rows as CsSolve[]) {
       const [[pen, ms], scramble, comment, secs] = r;
       const when = Number.isFinite(secs) && secs > 0 ? secs * 1000 : now;
       solves.push({
-        id: newId(when), session: id, when, scramble: String(scramble ?? '').trim(), time: ms,
+        id: newId(when), puzzle: '333', session: id, when, scramble: String(scramble ?? '').trim(), time: ms,
         penalty: pen === -1 ? -1 : pen === 2000 ? 2 : 0,
         comment: comment ? String(comment) : undefined, source: 'import', editedAt: now,
       });

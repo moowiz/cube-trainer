@@ -4,10 +4,11 @@
 // through applyRemote, which keeps the later edit and marks nothing.
 // Tests run it on fake-indexeddb.
 
-import type { SessionRecord, SolveRecord } from './types';
+import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type SessionRecord, type SolveRecord } from './types';
 
-export type Coll = 'solves' | 'sessions';
-export type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : SessionRecord;
+export type Coll = 'solves' | 'sessions' | 'attempts';
+export type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : AttemptRecord;
+type AnyRecord = SolveRecord | SessionRecord | AttemptRecord;
 
 export interface Store {
   putSolve(s: SolveRecord): Promise<void>;
@@ -19,6 +20,12 @@ export interface Store {
   putSession(s: SessionRecord): Promise<void>;
   listSessions(): Promise<SessionRecord[]>;
   allSessions(): Promise<SessionRecord[]>;
+  putAttempt(a: AttemptRecord): Promise<void>;
+  getAttempt(id: string): Promise<AttemptRecord | undefined>;
+  /** attempts for a stage (or every stage), deleted ones left out, oldest first; `since` filters by `when` */
+  listAttempts(stage?: AttemptStage, since?: number): Promise<AttemptRecord[]>;
+  /** every attempt, tombstones included (export, sync) */
+  allAttempts(): Promise<AttemptRecord[]>;
   /** a record from the other side: kept when the local edit is later; returns what happened */
   applyRemote<C extends Coll>(coll: C, r: RecordOf<C>): Promise<'applied' | 'kept'>;
   /** records edited here and not yet pushed */
@@ -34,16 +41,43 @@ export interface Store {
 const req = <T>(r: IDBRequest<T>): Promise<T> => new Promise((ok, fail) => { r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); });
 const done = (t: IDBTransaction): Promise<void> => new Promise((ok, fail) => { t.oncomplete = () => ok(); t.onerror = () => fail(t.error); t.onabort = () => fail(t.error); });
 
+/** Records written before the `puzzle` field existed have none: default them on read. */
+function withPuzzle<T extends { puzzle?: unknown }>(r: T): T & { puzzle: typeof DEFAULT_PUZZLE } {
+  return r.puzzle ? (r as T & { puzzle: typeof DEFAULT_PUZZLE }) : { ...r, puzzle: DEFAULT_PUZZLE };
+}
+
+const DB_VERSION = 2;
+
 export function openStore(name = 'cube-coach'): Promise<Store> {
   return new Promise((resolve, reject) => {
-    const open = indexedDB.open(name, 1);
-    open.onupgradeneeded = () => {
+    const open = indexedDB.open(name, DB_VERSION);
+    open.onupgradeneeded = (ev) => {
       const db = open.result;
-      const solves = db.createObjectStore('solves', { keyPath: 'id' });
-      solves.createIndex('session', 'session');
-      db.createObjectStore('sessions', { keyPath: 'id' });
-      db.createObjectStore('dirty', { keyPath: 'key' });
-      db.createObjectStore('meta', { keyPath: 'key' });
+      const t = open.transaction!;
+      const oldVersion = ev.oldVersion;
+      if (oldVersion < 1) {
+        const solves = db.createObjectStore('solves', { keyPath: 'id' });
+        solves.createIndex('session', 'session');
+        db.createObjectStore('sessions', { keyPath: 'id' });
+        db.createObjectStore('dirty', { keyPath: 'key' });
+        db.createObjectStore('meta', { keyPath: 'key' });
+      }
+      if (oldVersion < 2) {
+        const attempts = db.createObjectStore('attempts', { keyPath: 'id' });
+        attempts.createIndex('stage', 'stage');
+        attempts.createIndex('when', 'when');
+        // Existing rows predate `puzzle`: stamp the default onto them in place.
+        for (const coll of ['solves', 'sessions'] as const) {
+          const store = t.objectStore(coll);
+          store.openCursor().onsuccess = (curEv) => {
+            const cursor = (curEv.target as IDBRequest<IDBCursorWithValue | null>).result;
+            if (!cursor) return;
+            const row = cursor.value as AnyRecord;
+            if (!row.puzzle) cursor.update({ ...row, puzzle: DEFAULT_PUZZLE });
+            cursor.continue();
+          };
+        }
+      }
     };
     open.onerror = () => reject(open.error);
     open.onsuccess = () => resolve(wrap(open.result));
@@ -54,29 +88,38 @@ function wrap(db: IDBDatabase): Store {
   const listeners = new Set<() => void>();
   const changed = () => { for (const l of listeners) l(); };
 
-  async function put(coll: Coll, r: SolveRecord | SessionRecord, markDirty: boolean): Promise<void> {
+  async function put(coll: Coll, r: AnyRecord, markDirty: boolean): Promise<void> {
     const t = db.transaction(markDirty ? [coll, 'dirty'] : [coll], 'readwrite');
     t.objectStore(coll).put(r);
     if (markDirty) t.objectStore('dirty').put({ key: `${coll}/${r.id}`, coll, id: r.id });
     await done(t);
     changed();
   }
-  const get = <T>(coll: Coll, id: string): Promise<T | undefined> => req(db.transaction(coll).objectStore(coll).get(id) as IDBRequest<T | undefined>);
-  const all = <T>(coll: Coll): Promise<T[]> => req(db.transaction(coll).objectStore(coll).getAll() as IDBRequest<T[]>);
+  const get = <T extends AnyRecord>(coll: Coll, id: string): Promise<T | undefined> => req(db.transaction(coll).objectStore(coll).get(id) as IDBRequest<T | undefined>);
+  const all = <T extends AnyRecord>(coll: Coll): Promise<T[]> => req(db.transaction(coll).objectStore(coll).getAll() as IDBRequest<T[]>);
 
   return {
     putSolve: (s) => put('solves', s, true),
-    getSolve: (id) => get<SolveRecord>('solves', id),
+    async getSolve(id) { const r = await get<SolveRecord>('solves', id); return r && withPuzzle(r); },
     async listSolves(session) {
       const rows = await req(db.transaction('solves').objectStore('solves').index('session').getAll(session) as IDBRequest<SolveRecord[]>);
-      return rows.filter((s) => !s.deleted).sort((a, b) => a.when - b.when);
+      return rows.filter((s) => !s.deleted).sort((a, b) => a.when - b.when).map(withPuzzle);
     },
-    allSolves: () => all<SolveRecord>('solves'),
+    async allSolves() { return (await all<SolveRecord>('solves')).map(withPuzzle); },
     putSession: (s) => put('sessions', s, true),
-    async listSessions() { return (await all<SessionRecord>('sessions')).filter((s) => !s.deleted).sort((a, b) => a.createdAt - b.createdAt); },
-    allSessions: () => all<SessionRecord>('sessions'),
+    async listSessions() { return (await all<SessionRecord>('sessions')).filter((s) => !s.deleted).sort((a, b) => a.createdAt - b.createdAt).map(withPuzzle); },
+    async allSessions() { return (await all<SessionRecord>('sessions')).map(withPuzzle); },
+    putAttempt: (a) => put('attempts', a, true),
+    async getAttempt(id) { const r = await get<AttemptRecord>('attempts', id); return r && withPuzzle(r); },
+    async listAttempts(stage, since) {
+      const rows = stage
+        ? await req(db.transaction('attempts').objectStore('attempts').index('stage').getAll(stage) as IDBRequest<AttemptRecord[]>)
+        : await all<AttemptRecord>('attempts');
+      return rows.filter((a) => !a.deleted && (since === undefined || a.when >= since)).sort((a, b) => a.when - b.when).map(withPuzzle);
+    },
+    async allAttempts() { return (await all<AttemptRecord>('attempts')).map(withPuzzle); },
     async applyRemote(coll, r) {
-      const mine = await get<SolveRecord | SessionRecord>(coll, r.id);
+      const mine = await get<AnyRecord>(coll, r.id);
       if (mine && mine.editedAt >= r.editedAt) return 'kept';
       await put(coll, r, false);
       return 'applied';
