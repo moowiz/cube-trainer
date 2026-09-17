@@ -395,6 +395,21 @@ saves the solve with its turns. Not yet: the recording rig (continuous
 video + cube events streamed to the dev server), the latency
 calibration, the fixture tool's cube truth, the reader numbers.
 
+**Housekeeping before M11 (candidates, 2026-09-17):** (1) wrap the camera
+reader as a `MoveSource` and route follow mode through the same driver
+the cube uses, so the drills and the timer can be fed by the camera and
+M13 lands into one code path (half a day; the structural one); (2) rename
+`smart/sync.ts` (the belief reducer) to `smart/belief.ts` so it stops
+colliding with `store/sync.ts`, fold the three download helpers into one,
+and move the frame relabel helpers out of `follow.ts` next to
+`cube/frame.ts` (an hour); (3) split the wiring out of `main.ts` (scanner
+bridge, smart cube + driver + live view, sync UI) into `app/*` modules
+(an hour); (4) route drill attempts into the solve store instead of the
+trainers' in-memory result arrays, which M11's per-case memory and M12
+need anyway (an hour, plus a record shape decision); (5) check whether
+`public/{scan,autoscan,bbox,detect,scanner}.html` are still used by the
+tooling and prune the dead ones.
+
 ---
 
 ## M11 — ZZ analysis and coaching (design doc 6.1)
