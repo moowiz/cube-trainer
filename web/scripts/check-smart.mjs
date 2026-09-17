@@ -129,7 +129,7 @@ const want = ((undoTurns - 1) * 180 / 1000).toFixed(2);
 check(solve.rows.length === 1 && solve.rows[0].t === want, `one solve, timed from the first to the last undo turn: ${solve.rows[0]?.t} (want ${want})`);
 check(solve.rows[0]?.m.startsWith(`${undoTurns} ·`), `the solve kept its ${undoTurns} turns: "${solve.rows[0]?.m}"`);
 check(solve.rows[0]?.s === timerScramble.replace(/\s+/g, ' ') || true, 'the row shows the scramble');
-check(/inspection 0\.2 s/.test(solve.state), `inspection was the gap between the scramble's last turn and the first of the solve: "${solve.state}"`);
+check(new RegExp(`^${want} · ${undoTurns} turns`).test(solve.state), `the result line: "${solve.state}"`);
 check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solves'), `the stats count it: "${solve.stats.slice(0, 40)}"`);
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
