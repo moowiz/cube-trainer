@@ -68,6 +68,7 @@
 </head>
 <body>
 <nav class="tabs" aria-label="Trainer">
+  <button type="button" data-t="solve">Solve</button>
   <button type="button" data-t="eo">EO</button>
   <button type="button" data-t="f2l">F2L</button>
   <button type="button" data-t="ocll">OCLL</button>
@@ -79,6 +80,7 @@
   <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙<span class="key"> (s)</span></button>
 </nav>
 <!-- every stage is mounted here by src/main.ts -->
+<div id="solve-panel" hidden></div>
 <div id="eo-panel" hidden></div>
 <div id="f2l-panel" hidden></div>
 <div id="ocll-panel" hidden></div>
@@ -97,6 +99,18 @@
       <section class="set-sec"><h3>Cube</h3>
         <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every stage, scramble and scan uses this.</span></div>
           <select id="frontc"></select></div>
+      </section>
+      <section class="set-sec" id="timer-settings"><h3>Timer</h3>
+    <div class="eo-opt"><div><div class="lbl">Inspection</div><span class="sub">WCA 15 s from the moment the scramble is matched (or the first Space): +2 past 15 s, DNF past 17 s.</span></div>
+      <div class="eo-seg" data-set="inspection"><button type="button" data-v="off">Off</button><button type="button" data-v="15">15 s</button></div></div>
+    <div class="eo-opt"><div><div class="lbl">Next scramble by itself</div><span class="sub">After a solve the next scramble appears without a tap: scramble, solve, repeat.</span></div>
+      <div class="eo-seg" data-set="autonext"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+    <div class="eo-opt"><div><div class="lbl">Sounds</div><span class="sub">A beep when the scramble is matched and when the cube is solved, so the phone can stay out of reach.</span></div>
+      <div class="eo-seg" data-set="beep"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+    <div class="eo-opt"><div><div class="lbl">Sync times</div><span class="sub" id="sync-sub">Keep the history in the cloud and share it between the phone and the desktop. Google sign-in; nothing but the solve records goes up.</span></div>
+      <div><button class="btn" id="sync-in" type="button">Sign in</button><button class="btn" id="sync-out" type="button" hidden>Sign out</button></div></div>
+    <div class="eo-opt"><div><div class="lbl">History</div><span class="sub">csTimer's export file goes in (as new sessions); ours and csTimer's come out.</span></div>
+      <div><button class="btn" id="hist-import" type="button">Import csTimer</button> <button class="btn" id="hist-export" type="button">Export</button> <button class="btn" id="hist-export-cs" type="button">Export csTimer</button><input type="file" id="hist-file" accept=".txt,.json,application/json" hidden></div></div>
       </section>
       <section class="set-sec" id="eo-settings"><h3>EO trainer</h3>
     <div class="eo-opt"><div><div class="lbl">Goal</div><span class="sub">EOCross: orient the edges and build the white cross in one go. Optimal solutions and hints follow the goal.</span></div>

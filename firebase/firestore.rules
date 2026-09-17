@@ -1,0 +1,12 @@
+// Firestore rules for the solve store's sync (web/src/store/sync.ts): every
+// record lives under users/{uid}/..., readable and writable only by that
+// signed-in user. Paste into the console (Firestore Database > Rules) or
+// deploy with `firebase deploy --only firestore:rules` from this folder.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}

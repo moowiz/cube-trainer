@@ -249,6 +249,22 @@ here: section 8.
 - The reconstruction line and a replay scrubber over the live view: M11
   adds the splits under it.
 
+**Built 2026-09-17:** as above, in `web/src/timer/` (`trainer.ts` the
+tab, `stats.ts` the averages with csTimer's 5% trim, `cstimer.ts` the
+file both ways, `track.ts` scramble following) and `web/src/store/`
+(`local.ts` IndexedDB with dirty marks and last-edit-wins `applyRemote`,
+`sync.ts` the optional Firestore layer, `firebase.ts` the only SDK
+import, loaded lazily). The driver's `armed` and `watch` hooks on
+`Stage` carry the cube's belief and the arming moment to the tab. Records
+are in WCA notation (a standard smart cube's own letters). Decisions:
+inspection starts at the moment the scramble is matched (no put-down /
+pick-up gesture: the loop is hands-free); the next scramble is
+prefetched so it appears the instant a solve ends; the sync pulls with a
+snapshot listener on `updatedAt > last seen` (server timestamps) and
+pushes dirty records in batches of 400. Firestore rules:
+`firebase/firestore.rules`. Not built: a time graph, sessions renamed or
+deleted, and the recording rig below.
+
 ### 4.2 The recording rig (desktop)
 
 - The existing recorder (scan sheet `Record`: camera `.webm` + the

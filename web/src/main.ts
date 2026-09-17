@@ -23,6 +23,9 @@ import { Capture, replay } from './smart/capture';
 import { CubeSource } from './smart/source';
 import { stageOf, type Stage, type StageReport } from './stage';
 import { solveState } from './state';
+import { openStore } from './store/local';
+import { Sync, syncWanted, type SyncState } from './store/sync';
+import { mountTimer } from './timer/trainer';
 import { COLOR_NAMES, DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from './types';
 import { mountCubeView } from './ui/cubeview';
 import { mountScanner, type ScannerHandle } from './ui/scanner';
@@ -33,19 +36,41 @@ const panel = (id: string): HTMLElement => {
   return e;
 };
 
-// the stages: PLL before OCLL (whose Continue button needs it), F2L, then EO
-stages.pll = mountLL(panel('pll-panel'), 'pll');
-stages.ocll = mountLL(panel('ocll-panel'), 'ocll');
-stages.f2l = mountF2L(panel('f2l-panel'));
-stages.eo = mountEO(panel('eo-panel'));
-initShell();
-
-// ---- the scanner bridge ----
 /** The colour the trainer shows in front, as the scanner names colours. */
 function frontColour(): ColorName {
   const name = faceColorName('F');
   return (COLOR_NAMES as readonly string[]).includes(name) ? (name as ColorName) : 'blue';
 }
+const hold = (): Hold => ({ down: 'white', front: frontColour() });
+
+// the solve store: local always, synced when switched on (settings)
+const store = openStore();
+
+// the stages: PLL before OCLL (whose Continue button needs it), F2L, EO, and the timer
+stages.pll = mountLL(panel('pll-panel'), 'pll');
+stages.ocll = mountLL(panel('ocll-panel'), 'ocll');
+stages.f2l = mountF2L(panel('f2l-panel'));
+stages.eo = mountEO(panel('eo-panel'));
+stages.solve = mountTimer(panel('solve-panel'), { store, hold });
+initShell();
+
+// ---- sync (settings sheet) ----
+let sync: Sync | null = null;
+function renderSync(s: SyncState): void {
+  const sub = panel('sync-sub');
+  const who = s.user ? ` as ${s.user.email || s.user.name}` : '';
+  sub.textContent = s.status === 'off' ? 'Keep the history in the cloud and share it between the phone and the desktop. Google sign-in; nothing but the solve records goes up.'
+    : s.status === 'loading' ? 'Loading…' : s.status === 'signed-out' ? 'Signed out. Sign in to sync.'
+    : s.status === 'error' ? `Sync problem: ${s.error ?? '?'}` : `${s.status === 'syncing' ? 'Syncing' : 'Synced'}${who} · ${s.pushed} up, ${s.pulled} down this session`;
+  panel('sync-in').hidden = !!s.user;
+  panel('sync-out').hidden = !s.user;
+}
+async function ensureSync(): Promise<Sync> { sync ??= new Sync(await store, renderSync); return sync; }
+panel('sync-in').onclick = () => { void ensureSync().then((s) => s.signIn()); };
+panel('sync-out').onclick = () => { void ensureSync().then((s) => s.signOut()); };
+if (syncWanted()) void ensureSync().then((s) => s.start());
+
+// ---- the scanner bridge ----
 
 /** The current scramble as the scanner should expect it: trainer frame for the check, WCA form to show. */
 function expected(): { scramble: string; hold: { down: 'white'; front: ColorName }; shown: string } | null {
@@ -174,8 +199,8 @@ document.addEventListener('visibilitychange', () => {
 // DECISION: a smart cube's letters are its colours on the standard scheme (white up, green front,
 // red right), which is what a GAN reports; a differently coloured smart cube would need a setting.
 const CUBE_COLOURS = DEFAULT_SCHEME_NAMES;
-const hold = (): Hold => ({ down: 'white', front: frontColour() });
 let cubeLink: CubeLink | null = null;
+let wakeLock: WakeLockSentinel | null = null;
 let cube: CubeSource | null = null;     // the connected cube, or a replayed capture; kept after a disconnect for Save
 let lastScan: ScannedCube | null = null;
 const driver = new DrillDriver();
@@ -225,10 +250,14 @@ function onCubeItem(): void {
   refreshCubeView();
   const tab = activeTab();
   const stage = stages[tab];
+  stage?.watch?.(cube.state(), cube.colourOf);
   const scr = stage?.scramble() ?? null;
   let expected: string | null = null;
   if (scr !== null) { try { expected = expectedFacelets(scr, hold(), cube.colourOf); } catch { expected = null; } }
-  for (const f of driver.step(cube, expected, scr === null ? null : `${tab}:${scr}`)) {
+  const wasArmed = driver.isArmed();
+  const feeds = driver.step(cube, expected, scr === null ? null : `${tab}:${scr}`);
+  if (!wasArmed && driver.isArmed()) stage?.armed?.(cube.status().lastMoveT ?? performance.now());
+  for (const f of feeds) {
     if (!stage?.feed) break;
     let text: string;
     try { text = relabelTurns(cube.colourOf, f.moves, hold()); } catch { break; }
@@ -249,7 +278,10 @@ async function connectSmartCube(): Promise<void> {
   cubeView.setBusy('Pick your cube in the browser dialog…');
   try {
     cubeLink = await connectCube({
-      onEvent: (e) => { src.feed(e); if (e.kind === 'disconnect') { cubeLink = null; refreshCubeView(); toast('Smart cube disconnected'); } },
+      onEvent: (e) => {
+        src.feed(e);
+        if (e.kind === 'disconnect') { cubeLink = null; refreshCubeView(); toast('Smart cube disconnected'); void wakeLock?.release().catch(() => undefined); wakeLock = null; }
+      },
       askMac: async (name) => {
         const v = window.prompt(`The browser could not read the MAC address of ${name}. Type it as the GAN app shows it (like AB:12:34:56:78:9A); it is remembered for this cube.`);
         const mac = v?.trim().toUpperCase().replace(/-/g, ':') ?? '';
@@ -265,6 +297,8 @@ async function connectSmartCube(): Promise<void> {
   cubeView.setBusy(null);
   useSource(src);
   toast(`${cubeLink.name} connected`);
+  // hands-free sessions: keep the screen on while the cube is connected
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
 }
 
 // while connected: the status line every second, and, once the turns have settled, the cube's own

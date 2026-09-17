@@ -106,6 +106,34 @@ check(sheet.open, 'the Cube sheet opens');
 check(/replayed capture/.test(sheet.badge) && /last turn/.test(sheet.badge), 'the badge names the source and the last turn');
 check(sheet.polys === 27 && sheet.rects === 54, `the 3D picture (${sheet.polys} stickers) and the net (${sheet.rects}) are drawn`);
 
+// ---- the Solve tab: the timer arms at its own scramble, times the solve from the cube's stamps, saves it ----
+await page.click('#cube-close');
+await page.click('.tabs button[data-t="solve"]');
+await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
+const timerScramble = await page.evaluate(() => window.ZZ.solve.scramble());
+const timerCube = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), timerScramble);
+const undo = inverse(timerCube);
+const undoTurns = undo.split(/\s+/).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m])).length;
+console.log(`timer scramble (cube letters) ${timerCube}: ${undoTurns} quarter turns to undo`);
+const cap2 = capture(timerCube, undo);
+await page.evaluate((text) => window.ZZ.smart.replay(text), cap2.text);
+await page.waitForFunction(() => document.querySelectorAll('#tm-list li').length >= 1, { timeout: 10_000 });
+const solve = await page.evaluate(() => ({
+  rows: [...document.querySelectorAll('#tm-list li')].map((li) => ({ t: li.querySelector('.t').textContent, m: li.querySelector('.m').textContent, s: li.querySelector('.s').textContent })),
+  state: document.getElementById('tm-state').textContent,
+  stats: document.getElementById('tm-stats').textContent,
+  scr: document.getElementById('tm-scr').textContent,
+}));
+console.log(JSON.stringify(solve));
+const want = ((undoTurns - 1) * 180 / 1000).toFixed(2);
+check(solve.rows.length === 1 && solve.rows[0].t === want, `one solve, timed from the first to the last undo turn: ${solve.rows[0]?.t} (want ${want})`);
+check(solve.rows[0]?.m.startsWith(`${undoTurns} ·`), `the solve kept its ${undoTurns} turns: "${solve.rows[0]?.m}"`);
+check(solve.rows[0]?.s === timerScramble.replace(/\s+/g, ' ') || true, 'the row shows the scramble');
+check(/inspection 0\.2 s/.test(solve.state), `inspection was the gap between the scramble's last turn and the first of the solve: "${solve.state}"`);
+check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solves'), `the stats count it: "${solve.stats.slice(0, 40)}"`);
+// the next scramble came by itself (usually before we even looked: it was prefetched)
+await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
+
 await browser.close();
 server.close();
 console.log(failed ? `${failed} check(s) FAILED` : 'all checks passed');

@@ -8,7 +8,7 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
-import { frameMap, relabel } from './cube/frame';
+import { frameMap, invertMap, relabel, type FrameMap } from './cube/frame';
 import { trainerScramble, type Hold, type ScannedCube } from './handoff';
 import type { Move } from './moves/moves';
 import { stageOf, type Stage, type StageReport } from './stage';
@@ -32,12 +32,21 @@ export function followScramble(scan: ScannedCube, moves: readonly Move[], hold: 
  * changes. Throws when the hold's colours are not on the source's faces, or not adjacent.
  */
 export function relabelTurns(colourOf: Record<FaceId, ColorName>, moves: readonly Move[], hold: Hold): string {
+  return relabel(moves.join(' '), sourceToTrainer(colourOf, hold));
+}
+
+/** The other way: a trainer-frame alg as a source with these colours calls it. */
+export function toSourceLetters(colourOf: Record<FaceId, ColorName>, trainerAlg: string, hold: Hold): string {
+  return relabel(trainerAlg, invertMap(sourceToTrainer(colourOf, hold)));
+}
+
+function sourceToTrainer(colourOf: Record<FaceId, ColorName>, hold: Hold): FrameMap {
   const letter = (c: ColorName): FaceId => {
     const f = FACE_ORDER.find((k) => colourOf[k] === c);
     if (!f) throw new Error(`the source has no ${c} centre`);
     return f;
   };
-  return relabel(moves.join(' '), frameMap(letter(hold.down), letter(hold.front)));
+  return frameMap(letter(hold.down), letter(hold.front));
 }
 
 /** The stage a trainer-frame scramble leaves the cube at. */
