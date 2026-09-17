@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "cubejs": "^1.3.2",
+    "firebase": "^12.19.0",
     "onnxruntime-web": "^1.29.0",
     "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth"
   },
@@ -24,6 +25,7 @@
     "@types/pngjs": "^6.0.5",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
     "eslint": "^10.10.0",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^17.12.0",
     "pngjs": "^7.0.0",
     "typescript": "^5.6.0",

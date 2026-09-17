@@ -3,8 +3,9 @@
 // through. The markup lives in index.html; this wires it.
 
 import { FRONT_OPTIONS, faceColorName, frontIndex, setFrontIndex } from './cube/scheme';
+import type { ColorName, FaceId } from './types';
 
-export const TABS = ['eo', 'f2l', 'ocll', 'pll'] as const;
+export const TABS = ['solve', 'eo', 'f2l', 'ocll', 'pll'] as const;
 export type Tab = (typeof TABS)[number];
 
 /** What every stage offers the shell. Scrambles are in the trainer frame (white down, chosen colour front). */
@@ -19,6 +20,10 @@ export interface Stage {
   newScramble(): void;
   /** The turns made so far on a cube that was at this stage's scramble (trainer letters), at host time `t`; true once they reach the target. */
   feed?(text: string, t: number): boolean;
+  /** The cube that feeds this stage reached its scramble at host time `t` (inspection may start). */
+  armed?(t: number): void;
+  /** The belief of the cube that feeds this stage changed (its letters coloured `colourOf`), before arming too. */
+  watch?(facelets: string | null, colourOf: Record<FaceId, ColorName>): void;
 }
 
 export const stages: Partial<Record<Tab, Stage>> = {};
@@ -137,8 +142,8 @@ export function initShell(): void {
   sel.value = String(frontIndex());
   sel.addEventListener('change', () => setFrontIndex(Number(sel.value)));
   // which tab: ?tab=... wins, then the remembered one; ?tab=scan opens the scanner over it (the replay tooling's URL)
-  let tab: string = 'eo';
-  try { tab = localStorage.getItem('zz-tab') || 'eo'; } catch { /* no storage */ }
+  let tab: string = 'solve';
+  try { tab = localStorage.getItem('zz-tab') || 'solve'; } catch { /* no storage */ }
   const want = new URLSearchParams(location.search).get('tab');
   if (want && want !== 'scan') tab = want;
   showTab((TABS as readonly string[]).includes(tab) ? (tab as Tab) : 'eo');
@@ -152,6 +157,6 @@ declare global {
 if (typeof window !== 'undefined') { // importable from node tests (fingertricks.test.ts)
   window.ZZ = {
     tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages,
-    get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
+    get solve() { return stages.solve; }, get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
   };
 }

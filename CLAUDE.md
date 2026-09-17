@@ -69,6 +69,11 @@ web/
                      smartcube-web-bluetooth), clock (two-clock fit), sync (the belief reducer), capture
                      (JSONL + replay), source (CubeSource). Fixtures in test/fixtures/smart/; the headless
                      check `node scripts/check-smart.mjs` replays one through the built page
+    timer/           the Solve tab (the timer that replaces csTimer): trainer (the tab), stats (averages,
+                     csTimer's 5% trim), cstimer (its export file both ways), track (scramble following)
+    store/           the solve store: types (records in WCA notation), local (IndexedDB, always), sync
+                     (optional Firestore layer, Google sign-in), firebase (the only SDK import, lazy)
+firebase/            firestore.rules (per-user) + firebase.json; paste into the console or deploy with the CLI
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer

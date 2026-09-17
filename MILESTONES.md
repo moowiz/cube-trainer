@@ -380,6 +380,21 @@ certificate calibration), written into `docs/solve-tracking-design.md`.
 solves exist as cube-labelled recordings; the reader's numbers are written
 down.
 
+**Status (2026-09-17): the timer half is built.** The Solve tab
+(`web/src/timer/`): random-state scrambles from the solver worker
+(prefetched), scramble following on a smart cube with the applied prefix
+underlined and an off-track warning, inspection from the moment the
+scramble is matched (WCA +2 / DNF), the first turn starts and solved
+stops, beeps, next scramble by itself; Space for a dumb cube; sessions,
+ao5/12/50/100, mo3, best averages, +2 / DNF / delete, csTimer import and
+export. The store (`web/src/store/`): IndexedDB always, with an optional
+Firestore sync (Google sign-in, per-user rules in `firebase/`, the SDK
+loaded only when sync is on). Checked headless: a replayed capture arms
+the timer at its own scramble, times the undo from the cube's stamps and
+saves the solve with its turns. Not yet: the recording rig (continuous
+video + cube events streamed to the dev server), the latency
+calibration, the fixture tool's cube truth, the reader numbers.
+
 ---
 
 ## M11 — ZZ analysis and coaching (design doc 6.1)
