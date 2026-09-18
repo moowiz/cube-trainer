@@ -48,6 +48,13 @@ const STYLE = `
   .tm-scr .gen { color: var(--ink-2); font-size: 15px; word-spacing: normal; }
   .tm-track { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 18px; }
   .tm-track.off { color: #7A4B00; font-weight: 600; }
+  /* the tap pad: most of the screen on a phone; press and release starts, a tap stops */
+  .tm-pad { min-height: 36vh; display: flex; flex-direction: column; justify-content: center; margin: 6px 0; border-radius: 14px;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; cursor: pointer; transition: background .12s; }
+  .tm-pad.held { background: #DDF3E4; }
+  .tm-pad.held .tm-time { color: var(--good); }
+  .tm-pad.solving { background: var(--panel); }
+  @media (min-width: 820px) { .tm-pad { min-height: 220px; } }
   .tm-time { font-variant-numeric: tabular-nums; font-size: 72px; font-weight: 300; line-height: 1.1; text-align: center; padding: 14px 0 4px; letter-spacing: -0.02em; }
   .tm-time.insp { color: var(--good); } .tm-time.insp.warn { color: #B3261E; }
   .tm-state { text-align: center; color: var(--ink-2); font-size: 15px; min-height: 22px; }
@@ -83,8 +90,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       </div>
       <div class="tm-scr" id="tm-scr"></div>
       <div class="tm-track" id="tm-track"></div>
-      <div class="tm-time" id="tm-time">0.00</div>
-      <div class="tm-state" id="tm-state"></div>
+      <div class="tm-pad" id="tm-pad" role="button" aria-label="Timer: press and release to start, tap to stop">
+        <div class="tm-time" id="tm-time">0.00</div>
+        <div class="tm-state" id="tm-state"></div>
+      </div>
       <div class="tm-last" id="tm-last" hidden>
         <span id="tm-lastText"></span>
         <button class="btn" type="button" data-pen="0">OK</button><button class="btn" type="button" data-pen="2">+2</button><button class="btn" type="button" data-pen="-1">DNF</button><button class="btn" type="button" data-del="1">Delete</button>
@@ -142,7 +151,6 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let armedAt: number | null = null;   // inspection start, host ms
   let startAt: number | null = null;   // first turn / Space, host ms
   let moves: SolveMove[] = [];         // WCA letters, t relative to startAt
-  let source: SolveRecord['source'] = 'keyboard';
   let lastLine = '';
   function resetAttempt(): void { phase = 'idle'; armedAt = null; startAt = null; moves = []; }
 
@@ -162,7 +170,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     }
     let toks: string[];
     try { toks = tokens(txt); } catch { return false; }
-    if (startAt === null) { startAt = t; phase = 'solving'; source = 'cube'; moves = []; }
+    if (startAt === null) { startAt = t; phase = 'solving'; moves = []; }
     for (let i = moves.length; i < toks.length; i++) moves.push({ m: toWca(toks[i]!), t: Math.max(0, Math.round(t - startAt)) });
     render();
     let solved: boolean;
@@ -178,8 +186,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const inspection = armedAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
     const penalty: Penalty = 0; // +2 / DNF are the buttons under the time, never automatic
     const rec: SolveRecord = {
-      id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Date.now() - (performance.now() - startAt), scramble, time, penalty,
-      moves: source === 'cube' ? moves.slice() : undefined, source, inspection, editedAt: Date.now(),
+      id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Math.min(Date.now(), Date.now() - (performance.now() - startAt)), scramble, time, penalty,
+      moves: moves.length ? moves.slice() : undefined, source: moves.length ? 'cube' : 'keyboard', inspection, editedAt: Date.now(),
     };
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
     lastLine = `${formatTime(effectiveTime(rec))}${tps}`;
@@ -191,20 +199,48 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (settings.autonext === 'on') newScramble();
   }
 
-  // ---- keyboard: Space starts the solve and stops it; Esc cancels; n new ----
+  // ---- the tap pad and Space: press arms (the digits go green), RELEASE starts, a tap stops ----
+  // DECISION (user, 2026-09-17): the timer starts on release, never on the press, so a thumb resting
+  // on the phone does not start it; a solve stops on the press itself, as every timer does.
+  let held = false;       // pressed, waiting for the release that starts
+  let swallowUp = false;  // the press that stopped a solve: its release must not start another
+  function press(): void {
+    if (phase === 'solving') { finish(performance.now()); swallowUp = true; return; }
+    if (!scramble || held) return;
+    held = true;
+    render();
+  }
+  function release(): void {
+    if (swallowUp) { swallowUp = false; return; }
+    if (!held) return;
+    held = false;
+    if (phase === 'solving' || !scramble) { render(); return; }
+    phase = 'solving'; startAt = performance.now(); moves = [];
+    render();
+  }
+  const pad = $('pad');
+  pad.addEventListener('pointerdown', (ev) => {
+    if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+    ev.preventDefault();
+    try { pad.setPointerCapture(ev.pointerId); } catch { /* a synthetic event */ }
+    press();
+  });
+  pad.addEventListener('pointerup', (ev) => { ev.preventDefault(); release(); });
+  pad.addEventListener('pointercancel', () => { held = false; swallowUp = false; render(); });
+  pad.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
   const active = () => !root.hidden && !sheetOpen();
+  const keyable = (ev: KeyboardEvent) => active() && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes((ev.target as HTMLElement).tagName);
   document.addEventListener('keydown', (ev) => {
-    if (!active() || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    if (['INPUT', 'TEXTAREA', 'SELECT'].includes((ev.target as HTMLElement).tagName)) return;
-    if (ev.key === ' ') {
-      ev.preventDefault();
-      const now = performance.now();
-      if (phase === 'solving') { source = 'keyboard'; finish(now); return; }
-      if (!scramble) return;
-      phase = 'solving'; startAt = now; source = 'keyboard'; moves = [];
-      render();
-    } else if (ev.key === 'Escape') { resetAttempt(); render(); }
+    if (!keyable(ev)) return;
+    if (ev.key === ' ') { ev.preventDefault(); if (!ev.repeat) press(); }
+    else if (ev.key === 'Escape') { held = false; resetAttempt(); render(); }
     else if (ev.key.toLowerCase() === 'n') newScramble();
+  });
+  document.addEventListener('keyup', (ev) => {
+    if (ev.key !== ' ' || !keyable(ev)) return;
+    ev.preventDefault();
+    release();
   });
   $('next').onclick = newScramble;
 
@@ -333,7 +369,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function renderTime(): void {
     const el = $('time');
     el.className = 'tm-time';
-    if (phase === 'ready') {
+    $('pad').className = `tm-pad${held ? ' held' : ''}${phase === 'solving' ? ' solving' : ''}`;
+    if (held) {
+      el.textContent = '0.00';
+    } else if (phase === 'ready') {
       el.classList.add('insp');
       el.textContent = 'ready';
     } else if (phase === 'solving' && startAt !== null) {
@@ -347,9 +386,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     renderScramble();
     renderTime();
     const st = $('state');
-    if (phase === 'ready') st.textContent = 'Scrambled · the first turn starts the timer';
-    else if (phase === 'solving') st.textContent = 'Solving…';
-    else st.textContent = lastLine || (track ? 'Scramble the cube' : 'Space starts the timer, Space stops it');
+    if (held) st.textContent = 'Release to start';
+    else if (phase === 'ready') st.textContent = 'Scrambled · the first turn starts the timer';
+    else if (phase === 'solving') st.textContent = 'Solving… tap to stop';
+    else st.textContent = lastLine || (track ? 'Scramble the cube · or press here and release to start' : 'Press here (or Space) and release to start · tap to stop');
     // the last (or selected) solve's controls
     const cur = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
     $('last').hidden = !cur || phase !== 'idle';

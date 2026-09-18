@@ -141,6 +141,23 @@ check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solv
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
 
+// ---- the tap pad: press arms, release starts, a tap stops; the solve is saved ----
+const padBefore = await page.evaluate(() => document.querySelectorAll('#tm-list li').length);
+const pad = (type) => page.evaluate((t) => { document.getElementById('tm-pad').dispatchEvent(new PointerEvent(t, { bubbles: true, pointerId: 7, pointerType: 'touch', isPrimary: true })); }, type);
+await pad('pointerdown');
+const heldState = await page.evaluate(() => ({ state: document.getElementById('tm-state').textContent, held: document.getElementById('tm-pad').classList.contains('held') }));
+check(heldState.held && /Release to start/.test(heldState.state), `a press arms the pad without starting: "${heldState.state}"`);
+await pad('pointerup');
+const runState = await page.evaluate(() => document.getElementById('tm-state').textContent);
+check(/Solving/.test(runState), `the release starts the timer: "${runState}"`);
+await new Promise((r) => setTimeout(r, 420));
+await pad('pointerdown');
+await pad('pointerup'); // the release after a stopping press must not start again
+await new Promise((r) => setTimeout(r, 150));
+const stopped = await page.evaluate(() => ({ state: document.getElementById('tm-state').textContent, rows: document.querySelectorAll('#tm-list li').length, top: document.querySelector('#tm-list li .t')?.textContent }));
+check(stopped.rows === padBefore + 1 && !/Solving/.test(stopped.state), `a tap stops and saves the solve (${stopped.rows} rows): "${stopped.state}"`);
+check(stopped.top && Number(stopped.top) >= 0.4 && Number(stopped.top) < 0.7, `the tapped solve's time is its press-to-tap span: ${stopped.top} s`);
+
 // ---- installable: the manifest the page links to resolves and has what Chrome asks for ----
 const manifest = await page.evaluate(async () => {
   const link = document.querySelector('link[rel="manifest"]');
