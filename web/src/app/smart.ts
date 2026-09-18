@@ -22,7 +22,6 @@ import { activeSource, dropSource, onSourceChange, useSource } from './sources';
 // red right), which is what a GAN reports; a differently coloured smart cube would need a setting.
 const CUBE_COLOURS = DEFAULT_SCHEME_NAMES;
 let cubeLink: CubeLink | null = null;
-let wakeLock: WakeLockSentinel | null = null;
 let cube: CubeSource | null = null;     // the connected cube, or a replayed capture; kept after a disconnect for Save
 let view: CubeView;
 
@@ -69,8 +68,6 @@ async function connectSmartCube(): Promise<void> {
           dropSource(src);
           refreshView();
           toast('Smart cube disconnected');
-          void wakeLock?.release().catch(() => undefined);
-          wakeLock = null;
         }
       },
       askMac: async (name) => {
@@ -89,8 +86,6 @@ async function connectSmartCube(): Promise<void> {
   takeSource(src);
   headerToSession();
   toast(`${cubeLink.name} connected`);
-  // hands-free sessions: keep the screen on while the cube is connected
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
 }
 
 export function initSmart(): void {

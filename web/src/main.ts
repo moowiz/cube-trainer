@@ -8,6 +8,7 @@ import { rig } from './app/rig';
 import { initScannerBridge } from './app/scanner-bridge';
 import { initSmart } from './app/smart';
 import { initSyncUi } from './app/sync-ui';
+import { initWake } from './app/wake';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
 import { mountLL } from './ll/trainer';
@@ -29,6 +30,7 @@ setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); });
 initSyncUi();
 initSmart();
 initScannerBridge();
+initWake();
 
 // For the headless checks and the console: what the store holds.
 (window.ZZ as { store?: unknown }).store = {
