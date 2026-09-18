@@ -16,7 +16,7 @@ import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, ty
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { stageOf } from '../stage';
-import { showTab, stages, type Stage } from '../shell';
+import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
@@ -412,7 +412,9 @@ export function mountF2L(root: HTMLElement): Stage {
     scrBox.value = toWca(alg); preBox.value = ''; trackMsg(msg); saveUrl();
   }
   function newScramble(): void {
-    putScramble(genFull(), `Apply this to a solved cube held ${WCA_HOLD}. Then turn it ${hold()}, solve EOCross, type the moves you used below, then apply.`);
+    const scr = genFull();
+    putScramble(scr, `Apply this to a solved cube held ${WCA_HOLD}. Then turn it ${hold()}, solve EOCross, type the moves you used below, then apply.`);
+    shareScramble(scr, 'f2l');
   }
 
   // ---- the result panel ----
@@ -477,7 +479,7 @@ export function mountF2L(root: HTMLElement): Stage {
       hint(tracked ? 'All four pairs solved on the tracked cube. Generate a new scramble or press "Start over".' : 'All four pairs solved. Press "Start over" for the next solve.');
       if (tracked && stages.ocll) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.style.marginTop = '8px'; b.textContent = 'Continue to OCLL with this cube';
-        b.addEventListener('click', () => { stages.ocll?.load(trackedAlg()); showTab('ocll'); window.scrollTo({ top: 0 }); });
+        b.addEventListener('click', () => { shareScramble(trackedAlg(), 'f2l'); showTab('ocll'); window.scrollTo({ top: 0 }); });
         r.appendChild(b);
       }
       return;
@@ -542,7 +544,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!scr) { scr = toWca(genFull()); scrBox.value = scr; preBox.value = ''; saveUrl(); }
     let alg: string;
     try { alg = fromWca(clean(scr)); } catch (err) { trackMsg(err instanceof Error ? err.message : String(err), true); return; }
-    stages.eo?.load(alg); showTab('eo'); window.scrollTo({ top: 0 });
+    shareScramble(alg, 'f2l'); showTab('eo'); window.scrollTo({ top: 0 });
   };
   scrBox.addEventListener('input', saveUrl); preBox.addEventListener('input', saveUrl);
   $<HTMLSelectElement>('slotsel').addEventListener('change', (e) => {
@@ -567,7 +569,6 @@ export function mountF2L(root: HTMLElement): Stage {
       scrBox.value = toWca(scramble); preBox.value = '';
       $<HTMLDetailsElement>('scr').open = true;
       applyScramble();
-      showTab('f2l'); window.scrollTo({ top: 0 });
     },
     render,
     scramble(): string | null {

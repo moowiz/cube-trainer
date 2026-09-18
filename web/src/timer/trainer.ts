@@ -13,7 +13,7 @@ import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
 import { toSourceLetters, type Hold } from '../handoff';
-import { sheetOpen, stages, toast, type Stage } from '../shell';
+import { shareScramble, sheetOpen, toast, type Stage } from '../shell';
 import { solveState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
@@ -115,15 +115,14 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let generation = 0;
   warmSolver();
   const genScramble = async (): Promise<string> => Cube.inverse(await solveState(Cube.random().asString()));
-  function setScramble(s: string): void {
+  /** Show `s` (WCA); `share` hands it to every other tab (false when it came from another tab). */
+  function setScramble(s: string, share = true): void {
     scramble = s.trim();
     tracker = null; trackKey = '';
     resetAttempt();
     render();
     nextScramble = genScramble().catch(() => genScramble());
-    // the same scramble on the EO tab (user, 2026-09-17): scramble for a solve, switch tabs, get the
-    // EO hints and optimal solutions for that very scramble; the EO tab's own New scramble still works
-    try { stages.eo?.load(fromWca(scramble)); } catch { /* the EO tab cannot show it (never for a 3x3 scramble) */ }
+    if (share) shareScramble(fromWca(scramble), 'solve');
   }
   function newScramble(): void {
     const gen = ++generation;
@@ -427,7 +426,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   void deps.store.then((st) => { st.onChange(() => { void loadSolves(); }); return loadSessions(); }).then(() => newScramble());
 
   return {
-    load: (trainerScramble) => setScramble(toWca(trainerScramble)),
+    load: (trainerScramble) => setScramble(toWca(trainerScramble), false),
     render,
     scramble: () => (scramble ? fromWca(scramble) : null),
     newScramble,

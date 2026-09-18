@@ -9,7 +9,7 @@ import { toWca, WCA_HOLD } from '../cube/frame';
 import { faceColorName, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { stageOf } from '../stage';
-import { showTab, stages, type Stage } from '../shell';
+import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLKind } from './cases';
@@ -101,7 +101,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     drill.begin();
     render();
   }
-  function newCase(): void { load(randomSetup(kind).setup); }
+  function newCase(): void { const s = randomSetup(kind).setup; load(s); shareScramble(s, kind); }
 
   /** The standard solution as a line: the alg with its AUFs in brackets, [U] R U R' ... [U']. */
   const algPlain = () => (sol ? [sol.pre, sol.case.alg, sol.post].filter(Boolean).join(' ') : '');
@@ -153,7 +153,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (kind === 'ocll' && stages.pll) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
       btn.textContent = 'Continue to PLL with this cube';
-      btn.addEventListener('click', () => { stages.pll!.load(alg); showTab('pll'); window.scrollTo({ top: 0 }); });
+      btn.addEventListener('click', () => { shareScramble(alg, 'ocll'); showTab('pll'); window.scrollTo({ top: 0 }); });
       drill.result.handoff.appendChild(btn);
     }
     render();

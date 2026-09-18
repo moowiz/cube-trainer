@@ -28,6 +28,19 @@ export interface Stage {
 
 export const stages: Partial<Record<Tab, Stage>> = {};
 
+// One scramble for every tab (user, 2026-09-17): whichever tab makes a new scramble, a case setup,
+// or carries the cube on (Continue, a scan lock, follow mode) hands the resulting trainer-frame alg
+// to every other tab, so switching tabs mid-practice keeps the cube. A tab not yet at its stage says
+// so (the last-layer tabs: "this cube is at EO"; F2L: "EO is not solved on this state").
+let shared: string | null = null;
+/** The scramble every tab shows, trainer frame; null before the first one. */
+export function sharedScramble(): string | null { return shared; }
+/** Give `scramble` to every tab but `from` (the one that already has it; null: all of them). */
+export function shareScramble(scramble: string, from: Tab | null): void {
+  shared = scramble;
+  for (const t of TABS) if (t !== from) stages[t]?.load(scramble);
+}
+
 const el = (id: string): HTMLElement => {
   const e = document.getElementById(id);
   if (!e) throw new Error(`index.html is missing #${id}`);
@@ -156,7 +169,7 @@ declare global {
 }
 if (typeof window !== 'undefined') { // importable from node tests (fingertricks.test.ts)
   window.ZZ = {
-    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages,
+    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages, shareScramble, sharedScramble,
     get solve() { return stages.solve; }, get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
   };
 }
