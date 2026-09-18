@@ -7,8 +7,18 @@ the rest), including the training data. Effort figures are rough working
 days of build time and exclude photo sessions; the risks are called out
 where a number is a guess.
 
-The inventory of puzzles in the house is pending (order history);
-section 6 lists the questions that decide the order.
+**The inventory (TheCubicle order of 2026-09-15, delivered 2026-09-18),
+all stickerless:** 3x3s: GAN356 i Carry E (the smart cube), MoYu AoLong
+V5, X-Man Tornado V4, MoYu RS3 M V5, YJ YuLong V3 M. Others: YJ MGC Elite
+2x2, YJ MGC 5x5 (no 4x4), YJ YuHu Megaminx V3, QiYi M Pro Pyraminx, MoYu
+RS Skewb, and a DaYan FTO (face-turning octahedron, not in the survey
+below: eight triangular faces of nine stickers, eight colours; it shares
+Pyraminx's triangle head and sits between Pyraminx and Megaminx in
+difficulty, with the colour question of the Megaminx in a milder form).
+The four new stickerless 3x3s are also detector and colour-bank data: the
+shades differ from the GANs the real photos were taken on. Section 6's
+remaining questions are what you want from each puzzle and the
+Megaminx's colour test.
 
 ---
 
