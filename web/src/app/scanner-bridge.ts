@@ -13,7 +13,7 @@ import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } fro
 import type { Move } from '../moves/moves';
 import { ReaderSource } from '../moves/readersource';
 import type { MoveRecord } from '../moves/record';
-import { activeTab, closeScan, dockScan, expectedScramble, scanHooks, scanStarted, showTab, stages, toast } from '../shell';
+import { activeTab, closeScan, dockScan, expectedScramble, scanHooks, scanStarted, shareScramble, showTab, stages, toast } from '../shell';
 import { stageOf, type Stage, type StageReport } from '../stage';
 import { solveState } from '../state';
 import { DEFAULT_SCHEME_NAMES, type ColorName } from '../types';
@@ -72,7 +72,7 @@ function useInTrainer(scan: ScannedCube): void {
   // is the scanned cube with white as D - what stage.ts reads
   const report = stageOf(new Cube().move(scramble).asString());
   const target = report.stage === 'solved' ? null : report.stage;
-  if (target) { stages[target]?.load(scramble); showTab(target); }
+  if (target) { shareScramble(scramble, null); showTab(target); }
   // following: the camera keeps watching from a corner and every lock (this one, or a re-read that
   // corrected the reader) restarts the follow from here; otherwise the scan is done
   if (scanner?.following()) {
@@ -115,7 +115,7 @@ function onFollow(scan: ScannedCube, moves: readonly Move[], record: MoveRecord)
     return;
   }
   console.log(`FOLLOW stage=${next} after ${moves.length} turns: ${moves.join(' ')}`);
-  stages[next]?.load(scramble);
+  shareScramble(scramble, null);
   showTab(next);
   toast(describe(report));
   window.scrollTo({ top: 0 });

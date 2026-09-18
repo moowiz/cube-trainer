@@ -12,7 +12,7 @@ import { STICKERS, key } from '../cube/geometry';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { stageOf } from '../stage';
-import { showTab, stages, type Stage } from '../shell';
+import { shareScramble, showTab, type Stage } from '../shell';
 import { mountDrill, type Drill } from '../ui/drill';
 import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook } from './eocross';
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
@@ -105,12 +105,14 @@ export function mountEO(root: HTMLElement): Stage {
 
   function newScramble(): void {
     // a scramble with the wanted number of bad edges (any = at least two)
+    let scr = movesStr(randomScramble());
     for (let attempt = 0; attempt < 400; attempt++) {
       const seq = randomScramble();
       const bad = stageOf(state(movesStr(seq))).eoBad;
-      if (settings.target === 'any' ? bad >= 2 : bad === Number(settings.target)) { load(movesStr(seq)); return; }
+      if (settings.target === 'any' ? bad >= 2 : bad === Number(settings.target)) { scr = movesStr(seq); break; }
     }
-    load(movesStr(randomScramble()));
+    load(scr);
+    shareScramble(scr, 'eo');
   }
 
   // ---- check the moves typed after solving on the real cube ----
@@ -142,7 +144,7 @@ export function mountEO(root: HTMLElement): Stage {
     drill.result.show(`EOCross done in ${n} moves${ts}`, `Optimal EO alone is ${solution.length} moves${optX}.${assisted ? ' You peeked at a solution.' : ''}`);
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
     btn.textContent = 'Continue to F2L with this cube';
-    btn.addEventListener('click', () => { stages.f2l?.load(`${scramble} ${toks.join(' ')}`); showTab('f2l'); window.scrollTo({ top: 0 }); });
+    btn.addEventListener('click', () => { shareScramble(`${scramble} ${toks.join(' ')}`, 'eo'); showTab('f2l'); window.scrollTo({ top: 0 }); });
     drill.result.handoff.appendChild(btn);
     render();
   }
