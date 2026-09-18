@@ -148,7 +148,9 @@ export function initScannerBridge(): void {
     s.start();
     scanned = true;
     scanStarted();
-    panel('scan-dock').hidden = !s.following();
+    // Dock is always on offer: a recording or a follow keeps the camera running in the corner
+    // while the Solve tab (or a drill) is used underneath
+    panel('scan-dock').hidden = false;
   };
   scanHooks.onClose = () => { scanner?.stop(); scanner?.setDocked(false); };
   scanHooks.onDock = (on) => scanner?.setDocked(on);
