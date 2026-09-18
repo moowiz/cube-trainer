@@ -138,6 +138,10 @@ check(solve.rows[0]?.m.startsWith(`${undoTurns} ·`), `the solve kept its ${undo
 check(solve.rows[0]?.s === timerScramble.replace(/\s+/g, ' ') || true, 'the row shows the scramble');
 check(new RegExp(`^${want} · ${undoTurns} turns`).test(solve.state), `the result line: "${solve.state}"`);
 check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solves'), `the stats count it: "${solve.stats.slice(0, 40)}"`);
+// the Solve tab's scramble is the EO tab's too
+const eoScr = await page.evaluate(() => window.ZZ.eo.scramble());
+const solveScr = await page.evaluate(() => window.ZZ.solve.scramble());
+check(eoScr === solveScr && !!eoScr, `the EO tab holds the Solve tab's scramble (${eoScr === solveScr ? 'same' : `${eoScr} vs ${solveScr}`})`);
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
 

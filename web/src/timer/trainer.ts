@@ -13,7 +13,7 @@ import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
 import { toSourceLetters, type Hold } from '../handoff';
-import { sheetOpen, toast, type Stage } from '../shell';
+import { sheetOpen, stages, toast, type Stage } from '../shell';
 import { solveState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
@@ -121,6 +121,9 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     resetAttempt();
     render();
     nextScramble = genScramble().catch(() => genScramble());
+    // the same scramble on the EO tab (user, 2026-09-17): scramble for a solve, switch tabs, get the
+    // EO hints and optimal solutions for that very scramble; the EO tab's own New scramble still works
+    try { stages.eo?.load(fromWca(scramble)); } catch { /* the EO tab cannot show it (never for a 3x3 scramble) */ }
   }
   function newScramble(): void {
     const gen = ++generation;
