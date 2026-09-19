@@ -112,7 +112,7 @@ MILESTONES.md
   working. Keep architecture, cross-module interfaces, and anything
   judgment-heavy in the main thread. Fix the contract (data shapes, file
   paths, conventions) in the prompt before spawning.
-- Commit work to save it. Pushing is the user's job: `origin` is an SSH remote (since 2026-09-18) and the sandbox hides the SSH keys and masks `.git/config`, so a push from Claude Code fails; ask the user to run `git push origin main` in an outside terminal. Pushing `main` also deploys the app to GitHub Pages via `.github/workflows/deploy.yml`.
+- Commit work to save it, and push with `tools/wsl/push.sh` (never plain `git push`: `origin` is an SSH remote and the sandbox hides `~/.ssh` and masks `.git/config`; the script uses a deploy key scoped to this repo, `docs/wsl-sandbox.md`). Pushing `main` also deploys the app to GitHub Pages via `.github/workflows/deploy.yml`.
 - Every milestone ends with something runnable on a phone. Prefer an ugly working step over a clean partial one.
 - When a step is ambiguous (thresholds, model size, frame rate), pick a sensible default, note it in a `// DECISION:` comment, and move on. Don't stop to ask.
 - Debug views are first-class. When adding a processing step, add a way to see its output in the debug panel.

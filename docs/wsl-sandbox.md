@@ -25,11 +25,18 @@ Three layers, from the outside in:
      `github.com` / `api.github.com`, so `gh` works and nothing that runs
      can read the token. `git push` over HTTPS does NOT: git sends the
      placeholder as basic auth, which the proxy does not rewrite, and
-     GitHub answers "Invalid username or token" (found 2026-09-18). The
-     remote is SSH since that day and `~/.ssh` is denied, so pushing is
-     done by the user from a terminal outside Claude Code. `.git/config`
-     and `.git/config.lock` are masked too: `git remote set-url` and any
-     other config write fails inside with "could not lock config file";
+     GitHub answers "Invalid username or token" (found 2026-09-18), and
+     GitHub's git endpoint takes no other auth form. The remote is SSH
+     since that day; the sandbox tunnels SSH through the proxy (its own
+     `GIT_SSH_COMMAND`) but `~/.ssh` is denied, so pushes go through
+     `tools/wsl/push.sh` with a **deploy key scoped to this one repo**
+     (`~/.ssh-cube/cube-trainer`, write access, plus a `known_hosts` from
+     `ssh-keyscan`), readable inside but able to reach nothing else. The
+     account's own keys stay denied. `Bash(tools/wsl/push.sh:*)` is allowed
+     in the settings so auto mode does not treat the push as a bypass.
+     `.git/config` and `.git/config.lock` are masked too: `git remote
+     set-url` and any other config write fails inside with "could not lock
+     config file";
    - network only to the allowlist (GitHub, npm, PyPI, PyTorch, Google
      storage for Chrome/mediapipe downloads); any other host prompts;
    - `allowUnsandboxedCommands: false` — no per-command escape hatch — and

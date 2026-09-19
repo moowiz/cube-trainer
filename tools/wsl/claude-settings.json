@@ -9,7 +9,8 @@
     "runpod": { "source": { "source": "github", "repo": "runpod/runpod-plugins-official" } }
   },
   "permissions": {
-    "additionalDirectories": ["/mnt/cube-data"]
+    "additionalDirectories": ["/mnt/cube-data"],
+    "allow": ["Bash(tools/wsl/push.sh:*)"]
   },
   "sandbox": {
     "enabled": true,
