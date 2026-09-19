@@ -52,7 +52,7 @@ writable, so a throwaway checkout can only hurt itself.
 ~/cube_stuff                 the repo, on the Linux ext4 disk (never under /mnt: 9p is slow)
   model/data_v4, data_v5,    -> /mnt/cube-data/model/...   (symlinks, tools/wsl/setup-user.sh)
   model/data_real*, runs,
-  stephens_photos, recordings, web/clips
+  stephens_photos, recordings, web/clips, web/test/bank
 /mnt/cube-data               = D:\cube-data  (the external 12 TB G-DRIVE)
 D:\cube-backup               second copy of the hand-labelled data; invisible to WSL
 ```
