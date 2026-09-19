@@ -502,9 +502,20 @@ replays it: every report agrees with the belief, the clock fit is
 +0.23% (the host runs slightly fast against the cube's counter, 64
 pairs), each solve's window is exactly the turns the timer filed and
 runs from its scramble to solved. Item 2: `watchAdvertisements` works on
-desktop Chrome, the MAC dialog was never needed. Items 1 (capabilities),
-3-4 (latency on camera, fast-turn misses), 5 (the phone) and 6 (the
-drift test) are not written down yet.
+desktop Chrome, the MAC dialog was never needed. Item 1: `GANicE2` sw
+2.9 hw 1.0; capabilities facelets, battery, hardware, reset (the
+library says gyroscope, the cube's own hardware report says none).
+Item 3 (`tools/solve/cube_latency.py` over the first recording, the
+scramble-following turns, 25 of 39 usable, 2026-09-19): the report's
+fitted send time is **+5 ms median (MAD 22, p10/p90 -42/+33)** after the
+frame that first shows the layer at rest, i.e. the GAN reports as the
+layer finishes; against BLE arrival +10 ms median with a p90 of +102
+(packets arrive up to 250 ms late, which the clock fit removes). Each
+number is a lower bound within one 33 ms frame. Store `latencyMs: 5`.
+Item 6: passes without a scan - after a disconnect, three turns and a
+reconnect the belief restarts from the cube's report (the banner seen
+for a few seconds is unexplained: no capture of it yet). Items 4
+(fast-turn misses) and 5 (the phone, not planned) are open.
 
 ---
 
