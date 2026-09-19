@@ -366,6 +366,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (!track) { tr.textContent = ''; tr.className = 'tm-track'; return; }
     if (track.off) { tr.textContent = `Off the scramble: undo back to turn ${track.applied} (underlined)`; tr.className = 'tm-track off'; }
     else if (track.matched) { tr.textContent = 'Scrambled ✓'; tr.className = 'tm-track'; }
+    else if (track.half) { tr.textContent = `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}`; tr.className = 'tm-track'; }
     else { tr.textContent = `${track.applied} of ${track.total} applied`; tr.className = 'tm-track'; }
   }
   function renderTime(): void {

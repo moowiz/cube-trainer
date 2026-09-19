@@ -77,13 +77,16 @@ describe('csTimer files', () => {
 describe('ScrambleTracker', () => {
   it('follows the prefixes, notices a wrong turn, and the undo', () => {
     const tr = new ScrambleTracker("R U2 F'");
-    expect(tr.status(SOLVED)).toEqual({ applied: 0, total: 3, off: false, matched: false });
-    expect(tr.status(applySeq(SOLVED, ['R']))).toMatchObject({ applied: 1, off: false });
-    // U2 done as two quarter turns: half way is off, then back on
-    expect(tr.status(applySeq(SOLVED, parseAlg('R U')))).toMatchObject({ applied: 1, off: true });
-    expect(tr.status(applySeq(SOLVED, parseAlg('R U U')))).toMatchObject({ applied: 2, off: false });
-    expect(tr.status(applySeq(SOLVED, parseAlg('R U2 F')))).toMatchObject({ applied: 2, off: true });
-    expect(tr.status(applySeq(SOLVED, parseAlg("R U2 F'")))).toEqual({ applied: 3, total: 3, off: false, matched: true });
+    expect(tr.status(SOLVED)).toEqual({ applied: 0, total: 3, off: false, matched: false, half: false });
+    expect(tr.status(applySeq(SOLVED, ['R']))).toMatchObject({ applied: 1, off: false, half: false });
+    // U2 done as two quarter turns, either way round: halfway is still on the scramble
+    expect(tr.status(applySeq(SOLVED, parseAlg('R U')))).toMatchObject({ applied: 1, off: false, half: true });
+    expect(tr.status(applySeq(SOLVED, parseAlg("R U'")))).toMatchObject({ applied: 1, off: false, half: true });
+    // a different face is a wrong turn, halfway or not: undo back to the last prefix
+    expect(tr.status(applySeq(SOLVED, parseAlg('R F')))).toMatchObject({ applied: 1, off: true, half: false });
+    expect(tr.status(applySeq(SOLVED, parseAlg('R U U')))).toMatchObject({ applied: 2, off: false, half: false });
+    expect(tr.status(applySeq(SOLVED, parseAlg('R U2 F')))).toMatchObject({ applied: 2, off: true, half: false });
+    expect(tr.status(applySeq(SOLVED, parseAlg("R U2 F'")))).toEqual({ applied: 3, total: 3, off: false, matched: true, half: false });
     expect(tr.target()).toBe(applySeq(SOLVED, parseAlg("R U2 F'")));
   });
 });
