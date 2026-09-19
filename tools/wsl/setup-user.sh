@@ -46,7 +46,7 @@ for rel in \
   model/data_v4 model/data_v5 model/data_real model/data_real_val \
   model/backgrounds model/negatives model/roboflow model/preview_v5 \
   model/runs model/train/runs model/export/out model/gen/logs \
-  stephens_photos recordings web/clips; do
+  stephens_photos recordings web/clips web/test/bank; do
   mkdir -p "$DATA/$rel"
   if [ -e "$rel" ] && [ ! -L "$rel" ]; then
     if [ -z "$(ls -A "$rel")" ]; then rmdir "$rel"; else echo "!! $rel exists and is not empty; not replacing with a symlink"; continue; fi
