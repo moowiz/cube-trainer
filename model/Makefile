@@ -26,7 +26,14 @@ data-v4: deps
 viz-v4:
 	cd $(GEN) && node visualize.mjs --data ../preview_v4 --count 24
 
+# venv layout differs: Windows puts python under Scripts/, Linux (WSL2,
+# docs/wsl-sandbox.md) under bin/. Every usage line in README/docstrings
+# that says .venv/Scripts/python reads .venv/bin/python on Linux.
+ifeq ($(OS),Windows_NT)
 PY = .venv/Scripts/python
+else
+PY = .venv/bin/python
+endif
 
 overfit:
 	cd train && ../$(PY) train.py --data ../data --overfit 50 --epochs 120 --out runs/overfit

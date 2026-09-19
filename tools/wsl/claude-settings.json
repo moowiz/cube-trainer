@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "fable",
+  "effortLevel": "high",
+  "modelSettings": { "claude-fable-5-1": { "effortLevel": "xhigh" } },
+  "agentPushNotifEnabled": true,
+  "enabledPlugins": { "runpod@runpod": true },
+  "extraKnownMarketplaces": {
+    "runpod": { "source": { "source": "github", "repo": "runpod/runpod-plugins-official" } }
+  },
+  "permissions": {
+    "additionalDirectories": ["/mnt/cube-data"]
+  },
+  "sandbox": {
+    "enabled": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": true,
+    "failIfUnavailable": true,
+    "filesystem": {
+      "allowWrite": [
+        "~/.npm",
+        "~/.cache",
+        "~/.local/share/uv"
+      ],
+      "denyRead": [
+        "~/.ssh",
+        "~/.gnupg",
+        "~/.claude.json",
+        "~/.claude/.credentials.json",
+        "~/.git-credentials",
+        "~/.netrc"
+      ]
+    },
+    "network": {
+      "allowLocalBinding": true,
+      "tlsTerminate": {},
+      "allowedDomains": [
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "registry.npmjs.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "download.pytorch.org",
+        "storage.googleapis.com"
+      ]
+    },
+    "credentials": {
+      "files": [
+        { "path": "~/.ssh", "mode": "deny" },
+        { "path": "~/.claude/.credentials.json", "mode": "deny" },
+        { "path": "~/.claude.json", "mode": "deny" },
+        { "path": "~/.git-credentials", "mode": "deny" },
+        { "path": "~/.netrc", "mode": "deny" },
+        {
+          "path": "~/.config/gh/hosts.yml",
+          "mode": "mask",
+          "extract": "oauth_token:\\s*(\\S+)",
+          "injectHosts": ["github.com", "api.github.com"]
+        }
+      ]
+    }
+  }
+}

@@ -130,6 +130,12 @@ MILESTONES.md
 
 ## Commands
 
+Claude Code runs in WSL2 (Ubuntu 26.04) with its sandbox on, from 2026-09-18:
+`docs/wsl-sandbox.md`. The repo is `~/cube_stuff` there; the data dirs are
+symlinks onto `/mnt/cube-data` (= `D:\cube-data`, the external drive); the
+venv python is `.venv/bin/python`. Commands can write only the repo and the
+data drive and reach only allowlisted hosts; an unexpected host prompts.
+
 ```
 cd web && npm run dev        # vite dev server, https for camera access
 cd web && npm test           # vitest
