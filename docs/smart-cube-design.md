@@ -512,10 +512,18 @@ frame that first shows the layer at rest, i.e. the GAN reports as the
 layer finishes; against BLE arrival +10 ms median with a p90 of +102
 (packets arrive up to 250 ms late, which the clock fit removes). Each
 number is a lower bound within one 33 ms frame. Store `latencyMs: 5`.
-Item 6: passes without a scan - after a disconnect, three turns and a
-reconnect the belief restarts from the cube's report (the banner seen
-for a few seconds is unexplained: no capture of it yet). Items 4
-(fast-turn misses) and 5 (the phone, not planned) are open.
+Item 4 (`fixtures/smart/icarrye-fast.jsonl`, `smart.test.ts`): 98
+turns in 29 s (four blocks of six sexy moves, one with an overshoot put
+right), **nothing missed** - every report agrees and the cube ends
+where it began. Packets carry two or three turns at once (arrivals 1-2
+ms apart), arrival lateness p50 ~20 ms, p90 ~80, max ~250; the plain
+least-squares clock fit swung its slope by 0.3% over that burst (100 ms
+at the window's ends), so `ClockFit` now takes its offset from the
+lower envelope of the residuals and keeps the slope at 1 until the
+window spans a minute. Item 6: passes without a scan - after a
+disconnect, three turns and a reconnect the belief restarts from the
+cube's report (the banner seen for a few seconds is unexplained: no
+capture of it yet). Item 5 (the phone) is not planned.
 
 ---
 

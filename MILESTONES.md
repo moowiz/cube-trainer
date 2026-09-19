@@ -341,7 +341,7 @@ a fixture, then close this.
 
 ---
 
-## M9 — Cube in the loop (current; design: `docs/smart-cube-design.md` 3)
+## M9 — Cube in the loop ✅ (2026-09-19, desktop; the phone was dropped from the done-when. Design: `docs/smart-cube-design.md` 3)
 
 Every consumer of moves (drills, follow mode, the live view, later the
 timer and the analysis) takes a `MoveSource`; the smart cube, the camera
@@ -368,14 +368,16 @@ tests; the EO drill completes itself from cube turns.
 arms, boxes, times and checks itself; the Cube sheet draws the belief.
 What remains is the cube's first run (design doc 8) on both devices.
 
-**Update (2026-09-19): the cube is here and connects.** Real sessions
-with the cube's events are on the data drive under `recordings/` (from
-2026-09-18 on: `cube.jsonl` + video, some with `solves.jsonl`). Not yet
-written down: the design doc 8 numbers (the MAC step, latency
-median/spread, missed turns over fifty fast turns, the phone). The first
-real capture is promoted: `web/test/fixtures/smart/icarrye-first.jsonl`
-(GAN Gen4, 240 turns, two timed solves, every report in agreement) and
-`smart.test.ts` replays it.
+**Done (2026-09-19):** the cube (GAN Gen4, `GANicE2` sw 2.9) connects
+on desktop Chrome with no MAC dialog; the report latency measured on
+camera is +5 ms after the layer comes to rest (`tools/solve/cube_latency.py`,
+three recordings agree); 98 turns at speed lost none; a drifted cube
+resyncs from its own report after a reconnect, and "Solved" resets the
+cube's firmware state too (it had drifted on its own once). Two real
+captures are fixtures (`web/test/fixtures/smart/icarrye-*.jsonl`) and
+`smart.test.ts` replays them. The numbers are in the design doc's
+section 8. The phone was not tested and is not planned (the cube is a
+desk instrument).
 
 ---
 

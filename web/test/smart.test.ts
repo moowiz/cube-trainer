@@ -16,19 +16,29 @@ const FIXTURE = new URL('./fixtures/smart/synthetic-session.jsonl', import.meta.
 const fixture = () => Capture.parse(readFileSync(FIXTURE, 'utf8'));
 
 describe('ClockFit', () => {
-  it('recovers a cube clock that runs fast against the host, through BLE jitter', () => {
-    // true turn times on the host, the cube's stamps at 2% fast from an offset, arrivals late by a jittery interval
-    const truth = [2000, 2180, 2350, 2500, 2700, 2900, 3050, 3200, 3400, 3550, 3700, 3900];
+  it('recovers a cube clock that runs fast against the host, through BLE jitter, once the window spans a minute', () => {
+    // true turn times on the host over two minutes, the cube's stamps at 2% fast from an offset, arrivals late by a jittery interval
+    const truth = [2000, 12180, 22350, 32500, 42700, 52900, 63050, 73200, 83400, 93550, 103700, 123900];
     const late = [12, 25, 8, 30, 15, 20, 10, 18, 22, 9, 27, 14];
     const fit = new ClockFit();
     truth.forEach((t, i) => fit.add(Math.round((t - 1500) * 1.02), t + late[i]!));
     expect(fit.skewPercent()).toBeCloseTo(2, 0);
-    // fitted times sit on the truth plus the mean lateness, not on the jittery arrivals
-    const mean = late.reduce((a, b) => a + b) / late.length;
+    // fitted times sit on the truth plus the least lateness (arrivals are only ever late), not on the jittery arrivals
+    const least = Math.min(...late);
     truth.forEach((t) => {
       const f = fit.fit(Math.round((t - 1500) * 1.02))!;
-      expect(Math.abs(f - (t + mean))).toBeLessThan(12);
+      expect(Math.abs(f - (t + least))).toBeLessThan(15);
     });
+  });
+
+  it('over a short burst the slope stays 1: BLE jitter would swing it by more than the cube ever drifts', () => {
+    const truth = [2000, 2180, 2350, 2500, 2700, 2900, 3050, 3200, 3400, 3550, 3700, 3900];
+    const late = [12, 225, 8, 30, 15, 120, 10, 18, 22, 9, 27, 14];
+    const fit = new ClockFit();
+    truth.forEach((t, i) => fit.add(t - 1500, t + late[i]!));
+    expect(fit.line().slope).toBe(1);
+    expect(fit.skewPercent()).toBe(0);
+    truth.forEach((t) => expect(Math.abs(fit.fit(t - 1500)! - (t + 8))).toBeLessThan(2));
   });
 
   it('unwraps a 16-bit counter', () => {
@@ -131,7 +141,7 @@ describe('CubeSource', () => {
     expect(src.state()).toBe(src.status().reported);
     expect(src.status().agree).toBe(true);
     expect(src.clock.n).toBe(8);
-    expect(src.clock.skewPercent()).toBeCloseTo(2, 0);
+    expect(src.clock.skewPercent()).toBe(0); // the fixture's 2% is invisible over its two seconds
     const first = src.items().find((it) => it.kind === 'move');
     expect(first && first.kind === 'move' ? first.tRaw : null).toBe(540);
     // what it recorded is what it was fed, plus nothing
@@ -192,5 +202,38 @@ describe('the first real capture', () => {
       expect(window).toEqual(so.moves.map((m) => m.m));
       expect(applySeq(s.belief!, window)).toBe(SOLVED);
     }
+  });
+});
+
+// Fifty-odd turns as fast as they go (design doc 8 item 4): 98 turns in 29 s, arriving two or
+// three to a BLE packet. Nothing missed: the reports agree all the way and the cube ends where
+// it began (every block is an identity).
+describe('the fast-turn capture', () => {
+  const FAST = new URL('./fixtures/smart/icarrye-fast.jsonl', import.meta.url);
+
+  it('loses no turn at speed: every report agrees and the cube is back at its start', () => {
+    const cap = Capture.parse(readFileSync(FAST, 'utf8'));
+    const reports = cap.events.filter((e): e is Extract<CaptureEvent, { kind: 'facelets' }> => e.kind === 'facelets');
+    let s = EMPTY_STATUS;
+    for (const e of cap.events) { s = reduce(s, e); if (e.kind === 'facelets') expect(s.agree).toBe(true); }
+    expect(s.moves).toBe(98);
+    expect(reports.length).toBe(31);
+    expect(s.belief).toBe(reports[0]!.facelets);
+    // the turns as recorded: four blocks of six sexy moves, one with an overshoot put right
+    const turns = cap.events.filter((e) => e.kind === 'move').map((e) => (e as { move: string }).move).join(' ');
+    expect(turns).toBe([
+      "R U R' U' ".repeat(6).trim(), "L' U L U' ".repeat(6).trim(),
+      "R U R' U' R U R' U' R U U U' R' U' R U R' U' R U R' U' R U R' U'", "L B L' B' ".repeat(6).trim(),
+    ].join(' '));
+  });
+
+  it('packets carrying several turns still fit the cube clock', () => {
+    const src = new CubeSource(DEFAULT_SCHEME_NAMES, { kind: 'replay', now: () => 0 });
+    replay(Capture.parse(readFileSync(FAST, 'utf8')).events, (e) => src.feed(e));
+    expect(Math.abs(src.clock.skewPercent())).toBeLessThan(1);
+    // arrivals sit at or after the fitted send time, never far ahead of it
+    const turns = src.items().filter((it): it is Extract<typeof it, { kind: 'move' }> => it.kind === 'move');
+    const ahead = turns.map((m) => src.clock.fit(m.tRaw!)! - m.t);
+    expect(Math.max(...ahead)).toBeLessThan(100);
   });
 });
