@@ -185,7 +185,7 @@ function permParity(perm: readonly number[]): number {
   return parity % 2;
 }
 
-const PIECE_MISMATCH_ERROR = "These stickers don't form a real cube piece — tap to fix them.";
+const PIECE_MISMATCH_ERROR = "These stickers don't form a real cube piece — scan again.";
 
 /** Full solvability check. NEVER uses cubejs solve() for this (see module docs). */
 export function validateState(facelets: string): ValidationResult {
@@ -275,14 +275,14 @@ export function validateState(facelets: string): ValidationResult {
   // Parity.
   const coSum = co.reduce((a, b) => a + b, 0) % 3;
   if (coSum !== 0) {
-    return { ok: false, error: 'A corner is twisted — tap to fix it.' };
+    return { ok: false, error: 'A corner is twisted — scan again.' };
   }
   const eoSum = eo.reduce((a, b) => a + b, 0) % 2;
   if (eoSum !== 0) {
-    return { ok: false, error: 'An edge is flipped — tap to fix it.' };
+    return { ok: false, error: 'An edge is flipped — scan again.' };
   }
   if (permParity(cp) !== permParity(ep)) {
-    return { ok: false, error: 'Two pieces are swapped — tap to fix them.' };
+    return { ok: false, error: 'Two pieces are swapped — scan again.' };
   }
 
   return { ok: true };

@@ -14,7 +14,7 @@ Two halves:
 - Everything runs client-side. Never add a network call for inference or image processing.
 - Must work on a mid-range Android phone in Chrome. Target ≥15 fps end-to-end with the detector, 60 fps without it.
 - Never trust a single frame. Every sticker reading is a vote; the cube state is only "locked" after convergence and cubejs validation.
-- The user can always tap a sticker to override it. (Not yet true of the auto scanner: it refuses to lock rather than guess; tap-to-fix went with the grid scanner on 2026-09-14 and is owed.)
+- No per-sticker override. The scanner refuses to lock rather than guess, and the fix for a refused or wrong lock is another scan (or the smart cube's own report). Tap-to-fix went with the grid scanner on 2026-09-14 and was dropped for good on 2026-09-19.
 
 ## Pipeline (per frame)
 

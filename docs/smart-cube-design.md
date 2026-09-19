@@ -489,6 +489,18 @@ with expected splits).
 6. Drift test: turn while disconnected, reconnect, resync from a scan.
 7. Save the first capture as `fixtures/smart/icarrye-first.jsonl`.
 
+**Status (2026-09-19):** the cube (GAN Gen4 protocol, name `GANicE2_F803`)
+connects and records on desktop Chrome. Item 7 is done:
+`web/test/fixtures/smart/icarrye-first.jsonl` is the session of
+2026-09-19 09:41 (240 turns, 220 reports, two timed solves; the store's
+records beside it as `icarrye-first.solves.jsonl`), and `smart.test.ts`
+replays it: every report agrees with the belief, the clock fit is
++0.23% (the host runs slightly fast against the cube's counter, 64
+pairs), each solve's window is exactly the turns the timer filed and
+runs from its scramble to solved. Items 1-6 (the MAC step, latency on
+camera, fast-turn misses, the phone, the drift test) are not written
+down yet.
+
 ---
 
 ## 9. Not doing

@@ -142,7 +142,7 @@ export class ReaderSource implements MoveSource {
     this.gapsEmitted = newGaps.length;
   }
 
-  /** host-driven re-base (a scan lock read as solved, a tap-to-fix): re-bases and forgets what was emitted */
+  /** host-driven re-base (a scan lock read as solved): re-bases and forgets what was emitted */
   resync(facelets: string, how: ResyncItem['how']): void {
     this.base = facelets;
     this.turns = [];

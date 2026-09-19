@@ -146,3 +146,51 @@ describe('CubeSource', () => {
     expect(src.capture.events[0]).toEqual({ kind: 'resync', t: 42, facelets: SOLVED, how: 'scan' });
   });
 });
+
+// The first real capture (GAN356 i Carry E on desktop Chrome, 2026-09-19):
+// 240 turns, 220 of the cube's own reports, two timed solves from the Solve
+// tab. What a healthy session looks like, so a regression in the adapter,
+// the reducer or the clock fit shows up against real events.
+describe('the first real capture', () => {
+  const REAL = new URL('./fixtures/smart/icarrye-first.jsonl', import.meta.url);
+  const SOLVES = new URL('./fixtures/smart/icarrye-first.solves.jsonl', import.meta.url);
+  const real = () => Capture.parse(readFileSync(REAL, 'utf8'));
+  interface Solve { id: string; t0: number; t1: number; scramble: string; moves: { m: string; t: number }[] }
+  const solves = (): Solve[] => readFileSync(SOLVES, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Solve);
+
+  it('every report the cube sent agrees with the belief, and the session ends solved', () => {
+    const cap = real();
+    let s = EMPTY_STATUS;
+    let reports = 0;
+    for (const e of cap.events) {
+      s = reduce(s, e);
+      if (e.kind === 'facelets') { reports++; expect(s.agree, `report ${reports} at ${e.t}`).toBe(true); }
+    }
+    expect(reports).toBe(220);
+    expect(s.moves).toBe(240);
+    expect(s.belief).toBe(SOLVED);
+  });
+
+  it("the cube's clock fits the host's within a percent", () => {
+    const src = new CubeSource(DEFAULT_SCHEME_NAMES, { kind: 'replay', now: () => 0 });
+    replay(real().events, (e) => src.feed(e));
+    expect(src.status().agree).toBe(true);
+    expect(src.clock.n).toBeGreaterThan(30);
+    expect(Math.abs(src.clock.skewPercent())).toBeLessThan(1);
+  });
+
+  it('each timed solve starts at its scramble, is exactly the turns the cube sent in its window, and ends solved', () => {
+    const cap = real();
+    const turns = cap.events.filter((e): e is Extract<CaptureEvent, { kind: 'move' }> => e.kind === 'move');
+    const all = solves();
+    expect(all).toHaveLength(2);
+    for (const so of all) {
+      let s = EMPTY_STATUS;
+      for (const e of cap.events) { if (e.t >= so.t0) break; s = reduce(s, e); }
+      expect(s.belief).toBe(applySeq(SOLVED, parseAlg(so.scramble)));
+      const window = turns.filter((m) => m.t >= so.t0 && m.t <= so.t1).map((m) => m.move);
+      expect(window).toEqual(so.moves.map((m) => m.m));
+      expect(applySeq(s.belief!, window)).toBe(SOLVED);
+    }
+  });
+});

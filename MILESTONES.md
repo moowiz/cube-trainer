@@ -20,6 +20,12 @@ M9-M13 below; decisions and design in `docs/smart-cube-design.md`, the
 landscape and the full feature catalogue in
 `docs/smart-cube-trainer-survey.md`. **Current milestone: M9.**
 
+**Update (2026-09-19):** the cube arrived; it connects and records
+(M9 all but its written-down numbers), the timer is in daily use with
+csTimer's history imported (M10's timer half). Tap-to-fix is dropped as a
+requirement: a refused or wrong lock is rescanned. Next: M10's
+calibration and reader numbers, then M11.
+
 ---
 
 ## M0 — Skeleton ✅ (done 2026-09)
@@ -297,7 +303,8 @@ in `web/test/fixtures/evidence/` replay through `colour-replay.test.ts`
 labelled photos double as a colour test set ("colour bank"). 268 tests.
 
 **Still true:** the auto path refuses instead of guessing and has no
-per-sticker override; tap-to-fix went with the grid scanner (2026-09-14).
+per-sticker override; tap-to-fix went with the grid scanner (2026-09-14)
+and was dropped as a requirement 2026-09-19: a refused lock is rescanned.
 
 ---
 
@@ -361,6 +368,15 @@ tests; the EO drill completes itself from cube turns.
 arms, boxes, times and checks itself; the Cube sheet draws the belief.
 What remains is the cube's first run (design doc 8) on both devices.
 
+**Update (2026-09-19): the cube is here and connects.** Real sessions
+with the cube's events are on the data drive under `recordings/` (from
+2026-09-18 on: `cube.jsonl` + video, some with `solves.jsonl`). Not yet
+written down: the design doc 8 numbers (the MAC step, latency
+median/spread, missed turns over fifty fast turns, the phone). The first
+real capture is promoted: `web/test/fixtures/smart/icarrye-first.jsonl`
+(GAN Gen4, 240 turns, two timed solves, every report in agreement) and
+`smart.test.ts` replays it.
+
 ---
 
 ## M10 — Timer and recording rig (design doc 4)
@@ -399,6 +415,10 @@ the cube's events and the evidence log into `recordings/<session>/` when
 the sink exists (the deployed site still downloads); the timer files each
 solve's window into the session. Not yet: the latency calibration, the
 fixture tool's cube truth, the reader numbers - all need the cube.
+**2026-09-19:** the cube has arrived and csTimer's history is imported;
+cube-labelled recordings are accumulating under `recordings/`. Still
+open: the latency/skew calibration, `moves_fixture.py --truth cube`, and
+the reader's numbers in `docs/solve-tracking-design.md`.
 
 **Housekeeping before M11 - DONE 2026-09-17** (`docs/housekeeping-plan.md`
 has the status; the list below is what was proposed): (1) wrap the camera
