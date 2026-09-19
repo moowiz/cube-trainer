@@ -12,6 +12,7 @@
 //   <session>/video.webm     MediaRecorder chunks, appended in order (host time of chunk k's arrival in meta.chunkT[k])
 //   <session>/cube.jsonl     the smart cube's capture lines (header first), appended as they happen
 //   <session>/solves.jsonl   one line per solve the timer saved: { id, when, t0, t1, scramble, time, moves }
+//   <session>/solves/        one clip per solve, cut by the dev server when the session closes (scripts/cut-solves.mjs)
 //   <session>/evidence.json  the colour pipeline's capture (the evidence log), written at stop
 
 import { RecordingStream } from './stream';

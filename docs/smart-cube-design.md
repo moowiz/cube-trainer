@@ -313,6 +313,14 @@ floats the camera in a Picture-in-Picture window. The scan sheet's
 Record does the same thing from inside. The scanner-less path went with
 it: `app/record.ts` is now a thin front over `scanner-bridge`'s
 `sitting`. Cost on the desktop: the detector runs while recording.
+The evidence log is kept until the post-stop capture has been written
+(it was trimmed to its last 40 s in the 800 ms gap before). And when a
+session closes, the dev server cuts **one clip per timed solve** into
+`<session>/solves/NN-<id>.webm` (three seconds before the first turn to
+one after the last, re-encoded for an exact cut) with `NN-<id>.json`
+beside it: the solve record, the cube events inside the clip and the
+host-to-clip clock offset (`scripts/cut-solves.mjs`, ~3 s per solve).
+The session's `video.webm` stays as the continuous take.
 
 - The existing recorder (scan sheet `Record`: camera `.webm` + the
   evidence-log capture on one clock) gains the cube's events on the same

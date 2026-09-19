@@ -385,8 +385,12 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   // pause to show the cube around re-locks it in full. A re-lock that
   // agrees with the reader confirms it; one that disagrees replaces it.
   const following = (): boolean => followChk.checked && (!clipUrl || params.get('follow') === '1');
-  // the whole log is kept only where it is the point (a recording, ?solve=1); following alone trims like a scan
-  const keepWholeLog = (): boolean => params.get('solve') === '1' || recorder !== null;
+  // the whole log is kept only where it is the point (a recording, ?solve=1); following alone trims like a scan.
+  // A stopped recording's capture comes 800 ms after the stop, with the camera still running: the log is kept
+  // until that capture has been taken (2026-09-19: a six-minute session's log was trimmed to its last 40 s
+  // in that gap).
+  let captureOwed = false;
+  const keepWholeLog = (): boolean => params.get('solve') === '1' || recorder !== null || captureOwed;
 
   const camera = new Camera();
   const fps = new FpsCounter();
@@ -1327,6 +1331,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       const secs = ((rec.stoppedAt - rec.startedAt) / 1000).toFixed(1);
       recStateEl.textContent = session ? `streamed to recordings/${session.stream.session} (${secs} s)` : `saved ${rec.file} (${secs} s)`;
       // the paired evidence log: into the session, or a second download (a second prompt on Android is expected)
+      captureOwed = true;
       setTimeout(() => captureBtn.click(), 800);
     });
     recorder.start(1000);
@@ -1390,6 +1395,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     tracker.reset();
     arrivals.length = 0;
     log = emptyLog();
+    captureOwed = false;
     detFrame = 0;
     lastCorners.clear();
     lastOffset.clear();
@@ -1479,7 +1485,8 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
         : undefined;
     void captureDebug(lastTick?.result ?? null, models.detector, exportFrame(), 'scan-debug', tickHistory, extra, sink)
-      .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); });
+      .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); })
+      .finally(() => { captureOwed = false; }); // the log is written out: trimming may resume
   });
   cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
   exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; });

@@ -92,8 +92,16 @@ function recordingSink(): Plugin {
         const chunks: Buffer[] = [];
         req.on('data', (c: Buffer) => chunks.push(c));
         req.on('end', () => {
-          try { (append ? appendFileSync : writeFileSync)(file, Buffer.concat(chunks)); res.statusCode = 200; res.end('ok'); }
-          catch (err) { res.statusCode = 500; res.end(String(err)); }
+          const body = Buffer.concat(chunks);
+          try { (append ? appendFileSync : writeFileSync)(file, body); res.statusCode = 200; res.end('ok'); }
+          catch (err) { res.statusCode = 500; res.end(String(err)); return; }
+          // the session closed (its meta carries endedAt): one clip per timed solve, in the background
+          if (parts[1] === 'meta.json' && /"endedAt"\s*:\s*\d/.test(body.toString('utf8'))) {
+            import('./scripts/cut-solves.mjs')
+              .then((m) => m.cutSolves(dir, { log: (line: string) => server.config.logger.info(`[recording] ${line}`) }))
+              .then((w) => { if (w.length) server.config.logger.info(`[recording] ${parts[0]}: ${w.length} solve clip(s) in solves/`); })
+              .catch((err) => server.config.logger.warn(`[recording] ${parts[0]}: solve clips not cut: ${err instanceof Error ? err.message : err}`));
+          }
         });
         req.on('error', (err) => { res.statusCode = 500; res.end(String(err)); });
       });
