@@ -72,8 +72,18 @@ export function initRecordButton(): void {
     startedAt = Date.now();
     btn.classList.add('rec-on');
     btn.title = 'Stop recording';
-    // the live view, small, so the cube can be kept in frame
+    // the live view, so the cube can be kept in frame: a click makes it large, the pop-out button
+    // floats it in its own window (Picture-in-Picture) to see the framing clearly
     preview.replaceChildren(cam.video);
+    if (typeof cam.video.requestPictureInPicture === 'function' && document.pictureInPictureEnabled) {
+      const pip = document.createElement('button');
+      pip.type = 'button'; pip.className = 'pip'; pip.textContent = '⧉ pop out'; pip.title = 'Float the live view in its own window';
+      pip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        void (document.pictureInPictureElement ? document.exitPictureInPicture() : cam.video.requestPictureInPicture()).catch((err) => toast(`Cannot pop out: ${err instanceof Error ? err.message : err}`));
+      });
+      preview.append(pip);
+    }
     preview.hidden = false;
     tick();
     timer = window.setInterval(tick, 500);
@@ -85,6 +95,8 @@ export function initRecordButton(): void {
     busy = true;
     void start().finally(() => { busy = false; });
   });
+
+  preview.addEventListener('click', () => preview.classList.toggle('big'));
 
   idle();
   // only where the sink answers (the dev server); the deployed site never shows the button

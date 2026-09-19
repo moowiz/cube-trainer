@@ -20,7 +20,8 @@
     font-feature-settings: "tnum"; }
   body { padding: 20px 18px 40px; }
   h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
-  button.btn { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  a.btn { text-decoration: none; display: inline-block; }
+  button.btn, a.btn { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
   button.btn:hover { border-color: var(--ink-2); }
   button.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   /* the stage tabs and the scan / settings buttons */
@@ -34,8 +35,10 @@
   .tabs button.ico:hover { border-color: var(--ink-2); }
   .tabs button.ico.rec-on { color: #fff; background: #C62828; border-color: #C62828; }
   .tabs button.ico.rec-on .txt { display: inline; font-variant-numeric: tabular-nums; }
-  #rec-preview { position: fixed; right: 12px; bottom: 12px; z-index: 900; width: 160px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.35); background: #000; }
+  #rec-preview { position: fixed; right: 12px; bottom: 12px; z-index: 900; width: 240px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.35); background: #000; cursor: zoom-in; }
+  #rec-preview.big { width: min(640px, calc(100vw - 24px)); cursor: zoom-out; }
   #rec-preview video { display: block; width: 100%; height: auto; }
+  #rec-preview .pip { position: absolute; top: 6px; right: 6px; font: 12px/1 inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.35); background: rgba(20,22,28,.7); color: #e8eaf0; cursor: pointer; }
   @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
   /* sheets: the scanner and the settings float over whichever stage is open */
   .zz-sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(20,22,28,.45); overflow: auto; }
@@ -122,6 +125,10 @@
       <div><button class="btn" id="sync-in" type="button">Sign in</button><button class="btn" id="sync-out" type="button" hidden>Sign out</button></div></div>
     <div class="eo-opt"><div><div class="lbl">History</div><span class="sub">csTimer's export file goes in (as new sessions); ours and csTimer's come out.</span></div>
       <div><button class="btn" id="hist-import" type="button">Import csTimer</button> <button class="btn" id="hist-export" type="button">Export</button> <button class="btn" id="hist-export-cs" type="button">Export csTimer</button><input type="file" id="hist-file" accept=".txt,.json,application/json" hidden></div></div>
+      </section>
+      <section class="set-sec"><h3>Tools</h3>
+    <div class="eo-opt"><div><div class="lbl">Labeler</div><span class="sub">Click the corners of each face on your photos: the hand labels the detector is fine-tuned on.</span></div>
+      <a class="btn" href="label.html">Open the labeler</a></div>
       </section>
       <section class="set-sec" id="eo-settings"><h3>EO trainer</h3>
     <div class="eo-opt"><div><div class="lbl">Goal</div><span class="sub">EOCross: orient the edges and build the white cross in one go. Optimal solutions and hints follow the goal.</span></div>
