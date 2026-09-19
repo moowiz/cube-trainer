@@ -70,8 +70,13 @@ async function connectSmartCube(): Promise<void> {
           toast('Smart cube disconnected');
         }
       },
-      askMac: async (name) => {
-        const v = window.prompt(`The browser could not read the MAC address of ${name}. Type it as the GAN app shows it (like AB:12:34:56:78:9A); it is remembered for this cube.`);
+      askMac: async (name, why) => {
+        const v = window.prompt(
+          `The browser could not read the MAC address of ${name}: ${why}.\n\n` +
+          `Type it (like AB:12:34:56:78:9A); it is remembered for this cube.\n\n` +
+          `Where to find it: a BLE scanner app (nRF Connect on the phone) lists it next to the cube's name; on Windows it is in Device Manager > Bluetooth > the cube > Details > "Bluetooth device address". ` +
+          `To skip this dialog for good, turn on chrome://flags/#enable-experimental-web-platform-features and reconnect.`,
+        );
         const mac = v?.trim().toUpperCase().replace(/-/g, ':') ?? '';
         return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac) ? mac : null;
       },
