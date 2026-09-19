@@ -497,9 +497,10 @@ records beside it as `icarrye-first.solves.jsonl`), and `smart.test.ts`
 replays it: every report agrees with the belief, the clock fit is
 +0.23% (the host runs slightly fast against the cube's counter, 64
 pairs), each solve's window is exactly the turns the timer filed and
-runs from its scramble to solved. Items 1-6 (the MAC step, latency on
-camera, fast-turn misses, the phone, the drift test) are not written
-down yet.
+runs from its scramble to solved. Item 2: `watchAdvertisements` works on
+desktop Chrome, the MAC dialog was never needed. Items 1 (capabilities),
+3-4 (latency on camera, fast-turn misses), 5 (the phone) and 6 (the
+drift test) are not written down yet.
 
 ---
 
