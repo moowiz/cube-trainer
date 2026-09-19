@@ -21,6 +21,15 @@
 // 35% brightness, so a face wrongly marked visible/non-visible stands out.
 // Dots are drawn after edges (on top). Visible faces are drawn after (on
 // top of) non-visible ones.
+//
+// Twist labels (M13, `label.twist`) are drawn in magenta: a ring at the
+// centre of the turning face, and on every visible neighbour an arrow inset
+// from the edge that borders the turning layer, pointing the way that
+// layer's row moved for the labelled sign (deg > 0: from corner k+1 toward
+// corner k; the arrow's length is |deg| / 90 of the half edge). Check them
+// against the picture: the outer row of stickers next to the arrow should
+// be displaced the way the arrow points. The console line per image prints
+// the twist too.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -38,6 +47,16 @@ const FACE_COLORS = {
 };
 
 const FACE_ORDER = ['U', 'R', 'F', 'D', 'L', 'B'];
+
+// Which face lies across edge k (corner k -> corner k+1) of each face in the
+// label's corner order (TL, TR, BR, BL of the cubejs sticker layout). The
+// same table lives in model/train/targets.py (NEIGHBOUR) and is checked
+// against the cube geometry by check_twist.py.
+const NEIGHBOUR = {
+  U: ['B', 'R', 'F', 'L'], R: ['U', 'B', 'D', 'F'], F: ['U', 'R', 'D', 'L'],
+  D: ['F', 'R', 'B', 'L'], L: ['U', 'F', 'D', 'B'], B: ['U', 'L', 'D', 'R'],
+};
+const TWIST_COLOR = [255, 0, 255];
 
 // ---- tiny arg parser ---------------------------------------------------
 
@@ -172,6 +191,62 @@ function drawFaceQuad(png, corners, color, visible) {
   fillDot(png, c3[0], c3[1], color, 2);
 }
 
+function drawArrow(png, from, to, color, thickness) {
+  drawLine(png, from[0], from[1], to[0], to[1], color, thickness);
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const h = Math.min(12, Math.max(4, len * 0.35));
+  for (const sgn of [-1, 1]) {
+    const bx = to[0] - h * (ux * Math.cos(0.5) - sgn * uy * Math.sin(0.5));
+    const by = to[1] - h * (uy * Math.cos(0.5) + sgn * ux * Math.sin(0.5));
+    drawLine(png, to[0], to[1], bx, by, color, thickness);
+  }
+}
+
+function drawRing(png, cx, cy, radius, color, thickness) {
+  const n = Math.max(24, Math.round(radius * 2));
+  for (let i = 0; i < n; i++) {
+    const a0 = (2 * Math.PI * i) / n;
+    const a1 = (2 * Math.PI * (i + 1)) / n;
+    drawLine(png, cx + radius * Math.cos(a0), cy + radius * Math.sin(a0),
+      cx + radius * Math.cos(a1), cy + radius * Math.sin(a1), color, thickness);
+  }
+}
+
+function quadCentre(c) {
+  return [(c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4];
+}
+
+function drawTwist(png, label) {
+  const tw = label.twist;
+  if (!tw || !tw.face) return;
+  for (const f of FACE_ORDER) {
+    const face = label.faces[f];
+    if (!face || !face.visible || !Array.isArray(face.corners)) continue;
+    const c = face.corners;
+    const [cx, cy] = quadCentre(c);
+    if (f === tw.face) {
+      const edge = Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]);
+      drawRing(png, cx, cy, edge * 0.12, TWIST_COLOR, 2);
+      continue;
+    }
+    const k = NEIGHBOUR[f].indexOf(tw.face);
+    if (k < 0) continue; // the opposite face: nothing moves
+    const a = c[k];
+    const b = c[(k + 1) % 4];
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    // inset 15% toward the face centre so the arrow sits on the moving row
+    const from = [mid[0] + (cx - mid[0]) * 0.15, mid[1] + (cy - mid[1]) * 0.15];
+    const toward = tw.deg > 0 ? a : b;
+    const frac = Math.min(1, Math.abs(tw.deg) / 90);
+    const to = [from[0] + (toward[0] - mid[0]) * frac, from[1] + (toward[1] - mid[1]) * frac];
+    drawArrow(png, from, to, TWIST_COLOR, 2);
+  }
+}
+
 function drawOverlay(png, label) {
   const entries = FACE_ORDER.map((key) => [key, label.faces[key]]).filter(
     ([, face]) => face && Array.isArray(face.corners)
@@ -186,6 +261,17 @@ function drawOverlay(png, label) {
     if (!face.visible) continue;
     drawFaceQuad(png, face.corners, FACE_COLORS[key], true);
   }
+  drawTwist(png, label);
+}
+
+function describe(label) {
+  const vis = FACE_ORDER.filter((f) => label.faces[f] && label.faces[f].visible).join('');
+  const tw = label.twist;
+  const m = label.meta || {};
+  const twist = tw && tw.face
+    ? `twist ${tw.face} ${tw.deg > 0 ? '+' : ''}${tw.deg} deg ${tw.mode}${tw.blurDeg ? ` blur ${tw.blurDeg}` : ''}`
+    : 'no twist';
+  return `${twist}; visible ${vis || '-'}; hands ${m.hasHands ? (m.handFocus ? `on the layer (${m.handFocus})` : 'yes') : 'no'}`;
 }
 
 // ---- evenly-spread selection --------------------------------------------
@@ -281,7 +367,7 @@ function main() {
     const basename = path.basename(labelFile, '.json');
     const outPath = path.join(outDir, `${basename}.png`);
     fs.writeFileSync(outPath, PNG.sync.write(png));
-    console.log(`wrote ${outPath}`);
+    console.log(`wrote ${outPath}: ${describe(label)}`);
     written++;
   }
 

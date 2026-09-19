@@ -120,3 +120,23 @@ exist on the Linux side. The headless checks (`web/scripts/check-*.mjs`) use
 Chrome's fake camera device and run on Linux. The one lost convenience is a
 headless Chrome opened on the *real* LifeCam for a diagnosis; do that from a
 browser you open yourself.
+
+## Chrome and torch inside the sandbox (2026-09-19)
+
+Two walls the sandbox's seccomp filter puts up, both hit while building
+the twist head's data; neither has a flag-level fix:
+
+- **Full Chrome cannot start** (`~/.config` is read-only so crashpad has no
+  database, and the process singleton needs an `AF_UNIX` socket, which is
+  denied). `chrome-headless-shell` has neither and does have WebGL over
+  SwiftShader, workers and the fake camera, so every `puppeteer.launch`
+  says `headless: 'shell'` - the generator (`model/gen/generate.mjs`, 1.5
+  renders/s at 480x640) included. It has no WebGPU adapter; that leg of
+  the detector check is a skip here, not a failure.
+- **DataLoader workers cannot start**: torch shares tensors between
+  processes over Unix sockets (`resource_sharer`), so any
+  `num_workers > 0` dies with `PermissionError: Operation not permitted`.
+  Pass `--workers 0` to `train.py` for a smoke run in the sandbox (36
+  images overfit at ~110 img/s on the CPU; there is no GPU here - real
+  runs stay on Windows). The label caches build single-process below 200
+  images and are fine.

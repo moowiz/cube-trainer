@@ -24,6 +24,9 @@ cd train
 ..\.venv\Scripts\python train.py --data ../data_v5 --epochs 150 --out runs/kp1    # stage 2 from scratch, ~45 min
 ..\.venv\Scripts\python train.py --data "../data_v5,../data_real*150" --init runs/kp1/best.pt ^
     --epochs 15 --lr 5e-5 --select real --out runs/kpft1           # stage 2 real-photo fine-tune
+..\.venv\Scripts\python train.py --data "../data_v6,../data_v5" --twist --epochs 150 --out runs/tw1
+    # stage 2 WITH the twist head (M13, "Layer twist" below); --init runs/kpft8/best.pt --twist
+    # fine-tunes the deployed detector into one, its heatmap and corner weights kept
 cd ..\export
 ..\.venv\Scripts\python export_bbox.py --ckpt ../train/runs/box9/best.pt      # -> web/public/models/cubebox.{onnx,json}
 ..\.venv\Scripts\python export_onnx.py --ckpt ../train/runs/kpft1/best.pt --data ../data_v5
@@ -1094,6 +1097,68 @@ off: fingers are "not super realistic" but good enough to teach that
 occluders exist — don't iterate on finger realism; composite real hand
 cutouts if hands ever measure weak on data_real_val.
 
+### Layer twist: the M13 twist head's data (2026-09-19)
+
+`--twist F` (default 0.30) renders that fraction of cubes with one outer
+layer **mid-turn**, uniform 0-90 degrees; `--rest F` (default 0.12) keeps
+the old rest misalignment (2-9 deg, 20% of those 10-20; `--twist 0 --rest
+0.22` is the pre-M13 distribution). A mid-turn layer is motion-blurred 75%
+of the time the honest way: K sub-frames with the layer stepped across
+`blurDeg` (|N(0, 8)| clipped to 1-20 degrees, what a quarter turn in
+120-250 ms sweeps inside a 1/60-1/30 s shutter), averaged, so only the
+layer smears and the body, hands and background stay sharp. Hands are in
+85% of mid-turn scenes and 70% of those are aimed at the layer (entry from
+the screen edge the layer sits toward, tips kept in the outer third).
+Preview: `npm run preview-twist` + `npm run viz-twist` (magenta ring on the
+turning face, an arrow on each neighbour's sliding row), audited by
+`train/check_twist.py --data ../preview_twist`.
+
+**Corner convention for a twisted cube (DECISION, replaces the 2026-09-12
+"plastic corner" rule):** the turning face's quad is the rotated layer
+itself (its nine stickers turn as one square); every other face keeps its
+BODY-FRAME corners, the frame of the six stickers that did not move, even
+though the plastic corner it shares with the layer has walked off with it.
+A quad that follows the layer shears through the turn and mis-samples all
+nine cells; the body frame keeps six right and the twist label names the
+row to distrust. Hand labels of a slightly misaligned cube still click the
+plastic corner (1-3% of the face edge apart); label mid-turn real frames
+the body-frame way.
+
+**Twist labels (the field both synthetic and real labels carry):**
+
+```json
+"twist": null | { "face": "R", "deg": 37.2, "mode": "turning", "blurDeg": 6.1 }
+```
+
+`null` (or absent) = a static cube, nothing turning. `face` = the turning
+OUTER layer by its centre's letter in the standard scheme (U white, R red,
+F green, D yellow, L orange, B blue). `deg` = the layer's rotation
+clockwise as seen from outside that face (the sense a solver names the turn
+by: R is +, R' is -), `null` when unknown - cube-labelled real frames know
+the layer and the direction but not the angle. `"face": "?"` = the frame is
+mid-something the head does not model (a slice, wide turn or rotation, or
+nobody knows): the twist loss skips the whole frame. `mode` and `blurDeg`
+are audit fields. Slice moves are a known gap of the first head.
+
+A single frame only defines the angle **mod 90**: a layer turned +30 is
+the same picture as one turned -60 (the slab is 4-fold symmetric about its
+axis), so the model regresses (cos 4a, sin 4a) and the direction of a turn
+comes from the sweep across frames. What the model actually predicts is per
+QUAD, because stage 2's quads are anonymous: `none` / `self` (this quad is
+the turning layer) / `edge k` (the layer across the quad's k-th edge is
+turning, its row along that edge sliding), derived from the face letter with
+`targets.NEIGHBOUR` - checked against the geometry by `check_twist.py`.
+`train.py --twist` adds the 8 channels, `check_targets.py` round-trips them
+under every cyclic corner shift, and the sidecar `facekp.json` describes
+them under `output.twist`. Pre-M13 synthetic labels are converted from
+`meta.layerTwist`; the label caches rebuild once (CACHE_VERSION 4).
+
+For real frames from a recording: a turn the cube reported at send time T
+with measured latency L happened in about [T - L - d, T - L] (d = a turn
+duration, 120-250 ms); frames in that window get `{"face": X, "deg":
+null}`, frames outside it `null`, and the frames at the window's edges,
+where the layer may already be flush, are best marked `"face": "?"`.
+
 **Auto-exposure floor (2026-09-12, ae1976f):** ~3% of frames rendered
 near-black (night HDRIs × low `dim` × low exposure; cube mean < 25/255,
 colors unreadable). After each render the scene meters the mean luminance
@@ -1175,6 +1240,7 @@ Each label:
   the face center is inside the frame.
 - `meta.seed` fully determines the sample (deterministic RNG), so any image can
   be re-rendered.
+- `twist` (2026-09-19): the layer in motion, or `null` - see "Layer twist" above.
 
 `visualize.mjs` draws the quads back on the images (visible faces bright and
 thick, hidden faces dim and thin; corner 0 gets the biggest dot, corner 1 the

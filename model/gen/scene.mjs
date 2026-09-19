@@ -2,7 +2,8 @@
 // generate.mjs over page.evaluate. Renders a stickered or stickerless 3x3 cube
 // with a real random scramble (cubies are rigid bodies rotated in 90° face
 // turns, so sticker geometry is always physically consistent; one layer may
-// be left slightly misaligned), random camera pose, random warm/cool lighting
+// be left slightly misaligned at rest or caught mid-turn, 0-90 degrees with
+// motion blur - the M13 twist head's data), random camera pose, random warm/cool lighting
 // with occasional glare, hands (palm + forearm + fat fingers) and clutter,
 // and random backgrounds including procedural grids/tiles as hard negatives.
 //
@@ -393,7 +394,7 @@ const EDGE_BASIS = {
 // running out of frame. The first version rendered fingers at ~1/10 of the
 // cube width with no hand behind them - stick-thin rods, nothing like the
 // big skin mass every real usage photo has around the cube.
-function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
+function buildHands(rnd, camPos, camRight, camUp, camFwd, dist, focus = null) {
   const group = new THREE.Group();
   const baseHex = pick(rnd, SKIN_TONES);
   const skin = new THREE.Color(baseHex);
@@ -413,9 +414,12 @@ function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
   // DECISION: 40% "wrap" grips straddling two adjacent screen edges (a real
   // hand curling around a corner/edge), 60% single-edge entry. Bottom entry
   // (holding the cube up to show a face) is weighted heaviest.
-  const wrap = rnd() < 0.4;
+  // With a `focus` (M13: a hand on the turning layer) the entry edge is the
+  // one the layer sits toward, wrapping onto its neighbour 30% of the time.
+  const wrap = rnd() < (focus ? 0.3 : 0.4);
   const edgePairs = [['bottom', 'left'], ['bottom', 'right'], ['top', 'left'], ['top', 'right']];
-  const edges = wrap ? pick(rnd, edgePairs) : [pick(rnd, ['bottom', 'bottom', 'bottom', 'left', 'right', 'top'])];
+  const edges = focus ? (wrap ? [focus.edge, focus.other] : [focus.edge])
+    : wrap ? pick(rnd, edgePairs) : [pick(rnd, ['bottom', 'bottom', 'bottom', 'left', 'right', 'top'])];
   const bases = edges.map((e) => EDGE_BASIS[e](camRight, camUp));
 
   // --- palm + forearm ---
@@ -478,12 +482,17 @@ function buildHands(rnd, camPos, camRight, camUp, camFwd, dist) {
     const r2 = r1 * (0.82 + rnd() * 0.12);
     const root = at(dist - H * (rnd() * 0.4 - 0.1), out, H * (1.2 + rnd() * 0.35), along, alongBase);
     const knuckle = at(dist - H * (1.0 + rnd() * 0.25), out, H * (0.95 + rnd() * 0.2), along, alongBase + (rnd() - 0.5) * H * 0.1);
-    const tip = at(dist - H * (1.0 + rnd() * 0.3) - r2 * 0.6, out, H * (-0.3 + rnd() * 0.85), along, alongTip);
+    // a finger on a turning layer seen from the side stops in the outer
+    // third (the layer is one cubie deep); otherwise tips reach the middle
+    // row and sometimes past it
+    const tipOut = focus && focus.shallow ? H * (0.3 + rnd() * 0.6) : H * (-0.3 + rnd() * 0.85);
+    const tip = at(dist - H * (1.0 + rnd() * 0.3) - r2 * 0.6, out, tipOut, along, alongTip);
     group.add(capsuleBetween(root, knuckle, r1, mat));
     group.add(capsuleBetween(knuckle, tip, r2, mat));
   }
   group.userData.hasPalm = hasPalm;
   group.userData.nFingers = nFingers;
+  group.userData.focus = focus ? focus.edge : null;
   return group;
 }
 
@@ -528,7 +537,7 @@ function circleGeo(rad, depth) {
   return new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false, curveSegments: 14 });
 }
 
-function buildCube(rnd, style) {
+function buildCube(rnd, style, twistFrac = 0.3, restFrac = 0.12) {
   const group = new THREE.Group();
   const colors = faceColors(rnd);
   const rough = 0.15 + rnd() * 0.5; // low roughness -> specular glare
@@ -680,28 +689,47 @@ function buildCube(rnd, style) {
     }
   }
 
-  // DECISION: layer misalignment in ~22% of cubes. A held cube's last-turned
-  // layer often doesn't sit flush (several of the real bathroom photos show
-  // it): one outer layer is left rotated a few degrees, so that face's tiles
-  // and the adjacent faces' outer rows are visibly skewed. Mostly small
-  // (2-9 deg), occasionally a blatant 10-20 deg. One layer only, so the
-  // geometry stays physically possible and every cube vertex belongs to
-  // exactly one twisted/untwisted rigid body - the labels below rotate the
-  // vertices in the twisted layer by the same angle, which is exactly what
-  // a hand labeler clicking the plastic corner would do.
+  // Layer twist (M13, 2026-09-19): one outer layer rotated about its own
+  // axis, in one of two modes.
+  //   'rest'    the old "misalignment": a held cube's last-turned layer not
+  //             quite flush (several real bathroom photos show it), 2-9 deg,
+  //             20% of those 10-20. Static, never blurred.
+  //   'turning' a turn in progress: uniform 0-90 deg, usually motion-blurred
+  //             (renderSample sweeps the layer through `blurDeg` during the
+  //             exposure) and usually with a hand on the layer. The twist
+  //             head (model/train, `--twist`) trains on these; a real solve
+  //             is mid-turn roughly half the time.
+  // One layer, outer layers only: a slice would relocate centre cubies and
+  // break the face-letter <-> centre-colour identity the labels promise
+  // (slice and wide turns are a known gap of the first twist head). The
+  // layer's cubies are returned so the caller can animate them.
+  // SIGN: `deg`/`angle` are the right-hand angle about +axis, what
+  // applyAxisAngle takes. The label carries `cwDeg`, the same rotation seen
+  // from outside the turning face, clockwise positive - the sense a solver
+  // names a turn by (R = clockwise looking at the red face). Looking at a
+  // face from outside is looking along -normal, and a right-hand turn about
+  // the normal is counter-clockwise from there, so cw = -(layer * deg).
+  // check_twist.py verifies this against the face geometry.
   let twist = null;
-  if (rnd() < 0.22) {
+  const modeRoll = rnd();
+  const mode = modeRoll < twistFrac ? 'turning' : modeRoll < twistFrac + restFrac ? 'rest' : null;
+  if (mode) {
     const axis = pick(rnd, ['x', 'y', 'z']);
     const layer = rnd() < 0.5 ? -1 : 1;
-    const deg = (rnd() < 0.5 ? 1 : -1) * (rnd() < 0.8 ? 2 + rnd() * 7 : 10 + rnd() * 10);
+    const sign = rnd() < 0.5 ? 1 : -1;
+    const deg = sign * (mode === 'rest' ? (rnd() < 0.8 ? 2 + rnd() * 7 : 10 + rnd() * 10) : rnd() * 90);
     const angle = THREE.MathUtils.degToRad(deg);
     const q = new THREE.Quaternion().setFromAxisAngle(axisVec[axis], angle);
-    for (const c of cubies) {
-      if (Math.round(c.position[axis] / SPACING) !== layer) continue;
+    const layerCubies = cubies.filter((c) => Math.round(c.position[axis] / SPACING) === layer);
+    for (const c of layerCubies) {
       c.position.applyAxisAngle(axisVec[axis], angle);
       c.quaternion.premultiply(q);
     }
-    twist = { axis, layer, deg: Number(deg.toFixed(2)), angle };
+    const face = DIRS.find((d) => d.axis === axis && d.sign === layer).face;
+    twist = {
+      axis, layer, deg: Number(deg.toFixed(2)), angle, mode, face,
+      cwDeg: Number((-layer * deg).toFixed(2)), cubies: layerCubies, axisVec: axisVec[axis],
+    };
   }
   return {
     group, nMoves, bevel, twist,
@@ -709,10 +737,15 @@ function buildCube(rnd, style) {
       bodyColor: '#' + bodyHex.toString(16).padStart(6, '0'),
       tileRadius: Number(tileRadius.toFixed(3)), tileDepth: Number(tileDepth.toFixed(3)),
       circleCaps, logoFace, logoOnCap: logoFace ? logoOnCap : null, ganProfile,
-      layerTwist: twist ? { axis: twist.axis, layer: twist.layer, deg: twist.deg } : null,
+      layerTwist: twist ? { axis: twist.axis, layer: twist.layer, deg: twist.deg, mode: twist.mode } : null,
     },
   };
 }
+
+// M13 motion blur: sub-frames of a turning layer are averaged on this canvas.
+const blend = document.createElement('canvas');
+const bctx = blend.getContext('2d', { willReadFrequently: true });
+const gauss = (rnd) => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
 
 const texLoader = new THREE.TextureLoader();
 const photoCache = new Map();
@@ -736,7 +769,8 @@ window.renderSample = async function renderSample(opts) {
   // fraction f (see generate.mjs --cornerBias / CORNER_BIAS env var) and that
   // fraction of scenes rejection-sample the camera direction until the cube
   // is seen near-corner-on (see the pose block below).
-  const { seed, style, width = 640, height = 480, photoUrls = [], hdriUrls = [], cornerBias = 0 } = opts;
+  const { seed, style, width = 640, height = 480, photoUrls = [], hdriUrls = [], cornerBias = 0,
+          twistFrac = 0.3, restFrac = 0.12 } = opts;
   const rnd = mulberry32(seed);
   if (canvas.width !== width || canvas.height !== height) renderer.setSize(width, height, false);
 
@@ -853,7 +887,7 @@ window.renderSample = async function renderSample(opts) {
   // visible:false, corners:null - the training loader maps null corners to
   // valid=0, so no corner gradient flows from these.
   const negative = rnd() < 0.07;
-  const { group, nMoves, bevel, twist, styleMeta } = buildCube(rnd, style);
+  const { group, nMoves, bevel, twist, styleMeta } = buildCube(rnd, style, twistFrac, restFrac);
   if (window.DEBUG_SIMPLE_CUBE) {
     const ref = new THREE.Mesh(new THREE.BoxGeometry(H * 2, H * 2, H * 2), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }));
     ref.castShadow = true;
@@ -935,10 +969,30 @@ window.renderSample = async function renderSample(opts) {
   // is exactly the skin blob the localizer scored 0.3-0.5 on in real
   // no-cube frames (2026-09-13 desk clips), and a negative with no hands and
   // no clutter never teaches that.
-  const hasHands = rnd() < (negative ? 0.3 : 0.5);
+  // DECISION (M13): a turn in progress has a hand on the turning layer most
+  // of the time - the finger doing the pushing. Hands in 85% of 'turning'
+  // scenes (50% otherwise), and 70% of those are aimed at the layer: the
+  // fingers enter from the screen edge the layer sits toward and their tips
+  // stay in the outer third of the cube (on the layer) - unless the turning
+  // face is face-on or hidden, when the whole visible face is the layer and
+  // the ordinary grip already lands on it.
+  const turning = !negative && !!twist && twist.mode === 'turning';
+  const hasHands = rnd() < (negative ? 0.3 : turning ? 0.85 : 0.5);
   let handMeta = null;
+  let handFocus = null;
+  if (hasHands && turning && rnd() < 0.7) {
+    const rel = twist.axisVec.clone().multiplyScalar(twist.layer * SPACING); // the layer's centre
+    const dx = rel.dot(camRight);
+    const dy = rel.dot(camUp);
+    const horizontal = Math.abs(dx) > Math.abs(dy);
+    handFocus = {
+      edge: horizontal ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'top' : 'bottom'),
+      other: horizontal ? (dy > 0 ? 'top' : 'bottom') : (dx > 0 ? 'right' : 'left'),
+      shallow: Math.hypot(dx, dy) > 0.5 * H,
+    };
+  }
   if (hasHands && !window.DEBUG_BARE) {
-    const hands = buildHands(rnd, camera.position, camRight, camUp, camFwd, dist);
+    const hands = buildHands(rnd, camera.position, camRight, camUp, camFwd, dist, handFocus);
     scene.add(hands);
     handMeta = hands.userData;
   }
@@ -1169,7 +1223,45 @@ window.renderSample = async function renderSample(opts) {
       sceneChildCount: scene.children.length,
     }));
   }
-  const dataUrl = renderer.domElement.toDataURL('image/png');
+  // --- motion blur on a turning layer (M13) ---
+  // A real exposure integrates the layer's motion: a quarter turn takes
+  // 120-250 ms, so at a 1/60-1/30 s shutter the layer sweeps 6-25 deg
+  // inside one frame, and the mid-turn frames the twist head has to read
+  // are exactly those. Done properly - K sub-frames with the layer stepped
+  // across `blurDeg`, averaged - not as a directional smear of the whole
+  // image (train-time augmentation already does that one): only the layer
+  // moves; body, hands and background stay sharp, which is what tells a
+  // turning layer from a shaking camera. The label is the mid-exposure
+  // angle. 75% of turning scenes, |N(0, 8 deg)| clipped to [1, 20].
+  let blurDeg = 0;
+  let dataUrl;
+  if (!negative && twist && twist.mode === 'turning' && rnd() < 0.75) {
+    blurDeg = Math.min(20, Math.max(1, Math.abs(gauss(rnd)) * 8));
+    const K = Math.min(10, Math.max(2, Math.round(blurDeg / 1.5) + 1));
+    const step = THREE.MathUtils.degToRad(blurDeg / (K - 1));
+    const turnLayer = (rad) => {
+      const q = new THREE.Quaternion().setFromAxisAngle(twist.axisVec, rad);
+      for (const c of twist.cubies) { c.position.applyAxisAngle(twist.axisVec, rad); c.quaternion.premultiply(q); }
+    };
+    if (blend.width !== width || blend.height !== height) { blend.width = width; blend.height = height; }
+    const acc = new Float32Array(width * height * 4);
+    turnLayer(-step * (K - 1) / 2);
+    for (let k = 0; k < K; k++) {
+      if (k) turnLayer(step);
+      renderer.render(scene, camera);
+      bctx.drawImage(renderer.domElement, 0, 0);
+      const d = bctx.getImageData(0, 0, width, height).data;
+      for (let i = 0; i < d.length; i++) acc[i] += d[i];
+    }
+    turnLayer(-step * (K - 1) / 2); // back to the labelled angle
+    const out = bctx.createImageData(width, height);
+    for (let i = 0; i < acc.length; i++) out.data[i] = acc[i] / K;
+    for (let i = 3; i < acc.length; i += 4) out.data[i] = 255;
+    bctx.putImageData(out, 0, 0);
+    dataUrl = blend.toDataURL('image/png');
+  } else {
+    dataUrl = renderer.domElement.toDataURL('image/png');
+  }
 
   // --- labels ---
   // Rounded cubies pull the cube's corner silhouette in from the sharp-box
@@ -1177,7 +1269,6 @@ window.renderSample = async function renderSample(opts) {
   // +/-(H - r(1 - 1/sqrt(3))) per axis. Matches the hand-labeling convention
   // "outermost point of the plastic, never extrapolate past the edge".
   const cornerH = H - bevel * (1 - 1 / Math.sqrt(3));
-  const twistAxisVec = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
   const faces = {};
   const camPos = camera.position;
   if (negative) {
@@ -1189,8 +1280,18 @@ window.renderSample = async function renderSample(opts) {
     const facing = normal.dot(camPos.clone().sub(center).normalize());
     const corners = fd.corners.map(([x, y, z]) => {
       const v = new THREE.Vector3(x * cornerH, y * cornerH, z * cornerH);
-      // vertices on a misaligned layer move with it (see buildCube)
-      if (twist && { x, y, z }[twist.axis] === twist.layer) v.applyAxisAngle(twistAxisVec[twist.axis], twist.angle);
+      // DECISION (M13, 2026-09-19): the TURNING face's quad is the rotated
+      // layer itself - its nine stickers turn as one rigid square and the
+      // sampler can still read them. Every other face keeps its BODY-FRAME
+      // corners, the frame of the six stickers that did not move, even
+      // though the plastic corner it shares with the layer has walked off
+      // with it: a quad that follows the layer shears through the turn,
+      // mis-samples all nine cells and confuses the tracker, while the body
+      // frame keeps six cells right and the twist label names the row to
+      // distrust. (Before this, shared corners followed the layer - it was
+      // only ever 2-20 deg. A hand label of a slightly misaligned cube still
+      // clicks the plastic corner: a 1-3% of the face edge disagreement.)
+      if (twist && f === twist.face) v.applyAxisAngle(twist.axisVec, twist.angle);
       v.project(camera);
       return [Number(((v.x * 0.5 + 0.5) * width).toFixed(2)), Number(((-v.y * 0.5 + 0.5) * height).toFixed(2))];
     });
@@ -1212,6 +1313,17 @@ window.renderSample = async function renderSample(opts) {
     dataUrl,
     label: {
       width, height, style, faces,
+      // M13: the layer in motion, if any (null for a flush cube and for
+      // negatives). `face` names the turning outer layer by its centre's
+      // letter in the standard scheme (U white, R red, F green, D yellow,
+      // L orange, B blue); `deg` is clockwise seen from outside that face -
+      // physically defined only mod 90 in a single frame (+30 and -60 are
+      // the same picture); `blurDeg` the sweep integrated into this
+      // exposure (0 = sharp). model/train/dataset.py reads this field; real
+      // labels use the same one (model/README.md "Twist labels").
+      twist: !negative && twist
+        ? { face: twist.face, deg: twist.cwDeg, mode: twist.mode, blurDeg: Number(blurDeg.toFixed(2)) }
+        : null,
       meta: {
         seed, scrambleMoves: nMoves, fov: Number(fov.toFixed(1)), bgKind, lightKelvins: kelvins,
         closeUp, dim: Number(dim.toFixed(2)), envName, negative,
@@ -1219,6 +1331,7 @@ window.renderSample = async function renderSample(opts) {
         exposureBoost: Number(exposureBoost.toFixed(2)), cubeLum: Number(cubeLum.toFixed(3)),
         cornerBias: Number(cornerBias) || 0, cornerOn: wantCornerOn, hasHands, hasClutter, hardShadow,
         hasPalm: handMeta ? handMeta.hasPalm : false, nFingers: handMeta ? handMeta.nFingers : 0,
+        handFocus: handMeta ? handMeta.focus : null,
         ...styleMeta,
       },
     },

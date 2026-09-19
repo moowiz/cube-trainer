@@ -7,7 +7,9 @@
     "preview": "node generate.mjs --count 60 --out ../data/preview",
     "viz": "node visualize.mjs --data ../data/preview --count 12",
     "preview-v4": "node generate.mjs --count 24 --out ../preview_v4",
-    "viz-v4": "node visualize.mjs --data ../preview_v4 --count 24"
+    "viz-v4": "node visualize.mjs --data ../preview_v4 --count 24",
+    "preview-twist": "node generate.mjs --count 36 --out ../preview_twist --width 480 --height 640 --cornerBias 0.4 --twist 0.8 --rest 0.1",
+    "viz-twist": "node visualize.mjs --data ../preview_twist --count 36"
   },
   "dependencies": {
     "pngjs": "^7.0.0",

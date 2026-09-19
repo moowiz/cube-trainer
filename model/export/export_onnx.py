@@ -84,6 +84,13 @@ class ArrayCalibrationReader(CalibrationDataReader):
         self._it = iter(self._arrays)
 
 
+def _val_or_all(data_root: str, input_wh, view: str):
+    """The val split, or the whole root when the hash split leaves it empty
+    (a preview render of a few dozen images)."""
+    ds = CubeKeypointDataset(data_root, split="val", input_size=input_wh, view=view)
+    return ds if len(ds) else CubeKeypointDataset(data_root, split="all", input_size=input_wh, view=view)
+
+
 def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_MAX_SAMPLES, view: str = "crop"):
     """Up to `max_samples` real val-split frames as (1,3,H,W) float32 arrays.
 
@@ -94,7 +101,7 @@ def build_calibration_arrays(data_root: str, input_wh, max_samples: int = CALIB_
     `model/` and `web/` independently runnable per the repo convention.
     """
     try:
-        ds = CubeKeypointDataset(data_root, split="val", input_size=input_wh, view=view)
+        ds = _val_or_all(data_root, input_wh, view)
         n = min(max_samples, len(ds))
         arrays = [ds[i][0].unsqueeze(0).numpy() for i in range(n)]
         print(f"calibration: {n} real val-split samples from {data_root}")
@@ -142,7 +149,11 @@ def measure_corner_shift(fp32_path, other_path, xs, head: str):
     if head == "legacy":
         px = np.abs(ref[:, :, 1:] - got[:, :, 1:]).reshape(-1, 4, 2) * np.array(INPUT_WH)
         return float(px.mean()), float(px.max())
-    n, _, _, w = ref.shape
+    n, c, _, w = ref.shape
+    # channels: 1 heat + 2P offsets [+ 8 twist]; the twist channels are not
+    # corners and stay out of the gate
+    twist_ch = 8 if c in (1 + 2 * 4 + 8, 1 + 2 * 16 + 8) else 0
+    npts = (c - 1 - twist_ch) // 2
     heat = 1 / (1 + np.exp(-ref[:, 0]))
     px = []
     for i in range(n):
@@ -151,8 +162,8 @@ def measure_corner_shift(fp32_path, other_path, xs, head: str):
             if flat[c] < 0.3:
                 continue
             cy, cx = divmod(int(c), w)
-            a = ref[i, 1:, cy, cx].reshape(-1, 2)   # (P,2): 4 corners or the 16-point grid
-            b = got[i, 1:, cy, cx].reshape(-1, 2)
+            a = ref[i, 1:1 + 2 * npts, cy, cx].reshape(-1, 2)   # (P,2): 4 corners or the 16-point grid
+            b = got[i, 1:1 + 2 * npts, cy, cx].reshape(-1, 2)
             px.append(np.abs(a - b) * CENTER_STRIDE)
     if not px:
         print("WARNING: no fp32 heatmap peak above 0.3 on the parity frames - the "
@@ -180,6 +191,7 @@ def main():
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     head = ckpt.get("head", "legacy")
     npts = ckpt.get("npts", 4)
+    twist = bool(ckpt.get("twist", False))
     global INPUT_WH, VIEW
     INPUT_WH = tuple(ckpt.get("input_wh", KP_WH))
     VIEW = ckpt.get("view", "frame")
@@ -188,12 +200,12 @@ def main():
     if not crop_trained:
         print("WARNING: a model without the cropTrained stamp is not runnable by the app "
               "(always-two-stage, PORTRAIT-DESIGN.md 3.3) - exporting anyway for tests")
-    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]), npts=ckpt.get("npts", 4))
+    model = build_model(head, pretrained=False, input_hw=(INPUT_WH[1], INPUT_WH[0]), npts=npts, twist=twist)
     model.load_state_dict(ckpt["model"])
     model.eval()
     out_name = "faces" if head == "legacy" else "maps"
     params = sum(p.numel() for p in model.parameters())
-    print(f"head={head}  output={out_name}  params={params / 1e6:.2f}M")
+    print(f"head={head}  output={out_name}  params={params / 1e6:.2f}M" + ("  twist=on" if twist else ""))
 
     fp32_path = out / "facekp.fp32.onnx"
     x = torch.randn(1, 3, INPUT_WH[1], INPUT_WH[0])
@@ -230,7 +242,7 @@ def main():
     # and the measured-shift gate below (falls back to random data if
     # ../data isn't present, same as before)
     try:
-        ds = CubeKeypointDataset(args.data, split="val", input_size=INPUT_WH, view=VIEW)
+        ds = _val_or_all(args.data, INPUT_WH, VIEW)
         xs = torch.stack([ds[i][0] for i in range(min(16, len(ds)))])
     except FileNotFoundError:
         xs = torch.randn(8, 3, INPUT_WH[1], INPUT_WH[0])
@@ -296,10 +308,12 @@ def main():
         "channels": "0: visibility logit (sigmoid me), 1..8: x0,y0..x3,y3 normalized by input w,h",
         "cornerOrder": "TL,TR,BR,BL in the face's cubejs sticker-layout orientation",
     }
+    n_ch = 1 + 2 * npts + (8 if twist else 0)
     center_output = {
-        "name": "maps", "shape": [1, 9, gh, gw], "stride": CENTER_STRIDE,
-        "channels": "0: face-center heatmap logit (sigmoid me); 1..8: corner offsets "
-                    "x0,y0..x3,y3 in cells, relative to the cell center",
+        "name": "maps", "shape": [1, n_ch, gh, gw], "stride": CENTER_STRIDE,
+        "channels": f"0: face-center heatmap logit (sigmoid me); 1..{2 * npts}: point offsets "
+                    "x0,y0.. in cells, relative to the cell center"
+                    + (f"; {1 + 2 * npts}..{n_ch - 1}: the twist head (see `twist`)" if twist else ""),
         "decode": f"corner = ((j+0.5+offx)*stride/W, (i+0.5+offy)*stride/H); candidates are "
                   f"every cell >= threshold, strongest first (ties to the lower cell index), "
                   f"then drop a quad whose center is within {CENTER_DEDUPE_FRAC} x an "
@@ -307,6 +321,20 @@ def main():
                   f"NOT a 3x3 max-pool - that dropped a face on small cubes. Quads are "
                   f"ANONYMOUS - name them by center color",
         "cornerOrder": "cyclic, winding consistent; starting corner arbitrary",
+        # M13 (2026-09-19): the twist head, read PER QUAD at the quad's own
+        # heatmap cell. Classes are in the quad's decoded corner order: edge k
+        # is decoded corner k -> k+1. A single frame gives the angle only mod
+        # 90 (a layer at +30 looks exactly like one at -60); the turn's
+        # direction is the sweep across frames. deg > 0 = clockwise seen from
+        # the turning face = that face's neighbours' bordering rows moving
+        # from their corner k+1 toward their corner k.
+        "twist": {
+            "channels": [1 + 2 * npts, n_ch],
+            "classes": ["none", "self", "edge0", "edge1", "edge2", "edge3"],
+            "classChannels": [1 + 2 * npts, 1 + 2 * npts + 6],
+            "angleChannels": [1 + 2 * npts + 6, n_ch],
+            "angle": "(cos 4a, sin 4a): a = atan2(sin, cos) / 4 is the layer's angle mod 90 deg",
+        } if twist else None,
     }
 
     WEB_MODELS.mkdir(parents=True, exist_ok=True)

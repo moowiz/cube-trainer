@@ -421,6 +421,28 @@ camera path; the cube goes in a drawer.
 gaps per solve, timing error per turn, and the reader's certificate
 calibration, all against the M10 baseline.
 
+**Built 2026-09-19 (the synthetic half; `model/README.md` "Layer twist").**
+Two things the sketch above got wrong, settled while building it:
+
+- *"Layer id 0-5" is not available to stage 2*: its quads are anonymous.
+  The head is therefore PER QUAD: none / self (this quad is the turning
+  layer) / edge k (the layer across the quad's k-th edge is turning, its
+  row sliding). The label still says "face X, deg"; `targets.py` derives
+  the per-quad class from the face adjacency and shifts it with the corner
+  loss's cyclic-shift minimum. The reader maps a track's edge back to a
+  move through the face identity and rotation it already keeps.
+- *Direction is not a single-frame quantity*: a layer turned +30 is the
+  same picture as one turned -60 (the slab is 4-fold symmetric about its
+  axis), so the head regresses the angle mod 90 as (cos 4a, sin 4a) and
+  the reader takes the direction from the sweep - 0, 20, 50, 80 is a
+  clockwise turn, 0, 70, 40, 10 the other one. Sticker colours could in
+  principle break the tie, but only with the state, which is the reader's
+  job, not the head's.
+
+Also decided: non-turning faces keep BODY-FRAME corners through a turn (the
+turning face's quad is the rotated layer), and slice / wide turns are out
+of the first head (`"face": "?"` masks such frames).
+
 ### 5.4 What M10 must record for this
 
 Full-rate video (every frame, not only detection frames: the `.webm` does

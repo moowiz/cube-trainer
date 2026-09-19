@@ -37,7 +37,10 @@ from model import (
     count_params,
     f1_from_counts,
     keypoint_loss,
+    load_center_weights,
     pixel_error,
+    twist_counts_zero,
+    twist_summary,
 )
 from shapes import FRAME_CACHE_WH, KP_WH
 from targets import build_center_targets, dataset_target_stats
@@ -45,26 +48,31 @@ from targets import build_center_targets, dataset_target_stats
 INPUT_WH = KP_WH   # set per --view in main(); evaluate() reads the module global
 
 
-def evaluate(model, loader, device, head="legacy", grid_hw=None, npts=4):
-    """-> (loss, px, acc). For the center head the last two are redefined:
-    `px` is the corner error over MATCHED detections only and `acc` is
-    detection F1 at score 0.5, not per-slot visibility accuracy. The log-line
-    keys stay val_px / val_conf_acc because watch.py parses those exact
-    names - do not compare the numbers across heads."""
+def evaluate(model, loader, device, head="legacy", grid_hw=None, npts=4, twist=False):
+    """-> (loss, px, acc, twist_metrics). For the center head px and acc are
+    redefined: `px` is the corner error over MATCHED detections only and
+    `acc` is detection F1 at score 0.5, not per-slot visibility accuracy.
+    The log-line keys stay val_px / val_conf_acc because watch.py parses
+    those exact names - do not compare the numbers across heads.
+    `twist_metrics` is model.twist_summary's dict (with the raw counts under
+    'counts') when the loader yields twist labels, else {}."""
     model.eval()
     tot = {"loss": 0.0, "px": 0.0, "acc": 0.0, "n": 0}
     err_sum = 0.0
     matched = tp = fp = fn = 0
+    twc = twist_counts_zero()
     with torch.no_grad():
-        for x, conf, corners, valid in loader:
-            x, conf, corners, valid = (t.to(device, non_blocking=True) for t in (x, conf, corners, valid))
+        for batch in loader:
+            x, conf, corners, valid = (t.to(device, non_blocking=True) for t in batch[:4])
+            tw = batch[4].to(device, non_blocking=True) if twist else None
             x = normalize_batch(x)
             pred = model(x)
             b = x.size(0)
             if head == "center":
-                t = build_center_targets(conf, corners, valid, grid_hw, npts=npts)
-                loss, _, _ = center_loss(pred, t)
-                e, m, a, c, d = center_metrics(pred, conf, corners, valid, INPUT_WH)
+                t = build_center_targets(conf, corners, valid, grid_hw, npts=npts, twist=tw)
+                loss = center_loss(pred, t)[0]
+                e, m, a, c, d = center_metrics(pred, conf, corners, valid, INPUT_WH,
+                                               twist_t=tw, twist_counts=twc)
                 err_sum += e
                 matched += m
                 tp += a
@@ -83,8 +91,9 @@ def evaluate(model, loader, device, head="legacy", grid_hw=None, npts=4):
         # watch.py's line regex only accepts [\d.]+ for val_px, and dropping
         # those rows would silently punch holes in the dashboard.
         px = err_sum / matched if matched else 999.99
-        return tot["loss"] / n, px, f1_from_counts(tp, fp, fn)
-    return tot["loss"] / n, tot["px"] / n, tot["acc"] / n
+        twm = {**twist_summary(twc), "counts": twc} if twist and twc["n"] else {}
+        return tot["loss"] / n, px, f1_from_counts(tp, fp, fn), twm
+    return tot["loss"] / n, tot["px"] / n, tot["acc"] / n, {}
 
 
 def main():
@@ -112,6 +121,12 @@ def main():
                          "16 = the 4x4 seam grid derived from them (2026-09-13; interior "
                          "junctions are sharper targets and overdetermine the warp). "
                          "val_px/real_px stay the CORNER error either way, so runs compare")
+    ap.add_argument("--twist", action="store_true",
+                    help="center head: add the twist head (M13) - 8 more channels per cell: which of "
+                         "the quad's edges borders a turning layer (or the quad itself is one) and the "
+                         "angle mod 90. Reads the labels' `twist` field (pre-M13 synthetic labels are "
+                         "converted from meta.layerTwist; real labels without it are static cubes). "
+                         "--init from a checkpoint without it keeps the heatmap and corner weights")
     ap.add_argument("--view", choices=["crop", "frame"], default="crop",
                     help="'crop' (the deployed stage-2 view: padded silhouette crops at "
                          f"{KP_WH[0]}x{KP_WH[1]}); 'frame' trains on whole letterboxed frames at "
@@ -143,7 +158,7 @@ def main():
     (out / "meta.json").write_text(json.dumps({
         "epochs": args.epochs, "data": args.data, "batch": args.batch,
         "workers": args.workers, "head": args.head, "lr": args.lr, "npts": args.points,
-        "view": args.view, "input_wh": INPUT_WH, "started": time.time(),
+        "view": args.view, "input_wh": INPUT_WH, "started": time.time(), "twist": args.twist,
     }, indent=1))
 
     roots = []
@@ -157,7 +172,7 @@ def main():
         parts = []
         for path, rep in roots:
             ds = CubeKeypointDataset(path, split=split, input_size=INPUT_WH, augment=augment,
-                                     raw_uint8=True, view=args.view)
+                                     raw_uint8=True, view=args.view, with_twist=args.twist)
             if len(ds):
                 parts.extend([ds] * (rep if split == "train" or split == "all" else 1))
         return ConcatDataset(parts)
@@ -184,14 +199,16 @@ def main():
     real_dl = None
     if args.real_val:
         rv = CubeKeypointDataset(args.real_val, split="all", input_size=INPUT_WH, augment=None,
-                                 raw_uint8=True, view=args.view)
+                                 raw_uint8=True, view=args.view, with_twist=args.twist)
         if len(rv):
             real_dl = DataLoader(rv, batch_size=args.batch, shuffle=False, num_workers=0)  # 42 images
     print(f"device={device}  view={args.view} {INPUT_WH[0]}x{INPUT_WH[1]}  train={len(train_ds)}  val={len(val_ds)}"
           + (f"  real_val={len(real_dl.dataset)}" if real_dl else ""))
 
+    if args.twist and args.head != "center":
+        raise SystemExit("--twist needs --head center")
     model = build_model(args.head, pretrained=True, input_hw=(INPUT_WH[1], INPUT_WH[0]),
-                        npts=args.points).to(device)
+                        npts=args.points, twist=args.twist).to(device)
     grid_hw = getattr(model, "grid_hw", None)
     # `model` stays the plain module: checkpoints, --init/--resume, the
     # optimizer and export all see it. `run` is what forward goes through -
@@ -203,7 +220,8 @@ def main():
     if compiled:
         enable_compile()
     print(f"head={args.head}  params={count_params(model) / 1e6:.2f}M"
-          + (f"  grid={grid_hw[0]}x{grid_hw[1]}  points={args.points}" if grid_hw else ""))
+          + (f"  grid={grid_hw[0]}x{grid_hw[1]}  points={args.points}" if grid_hw else "")
+          + ("  twist=on" if args.twist else ""))
     if args.head == "center":
         dataset_target_stats(val_ds, grid_hw, name="val")
         if real_dl is not None:
@@ -223,8 +241,14 @@ def main():
             # a landscape full-frame checkpoint is not a starting point for a crop model.
             raise SystemExit(f"--init {args.init} is view={ckpt.get('view', 'frame')!r} "
                              f"input_wh={ckpt.get('input_wh')} - this run is {args.view!r} {INPUT_WH}")
-        model.load_state_dict(ckpt["model"])
-        print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')})")
+        note = ""
+        if args.head == "center":
+            # a twist run may start from a plain kpft checkpoint (and vice
+            # versa): the head's last conv is grown / trimmed, the rest loads
+            note = "; " + load_center_weights(model, ckpt["model"])
+        else:
+            model.load_state_dict(ckpt["model"])
+        print(f"initialized from {args.init} (epoch {ckpt.get('epoch')}, val_px {ckpt.get('val_px')}){note}")
     # fused=True: one multi-tensor kernel instead of ~150 foreach launches
     # (12.6 -> 0.9 ms/step measured 2026-09-12), and GradScaler hands the fused
     # step its found_inf tensor instead of calling .item() on it - the last
@@ -252,6 +276,8 @@ def main():
                              f"vs --head {args.head!r}")
         if args.head == "center" and ckpt.get("npts", 4) != args.points:
             raise SystemExit(f"resume mismatch: checkpoint npts {ckpt.get('npts', 4)} vs --points {args.points}")
+        if bool(ckpt.get("twist", False)) != args.twist:
+            raise SystemExit(f"resume mismatch: checkpoint twist={ckpt.get('twist', False)} vs --twist {args.twist}")
         if ckpt.get("total_steps") != total_steps:
             raise SystemExit(f"resume mismatch: checkpoint expects total_steps={ckpt.get('total_steps')}, "
                              f"this invocation has {total_steps} (data/epochs/batch changed?) - start fresh")
@@ -285,26 +311,32 @@ def main():
         run_loss = torch.zeros((), device=device)
         run_heat = torch.zeros((), device=device)
         run_off = torch.zeros((), device=device)
+        run_tcls = torch.zeros((), device=device)
+        run_tang = torch.zeros((), device=device)
         n = 0
-        for x, conf, corners, valid in train_dl:
+        for batch in train_dl:
             if compiled:
                 # reduce-overhead = CUDA graphs: tell the runtime the previous
                 # step's graph outputs (pred) may now be overwritten.
                 torch.compiler.cudagraph_mark_step_begin()
-            # All four come out of the DataLoader pinned; a blocking .to() on
+            # All of them come out of the DataLoader pinned; a blocking .to() on
             # any of them is a stream sync (memcpy + cudaStreamSynchronize).
-            x, conf, corners, valid = (t.to(device, non_blocking=True) for t in (x, conf, corners, valid))
+            x, conf, corners, valid = (t.to(device, non_blocking=True) for t in batch[:4])
+            tw = batch[4].to(device, non_blocking=True) if args.twist else None
             x = to_float01(x)
             if not args.overfit:   # overfit runs are unaugmented end to end
                 x = photometric_batch(x)
             x = normalize01(x)
             opt.zero_grad(set_to_none=True)
-            targets = (build_center_targets(conf, corners, valid, grid_hw, npts=args.points)
+            targets = (build_center_targets(conf, corners, valid, grid_hw, npts=args.points, twist=tw)
                        if args.head == "center" else None)
             with torch.amp.autocast(device_type="cuda", enabled=device == "cuda"):
                 pred = forward_train(x)
-                loss, lh, lo = (center_loss(pred, targets) if args.head == "center"
-                                else keypoint_loss(pred, conf, corners, valid))
+                if args.head == "center":
+                    loss, lh, lo, lc, la = center_loss(pred, targets)
+                else:
+                    loss, lh, lo = keypoint_loss(pred, conf, corners, valid)
+                    lc = la = 0.0
             scaler.scale(loss).backward()
             scaler.step(opt)
             scaler.update()
@@ -312,20 +344,36 @@ def main():
             run_loss += loss.detach() * x.size(0)
             run_heat += torch.as_tensor(lh, device=device).detach() * x.size(0)
             run_off += torch.as_tensor(lo, device=device).detach() * x.size(0)
+            run_tcls += torch.as_tensor(lc, device=device).detach() * x.size(0)
+            run_tang += torch.as_tensor(la, device=device).detach() * x.size(0)
             n += x.size(0)
         run_loss, run_heat, run_off = run_loss.item(), run_heat.item(), run_off.item()
+        run_tcls, run_tang = run_tcls.item(), run_tang.item()
         t_train = time.time() - t0
         # Eval goes through the plain module: it is ~2 s/epoch eager, and the
         # compiled path would build a graph per eval batch shape (val, val's
         # last batch, real_val) at ~25 s each for nothing.
-        vloss, vpx, vacc = evaluate(model, val_dl, device, args.head, grid_hw, args.points)
+        vloss, vpx, vacc, vtw = evaluate(model, val_dl, device, args.head, grid_hw, args.points, args.twist)
         rpx = None
+        rtw = {}
         if real_dl is not None:
-            _, rpx, _ = evaluate(model, real_dl, device, args.head, grid_hw, args.points)
+            _, rpx, _, rtw = evaluate(model, real_dl, device, args.head, grid_hw, args.points, args.twist)
+        # twist metrics (M13): tw_f1 = a face read as twisted vs not, tw_cls
+        # = the right edge / self among twisted faces, tw_deg = mean angle
+        # error mod 90 in degrees; real_tw_* the same on the held-out real
+        # frames, printed only once some of those carry twist labels.
+        twist_fields = ""
+        if args.twist:
+            twist_fields = f"  tcls {run_tcls / n:.4f}  tang {run_tang / n:.4f}"
+            if vtw:
+                twist_fields += f"  tw_f1 {vtw['tw_f1']:.3f}  tw_cls {vtw['tw_cls']:.3f}  tw_deg {vtw['tw_deg']:.1f}"
+            if rtw and rtw["counts"]["twisted"]:
+                twist_fields += f"  real_tw_f1 {rtw['tw_f1']:.3f}  real_tw_cls {rtw['tw_cls']:.3f}"
         line = (f"epoch {epoch:3d}  train_loss {run_loss / n:.4f}  val_loss {vloss:.4f}  "
                 f"val_px {vpx:.2f}  val_conf_acc {vacc:.3f}  {time.time() - t0:.0f}s"
                 + (f"  real_px {rpx:.2f}" if rpx is not None else "")
                 + (f"  heat {run_heat / n:.4f}  off {run_off / n:.4f}" if args.head == "center" else "")
+                + twist_fields
                 # steps-only time and images/s: the epoch total above also
                 # holds val + real_val. Appended last so watch.py's regex,
                 # which reads the fields up to "<total>s", is untouched.
@@ -333,7 +381,8 @@ def main():
         print(line, flush=True)
         log.append(line)
         slim = {"model": model.state_dict(), "input_wh": INPUT_WH, "view": args.view, "epoch": epoch,
-                "val_px": vpx, "real_px": rpx, "head": args.head, "npts": args.points}
+                "val_px": vpx, "real_px": rpx, "head": args.head, "npts": args.points, "twist": args.twist,
+                "twist_metrics": vtw or None}
         select_px = rpx if (args.select == "real" and rpx is not None) else vpx
         if select_px < best_px:
             best_px = select_px

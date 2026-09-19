@@ -490,6 +490,20 @@ blur. Exported inside `facekp.onnx`, the camera becomes a complete
 channel beats the M10 baseline on turns read, false turns and gaps, and a
 phone follows a real solve without the cube.
 
+**Started early (user, 2026-09-19), the synthetic half.** The first
+cube-labelled fixture showed the detector's hand quads drown the reader
+before M10's numbers mean anything, and the twist head sees the layer, not
+the stickers. Built: the generator renders a layer mid-turn (0-90 deg,
+motion blur by sub-frame accumulation, a hand on the layer; `--twist`),
+labels carry a `twist` field, non-turning faces keep body-frame corners
+(`model/README.md` "Layer twist"); `train.py --twist` adds the head (per
+QUAD - none / self / which edge borders the turning layer - plus the angle
+mod 90, since a single frame cannot tell +30 from -60), with metrics and a
+round-trip check; `export_onnx.py` describes the channels in the sidecar
+and the app's decoder ignores them until it reads them. Not yet: the
+data_v6 render at scale, the run, `facekp.ts` decoding the twist, the
+reader's twist channel, real mid-turn labels (in progress, user).
+
 ---
 
 ## Later / maybe (post-M8 — everything above stays 3x3-only until then)

@@ -43,3 +43,4 @@ model/gen/logs/
 recordings/
 # agent worktrees (Claude Code)
 .claude/worktrees/
+model/preview_twist/

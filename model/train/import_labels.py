@@ -102,8 +102,12 @@ def main():
             # (the labeler exports the whole set, so re-exports come through
             # here after fixing a face)
             faces = normalize_winding(entry["faces"])
-            if faces != stored["faces"]:
+            # M13: the twist field (model/README.md "Twist labels") rides
+            # along; a label without one is a static cube (no twist)
+            twist = entry.get("twist")
+            if faces != stored["faces"] or twist != stored.get("twist"):
                 stored["faces"] = faces
+                stored["twist"] = twist
                 lf.write_text(json.dumps(stored, indent=1))
                 updated += 1
             else:
@@ -130,6 +134,7 @@ def main():
             "height": h,
             "style": "real",
             "faces": normalize_winding(entry["faces"]),
+            "twist": entry.get("twist"),
         }
         (out / "labels" / (stem + ".json")).write_text(json.dumps(label, indent=1))
         imported += 1

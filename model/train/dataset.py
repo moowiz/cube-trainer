@@ -39,6 +39,14 @@ Target tensors per sample:
              corners are still deterministic geometry - they share vertices
              with visible ones)
     valid:   (6,)    0 for hand labels with no corners (unknown geometry)
+    twist:   (2,)    M13 (with_twist=True only): [face, deg] - the turning
+             outer layer as a URFDLB index, -1 = no layer turning, -2 = not
+             labelled (a slice/wide turn, or nobody knows); deg clockwise
+             seen from that face, nan = unknown (cube-labelled real frames).
+             Read from the label's `twist` field (model/README.md "Twist
+             labels"); pre-M13 synthetic labels are converted from
+             meta.layerTwist. A real label without the field is a static
+             cube: no twist.
 """
 from __future__ import annotations
 
@@ -94,11 +102,34 @@ def normalize01(x: torch.Tensor) -> torch.Tensor:
     return x.sub_(mean).div_(std)
 
 
-CACHE_VERSION = 3  # bump when the cached schema changes; triggers rebuild
+CACHE_VERSION = 4  # bump when the cached schema changes; triggers rebuild (4: twist, 2026-09-19)
+
+TWIST_NONE, TWIST_UNKNOWN = -1.0, -2.0
+# pre-M13 generator labels: meta.layerTwist = {axis, layer, deg about +axis}
+_LEGACY_TWIST_FACE = {("x", 1): "R", ("x", -1): "L", ("y", 1): "U", ("y", -1): "D", ("z", 1): "F", ("z", -1): "B"}
+
+
+def load_twist(lbl: dict) -> np.ndarray:
+    """The label's twist as [face index, deg] (see the module doc)."""
+    tw = lbl.get("twist")
+    if tw is None and "twist" not in lbl:
+        legacy = (lbl.get("meta") or {}).get("layerTwist")
+        if legacy and not (lbl.get("meta") or {}).get("negative"):
+            face = _LEGACY_TWIST_FACE[(legacy["axis"], int(legacy["layer"]))]
+            # clockwise from outside the face = -(layer * angle about +axis)
+            return np.array([FACE_ORDER.index(face), -int(legacy["layer"]) * float(legacy["deg"])], dtype=np.float32)
+        return np.array([TWIST_NONE, np.nan], dtype=np.float32)
+    if tw is None:
+        return np.array([TWIST_NONE, np.nan], dtype=np.float32)
+    face = tw.get("face")
+    if face is None or face == "?":
+        return np.array([TWIST_UNKNOWN, np.nan], dtype=np.float32)
+    deg = tw.get("deg")
+    return np.array([FACE_ORDER.index(face), np.nan if deg is None else float(deg)], dtype=np.float32)
 
 
 def load_label(path: Path):
-    """Returns (image_rel, (w,h), conf, corners, valid).
+    """Returns (image_rel, (w,h), conf, corners, valid, twist).
 
     Synthetic labels carry corners for all six faces. Hand labels (M5, the
     label.html tool) have corners: null for unlabeled faces - those get
@@ -115,7 +146,7 @@ def load_label(path: Path):
         if fd.get("corners") is not None:
             corners[i] = np.asarray(fd["corners"], dtype=np.float32)
             valid[i] = 1.0
-    return lbl["image"], (w, h), conf, corners, valid
+    return lbl["image"], (w, h), conf, corners, valid, load_twist(lbl)
 
 
 def is_val(path: Path) -> bool:
@@ -233,8 +264,9 @@ def _cache_chunk(args):
     corns = np.zeros((n, 6, 4, 2), dtype=np.float32)
     valids = np.zeros((n, 6), dtype=np.float32)
     geoms = np.zeros((n, 7), dtype=np.float32)  # content x0,y0,x1,y1 (canvas px), scale, src_w, src_h
+    twists = np.zeros((n, 2), dtype=np.float32)
     for k, f in enumerate(files):
-        img_rel, (w, h), conf, corners, valid = load_label(Path(f))
+        img_rel, (w, h), conf, corners, valid, twist = load_label(Path(f))
         img = Image.open(root / img_rel).convert("RGB")
         if view == "frame":
             scale, dx, dy = letterbox_params(w, h, iw, ih)
@@ -260,8 +292,9 @@ def _cache_chunk(args):
         cw = (w if view == "frame" else window[2] - window[0]) * scale
         ch = (h if view == "frame" else window[3] - window[1]) * scale
         geoms[k] = (dx, dy, dx + cw, dy + ch, scale, w, h)
+        twists[k] = twist
     imgs.flush()
-    return start, confs, corns, valids, geoms
+    return start, confs, corns, valids, geoms, twists
 
 
 def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path, view: str,
@@ -279,26 +312,29 @@ def _build_cache(root: Path, files: list[Path], iw: int, ih: int, cdir: Path, vi
     corns = np.zeros((n, 6, 4, 2), dtype=np.float32)
     valids = np.zeros((n, 6), dtype=np.float32)
     geoms = np.zeros((n, 7), dtype=np.float32)
+    twists = np.zeros((n, 2), dtype=np.float32)
     chunk = max(1, min(500, n // max(1, workers * 4) + 1))
     tasks = [(str(root), [str(f) for f in files[s:s + chunk]], s, view, iw, ih, str(imgs_path))
              for s in range(0, n, chunk)]
     done = 0
     if workers > 1 and n > 200:
         with mp.get_context("spawn").Pool(workers) as pool:
-            for start, c, k, v, g in pool.imap_unordered(_cache_chunk, tasks):
+            for start, c, k, v, g, tw in pool.imap_unordered(_cache_chunk, tasks):
                 m = len(c)
                 confs[start:start + m], corns[start:start + m] = c, k
                 valids[start:start + m], geoms[start:start + m] = v, g
+                twists[start:start + m] = tw
                 done += m
                 if done % 5000 < m:
                     print(f"  cache {done}/{n}", flush=True)
     else:
         for t in tasks:
-            start, c, k, v, g = _cache_chunk(t)
+            start, c, k, v, g, tw = _cache_chunk(t)
             m = len(c)
             confs[start:start + m], corns[start:start + m] = c, k
             valids[start:start + m], geoms[start:start + m] = v, g
-    np.savez(cdir / "targets.npz", conf=confs, corners=corns, valid=valids, geom=geoms)
+            twists[start:start + m] = tw
+    np.savez(cdir / "targets.npz", conf=confs, corners=corns, valid=valids, geom=geoms, twist=twists)
     (cdir / "meta.json").write_text(json.dumps(
         {"count": n, "version": CACHE_VERSION, "view": view, "fingerprint": _label_fingerprint(files)}))
 
@@ -342,8 +378,14 @@ def recrop(canvas: np.ndarray, corners_px: np.ndarray, conf: np.ndarray, valid: 
 
 class CubeKeypointDataset(Dataset):
     def __init__(self, root: str | Path, split: str = "train", input_size=(256, 256), augment=None,
-                 raw_uint8: bool = False, view: str = "crop", crop_pad=None, cache_workers=None):
+                 raw_uint8: bool = False, view: str = "crop", crop_pad=None, cache_workers=None,
+                 with_twist: bool = False):
         """split: 'train' | 'val' | 'all' (crc32-hash split, ~5% val).
+
+        with_twist: __getitem__ returns a fifth tensor, the (2,) twist label
+            (module doc). Off by default so every tool that unpacks four
+            keeps working; train.py --twist turns it on. `self.twist` holds
+            the array either way.
 
         view: 'crop' (stage 2, default) or 'frame' (stage 1). See module doc.
         crop_pad: crop view only - per-side padding of the sample-time
@@ -358,6 +400,7 @@ class CubeKeypointDataset(Dataset):
         """
         self.root = Path(root)
         self.raw_uint8 = raw_uint8
+        self.with_twist = with_twist
         self.view = view
         all_files = sorted((self.root / "labels").glob("img_*.json"))
         if not all_files:
@@ -418,6 +461,7 @@ class CubeKeypointDataset(Dataset):
         self.conf = conf_all[self.indices]
         self.corners = corners_all[self.indices]
         self.valid = valid_all[self.indices]
+        self.twist = targets["twist"][self.indices]
         # per sample: content rect in cache-canvas px, canvas px per source px, source w, h
         self.geom = geom_all[self.indices]
         self._rng = None
@@ -442,11 +486,12 @@ class CubeKeypointDataset(Dataset):
         return np.full(4, float(p), dtype=np.float32)
 
     def sample(self, idx):
-        """__getitem__ plus the geometry: (x, conf, corners, valid, geom) with
-        geom = {'scale': input px per SOURCE px, 'src_w', 'src_h'} so an error
-        in input pixels can be reported in source pixels and a face's size
-        as a fraction of the source frame height (the range floor's units).
-        Randomness (re-crop pads, augmentation) is per call."""
+        """__getitem__ plus the geometry: (x, conf, corners, valid, geom, twist)
+        with geom = {'scale': input px per SOURCE px, 'src_w', 'src_h'} so an
+        error in input pixels can be reported in source pixels and a face's
+        size as a fraction of the source frame height (the range floor's
+        units), and twist the (2,) label. Randomness (re-crop pads,
+        augmentation) is per call."""
         if self._rng is None or self._rng[0] != os.getpid():
             # keyed on the pid: a Generator made in the main process before
             # the DataLoader spawned would be pickled into every worker with
@@ -481,7 +526,9 @@ class CubeKeypointDataset(Dataset):
             x = (x - NORM_MEAN) / NORM_STD
             x = torch.from_numpy(x.transpose(2, 0, 1).copy())
         geom = {"scale": scale, "src_w": float(g[5]), "src_h": float(g[6])}
-        return x, torch.from_numpy(conf), torch.from_numpy(norm), torch.from_numpy(valid), geom
+        return (x, torch.from_numpy(conf), torch.from_numpy(norm), torch.from_numpy(valid), geom,
+                torch.from_numpy(self.twist[idx].copy()))
 
     def __getitem__(self, idx):
-        return self.sample(idx)[:4]
+        s = self.sample(idx)
+        return (*s[:4], s[5]) if self.with_twist else s[:4]

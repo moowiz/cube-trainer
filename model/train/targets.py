@@ -54,6 +54,105 @@ OFF_SUPERVISE_MIN = 0.5
 # generate.
 from shapes import MIN_FACE_EDGE_FRAC, min_face_edge_px
 
+# --- the twist head's targets (M13, 2026-09-19) -----------------------------
+#
+# A label says at most "face X's layer is turning, `deg` clockwise seen from
+# X" (dataset.load_label: `twist` = (face index or -1 / -2, deg or nan)). The
+# head is per QUAD, because stage 2's quads are anonymous: each face's cell
+# predicts one of six classes -
+#   0 none    nothing on this face moves (also every face of a flush cube)
+#   1 self    this face IS the turning layer (its nine stickers turn as one)
+#   2+k edge  the layer across edge k (corner k -> corner k+1) is turning,
+#             so this face's row along that edge is sliding
+# - and an angle. The class is derived from the face letter with NEIGHBOUR
+# below; the opposite face of the turning layer is `none` (nothing on it
+# moves). The angle is encoded as (cos 4a, sin 4a) with a = deg in radians:
+# a single frame cannot tell a layer turned +30 from one turned -60 (the
+# same picture; the slab is 4-fold symmetric about its axis), so the target
+# is the angle MOD 90, which that encoding is, continuous through 0/90. The
+# direction of a turn comes from the sweep across frames (moves/reader.ts).
+# Sign convention, verified by check_twist.py: deg > 0 (clockwise from the
+# turning face) moves every neighbour's bordering row from its corner k+1
+# toward its corner k.
+#
+# The corner loss takes the minimum over the four cyclic shifts of the
+# target quad; the class must shift with it - under shift s (target corner
+# s becomes the model's corner 0) edge k becomes edge (k - s) mod 4. The
+# targets therefore carry the class under all four shifts and the loss picks
+# the shift the corners chose (model.center_loss).
+
+TWIST_FACES = "URFDLB"
+TWIST_CLASSES = 6            # none, self, edge0..edge3
+TWIST_NONE, TWIST_SELF, TWIST_EDGE0 = 0, 1, 2
+# Which face lies across edge k of each face, in the label's corner order
+# (TL, TR, BR, BL of the cubejs sticker layout). Derived from the corner
+# tables by check_twist.py; gen/visualize.mjs carries a copy.
+NEIGHBOUR = {
+    "U": ["B", "R", "F", "L"], "R": ["U", "B", "D", "F"], "F": ["U", "R", "D", "L"],
+    "D": ["F", "R", "B", "L"], "L": ["U", "F", "D", "B"], "B": ["U", "L", "D", "R"],
+}
+# (6 faces, 6 turning faces) -> class, and -1 / -2 (no twist / unknown)
+# columns. Built once as a tensor so the batch lookup is a gather.
+_TWIST_CLASS_TABLE = torch.zeros(6, 8, dtype=torch.long)
+for _fi, _f in enumerate(TWIST_FACES):
+    for _ti, _t in enumerate(TWIST_FACES):
+        if _t == _f:
+            _TWIST_CLASS_TABLE[_fi, _ti] = TWIST_SELF
+        elif _t in NEIGHBOUR[_f]:
+            _TWIST_CLASS_TABLE[_fi, _ti] = TWIST_EDGE0 + NEIGHBOUR[_f].index(_t)
+# columns 6 (= -1: no twist) and 7 (= -2: unknown) stay 0 = none
+_TWIST_UNKNOWN = -2
+# DECISION: a twist of a few degrees is barely visible and a static real
+# photo of a slightly misaligned cube is labelled `none`, so the class
+# supervision of a twisted face ramps in with the angle: weight 0.1 at 3 deg
+# and below, 1.0 from 12 deg. The angle regression is not ramped (it is
+# right at any size); unknown angles (cube-labelled real frames, deg = nan)
+# supervise the class only.
+TWIST_RAMP_DEG = (3.0, 12.0)
+
+
+def shift_twist_class(cls: torch.Tensor, s: int) -> torch.Tensor:
+    """The class as seen after the target corners are rolled by -s (the
+    model's corner 0 is the target's corner s): edges rotate, none/self
+    stay."""
+    is_edge = cls >= TWIST_EDGE0
+    return torch.where(is_edge, TWIST_EDGE0 + (cls - TWIST_EDGE0 - s) % 4, cls)
+
+
+def twist_face_classes(twist: torch.Tensor) -> torch.Tensor:
+    """twist (B,2) [face index, deg] -> (B,6) class per face under shift 0.
+    Face -1 (no twist) and -2 (unknown) give `none` everywhere; the caller
+    masks unknown frames out with `twist_known`."""
+    face = twist[:, 0].round().long()
+    col = torch.where(face >= 0, face, torch.where(face == -1, torch.full_like(face, 6),
+                                                  torch.full_like(face, 7)))
+    table = _TWIST_CLASS_TABLE.to(twist.device)
+    return table[:, col].T                                   # (B,6)
+
+
+def twist_known(twist: torch.Tensor) -> torch.Tensor:
+    """(B,) bool: the frame's twist state is labelled (not -2)."""
+    return twist[:, 0].round().long() != _TWIST_UNKNOWN
+
+
+def twist_angle_targets(twist: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """(B,2) (cos 4a, sin 4a) and (B,) bool "angle known"."""
+    deg = twist[:, 1]
+    known = torch.isfinite(deg) & (twist[:, 0] >= -0.5)
+    a = torch.deg2rad(torch.nan_to_num(deg, nan=0.0)) * 4
+    return torch.stack([torch.cos(a), torch.sin(a)], dim=1), known
+
+
+def twist_class_weight(twist: torch.Tensor) -> torch.Tensor:
+    """(B,) the ramp weight of a twisted frame's class supervision (1 for a
+    flush frame, 0 for an unknown one)."""
+    face = twist[:, 0].round().long()
+    deg = torch.nan_to_num(twist[:, 1].abs(), nan=TWIST_RAMP_DEG[1])  # unknown angle: full weight
+    lo, hi = TWIST_RAMP_DEG
+    ramp = ((deg - lo) / (hi - lo)).clamp(0.1, 1.0)
+    w = torch.where(face >= 0, ramp, torch.ones_like(ramp))
+    return torch.where(face == _TWIST_UNKNOWN, torch.zeros_like(w), w)
+
 
 def min_edge_cells(grid_hw: tuple[int, int]) -> float:
     """The floor in cells of a stride-16 grid `grid_hw` = (H, W)."""
@@ -68,9 +167,14 @@ class CenterTargets:
     weight: torch.Tensor  # (B,H,W) Gaussian value where offsets are supervised, else 0
     ignore: torch.Tensor  # (B,H,W) bool: out-of-range faces - not positive, not background
     npos: torch.Tensor    # 0-dim: positive faces in the batch (heat-loss normalizer)
+    # twist head (None when the batch carries no twist labels):
     dropped: int          # positives whose center fell outside the grid (stats=True only)
     collisions: int       # positive center cells claimed by >1 face (stats=True only)
     too_far: int          # positives below the range floor (stats=True only)
+    tw_cls: torch.Tensor | None = None    # (B,4,H,W) long: the owner face's class under each cyclic shift
+    tw_ang: torch.Tensor | None = None    # (B,2,H,W) (cos 4a, sin 4a) of the owner face
+    tw_cw: torch.Tensor | None = None     # (B,H,W) class-loss weight (0 = unsupervised)
+    tw_aw: torch.Tensor | None = None     # (B,H,W) angle-loss weight (0 = unsupervised)
 
 
 def quad_centers(corners: torch.Tensor) -> torch.Tensor:
@@ -220,8 +324,14 @@ def gaussian_sigma(area_cells: torch.Tensor) -> torch.Tensor:
 
 def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch.Tensor,
                          grid_hw: tuple[int, int], stats: bool = False,
-                         min_edge_cells: float | None = None, npts: int = 4) -> CenterTargets:
+                         min_edge_cells: float | None = None, npts: int = 4,
+                         twist: torch.Tensor | None = None) -> CenterTargets:
     """conf (B,6), corners (B,6,4,2) normalized to [0,1], valid (B,6).
+
+    `twist` (B,2) [face index or -1/-2, deg or nan] adds the twist head's
+    dense targets (module comment above): the owner face's class under
+    each cyclic shift, its angle encoding, and the two loss weights, all on
+    the same supervised cells as the offsets.
 
     `npts` picks the regression targets: 4 = the corners, 16 = the seam grid
     derived from them (`face_points`). Centre, area and the range floor are
@@ -310,6 +420,22 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
 
     weight = torch.where(supervised, heat, torch.zeros_like(heat))
 
+    tw_cls = tw_ang = tw_cw = tw_aw = None
+    if twist is not None:
+        cls0 = twist_face_classes(twist)                              # (B,6)
+        cls_s = torch.stack([shift_twist_class(cls0, s) for s in range(4)], dim=1)  # (B,4,6)
+        own = owner.view(B, 1, H * W).expand(B, 4, H * W)
+        tw_cls = cls_s.gather(2, own).view(B, 4, H, W)
+        ang, ang_known = twist_angle_targets(twist)                   # (B,2), (B,)
+        tw_ang = ang.view(B, 2, 1, 1).expand(B, 2, H, W).contiguous()
+        cw = twist_class_weight(twist).view(B, 1, 1)
+        tw_cw = torch.where(supervised, cw.expand(B, H, W), torch.zeros_like(heat))
+        # the angle is a property of the twisted faces only: `none` cells
+        # (flush cubes, the opposite face) have no angle to regress
+        owner_cls = cls0.gather(1, owner.view(B, H * W)).view(B, H, W)
+        aw = supervised & (owner_cls != TWIST_NONE) & ang_known.view(B, 1, 1)
+        tw_aw = aw.to(heat.dtype)
+
     dropped = collisions = far = 0
     if stats:
         dropped = int(off_grid.sum().item())
@@ -323,7 +449,7 @@ def build_center_targets(conf: torch.Tensor, corners: torch.Tensor, valid: torch
 
     return CenterTargets(heat=heat, off=off, weight=weight, ignore=ignore,
                          npos=pos.sum(), dropped=dropped, collisions=collisions,
-                         too_far=far)
+                         too_far=far, tw_cls=tw_cls, tw_ang=tw_ang, tw_cw=tw_cw, tw_aw=tw_aw)
 
 
 def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") -> dict:
@@ -360,6 +486,16 @@ def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") 
     corners = torch.from_numpy(np.concatenate([r.corners for r in roots]))
     valid = torch.from_numpy(np.concatenate([r.valid for r in roots]))
     unlabeled = int(((conf > 0.5) & (valid < 0.5)).sum().item())
+    tw_line = ""
+    if all(hasattr(r, "twist") for r in roots):
+        tw = np.concatenate([r.twist for r in roots])
+        face = np.rint(tw[:, 0]).astype(int)
+        twisted = face >= 0
+        known_deg = twisted & np.isfinite(tw[:, 1])
+        big = known_deg & (np.abs(tw[:, 1]) >= 12)
+        tw_line = (f"; twist: {int(twisted.sum())} twisted ({100 * twisted.mean():.1f}%), "
+                   f"{int(big.sum())} at >= 12 deg, {int((face == -2).sum())} unknown, "
+                   f"{int((twisted & ~np.isfinite(tw[:, 1])).sum())} without an angle")
     # Chunked: the dense maps are (N,6,H,W), which is half a gigabyte at 76k.
     npos = collisions = dropped = far = 0
     for s0 in range(0, conf.shape[0], 2048):
@@ -374,7 +510,8 @@ def dataset_target_stats(datasets, grid_hw: tuple[int, int], name: str = "val") 
           f"{collisions} colliding center cells ({pct:.2f}%), "
           f"{dropped} centers off-grid, {unlabeled} visible-but-unlabeled faces, "
           f"{far} ignored as out-of-range ({100 * far / max(1, npos + far):.1f}%, "
-          f"long edge < {min_face_edge_px(grid_hw[0] * 16):.0f} px of a {grid_hw[0] * 16}-tall input)", flush=True)
+          f"long edge < {min_face_edge_px(grid_hw[0] * 16):.0f} px of a {grid_hw[0] * 16}-tall input)"
+          + tw_line, flush=True)
     if unlabeled:
         print("  WARNING: faces are visible with no corners - they train as background. "
               "Fix the labels (model/README.md 'M5 labeling workflow').", flush=True)

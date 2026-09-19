@@ -26,7 +26,17 @@ import argparse
 import numpy as np
 import torch
 
-from model import POINT_COUNTS, center_loss, center_metrics, decode_maps, f1_from_counts
+from model import (
+    TWIST_CH,
+    TWIST_CLASSES,
+    POINT_COUNTS,
+    center_loss,
+    center_metrics,
+    decode_maps,
+    f1_from_counts,
+    twist_counts_zero,
+    twist_summary,
+)
 from shapes import KP_WH, grid_hw
 from targets import (
     GRID_CORNER_IDX,
@@ -90,7 +100,7 @@ def check(conf, corners, valid, label: str, npts: int = 4) -> bool:
     npos = int(t.npos.item())
     maps = perfect_maps(t, b)
 
-    loss, heat_loss, off_loss = center_loss(maps, t)
+    loss, heat_loss, off_loss, _, _ = center_loss(maps, t)
     err, matched, tp, fp, fn = center_metrics(maps, conf, corners, valid, INPUT_WH)
     mean_err = err / matched if matched else float("nan")
     f1 = f1_from_counts(tp, fp, fn)
@@ -154,6 +164,58 @@ def check_grid_geometry(rng: np.random.Generator) -> bool:
     return bool(ok)
 
 
+def random_twists(b: int, rng: np.random.Generator) -> torch.Tensor:
+    """(b,2) twist labels: a third flush, a few unknown, the rest a random
+    face at a random angle, some with the angle unknown."""
+    tw = torch.zeros(b, 2)
+    for i in range(b):
+        r = rng.random()
+        if r < 0.3:
+            tw[i] = torch.tensor([-1.0, float("nan")])
+        elif r < 0.35:
+            tw[i] = torch.tensor([-2.0, float("nan")])
+        else:
+            deg = float(rng.uniform(-90, 90))
+            tw[i] = torch.tensor([float(rng.integers(0, 6)), float("nan") if rng.random() < 0.15 else deg])
+    return tw
+
+
+def check_twist(b: int, rng: np.random.Generator, shift: int) -> int:
+    """Perfect twist maps decode back to the labels - under every cyclic
+    shift of the corner order: a quad decoded starting from corner `shift`
+    must be scored against the class as seen from there (the loss's
+    argmin-shift and the metric's best-roll must agree with targets'
+    shift_twist_class)."""
+    conf, corners, valid = random_labels(b, rng)
+    twist = random_twists(b, rng)
+    t = build_center_targets(conf, corners, valid, GRID_HW, twist=twist)
+    P = t.off.shape[1]
+    perms = cyclic_perms(P)
+    maps = torch.zeros(b, 1 + 2 * P + TWIST_CH, *GRID_HW)
+    maps[:, 0] = torch.where(t.heat >= 1.0, torch.full_like(t.heat, 10.0), torch.full_like(t.heat, -10.0))
+    maps[:, 1:1 + 2 * P] = t.off[:, perms[shift]].reshape(b, 2 * P, *GRID_HW)
+    c0 = 1 + 2 * P
+    onehot = torch.nn.functional.one_hot(t.tw_cls[:, shift], TWIST_CLASSES).permute(0, 3, 1, 2).float()
+    maps[:, c0:c0 + TWIST_CLASSES] = onehot * 12.0
+    maps[:, c0 + TWIST_CLASSES:c0 + TWIST_CH] = t.tw_ang
+    bad = 0
+    loss, heat_loss, off_loss, cls_loss, ang_loss = center_loss(maps, t)
+    if float(cls_loss) > 1e-3 or float(ang_loss) > 1e-6:
+        print(f"  shift {shift}: twist losses on perfect maps: cls {float(cls_loss):.5f} ang {float(ang_loss):.6f}")
+        bad += 1
+    twc = twist_counts_zero()
+    center_metrics(maps, conf, corners, valid, INPUT_WH, twist_t=twist, twist_counts=twc)
+    summ = twist_summary(twc)
+    known_faces = int(((conf > 0.5) & (valid > 0.5)).sum())
+    if twc["n"] == 0 or summ["tw_f1"] < 1.0 or summ["tw_cls"] < 1.0 or summ["tw_deg"] > 0.05:
+        print(f"  shift {shift}: twist metrics on perfect maps: {summ} counts {twc}")
+        bad += 1
+    print(f"  shift {shift}: {twc['n']} faces scored of {known_faces} labelled, {twc['twisted']} twisted, "
+          f"{twc['n_ang']} with an angle: f1 {summ['tw_f1']:.3f} cls {summ['tw_cls']:.3f} "
+          f"deg {summ['tw_deg']:.3f}, losses cls {float(cls_loss):.5f} ang {float(ang_loss):.6f}")
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=None, help="also round-trip real labels from this root")
@@ -163,6 +225,9 @@ def main():
 
     rng = np.random.default_rng(0)
     ok = check_grid_geometry(rng)
+    print("[twist] perfect twist maps under each cyclic corner shift (M13)")
+    for shift in range(4):
+        ok &= check_twist(48, np.random.default_rng(100 + shift), shift) == 0
     for i in range(args.trials):
         conf, corners, valid = random_labels(32, rng)
         for npts in POINT_COUNTS:

@@ -104,7 +104,7 @@ def step_has_no_sync() -> bool:
         t = build_center_targets(c, co, v, model.grid_hw)
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast("cuda"):
-            loss, lh, lo = center_loss(model(x), t)
+            loss, lh, lo, _, _ = center_loss(model(x), t)
         scaler.scale(loss).backward()
         scaler.step(opt)
         scaler.update()

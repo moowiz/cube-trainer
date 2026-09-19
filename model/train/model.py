@@ -148,6 +148,12 @@ CENTER_OUT_CH = 9  # 1 heatmap logit + 4 corners * (dx, dy)   (npts=4; 33 for th
 # `head == "center"` branch in the tools keeps working. The maps' channel
 # count says which: 1 + 2 * npts.
 POINT_COUNTS = (4, 16)
+# M13 (2026-09-19): the twist head adds 8 channels after the offsets - 6
+# class logits (none / self / edge0..3, targets.py's module comment) and the
+# angle as (cos 4a, sin 4a). The channel count alone says what a map tensor
+# carries: 9 or 33 without the twist head, 17 or 41 with it.
+TWIST_CH = 8
+TWIST_CLASSES = 6
 # CenterNet's prior-probability bias: start the heatmap at p=0.1 so the first
 # epochs are not dominated by the ~255 negative cells per positive.
 HEAT_PRIOR_BIAS = -2.19
@@ -178,11 +184,12 @@ class FaceKPCenter(nn.Module):
     """
 
     def __init__(self, pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]), split: int = 9,
-                 npts: int = 4):
+                 npts: int = 4, twist: bool = False):
         super().__init__()
         if npts not in POINT_COUNTS:
             raise ValueError(f"npts must be one of {POINT_COUNTS}, got {npts}")
         self.npts = npts
+        self.twist = twist
         weights = MobileNet_V3_Small_Weights.DEFAULT if pretrained else None
         feats = mobilenet_v3_small(weights=weights).features
         self.stem = feats[:split]    # stride 16
@@ -194,7 +201,7 @@ class FaceKPCenter(nn.Module):
         self.grid_hw = (probe16.shape[2], probe16.shape[3])
         self.lateral = _conv_bn_act(c32, 96, 1)
         self.fuse = nn.Sequential(_conv_bn_act(c16 + 96, 96, 3), _conv_bn_act(96, 96, 3))
-        self.head = nn.Conv2d(96, 1 + 2 * npts, 1)
+        self.head = nn.Conv2d(96, 1 + 2 * npts + (TWIST_CH if twist else 0), 1)
         nn.init.normal_(self.head.weight, std=0.01)
         nn.init.zeros_(self.head.bias)
         with torch.no_grad():
@@ -209,7 +216,7 @@ class FaceKPCenter(nn.Module):
 
 
 def build_model(head: str = "center", pretrained: bool = True, input_hw=(KP_WH[1], KP_WH[0]),
-                npts: int = 4) -> nn.Module:
+                npts: int = 4, twist: bool = False) -> nn.Module:
     """The single place that turns a checkpoint's `head` key into a module.
 
     Checkpoints written before 2026-09-12 have no `head` key, so every caller
@@ -220,11 +227,36 @@ def build_model(head: str = "center", pretrained: bool = True, input_hw=(KP_WH[1
     if head == "legacy":
         return FaceKP(pretrained=pretrained, input_hw=input_hw)
     if head == "center":
-        return FaceKPCenter(pretrained=pretrained, input_hw=input_hw, npts=npts)
+        return FaceKPCenter(pretrained=pretrained, input_hw=input_hw, npts=npts, twist=twist)
     raise ValueError(f"unknown head {head!r} (expected one of {HEADS})")
 
 
-def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
+def load_center_weights(model: nn.Module, state: dict) -> str:
+    """Load a center-head checkpoint into `model`, growing or shrinking the
+    head's last 1x1 conv when only the TWIST channels differ (a kpft8-style
+    checkpoint initialising a --twist run keeps its heatmap and corner
+    channels; the twist channels start fresh). Returns a note for the log."""
+    w, b = state["head.weight"], state["head.bias"]
+    mine = model.head.weight
+    if w.shape == mine.shape:
+        model.load_state_dict(state)
+        return "all weights"
+    P = model.npts
+    base = 1 + 2 * P
+    if w.shape[0] not in (base, base + TWIST_CH) or w.shape[1:] != mine.shape[1:]:
+        raise ValueError(f"head shape {tuple(w.shape)} cannot initialise {tuple(mine.shape)}")
+    state = dict(state)
+    n = min(w.shape[0], mine.shape[0])
+    new_w, new_b = mine.detach().clone(), model.head.bias.detach().clone()
+    new_w[:n], new_b[:n] = w[:n], b[:n]
+    state["head.weight"], state["head.bias"] = new_w, new_b
+    model.load_state_dict(state)
+    return (f"heatmap + corner channels ({n}); {mine.shape[0] - n} twist channels fresh"
+            if mine.shape[0] > n else f"heatmap + corner channels ({n}); the checkpoint's twist channels dropped")
+
+
+def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0,
+                twist_weight: tuple[float, float] = (0.5, 0.5)):
     """CenterNet losses over the dense targets from targets.build_center_targets.
 
     heat: penalty-reduced focal loss (alpha=2, beta=4), summed over cells and
@@ -241,7 +273,16 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     only, never reflections - a visible face always projects with consistent
     winding and labels are winding-normalized at import.
 
-    Returns (loss, heat_loss, off_loss). Retune `off_weight` only if one term
+    twist (maps with TWIST_CH extra channels and targets built with a twist
+    label): cross-entropy over the six classes at the supervised cells,
+    against the class under the cyclic shift THE CORNERS CHOSE (the argmin
+    of the four shift losses), weighted by targets.tw_cw; SmoothL1 on
+    (cos 4a, sin 4a) weighted by targets.tw_aw. `twist_weight` scales the
+    two (DECISION: 0.5 each; the heat term runs 0.5-1, off 0.1-0.3 late in
+    a run - retune if either twist term is 5x off).
+
+    Returns (loss, heat_loss, off_loss, twist_cls_loss, twist_ang_loss); the
+    last two are 0 without a twist head. Retune `off_weight` only if one term
     is more than 5x the other after epoch 3.
     """
     B, _, H, W = maps.shape
@@ -261,25 +302,59 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0):
     heat_loss = (pos_loss.sum() + neg_loss.sum()) / npos
 
     P = points_in_maps(maps)
-    off_p = maps[:, 1:].float().view(B, P, 2, H, W)
+    off_p = maps[:, 1:1 + 2 * P].float().view(B, P, 2, H, W)   # the twist channels, if any, follow
     off_t = targets.off.float()
     if off_t.shape[1] != P:
         raise ValueError(f"maps carry {P} points per face but the targets {off_t.shape[1]} "
                          f"- --points and the checkpoint's npts disagree")
     perms = _perms(P, maps.device)
-    per = torch.stack([
+    per_shift = torch.stack([
         nn.functional.smooth_l1_loss(off_p, off_t[:, perms[k]], beta=0.3,
                                      reduction="none").mean(dim=(1, 2))
         for k in range(4)
-    ]).min(dim=0).values                                    # (B,H,W)
+    ])                                                      # (4,B,H,W)
+    per = per_shift.min(dim=0).values                       # (B,H,W)
     w = targets.weight.float()
     off_loss = (per * w).sum() / w.sum().clamp(min=1e-6)
-    return heat_loss + off_weight * off_loss, heat_loss, off_loss
+    loss = heat_loss + off_weight * off_loss
+    zero = torch.zeros((), device=maps.device, dtype=heat_loss.dtype)
+    cls_loss = ang_loss = zero
+    if has_twist(maps) and getattr(targets, "tw_cls", None) is not None:
+        best = per_shift.argmin(dim=0)                               # (B,H,W) the shift the corners chose
+        cls_t = targets.tw_cls.gather(1, best.unsqueeze(1)).squeeze(1)   # (B,H,W)
+        c0 = 1 + 2 * P
+        logits = maps[:, c0:c0 + TWIST_CLASSES].float()
+        ce = nn.functional.cross_entropy(logits, cls_t, reduction="none")   # (B,H,W)
+        cw = targets.tw_cw.float()
+        cls_loss = (ce * cw).sum() / cw.sum().clamp(min=1e-6)
+        ang_p = maps[:, c0 + TWIST_CLASSES:c0 + TWIST_CH].float()
+        ang = nn.functional.smooth_l1_loss(ang_p, targets.tw_ang.float(), beta=0.3,
+                                           reduction="none").mean(dim=1)   # (B,H,W)
+        aw = targets.tw_aw.float()
+        ang_loss = (ang * aw).sum() / aw.sum().clamp(min=1e-6)
+        loss = loss + twist_weight[0] * cls_loss + twist_weight[1] * ang_loss
+    return loss, heat_loss, off_loss, cls_loss, ang_loss
+
+
+def has_twist(maps: torch.Tensor) -> bool:
+    """Whether a map tensor carries the twist head's channels."""
+    c = maps.shape[1]
+    if c in (1 + 2 * 4, 1 + 2 * 16):
+        return False
+    if c in (1 + 2 * 4 + TWIST_CH, 1 + 2 * 16 + TWIST_CH):
+        return True
+    raise ValueError(f"maps carry {c} channels: not a center head layout")
 
 
 def points_in_maps(maps: torch.Tensor) -> int:
-    """How many points per face a (B,1+2P,H,W) map tensor carries."""
-    return (maps.shape[1] - 1) // 2
+    """How many points per face a (B,1+2P[+8],H,W) map tensor carries."""
+    return (maps.shape[1] - 1 - (TWIST_CH if has_twist(maps) else 0)) // 2
+
+
+def twist_deg_mod90(cos_sin: torch.Tensor) -> torch.Tensor:
+    """(...,2) (cos 4a, sin 4a) -> the angle in degrees mod 90, in [0, 90)."""
+    deg = torch.rad2deg(torch.atan2(cos_sin[..., 1], cos_sin[..., 0])) / 4
+    return deg % 90
 
 
 _PERM_CACHE: dict = {}
@@ -304,13 +379,18 @@ def quad_corners(points: torch.Tensor) -> torch.Tensor:
 
 @torch.no_grad()
 def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 0.3,
-                stride: int = CENTER_STRIDE, points: bool = False):
+                stride: int = CENTER_STRIDE, points: bool = False, with_twist: bool = False):
     """(B,1+2P,H,W) raw maps -> (scores (B,k), quads (B,k,4,2) normalized).
 
     With `points=True` the second result is (B,k,P,2): every regressed point
     (the 16-point grid for a grid checkpoint; identical to the quads for P=4).
     Deduplication and the default corners come from the 4 corner points
     either way, so a grid model scores exactly like a corner model.
+
+    With `with_twist=True` (maps from a twist head) a third result: the
+    twist read at each kept quad's cell, {"probs": (B,k,6) softmax over
+    none / self / edge0..3 IN THE QUAD'S OWN CORNER ORDER, "deg": (B,k) the
+    angle mod 90}. Edge j of the quad is corner j -> corner j+1 as decoded.
 
     THE SINGLE SOURCE OF TRUTH for decoding. web/src/detect/facekp.ts mirrors
     this function line for line and web/test/facekp-decode.test.ts compares the
@@ -353,7 +433,7 @@ def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 
     ci = torch.div(top_i, W, rounding_mode="floor")
     cj = top_i % W
     P = points_in_maps(maps)
-    off = maps[:, 1:].reshape(B, P, 2, H * W)
+    off = maps[:, 1:1 + 2 * P].reshape(B, P, 2, H * W)
     gathered = off.gather(3, top_i.view(B, 1, 1, -1).expand(B, P, 2, cand))
     px = (cj.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 0]) * stride
     py = (ci.unsqueeze(1).to(maps.dtype) + 0.5 + gathered[:, :, 1]) * stride
@@ -383,7 +463,17 @@ def decode_maps(maps: torch.Tensor, input_wh=KP_WH, k: int = 6, thresh: float = 
     n = src.shape[2]
     out = src.gather(1, order.view(B, kk, 1, 1).expand(B, kk, n, 2))
     out = out / torch.tensor(input_wh, dtype=out.dtype, device=out.device)
-    return sel_v, out
+    if not with_twist:
+        return sel_v, out
+    if not has_twist(maps):
+        raise ValueError("with_twist=True on maps without the twist channels")
+    c0 = 1 + 2 * P
+    tw = maps[:, c0:c0 + TWIST_CH].reshape(B, TWIST_CH, H * W).float()
+    cells = top_i.gather(1, order)                                    # (B,kk)
+    at = tw.gather(2, cells.view(B, 1, kk).expand(B, TWIST_CH, kk)).permute(0, 2, 1)   # (B,kk,8)
+    probs = torch.softmax(at[..., :TWIST_CLASSES], dim=-1)
+    deg = twist_deg_mod90(at[..., TWIST_CLASSES:TWIST_CH])
+    return sel_v, out, {"probs": probs, "deg": deg}
 
 
 def decode_to_list(maps: torch.Tensor, **kw) -> list[list[dict]]:
@@ -419,21 +509,52 @@ def _max_edge(quad) -> float:
 
 
 @torch.no_grad()
+def twist_counts_zero() -> dict:
+    """The accumulator `center_metrics` fills for the twist head: matched
+    in-range faces with a known twist state, split by whether the label says
+    the face is twisted (self or an edge)."""
+    return {"n": 0, "twisted": 0, "tp": 0, "fp": 0, "fn": 0, "cls_ok": 0, "n_ang": 0, "ang_err": 0.0}
+
+
+def twist_summary(c: dict) -> dict:
+    """-> {'tw_f1': twisted-vs-none F1, 'tw_cls': class accuracy on twisted
+    faces (self / which edge), 'tw_deg': mean angle error mod 90 on them}."""
+    return {"tw_f1": f1_from_counts(c["tp"], c["fp"], c["fn"]),
+            "tw_cls": c["cls_ok"] / c["twisted"] if c["twisted"] else 1.0,
+            "tw_deg": c["ang_err"] / c["n_ang"] if c["n_ang"] else 0.0}
+
+
 def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Tensor,
-                   valid_t: torch.Tensor, wh=KP_WH, thresh: float = METRIC_SCORE_THRESH):
+                   valid_t: torch.Tensor, wh=KP_WH, thresh: float = METRIC_SCORE_THRESH,
+                   twist_t: torch.Tensor | None = None, twist_counts: dict | None = None):
     """Greedy centroid matching of decoded quads to visible+valid GT faces.
 
     Returns (sum_corner_err_px, n_matched, tp, fp, fn) so the caller can
     accumulate over batches. There are at most 3 of each per image, so greedy
     by ascending centroid distance is optimal enough and easy to read.
+
+    With `twist_t` (B,2) labels and maps from a twist head, the twist read
+    at every matched in-range face is scored into `twist_counts`
+    (twist_counts_zero / twist_summary): the label's class is taken under
+    the cyclic shift that matched the corners, so a quad decoded starting
+    from a different corner is not penalised for naming the same edge.
     """
     import numpy as np
 
-    from targets import quad_centers
+    from targets import TWIST_NONE, quad_centers, shift_twist_class, twist_face_classes, twist_known
 
     min_edge = min_face_edge_px(wh[1])
 
-    scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
+    do_twist = twist_t is not None and twist_counts is not None and has_twist(maps)
+    if do_twist:
+        scores, quads, tw = decode_maps(maps, input_wh=wh, thresh=thresh, with_twist=True)
+        tw_probs = tw["probs"].cpu().numpy()
+        tw_deg = tw["deg"].cpu().numpy()
+        cls0 = twist_face_classes(twist_t).cpu()                    # (B,6)
+        known = twist_known(twist_t).cpu().numpy()
+        gt_deg = twist_t[:, 1].cpu().numpy()
+    else:
+        scores, quads = decode_maps(maps, input_wh=wh, thresh=thresh)
     scale_t = torch.tensor(wh, dtype=torch.float32)
     dets_s = scores.detach().float().cpu().numpy()
     quads_px = quads.detach().float().cpu() * scale_t
@@ -467,10 +588,32 @@ def center_metrics(maps: torch.Tensor, conf_t: torch.Tensor, corners_t: torch.Te
             used_g.add(f)
             if not in_range[f]:
                 continue        # matched only to absorb the detection
-            err_sum += min(
-                float(np.linalg.norm(dets_q[b, i] - np.roll(gt_q[b, f], r, axis=0), axis=1).mean())
+            roll_err, best_r = min(
+                (float(np.linalg.norm(dets_q[b, i] - np.roll(gt_q[b, f], r, axis=0), axis=1).mean()), r)
                 for r in range(4))
+            err_sum += roll_err
             matched += 1
+            if do_twist and known[b]:
+                # np.roll(gt, r)[j] = gt[(j - r) % 4]: the quad's corner j is
+                # the label's corner j - r, so the label's edge e is the
+                # quad's edge e + r, i.e. shift_twist_class with s = -r.
+                gt_cls = int(shift_twist_class(cls0[b, f:f + 1], -best_r % 4)[0])
+                pred_cls = int(tw_probs[b, i].argmax())
+                c = twist_counts
+                c["n"] += 1
+                if gt_cls != TWIST_NONE:
+                    c["twisted"] += 1
+                    c["cls_ok"] += pred_cls == gt_cls
+                    if pred_cls != TWIST_NONE:
+                        c["tp"] += 1
+                    else:
+                        c["fn"] += 1
+                    if np.isfinite(gt_deg[b]):
+                        d = abs(float(tw_deg[b, i]) - float(gt_deg[b]) % 90) % 90
+                        c["ang_err"] += min(d, 90 - d)
+                        c["n_ang"] += 1
+                elif pred_cls != TWIST_NONE:
+                    c["fp"] += 1
         tp += len([f for f in used_g if in_range[f]])
         fp += len(dets) - len(used_d)
         fn += len(gts) - len([f for f in used_g if in_range[f]])

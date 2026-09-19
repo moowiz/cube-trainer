@@ -68,7 +68,7 @@ def run(ds, label, workers, batch=64, channels_last=False, compile_model=False, 
         tg = build_center_targets(c, co, v, grid_hw(INPUT_WH))
         opt.zero_grad(set_to_none=True)
         with torch.amp.autocast('cuda', enabled=(dev == 'cuda')):
-            loss, _, _ = center_loss(model(x), tg)
+            loss = center_loss(model(x), tg)[0]
         scaler.scale(loss).backward()
         scaler.step(opt)
         scaler.update()

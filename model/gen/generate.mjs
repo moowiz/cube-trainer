@@ -11,6 +11,9 @@
 //
 //   node generate.mjs --count 20000 --out ../data [--seed 1] [--style mix]
 //     [--cornerBias 0.3]   (or env var CORNER_BIAS=0.3; see scene.mjs)
+//     [--twist 0.3] [--rest 0.12]   fraction of cubes with a layer mid-turn
+//                          (0-90 deg, blur, hand on the layer) / left slightly
+//                          misaligned at rest (M13, scene.mjs buildCube)
 //
 // Resumes by default: existing images in the output dir are kept and numbering
 // continues after them. Use a fresh --out (or delete the dir) to start over.
@@ -34,6 +37,10 @@ const HEIGHT = parseInt(args.height ?? '480', 10);
 // M4: fraction of scenes forced near-corner-on (see scene.mjs). CLI flag
 // wins over the env var; both default to 0 = current behavior unchanged.
 const CORNER_BIAS = Number(args.cornerBias ?? process.env.CORNER_BIAS ?? 0);
+// M13: layer twist fractions. Defaults are the data_v6 recipe; --twist 0
+// --rest 0.22 reproduces the pre-twist distribution (rest misalignment only).
+const TWIST_FRAC = Number(args.twist ?? process.env.TWIST_FRAC ?? 0.3);
+const REST_FRAC = Number(args.rest ?? process.env.REST_FRAC ?? 0.12);
 
 const MIME = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const bgDir = resolve(genDir, '../backgrounds');
@@ -61,6 +68,7 @@ async function main() {
   }
   if (!hdriUrls.length) console.warn('no HDRIs in model/backgrounds/hdri/ - falling back to analytic lights only');
   if (CORNER_BIAS > 0) console.log(`cornerBias=${CORNER_BIAS}: forcing that fraction of scenes near-corner-on`);
+  console.log(`twist=${TWIST_FRAC} (layer mid-turn, 0-90 deg) rest=${REST_FRAC} (layer misaligned at rest)`);
 
   const server = createServer(async (req, res) => {
     const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -81,7 +89,11 @@ async function main() {
   const port = server.address().port;
 
   const browser = await puppeteer.launch({
-    headless: true,
+    // 'shell' = chrome-headless-shell, not full Chrome: full Chrome cannot
+    // start inside the WSL sandbox (crashpad, AF_UNIX sockets - see
+    // docs/wsl-sandbox.md "Headless Chrome"). The shell has WebGL over
+    // SwiftShader, which is all the renderer ever had headless anyway.
+    headless: 'shell',
     // --no-sandbox: Chrome refuses to start as root ("Running as root without
     // --no-sandbox is not supported"), which is every container, including
     // the rented boxes in model/cloud/RUNBOOK.md. It costs nothing here: the
@@ -129,7 +141,8 @@ async function main() {
     const style = STYLE === 'mix' ? (styleHash < 7 ? 'stickered' : 'stickerless') : STYLE;
     const res = await page.evaluate(
       (opts) => window.renderSample(opts),
-      { seed, style, width: WIDTH, height: HEIGHT, photoUrls, hdriUrls, cornerBias: CORNER_BIAS },
+      { seed, style, width: WIDTH, height: HEIGHT, photoUrls, hdriUrls, cornerBias: CORNER_BIAS,
+        twistFrac: TWIST_FRAC, restFrac: REST_FRAC },
     );
     const id = `img_${String(next).padStart(6, '0')}`;
     const png = Buffer.from(res.dataUrl.slice('data:image/png;base64,'.length), 'base64');

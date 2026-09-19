@@ -64,7 +64,7 @@ def main():
         def step():
             opt.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda"):
-                loss, _, _ = center_loss(m(x), t)
+                loss = center_loss(m(x), t)[0]
             scaler.scale(loss).backward()
             scaler.step(opt)
             scaler.update()
