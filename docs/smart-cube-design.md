@@ -288,6 +288,18 @@ timer files each solve's host-clock window to `solves.jsonl`, and the
 capture that Stop triggers becomes `evidence.json` and closes the session.
 `node scripts/check-rig.mjs` exercises it headless with a fake camera.
 
+**2026-09-18, the header Record button** (`app/record.ts`): the scan sheet
+is the wrong place to start a sitting from (reopening it after a lock
+resets the scan and empties the evidence log, so the captures held a
+second of readings), so the tab bar gets a Record button, shown only where
+the sink answers. One press opens the webcam, starts a session, streams the
+video (same settings as the scan sheet's recorder) and shows a small live
+view in the corner so the cube stays in frame; the cube's events and the
+timer's solves reach the session as before. No scanner runs and no
+`evidence.json` is written: the raw video and the cube's turns are the
+material, and the pipeline can be re-run on the video offline.
+`node scripts/check-record.mjs` is its headless check.
+
 - The existing recorder (scan sheet `Record`: camera `.webm` + the
   evidence-log capture on one clock) gains the cube's events on the same
   clock (section 7, capture v2). With "record solves" on, every timed

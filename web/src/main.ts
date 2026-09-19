@@ -5,6 +5,7 @@
 
 import { hold, panel, store } from './app/context';
 import { rig } from './app/rig';
+import { initRecordButton } from './app/record';
 import { initScannerBridge } from './app/scanner-bridge';
 import { initSmart } from './app/smart';
 import { initSyncUi } from './app/sync-ui';
@@ -30,6 +31,7 @@ setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); });
 initSyncUi();
 initSmart();
 initScannerBridge();
+initRecordButton();
 initWake();
 
 // For the headless checks and the console: what the store holds.

@@ -32,6 +32,10 @@
   .tabs .sp { flex: 1; }
   .tabs button.ico { padding: 6px 10px; margin: 0 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 14px; align-self: center; white-space: nowrap; }
   .tabs button.ico:hover { border-color: var(--ink-2); }
+  .tabs button.ico.rec-on { color: #fff; background: #C62828; border-color: #C62828; }
+  .tabs button.ico.rec-on .txt { display: inline; font-variant-numeric: tabular-nums; }
+  #rec-preview { position: fixed; right: 12px; bottom: 12px; z-index: 900; width: 160px; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.35); background: #000; }
+  #rec-preview video { display: block; width: 100%; height: auto; }
   @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
   /* sheets: the scanner and the settings float over whichever stage is open */
   .zz-sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(20,22,28,.45); overflow: auto; }
@@ -82,8 +86,11 @@
   <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
   <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
   <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)">🧊<span class="txt"> Cube</span><span class="key"> (l)</span></button>
+  <button type="button" class="ico" id="rec-open" hidden>⏺<span class="txt"> Record</span></button>
   <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙<span class="key"> (s)</span></button>
 </nav>
+<!-- the header Record button's live view while it records (src/app/record.ts) -->
+<div id="rec-preview" hidden></div>
 <!-- every stage is mounted here by src/main.ts -->
 <div id="solve-panel" hidden></div>
 <div id="eo-panel" hidden></div>
