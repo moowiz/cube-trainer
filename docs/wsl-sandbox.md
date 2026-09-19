@@ -22,8 +22,14 @@ Three layers, from the outside in:
      `~/.claude/.credentials.json`, `~/.git-credentials`, `~/.netrc` denied;
    - the gh token in `~/.config/gh/hosts.yml` masked: commands see a
      placeholder, the proxy substitutes the real token only on requests to
-     `github.com` / `api.github.com`, so `git push` works and nothing that
-     runs can read the token;
+     `github.com` / `api.github.com`, so `gh` works and nothing that runs
+     can read the token. `git push` over HTTPS does NOT: git sends the
+     placeholder as basic auth, which the proxy does not rewrite, and
+     GitHub answers "Invalid username or token" (found 2026-09-18). The
+     remote is SSH since that day and `~/.ssh` is denied, so pushing is
+     done by the user from a terminal outside Claude Code. `.git/config`
+     and `.git/config.lock` are masked too: `git remote set-url` and any
+     other config write fails inside with "could not lock config file";
    - network only to the allowlist (GitHub, npm, PyPI, PyTorch, Google
      storage for Chrome/mediapipe downloads); any other host prompts;
    - `allowUnsandboxedCommands: false` — no per-command escape hatch — and
