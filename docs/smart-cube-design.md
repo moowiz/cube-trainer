@@ -139,7 +139,11 @@ sets (survey 3.5), gestures on the cube, sounds, PWA install.
 
 ### 3.2 Resync, three ways
 
-1. **"It is solved"**: belief := solved. What every app has.
+1. **"It is solved"**: belief := solved, and the cube is sent `REQUEST_RESET`
+   so its own facelets say so too. The cube keeps its state in firmware
+   and drifts when it misses a turn (2026-09-19: solved in hand, reported
+   scrambled from the moment it connected, every report agreeing with
+   the belief); without the reset the next report would disagree again.
 2. **From a scan lock** (unique): the scanner's lock, mapped by colour to
    the cube's letters, becomes the belief. Also how a cube that was
    scrambled while disconnected gets its state without solving it.

@@ -100,7 +100,15 @@ export function initSmart(): void {
     disconnect: async () => { await cubeLink?.disconnect().catch(() => undefined); },
     resync(how) {
       if (!cube) return;
-      if (how === 'solved') cube.resync(SOLVED, 'solved');
+      if (how === 'solved') {
+        cube.resync(SOLVED, 'solved');
+        // the cube's own state too: a GAN that missed a turn reports the wrong state until it is told
+        // (2026-09-19: solved in hand, reported scrambled, every report agreeing with itself)
+        if (cubeLink) {
+          const link = cubeLink;
+          void link.reset().then(() => link.requestFacelets()).catch((err) => toast(`The cube did not take the reset: ${err instanceof Error ? err.message : err}`));
+        }
+      }
       else if (how === 'report') { const r = cube.status().reported; if (r) cube.resync(r, 'report'); }
       else {
         const scan = scans.last();

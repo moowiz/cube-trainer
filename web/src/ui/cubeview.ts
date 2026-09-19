@@ -124,7 +124,7 @@ export function mountCubeView(root: HTMLElement, opts: CubeViewOpts): CubeView {
       </div>
       <div class="cv-badge" id="cv-badge">Nothing yet: connect a smart cube, or scan your cube and follow a solve.</div>
       <div class="cv-resync" id="cv-resync" hidden><span>Tell the smart cube what it is:</span>
-        <button class="btn" id="cv-solved" type="button" title="Set the belief to solved">Solved</button>
+        <button class="btn" id="cv-solved" type="button" title="The cube in your hand is solved: the app believes it, and the cube is told so too (its own state can drift when it misses a turn)">Solved</button>
         <button class="btn" id="cv-scan" type="button" title="Set the belief to the last scan lock">The last scan</button>
         <button class="btn" id="cv-report" type="button" title="Set the belief to what the cube itself reports">What the cube reports</button>
       </div>

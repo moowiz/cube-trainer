@@ -17,6 +17,8 @@ export interface CubeLink {
   caps: SmartCubeConnection['capabilities'];
   requestFacelets(): Promise<void>;
   requestBattery(): Promise<void>;
+  /** tell the cube its own state is solved (GAN keeps its facelets in firmware and drifts when it misses a turn) */
+  reset(): Promise<void>;
   disconnect(): Promise<void>;
 }
 
@@ -130,6 +132,7 @@ export async function connectCube(opts: ConnectOpts): Promise<CubeLink> {
     caps: conn.capabilities,
     requestFacelets: () => (conn.capabilities.facelets ? conn.sendCommand({ type: 'REQUEST_FACELETS' }) : Promise.resolve()),
     requestBattery: () => (conn.capabilities.battery ? conn.sendCommand({ type: 'REQUEST_BATTERY' }) : Promise.resolve()),
+    reset: () => (conn.capabilities.reset ? conn.sendCommand({ type: 'REQUEST_RESET' }) : Promise.resolve()),
     disconnect: () => conn.disconnect(),
   };
   opts.onEvent({ kind: 'connect', t: now(), name: link.name, mac: link.mac, protocol: link.protocol, caps: { ...conn.capabilities } });
