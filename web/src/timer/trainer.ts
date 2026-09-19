@@ -195,7 +195,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       if (k >= 0) { drawSolution(k, false); return; }
       for (let i = 0; i < path.moves.length; i++) {
         const m = path.moves[i]!;
-        if (m.endsWith('2') && applySeq(path.states[i]!, [m[0] as Move]) === facelets) { drawSolution(i, true); return; }
+        // a double turn is halfway after a quarter turn either way
+        if (m.endsWith('2') && (applySeq(path.states[i]!, [m[0] as Move]) === facelets || applySeq(path.states[i]!, [`${m[0]}'` as Move]) === facelets)) { drawSolution(i, true); return; }
       }
     }
     path = null;
