@@ -304,6 +304,16 @@ timer's solves reach the session as before. No scanner runs and no
 material, and the pipeline can be re-run on the video offline.
 `node scripts/check-record.mjs` is its headless check.
 
+**2026-09-19, one Record.** The header button records THROUGH the
+scanner: it opens the scan sheet docked (kept, not reset, so the
+evidence log survives), starts the camera and the scanner's own
+recorder, so every recording has `evidence.json` and can be a reader
+fixture; the docked sheet is the live view and a ⧉ button beside Record
+floats the camera in a Picture-in-Picture window. The scan sheet's
+Record does the same thing from inside. The scanner-less path went with
+it: `app/record.ts` is now a thin front over `scanner-bridge`'s
+`sitting`. Cost on the desktop: the detector runs while recording.
+
 - The existing recorder (scan sheet `Record`: camera `.webm` + the
   evidence-log capture on one clock) gains the cube's events on the same
   clock (section 7, capture v2). With "record solves" on, every timed

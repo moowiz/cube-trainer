@@ -13,7 +13,7 @@ import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } fro
 import type { Move } from '../moves/moves';
 import { ReaderSource } from '../moves/readersource';
 import type { MoveRecord } from '../moves/record';
-import { activeTab, closeScan, dockScan, expectedScramble, scanHooks, scanStarted, shareScramble, showTab, stages, toast } from '../shell';
+import { activeTab, closeScan, dockScan, expectedScramble, openScan, scanHooks, scanStarted, shareScramble, showTab, stages, toast } from '../shell';
 import { stageOf, type Stage, type StageReport } from '../stage';
 import { solveState } from '../state';
 import { DEFAULT_SCHEME_NAMES, type ColorName } from '../types';
@@ -129,10 +129,35 @@ function ensureScanner(): ScannerHandle {
     onFollow,
     onStopFollow: () => closeScan(),
     onRecordStart: () => rig.start(),
-    onRecordStop: () => rig.stop(),
+    onRecordStop: async () => {
+      const s = rig.current();
+      await rig.stop();
+      if (s) toast(`Recorded ${((Date.now() - s.meta.startedAt) / 1000).toFixed(0)} s to recordings/${s.stream.session}${s.stream.failed() ? ` (${s.stream.failed()} uploads failed)` : ''}`);
+    },
   });
   return scanner;
 }
+
+/**
+ * The header's Record button (docs/smart-cube-design.md 4.2): one Record for the whole app. It
+ * records through the scanner - the scan sheet comes up docked in the corner with the camera on -
+ * so every recording holds the evidence log the move reader needs, beside the video, the cube's
+ * events and the timer's solves. (Until 2026-09-19 the header had its own recorder without the
+ * scanner, and those recordings could never be reader fixtures.)
+ */
+export const sitting = {
+  /** Start recording: the scan sheet docked (kept if it is already up), the camera on, the recorder going. */
+  async start(): Promise<void> {
+    const s = ensureScanner();
+    if (panel('scan-sheet').hidden) openScan({ keep: true });
+    dockScan(true);
+    await s.record();
+  },
+  stop(): void { scanner?.stopRecording(); },
+  /** Seconds recorded so far, or null while not recording. */
+  seconds(): number | null { return scanner?.recording() ?? null; },
+  popOut(): Promise<void> { return ensureScanner().popOut(); },
+};
 
 export function initScannerBridge(): void {
   // For the console and the headless checks: hand a facelet string (the solver's letters, as the lock

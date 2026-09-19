@@ -2,9 +2,10 @@
 // the dev server (which has the sink), opens the Solve tab in headless
 // Chrome with a fake camera, waits for the button to appear (it exists only
 // where the sink answers), presses it, waits, presses it again, and checks
-// that a session folder appeared under <repo>/recordings/ with the video
-// chunks and a closed meta file (no evidence: this path has no scanner).
-// The folder is removed afterwards.
+// that the scan sheet came up docked as the live view and that a session
+// folder appeared under <repo>/recordings/ with the video chunks, the
+// scanner's evidence.json and a closed meta file. The folder is removed
+// afterwards.
 //
 //   node scripts/check-record.mjs
 import { spawn } from 'node:child_process';
@@ -50,9 +51,9 @@ try {
   await page.evaluate(() => document.getElementById('rec-open').click());
   await sleep(3500);
   const state = await page.evaluate(() => document.getElementById('rec-open')?.textContent ?? '');
-  const previewUp = await page.evaluate(() => !document.getElementById('rec-preview')?.hidden && !!document.querySelector('#rec-preview video'));
+  const previewUp = await page.evaluate(() => { const s = document.getElementById('scan-sheet'); return !s.hidden && s.classList.contains('docked'); });
   check(/REC \d+ s/.test(state), `recording runs: "${state.trim()}"`);
-  check(previewUp, 'the live preview is up');
+  check(previewUp, 'the scan sheet is up, docked, as the live view');
   await page.evaluate(() => document.getElementById('rec-open').click());
   await page.waitForFunction(() => /Record$/.test(document.getElementById('rec-open')?.textContent?.trim() ?? ''), { timeout: 20_000 });
   const toast = await page.evaluate(() => document.getElementById('toast')?.textContent ?? '');
@@ -71,7 +72,7 @@ if (fresh.length === 1) {
   const files = readdirSync(dir);
   console.log(`${fresh[0]}: ${files.map((f) => `${f} ${statSync(join(dir, f)).size} B`).join(', ')}`);
   check(files.includes('video.webm') && statSync(join(dir, 'video.webm')).size > 10_000, 'video.webm holds the streamed chunks');
-  check(!files.includes('evidence.json'), 'no evidence.json: this path has no scanner');
+  check(files.includes('evidence.json'), 'evidence.json: the recording went through the scanner');
   let meta = null;
   try { meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')); } catch { /* missing */ }
   check(meta && meta.version === 2 && meta.chunks >= 2 && typeof meta.endedAt === 'number' && meta.failed === 0 && /header Record/.test(meta.note ?? ''), `meta.json is closed and notes the path: ${meta ? `${meta.chunks} chunks, failed ${meta.failed}, ended ${!!meta.endedAt}, note "${meta.note}"` : 'missing'}`);

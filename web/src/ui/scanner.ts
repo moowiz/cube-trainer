@@ -111,6 +111,14 @@ export interface ScannerHandle {
   following(): boolean;
   /** Lay the scanner out as a dock (camera view and follow strip only) or in full. */
   setDocked(on: boolean): void;
+  /** Start recording (the camera first if it is off): the video, the evidence log and, through the rig, the cube's events and the solves. */
+  record(): Promise<void>;
+  /** Stop the recording in progress (the evidence log follows it out). */
+  stopRecording(): void;
+  /** Seconds recorded so far, or null while not recording. */
+  recording(): number | null;
+  /** Float the live camera in its own window (Picture-in-Picture), or bring it back. */
+  popOut(): Promise<void>;
 }
 
 const SAMPLE_CONF = 0.55;    // min tracked conf to contribute readings
@@ -1340,9 +1348,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   if (clipUrl) startBtn.textContent = 'Play clip';
 
   /** Open the camera (or the clip) and run the loop; the Start button and the host's start() both land here. */
-  function startCapture(): void {
-    if (running) return;
-    void (async () => {
+  let starting: Promise<void> | null = null; // the camera coming up: a second caller waits for the same start
+  function startCapture(): Promise<void> {
+    if (running) return Promise.resolve();
+    if (starting) return starting;
+    starting = (async () => {
       msgEl.textContent = '';
       try {
         if (clipUrl) {
@@ -1369,10 +1379,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         requestAnimationFrame((t) => loop(t, gen));
       } catch (err) {
         msgEl.textContent = String(err instanceof Error ? err.message : err);
-      }
+      } finally { starting = null; }
     })();
+    return starting;
   }
-  startBtn.addEventListener('click', () => { if (running) stopAuto(); else startCapture(); });
+  startBtn.addEventListener('click', () => { if (running) stopAuto(); else void startCapture(); });
 
   $('reset').addEventListener('click', () => {
     newScramble();
@@ -1490,5 +1501,20 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     reset: () => { if (!clipUrl) $('reset').click(); },
     following,
     setDocked: (on) => root.classList.toggle('sc-docked', on),
+    record: async () => {
+      if (recorder) return;
+      await startCapture();
+      if (!running) throw new Error(msgEl.textContent || 'the camera did not start');
+      await startRecording();
+      if (!recorder) throw new Error(msgEl.textContent || 'recording did not start');
+    },
+    stopRecording: () => { recorder?.stop(); },
+    recording: () => (recorder && recording ? (Date.now() - recording.startedAt) / 1000 : null),
+    popOut: async () => {
+      const v = camera.video;
+      if (typeof v.requestPictureInPicture !== 'function' || !document.pictureInPictureEnabled) throw new Error('this browser has no Picture-in-Picture');
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await v.requestPictureInPicture();
+    },
   };
 }
