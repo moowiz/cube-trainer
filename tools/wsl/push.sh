@@ -20,4 +20,4 @@ keydir=$HOME/.ssh-cube
 [ -r "$keydir/cube-trainer" ] || { echo "no deploy key at $keydir/cube-trainer (see the header of this script)" >&2; exit 2; }
 [ -r "$keydir/known_hosts" ] || { echo "no $keydir/known_hosts: run  ssh-keyscan github.com > $keydir/known_hosts" >&2; exit 2; }
 export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -i $keydir/cube-trainer -o IdentitiesOnly=yes -o UserKnownHostsFile=$keydir/known_hosts"
-exec git push git@github.com:moowiz/cube-trainer.git "$branch"
+exec git push origin "$branch"
