@@ -20,7 +20,7 @@ import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove,
 import type { ColorName, FaceId } from '../types';
 import { downloadText } from '../ui/download';
 import { exportCsTimer, importCsTimer } from './cstimer';
-import type { Move } from '../moves/moves';
+import { applySeq, type Move } from '../moves/moves';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
 
@@ -52,6 +52,7 @@ const STYLE = `
   /* a solution on demand: the cube's belief with a smart cube, the scramble's state without */
   .tm-sol { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 22px; margin-top: 2px; }
   .tm-sol .moves { display: block; font-size: 17px; line-height: 1.5; word-spacing: .35em; color: var(--ink); padding: 2px 4px; }
+  .tm-sol .moves .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .tm-sol .btn { padding: 2px 6px; font-size: 13px; }
   /* the tap pad: most of the screen on a phone; press and release starts, a tap stops */
   .tm-pad { min-height: 36vh; display: flex; flex-direction: column; justify-content: center; margin: 6px 0; border-radius: 14px;
@@ -160,15 +161,26 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
 
   // ---- a solution on demand (user, 2026-09-19) ----
   // Kociemba via cubejs, in WCA notation like the scramble. With a smart cube it is the solution
-  // of the cube's belief and follows every turn while open; without one, of the scramble's state.
+  // of the cube's belief; while open the cube is followed along it (done turns underlined, a
+  // quarter of a double turn is halfway) and it is solved afresh only off the path - Kociemba
+  // gives a different sequence for the state one turn on, so re-solving every turn kept changing
+  // the answer under the user. Without a cube, the scramble's state.
   let solutionOpen = false;
-  let solutionKey = '';
   let solutionGen = 0;
+  /** the solution being followed: the states along it (letters of the state solved), the turns in those letters, and as shown */
+  let path: { states: string[]; moves: Move[]; wca: string[]; from: 'cube' | 'scramble' } | null = null;
+  function drawSolution(done: number, half: boolean): void {
+    if (!path) return;
+    const shown = path.wca.map((m, i) => `<span class="${i < done ? 'done' : ''}">${m}</span>`).join(' ');
+    const where = done >= path.moves.length ? 'Solved' : half ? `${done} of ${path.moves.length} done · halfway through ${path.wca[done]}` : done ? `${done} of ${path.moves.length} done` : `${path.moves.length} turns`;
+    $('solText').innerHTML = `<span class="moves">${shown}</span>${where} · ${path.from === 'cube' ? 'the cube as the app believes it' : 'the scramble as shown'} · hold white on top, green facing you`;
+  }
   async function showSolution(): Promise<void> {
     const out = $('solText');
     // the state to solve and the map from its letters to WCA: the cube's letters through the trainer's, or the trainer's own
     let facelets: string;
     let toWcaLetters: (moves: Move[]) => string;
+    const from: 'cube' | 'scramble' = cubeFacelets && cubeColours ? 'cube' : 'scramble';
     if (cubeFacelets && cubeColours) {
       facelets = cubeFacelets;
       const colourOf = cubeColours;
@@ -176,25 +188,37 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     } else if (scramble) {
       facelets = state(fromWca(scramble));
       toWcaLetters = (moves) => toWca(moves.join(' '));
-    } else { out.textContent = ''; return; }
-    if (facelets === solutionKey) return;
-    solutionKey = facelets;
+    } else { out.textContent = ''; path = null; return; }
+    // on the path being followed: show where, no new solve
+    if (path && path.from === from) {
+      const k = path.states.indexOf(facelets);
+      if (k >= 0) { drawSolution(k, false); return; }
+      for (let i = 0; i < path.moves.length; i++) {
+        const m = path.moves[i]!;
+        if (m.endsWith('2') && applySeq(path.states[i]!, [m[0] as Move]) === facelets) { drawSolution(i, true); return; }
+      }
+    }
+    path = null;
     const gen = ++solutionGen;
     if (facelets === SOLVED) { out.innerHTML = '<span class="moves">Solved</span>'; return; }
     const v = validateState(facelets);
     if (!v.ok) { out.textContent = `Cannot solve this state: ${v.error}`; return; }
+    out.textContent = 'solving…';
     try {
       const sol = await solveState(facelets);
       if (gen !== solutionGen) return;
       const moves = tokens(sol) as Move[];
-      out.innerHTML = `<span class="moves">${toWcaLetters(moves)}</span>${moves.length} turns · ${cubeFacelets ? 'the cube as the app believes it' : 'the scramble as shown'} · hold white on top, green facing you`;
+      const states = [facelets];
+      for (const m of moves) states.push(applySeq(states[states.length - 1]!, [m]));
+      path = { states, moves, wca: tokens(toWcaLetters(moves)), from };
+      drawSolution(0, false);
     } catch (err) {
       if (gen === solutionGen) out.textContent = `No solution: ${err instanceof Error ? err.message : err}`;
     }
   }
   function renderSolution(): void {
     $('solBtn').textContent = solutionOpen ? 'Hide the solution' : 'Show a solution';
-    if (!solutionOpen) { $('solText').textContent = ''; solutionKey = ''; }
+    if (!solutionOpen) { $('solText').textContent = ''; path = null; }
   }
   $('solBtn').addEventListener('click', () => { solutionOpen = !solutionOpen; renderSolution(); if (solutionOpen) void showSolution(); });
 
