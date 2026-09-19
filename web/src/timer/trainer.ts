@@ -12,14 +12,15 @@ import Cube from 'cubejs';
 import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
-import { toSourceLetters, type Hold } from '../handoff';
+import { relabelTurns, toSourceLetters, type Hold } from '../handoff';
 import { shareScramble, sheetOpen, toast, type Stage } from '../shell';
-import { solveState, warmSolver } from '../state';
+import { solveState, validateState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
 import type { ColorName, FaceId } from '../types';
 import { downloadText } from '../ui/download';
 import { exportCsTimer, importCsTimer } from './cstimer';
+import type { Move } from '../moves/moves';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
 
@@ -48,6 +49,10 @@ const STYLE = `
   .tm-scr .gen { color: var(--ink-2); font-size: 15px; word-spacing: normal; }
   .tm-track { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 18px; }
   .tm-track.off { color: #7A4B00; font-weight: 600; }
+  /* a solution on demand: the cube's belief with a smart cube, the scramble's state without */
+  .tm-sol { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 22px; margin-top: 2px; }
+  .tm-sol .moves { display: block; font-size: 17px; line-height: 1.5; word-spacing: .35em; color: var(--ink); padding: 2px 4px; }
+  .tm-sol .btn { padding: 2px 6px; font-size: 13px; }
   /* the tap pad: most of the screen on a phone; press and release starts, a tap stops */
   .tm-pad { min-height: 36vh; display: flex; flex-direction: column; justify-content: center; margin: 6px 0; border-radius: 14px;
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; cursor: pointer; transition: background .12s; }
@@ -90,6 +95,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       </div>
       <div class="tm-scr" id="tm-scr"></div>
       <div class="tm-track" id="tm-track"></div>
+      <div class="tm-sol" id="tm-sol"><button class="btn eo-link" type="button" id="tm-solBtn">Show a solution</button><span id="tm-solText"></span></div>
       <div class="tm-pad" id="tm-pad" role="button" aria-label="Timer: press and release to start, tap to stop">
         <div class="tm-time" id="tm-time">0.00</div>
         <div class="tm-state" id="tm-state"></div>
@@ -137,7 +143,11 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let tracker: ScrambleTracker | null = null;
   let trackKey = '';
   let track: TrackStatus | null = null;
+  let cubeFacelets: string | null = null;                       // the source's belief, its own letters
+  let cubeColours: Record<FaceId, ColorName> | null = null;     // the colour of each of those letters
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
+    cubeFacelets = facelets; cubeColours = colourOf;
+    if (solutionOpen) void showSolution();
     if (!scramble) { track = null; return; }
     const key = `${scramble}|${Object.values(colourOf).join(',')}|${deps.hold().front}`;
     if (key !== trackKey) {
@@ -147,6 +157,46 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     track = tracker ? tracker.status(facelets) : null;
     renderScramble();
   }
+
+  // ---- a solution on demand (user, 2026-09-19) ----
+  // Kociemba via cubejs, in WCA notation like the scramble. With a smart cube it is the solution
+  // of the cube's belief and follows every turn while open; without one, of the scramble's state.
+  let solutionOpen = false;
+  let solutionKey = '';
+  let solutionGen = 0;
+  async function showSolution(): Promise<void> {
+    const out = $('solText');
+    // the state to solve and the map from its letters to WCA: the cube's letters through the trainer's, or the trainer's own
+    let facelets: string;
+    let toWcaLetters: (moves: Move[]) => string;
+    if (cubeFacelets && cubeColours) {
+      facelets = cubeFacelets;
+      const colourOf = cubeColours;
+      toWcaLetters = (moves) => toWca(relabelTurns(colourOf, moves, deps.hold()));
+    } else if (scramble) {
+      facelets = state(fromWca(scramble));
+      toWcaLetters = (moves) => toWca(moves.join(' '));
+    } else { out.textContent = ''; return; }
+    if (facelets === solutionKey) return;
+    solutionKey = facelets;
+    const gen = ++solutionGen;
+    if (facelets === SOLVED) { out.innerHTML = '<span class="moves">Solved</span>'; return; }
+    const v = validateState(facelets);
+    if (!v.ok) { out.textContent = `Cannot solve this state: ${v.error}`; return; }
+    try {
+      const sol = await solveState(facelets);
+      if (gen !== solutionGen) return;
+      const moves = tokens(sol) as Move[];
+      out.innerHTML = `<span class="moves">${toWcaLetters(moves)}</span>${moves.length} turns · ${cubeFacelets ? 'the cube as the app believes it' : 'the scramble as shown'} · hold white on top, green facing you`;
+    } catch (err) {
+      if (gen === solutionGen) out.textContent = `No solution: ${err instanceof Error ? err.message : err}`;
+    }
+  }
+  function renderSolution(): void {
+    $('solBtn').textContent = solutionOpen ? 'Hide the solution' : 'Show a solution';
+    if (!solutionOpen) { $('solText').textContent = ''; solutionKey = ''; }
+  }
+  $('solBtn').addEventListener('click', () => { solutionOpen = !solutionOpen; renderSolution(); if (solutionOpen) void showSolution(); });
 
   // ---- the attempt ----
   let phase: Phase = 'idle';
@@ -387,6 +437,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   }
   function render(): void {
     renderScramble();
+    renderSolution();
+    if (solutionOpen) void showSolution();
     renderTime();
     const st = $('state');
     if (held) st.textContent = 'Release to start';

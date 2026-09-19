@@ -4,7 +4,13 @@
 // merge by the later edit.
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { SOLVED } from '../src/cube/state';
+import { tokens } from '../src/cube/alg';
+import { fromWca, toWca } from '../src/cube/frame';
+import { faceColorName } from '../src/cube/scheme';
+import { SOLVED, state } from '../src/cube/state';
+import { relabelTurns, type Hold } from '../src/handoff';
+import type { Move } from '../src/moves/moves';
+import { solveState } from '../src/state';
 import { applySeq, parseAlg } from '../src/moves/moves';
 import { openStore } from '../src/store/local';
 import { effectiveTime, newId, type SessionRecord, type SolveRecord } from '../src/store/types';
@@ -130,5 +136,30 @@ describe('the local store', () => {
     await st.putSolve(solve());
     expect(heard).toBe(1);
     st.close();
+  });
+});
+
+// The Solve tab's "Show a solution": cubejs solves the state in its own letters; the moves are
+// shown in WCA notation like the scramble. Two paths: the smart cube's belief (its letters,
+// coloured `colourOf`, through the trainer's letters) and, without a cube, the scramble's state.
+describe('a solution on demand', () => {
+  const hold = { down: 'white', front: faceColorName('F') } as Hold;   // what the app's hold() gives: the scheme's front
+  const gan = { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' } as const;
+  const applyWca = (wcaAlg: string) => applySeq(SOLVED, parseAlg(wcaAlg));
+
+  it("solves the cube's belief and calls the turns as WCA does", async () => {
+    // the GAN's letters are WCA's (white up, red right, green front), so the cube's state is the WCA-frame state
+    const belief = applySeq(SOLVED, parseAlg("R U F' L2 B D"));
+    const sol = tokens(await solveState(belief)) as Move[];
+    const wca = toWca(relabelTurns(gan, sol, hold));
+    expect(applySeq(belief, parseAlg(wca))).toBe(SOLVED);
+    expect(sol.length).toBeLessThanOrEqual(22);
+  });
+
+  it("solves the scramble's state without a cube", async () => {
+    const scramble = "D' L2 U F2 D' L2 D2 B2 L2 U2 B2 R' F2 U R' B' F U2 R' D2 B' U'";
+    const sol = await solveState(state(fromWca(scramble)));   // trainer letters in, trainer letters out
+    const wca = toWca(sol);
+    expect(applySeq(applyWca(scramble), parseAlg(wca))).toBe(SOLVED);
   });
 });
