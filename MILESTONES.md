@@ -418,9 +418,16 @@ the sink exists (the deployed site still downloads); the timer files each
 solve's window into the session. Not yet: the latency calibration, the
 fixture tool's cube truth, the reader numbers - all need the cube.
 **2026-09-19:** the cube has arrived and csTimer's history is imported;
-cube-labelled recordings are accumulating under `recordings/`. Still
-open: the latency/skew calibration, `moves_fixture.py --truth cube`, and
-the reader's numbers in `docs/solve-tracking-design.md`.
+cube-labelled recordings are accumulating under `recordings/`. The
+latency calibration is done (+5 ms, design doc 8); one Record button
+records through the scanner and the dev server cuts a clip per solve;
+`scripts/cube-fixture.ts` builds a reader fixture from a session with
+the cube as truth and the palette fitted from the evidence (no lock).
+The first such fixture says the reader cannot be calibrated yet: the
+detector's quads on a desk solve are mostly hands
+(`docs/solve-tracking-design.md` 10.2). Still open: twenty such
+recordings (five exist), and the detector's hand problem before the
+reader's numbers mean anything.
 
 **Housekeeping before M11 - DONE 2026-09-17** (`docs/housekeeping-plan.md`
 has the status; the list below is what was proposed): (1) wrap the camera

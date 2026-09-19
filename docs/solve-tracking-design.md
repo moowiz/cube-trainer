@@ -664,6 +664,31 @@ and the truth itself is unverified (it assumes the displayed solution was
 followed exactly; the two phone sessions of the same morning each slipped
 one move). Decode 2.3-3.5 ms/frame on 100-150 frames.
 
+**The first cube-labelled solve (2026-09-19, fixture
+`2026-09-19-105604-04`, `scripts/cube-fixture.ts`):** a 60 s desk solve
+on the webcam, cube ~130 px across, evenly lit, both hands on it; 110
+turns from the GAN with their send times; the palette fitted from the
+evidence alone (six colours named), the start state from the cube, no
+lock. The reader reads 110-odd turns and reaches nothing like the end
+state (margin 1.0, the end state not in the beam). The forced alignment
+of the TRUE sequence says the frames do not support it either: per
+frame the truth beats its single-move neighbours 33x, ties 91x, loses
+403x. The reason is upstream of the reader, in the evidence: of the
+1386 quads the detector produced in the window, **473 are hands**
+(six or more of nine cells read as skin), 643 are mixed and only 270
+are clean faces; 12 frames in 636 show two clean faces at once. Even
+on the solved cube held still at the end, the frames carry one real
+face (uniform yellow) beside two or three hand quads, and the quality
+weights barely tell them apart (mean 0.29 vs 0.23). So the honest
+baseline for the camera reader on a real desk solve is: **not
+measurable yet** - the face detector's false quads on hands drown the
+signal, and the reader cannot be calibrated until the evidence is
+mostly faces. That points the next work at stage 2 (hand negatives,
+a quad-quality score that rejects skin) and at the twist head of
+section 5, which sees the layer, not the stickers, before the reader's
+own parameters. The builder audits every fixture the same way
+(`audit` in the file; printed when it is built).
+
 ## 11. Follow mode (2026-09-14): the trainer moves along with the cube
 
 What the reader is *for* in the app today. With **follow my solve** ticked

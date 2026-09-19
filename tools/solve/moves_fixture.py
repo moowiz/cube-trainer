@@ -13,6 +13,13 @@ always comes from the live capture, which is the one that saw the scan.
 
 `--truth cubejs` writes the cubejs solution of the locked state (what the
 app displayed) as the truth: right when the user followed it exactly.
+
+With the smart cube the truth is the cube's own turns and no lock is
+needed; that builder lives beside the solver it uses:
+
+    cd web && npx vite-node scripts/cube-fixture.ts ../recordings/<session> [--solve N]
+
+(docs/smart-cube-design.md 4.2). `--truth cube` here just says so.
 """
 import argparse
 import json
@@ -57,6 +64,8 @@ def main():
     frames = {q['frame'] for q in quads}
     start = sol['facelets']
     truth = a.truth
+    if truth == 'cube':
+        sys.exit('cube truth needs no lock and no live capture: cd web && npx vite-node scripts/cube-fixture.ts ../recordings/<session> [--solve N]')
     if truth == 'cubejs':
         truth = cubejs_solution(start)
     end = None if a.end == 'none' else SOLVED if a.end == 'solved' else a.end
