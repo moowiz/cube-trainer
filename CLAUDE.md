@@ -56,7 +56,8 @@ web/
                      state (facelets from an alg, rotations undone), geometry (facelet -> 3D), pieces
                      (edge/corner tables, EO bits, the 12-edge move model the solvers and the EOCross
                      worker use), render (3D + net SVG), scheme (colour setting), frame (trainer / WCA /
-                     solver letter maps)
+                     solver letter maps), nxn (the n×n facelet model for the algs sheet's big-cube and 2x2
+                     cases: WCA + SiGN notation, commutator brackets; n=3 reproduces cubejs, by test)
     ui/              drill.ts (the timed-drill scaffold EO/OCLL/PLL sit on), scanner.ts (the scan sheet:
                      camera, overlay, evidence, lock, live scramble check), cubeview.ts (the Cube sheet:
                      what the app believes the cube looks like, the smart cube's controls and resyncs),
@@ -80,6 +81,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner),
                      scramble (an optimal phase-2 solver: face-turn scrambles for PLL states), pic (the top-down
                      picture), reference (the case list sheet: pictures, algs with triggers, chains), trainer
+    algs/            the Algs sheet (the other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
+                     data (the table; every cube alg is run on cube/nxn and checked by test), pic (n×n case
+                     pictures: top view with side strips, three-face view), sheet (the picker and the cards)
     handoff.ts       a locked scan as a scramble in the trainer's frame, and the reverse for the live check;
                      turns relabelled between frames (relabelTurns)
     follow.ts        following a solve: lock + turns read -> trainer scramble, and the settled stage change

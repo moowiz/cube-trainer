@@ -1,0 +1,120 @@
+// The algs sheet: the other puzzles' cheat sheet (2x2, 4x4, 5x5,
+// Pyraminx, Skewb, FTO) in index.html's #algs-sheet. A puzzle picker,
+// the puzzle's notation and intro, then its sections of cases: for the
+// cubes a picture of the case (the alg's inverse on the n×n model, in the
+// user's colour scheme), the alg, what it does, and a link that plays it
+// in a 3D viewer. Content is data.ts; nothing here decides what an alg is.
+
+import { applyNxN, expandNxN, invertTokens, rawNxN } from '../cube/nxn';
+import { onSchemeChange } from '../cube/scheme';
+import { algsHooks } from '../shell';
+import { PUZZLES } from './data';
+import { picIso, picTop } from './pic';
+import type { AlgCase, Puzzle, PuzzleId } from './types';
+
+const KEY = 'zz-algs';
+
+const STYLE = `
+  .algs-pick { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 14px; }
+  .algs-pick button { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); cursor: pointer; }
+  .algs-pick button.on { color: var(--bg); background: var(--ink); border-color: var(--ink); font-weight: 600; }
+  .algs-intro { font-size: 14px; color: var(--ink-2); margin: 0 0 6px; line-height: 1.45; max-width: 760px; }
+  .algs-intro b { color: var(--ink); font-weight: 600; }
+  .algs-notation { font-size: 13px; color: var(--ink-2); margin: 0 0 16px; line-height: 1.5; max-width: 760px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  .algs-notation code { font: inherit; color: var(--ink); font-weight: 600; }
+  .algs-sec h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 18px 2px 4px; }
+  .algs-sec .blurb { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.45; max-width: 760px; }
+  .algs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .algs-case { display: grid; grid-template-columns: 1fr; gap: 3px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+  .algs-case.pic { grid-template-columns: 92px 1fr; }
+  .algs-case .algs-pic { grid-row: span 6; }
+  .algs-case .algs-pic svg { display: block; width: 100%; height: auto; }
+  .algs-case .algs-pic rect { stroke: #2b3340; stroke-width: 1.2; }
+  .algs-name { font-weight: 600; font-size: 16px; }
+  .algs-name small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
+  .algs-alg { font-size: 16px; word-spacing: .2em; line-height: 1.45; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .algs-alt { font-size: 13px; color: var(--ink-2); word-spacing: .15em; line-height: 1.45; }
+  .algs-alt b { color: var(--ink); font-weight: 600; }
+  .algs-note { font-size: 13px; color: var(--ink-2); line-height: 1.4; }
+  .algs-links { font-size: 12px; margin-top: 2px; }
+  .algs-links a { color: var(--ink-2); }
+  .algs-links a + a { margin-left: 10px; }
+`;
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+// alg.cubing.net and twizzle take an alg in the URL with spaces as _ and primes as - (their own URL form; commas and brackets are fine as they are)
+const urlAlg = (alg: string) => alg.trim().replace(/\s+/g, '_').replace(/'/g, '-');
+
+/** The alg's inverse: the setup that puts the case on a solved puzzle (the suffix rule works for every puzzle's tokens). */
+export function setupAlg(alg: string): string {
+  return invertTokens(expandNxN(alg)).join(' ');
+}
+
+/** The 3D viewer link for a case: alg.cubing.net for the cubes, pyraminx and skewb; twizzle for the FTO. Both show the case, then play the alg. */
+export function viewerUrl(p: Puzzle, c: AlgCase): string | null {
+  if (!p.viewer) return null;
+  return p.id === 'fto'
+    ? `https://alpha.twizzle.net/edit/?puzzle=${p.viewer}&alg=${urlAlg(c.alg)}&setup-alg=${urlAlg(setupAlg(c.alg))}`
+    : `https://alg.cubing.net/?puzzle=${p.viewer}&alg=${urlAlg(c.alg)}&setup=${urlAlg(setupAlg(c.alg))}`;
+}
+
+/** The picture of a case: the alg's inverse on a solved n×n, turned by the case's setup rotation for the view; null when there is none. */
+export function caseSvg(p: Puzzle, c: AlgCase): string | null {
+  if (!p.n || c.pic === 'none') return null;
+  const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(c.alg)));
+  const inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
+  return `<svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${inner}</svg>`;
+}
+
+/** How many moves an alg is, counting a wide or slice move as one. */
+export function algLength(p: Puzzle, alg: string): number {
+  if (p.n) return expandNxN(alg).length;
+  return alg.replace(/[()[\]:,]/g, ' ').trim().split(/\s+/).filter(Boolean).length;
+}
+
+function caseHtml(p: Puzzle, c: AlgCase): string {
+  const svg = caseSvg(p, c);
+  const link = viewerUrl(p, c);
+  return `<div class="algs-case${svg ? ' pic' : ''}">
+    ${svg ? `<div class="algs-pic">${svg}</div>` : ''}
+    <div class="algs-name">${esc(c.name)}<small>${algLength(p, c.alg)} moves</small></div>
+    <div class="algs-alg">${esc(c.alg)}</div>
+    ${c.alt?.length ? `<div class="algs-alt">${c.alt.map((a) => `<b>or</b> ${esc(a)}`).join('<br>')}</div>` : ''}
+    ${c.note ? `<div class="algs-note">${esc(c.note)}</div>` : ''}
+    <div class="algs-links">${link ? `<a href="${link}" target="_blank" rel="noopener">▶ play it in 3D</a>` : ''}${c.source ? `<a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div>
+  </div>`;
+}
+
+function puzzleHtml(p: Puzzle): string {
+  return `
+    ${p.intro ? `<p class="algs-intro">${p.intro}</p>` : ''}
+    <div class="algs-notation">${p.notation}</div>
+    ${p.sections.map((s) => `<section class="algs-sec"><h3>${esc(s.title)}</h3>${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c)).join('')}</div></section>`).join('')}`;
+}
+
+/** Mount the sheet: the picker, the remembered puzzle, redraws on scheme changes. Called once from main.ts. */
+export function initAlgs(): void {
+  const panel = document.getElementById('algs-panel');
+  if (!panel) throw new Error('index.html is missing the algs sheet');
+  const s = document.createElement('style'); s.id = 'algs-style'; s.textContent = STYLE; document.head.appendChild(s);
+  let chosen: PuzzleId = PUZZLES[0]!.id;
+  try { const v = localStorage.getItem(KEY); if (PUZZLES.some((p) => p.id === v)) chosen = v as PuzzleId; } catch { /* no storage */ }
+  let drawn = false;
+  const render = () => {
+    const p = PUZZLES.find((x) => x.id === chosen) ?? PUZZLES[0]!;
+    panel.innerHTML = `<div class="algs-pick">${PUZZLES.map((x) => `<button type="button" data-p="${x.id}" class="${x.id === chosen ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div><div class="algs-body">${puzzleHtml(p)}</div>`;
+    drawn = true;
+  };
+  panel.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-p]');
+    if (!b) return;
+    chosen = b.dataset.p as PuzzleId;
+    try { localStorage.setItem(KEY, chosen); } catch { /* no storage */ }
+    render();
+    panel.closest('.zz-sheet')?.scrollTo({ top: 0 });
+  });
+  algsHooks.onOpen = () => { if (!drawn) render(); };
+  onSchemeChange(() => { if (drawn) render(); });
+  // ?tab=algs opened the sheet from initShell, before this hook existed
+  if (!panel.closest<HTMLElement>('.zz-sheet')?.hidden) render();
+}

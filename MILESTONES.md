@@ -517,7 +517,12 @@ progress, user).
   commentary over the abstract solve record (opt-in), alg spaced
   repetition and bigger last-layer sets (COLL / ZBLL), gestures on the
   cube. Catalogue with sizes: `docs/smart-cube-trainer-survey.md` 3. No
-  social features. Installable as a PWA since 2026-09-17 (manifest +
+  social features. **Algs sheet shipped 2026-09-20** (`web/src/algs/`,
+  the 📖 button, `?tab=algs`, a home-screen shortcut): the other puzzles'
+  cheat sheet - 2x2 Ortega, 4x4 / 5x5 parities, centres and edges with
+  pictures off an n×n model (`cube/nxn.ts`, every alg checked by test),
+  Pyraminx / Skewb / FTO as text, checked once against cubing.js.
+  Installable as a PWA since 2026-09-17 (manifest +
   icons; the isolation service worker satisfies the install check);
   offline caching of the app is NOT done and is the expensive half
   (precache ~35 MB of wasm and models inside the isolation worker, plus an

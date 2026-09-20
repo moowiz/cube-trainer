@@ -89,6 +89,7 @@
   <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
   <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
   <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)">🧊<span class="txt"> Cube</span><span class="key"> (l)</span></button>
+  <button type="button" class="ico" id="algs-open" title="Algs: the algs worth remembering for the other puzzles - 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO (a)">📖<span class="txt"> Algs</span><span class="key"> (a)</span></button>
   <button type="button" class="ico" id="rec-open" hidden>⏺<span class="txt"> Record</span></button>
   <button type="button" class="ico" id="rec-pop" hidden title="Float the live camera in its own window to check the framing">⧉</button>
   <button type="button" class="ico" id="sync-warn" hidden aria-label="Sync status"><span class="ico-txt">⟳</span><span class="txt"> Syncing</span></button>
@@ -109,7 +110,7 @@
 </div>
 <div id="settings-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Settings</b><span class="sub">Keys on any stage: c scan, r resume, s settings, n new, Space timer, Esc close. Dvorak-friendly on purpose.</span><button type="button" class="btn" id="settings-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Settings</b><span class="sub">Keys on any stage: c scan, r resume, l cube, a algs, s settings, n new, Space timer, Esc close. Dvorak-friendly on purpose.</span><button type="button" class="btn" id="settings-close">Close</button></div>
     <div class="zz-sheet-body">
       <section class="set-sec"><h3>Cube</h3>
         <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every stage, scramble and scan uses this.</span></div>
@@ -165,6 +166,12 @@
   <div class="zz-sheet-box">
     <div class="zz-sheet-head"><b>Cases</b><span class="sub"></span><button type="button" class="btn" id="ref-close">Close</button></div>
     <div class="zz-sheet-body" id="ref-panel"></div>
+  </div>
+</div>
+<div id="algs-sheet" class="zz-sheet" hidden>
+  <div class="zz-sheet-box">
+    <div class="zz-sheet-head"><b>Algs</b><span class="sub">The algs worth remembering for the other puzzles: not a method, just what you cannot work out at the cube. Pictures show the case; the alg solves it.</span><button type="button" class="btn" id="algs-close">Close</button></div>
+    <div class="zz-sheet-body" id="algs-panel"></div>
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>

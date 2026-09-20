@@ -94,6 +94,14 @@ export function closeScan(): void {
   scanHooks.onClose();
 }
 export function resumeScan(): void { openScan({ keep: true }); }
+
+/** The algs sheet fills this in: draw the chosen puzzle's algs when the sheet opens. */
+export const algsHooks: { onOpen(): void } = { onOpen: () => undefined };
+/** Open the algs sheet (the other puzzles' cheat sheet). */
+export function openAlgs(): void {
+  openSheet('algs-sheet');
+  algsHooks.onOpen();
+}
 /** Shrink the open scan sheet to a corner dock (the camera keeps running) or bring it back up in full. */
 export function dockScan(on: boolean): void {
   const s = el('scan-sheet');
@@ -136,11 +144,13 @@ export function initShell(): void {
   el('settings-close').onclick = () => closeSheet('settings-sheet');
   el('cube-open').onclick = () => openSheet('cube-sheet');
   el('cube-close').onclick = () => closeSheet('cube-sheet');
+  el('algs-open').onclick = () => openAlgs();
+  el('algs-close').onclick = () => closeSheet('algs-sheet');
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
   el('ref-close').onclick = () => closeSheet('ref-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
   document.querySelectorAll<HTMLElement>('.zz-sheet').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s) closeSheetEl(s); }));
-  // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed), s the settings, from any stage - all under the right hand on Dvorak
+  // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed), s the settings, l the cube, a the algs, from any stage - all under the right hand on Dvorak
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { const s = document.querySelector<HTMLElement>('.zz-sheet:not([hidden])'); if (s) closeSheetEl(s); return; }
     if (sheetOpen() || e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
@@ -148,19 +158,22 @@ export function initShell(): void {
     else if (e.key === 'r' && !el('scan-resume').hidden) resumeScan();
     else if (e.key === 's') openSheet('settings-sheet');
     else if (e.key === 'l') openSheet('cube-sheet');
+    else if (e.key === 'a') openAlgs();
   });
   // the colour scheme select
   const sel = el('frontc') as HTMLSelectElement;
   sel.innerHTML = FRONT_OPTIONS.map((o, i) => `<option value="${i}">${o}</option>`).join('');
   sel.value = String(frontIndex());
   sel.addEventListener('change', () => setFrontIndex(Number(sel.value)));
-  // which tab: ?tab=... wins, then the remembered one; ?tab=scan opens the scanner over it (the replay tooling's URL)
+  // which tab: ?tab=... wins, then the remembered one; ?tab=scan opens the scanner over it (the replay tooling's URL),
+  // ?tab=algs the algs sheet (the manifest's home-screen shortcut)
   let tab: string = 'solve';
   try { tab = localStorage.getItem('zz-tab') || 'solve'; } catch { /* no storage */ }
   const want = new URLSearchParams(location.search).get('tab');
-  if (want && want !== 'scan') tab = want;
+  if (want && want !== 'scan' && want !== 'algs') tab = want;
   showTab((TABS as readonly string[]).includes(tab) ? (tab as Tab) : 'eo');
   if (want === 'scan') openScan();
+  if (want === 'algs') openAlgs();
 }
 
 // a window.ZZ facade for the headless checks and the page's own console use
@@ -169,7 +182,7 @@ declare global {
 }
 if (typeof window !== 'undefined') { // importable from node tests (fingertricks.test.ts)
   window.ZZ = {
-    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages, shareScramble, sharedScramble,
+    tabs: TABS, showTab, activeTab, openScan, closeScan, resumeScan, dockScan, scanDocked, sheetOpen, toast, expectedScramble, stages, shareScramble, sharedScramble, openAlgs,
     get solve() { return stages.solve; }, get eo() { return stages.eo; }, get f2l() { return stages.f2l; }, get ocll() { return stages.ocll; }, get pll() { return stages.pll; },
   };
 }
