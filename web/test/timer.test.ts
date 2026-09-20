@@ -15,8 +15,11 @@ import { applySeq, parseAlg } from '../src/moves/moves';
 import { openStore } from '../src/store/local';
 import { effectiveTime, newId, type SessionRecord, type SolveRecord } from '../src/store/types';
 import { exportCsTimer, importCsTimer } from '../src/timer/cstimer';
+import { syncWarning } from '../src/store/sync';
 import { averageOf, bestAverageOf, formatTime, meanOf, sessionStats, trimOf } from '../src/timer/stats';
 import { ScrambleTracker } from '../src/timer/track';
+import { SESSION_GAP_MS } from '../src/timer/trainer';
+import { autoSessionName, fullOf, gapOf, spanOf, stampOf } from '../src/timer/when';
 
 describe('averages', () => {
   it('ao5 drops the best and the worst', () => {
@@ -161,5 +164,50 @@ describe('a solution on demand', () => {
     const sol = await solveState(state(fromWca(scramble)));   // trainer letters in, trainer letters out
     const wca = toWca(sol);
     expect(applySeq(applyWca(scramble), parseAlg(wca))).toBe(SOLVED);
+  });
+});
+
+describe('when a solve was', () => {
+  const at = (y: number, mo: number, d: number, h = 12, mi = 0) => new Date(y, mo - 1, d, h, mi, 5).getTime();   // local time, so the test is timezone-proof
+  const now = at(2026, 9, 20, 16, 0);
+
+  it('stamps today with the clock and other days with the day', () => {
+    expect(stampOf(at(2026, 9, 20, 14, 32), now)).toBe('14:32');
+    expect(stampOf(at(2026, 9, 19, 14, 32), now)).toBe('19 Sep');
+    expect(stampOf(at(2025, 9, 19), now)).toBe('19 Sep 2025');
+    expect(fullOf(at(2026, 9, 19, 14, 32))).toBe('Sat 19 Sep 2026, 14:32:05');
+  });
+
+  it('spans a session by its first and last solve', () => {
+    expect(spanOf(at(2026, 9, 20, 14, 32), at(2026, 9, 20, 16, 5), now)).toBe('20 Sep 14:32–16:05');
+    expect(spanOf(at(2026, 9, 19), at(2026, 9, 19), now)).toBe('19 Sep');
+    expect(spanOf(at(2026, 9, 17), at(2026, 9, 19), now)).toBe('17–19 Sep');
+    expect(spanOf(at(2026, 8, 28), at(2026, 9, 3), now)).toBe('28 Aug – 3 Sep');
+  });
+
+  it('names an automatic session by the clock and says how long the gap was', () => {
+    expect(autoSessionName(at(2026, 9, 20, 9, 7))).toBe('2026-09-20 09:07');
+    expect(gapOf(45 * 60_000)).toBe('45 min');
+    expect(gapOf(SESSION_GAP_MS + 15 * 60_000)).toBe('2 h 15 min');
+    expect(gapOf(3 * 24 * 3600_000)).toBe('3 days');
+  });
+});
+
+describe('the sync warning', () => {
+  const base = { pushed: 0, pulled: 0, pending: 0 } as const;
+  const t = 1_000_000;
+
+  it('is quiet when sync is off, loading, or up to date', () => {
+    expect(syncWarning({ ...base, status: 'off' }, t)).toBeNull();
+    expect(syncWarning({ ...base, status: 'loading' }, t)).toBeNull();
+    expect(syncWarning({ ...base, status: 'synced', lastOk: t - 5_000 }, t)).toBeNull();
+    expect(syncWarning({ ...base, status: 'synced', pending: 3, lastOk: t - 5_000 }, t)).toBeNull();   // a push is in flight
+  });
+
+  it('warns when signed out, on an error, and when edits sit unacknowledged', () => {
+    expect(syncWarning({ ...base, status: 'signed-out' }, t)).toMatch(/signed out/);
+    expect(syncWarning({ ...base, status: 'error', error: 'permission-denied' }, t)).toBe('Sync failed: permission-denied');
+    expect(syncWarning({ ...base, status: 'synced', pending: 2, lastOk: t - 90_000 }, t)).toMatch(/^2 records not synced yet\./);
+    expect(syncWarning({ ...base, status: 'synced', pending: 1, lastOk: t - 5_000 }, t, false)).toMatch(/1 record not synced yet \(offline\)/);
   });
 });

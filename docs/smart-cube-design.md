@@ -276,6 +276,20 @@ worker serves the sign-in page without those headers and the app reads
 the user back from the shared IndexedDB persistence. Not built: a time
 graph, sessions renamed or deleted, and the recording rig below.
 
+**2026-09-20:** a session is a sitting. A solve more than two hours after
+the session's last one starts a new session by itself, named by the clock
+(`2026-09-20 14:32`; `SESSION_GAP_MS`, `rollSession` in `trainer.ts`),
+and the toast says how long the gap was; New session remains for a
+deliberate split. The list shows when each solve was (the clock for
+today's, the day for older ones; the full stamp on hover), and the picker
+shows each session's span and count; nothing new is stored, it all reads
+off `when`. The header grows a ⚠ chip whenever the cloud is not taking
+the solves: sync wanted but signed out, a failed push or listener, or
+records pending for over a minute (or any while offline: the SDK queues a
+commit and never rejects it, so `pending` sitting there is the only
+sign). `syncWarning` in `sync.ts` is the rule; the chip opens the
+settings sheet, whose sync row now counts the records waiting.
+
 ### 4.2 The recording rig (desktop)
 
 **Built 2026-09-17, the sink half:** `vite.config.ts` `recordingSink()`

@@ -23,6 +23,7 @@ import { exportCsTimer, importCsTimer } from './cstimer';
 import { applySeq, type Move } from '../moves/moves';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
+import { autoSessionName, fullOf, gapOf, spanOf, stampOf } from './when';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
@@ -30,6 +31,10 @@ import { ScrambleTracker, type TrackStatus } from './track';
 interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on' }
 const SETTINGS_KEY = 'zz-timer-settings';
 const SESSION_META = 'timer/session';
+// DECISION (user, 2026-09-20): a session is a sitting. It can run for hours, but a solve that comes
+// this long after the session's last one starts a new session by itself, named by the clock; New
+// session is still there for a deliberate split.
+export const SESSION_GAP_MS = 2 * 3600_000;
 
 export interface TimerDeps {
   store: Promise<Store>;
@@ -77,6 +82,7 @@ const STYLE = `
   .tm-list .t { font-variant-numeric: tabular-nums; width: 70px; font-weight: 600; }
   .tm-list .s { flex: 1; color: var(--ink-2); font-size: 12px; word-spacing: .2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tm-list .m { color: var(--ink-2); font-size: 12px; white-space: nowrap; }
+  .tm-list .w { color: var(--ink-2); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
   .tm-more { text-align: center; padding: 8px; }
 `;
 
@@ -105,7 +111,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         <span id="tm-lastText"></span>
         <button class="btn" type="button" data-pen="0">OK</button><button class="btn" type="button" data-pen="2">+2</button><button class="btn" type="button" data-pen="-1">DNF</button><button class="btn" type="button" data-del="1">Delete</button>
       </div>
-      <div class="tm-sess"><select id="tm-session" aria-label="Session"></select><button class="btn" type="button" id="tm-newsess">New session</button></div>
+      <div class="tm-sess"><select id="tm-session" aria-label="Session"></select><button class="btn" type="button" id="tm-newsess" title="Split here. A solve after a two-hour pause starts a new session by itself.">New session</button></div>
       <div class="tm-stats" id="tm-stats"></div>
       <ol class="tm-list" id="tm-list"></ol>
       <div class="tm-more" id="tm-more" hidden><button class="btn eo-link" type="button" id="tm-moreBtn">Show all</button></div>
@@ -271,7 +277,12 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     deps.onSolve?.({ id: rec.id, when: rec.when, t0: startAt, t1: tEnd, scramble, time, moves: rec.moves });
     resetAttempt();
     beep(1320, 120);
-    void deps.store.then((st) => st.putSolve(rec)).then(() => { selected = rec.id; });
+    const rolled = rollSession(rec.when);
+    if (rolled) rec.session = rolled.id;
+    void deps.store.then(async (st) => {
+      if (rolled) { await st.putSession(rolled); await st.setMeta(SESSION_META, rolled.id); }
+      await st.putSolve(rec);
+    }).then(() => { selected = rec.id; });
     render();
     if (settings.autonext === 'on') newScramble();
   }
@@ -327,9 +338,22 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let solves: SolveRecord[] = [];
   let selected: string | null = null;
   let showAll = false;
+  /** each session's first and last solve and its count, for the picker */
+  let spans = new Map<string, { first: number; last: number; n: number }>();
+  async function loadSpans(st: Store): Promise<void> {
+    const m = new Map<string, { first: number; last: number; n: number }>();
+    for (const v of await st.allSolves()) {
+      if (v.deleted) continue;
+      const cur = m.get(v.session);
+      if (cur) { cur.first = Math.min(cur.first, v.when); cur.last = Math.max(cur.last, v.when); cur.n++; }
+      else m.set(v.session, { first: v.when, last: v.when, n: 1 });
+    }
+    spans = m;
+  }
   async function loadSessions(): Promise<void> {
     const st = await deps.store;
     sessions = await st.listSessions();
+    await loadSpans(st);
     if (!sessions.length) {
       const s: SessionRecord = { id: newId(), puzzle: '333', name: 'main', createdAt: Date.now(), editedAt: Date.now() };
       await st.putSession(s); sessions = [s];
@@ -340,8 +364,22 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   }
   async function loadSolves(): Promise<void> {
     if (!session) return;
-    solves = await (await deps.store).listSolves(session.id);
+    const st = await deps.store;
+    solves = await st.listSolves(session.id);
+    await loadSpans(st);
     render();
+  }
+  /**
+   * A solve this long after the session's last one belongs to a new session (SESSION_GAP_MS): made
+   * and picked here, synchronously, so the record can carry its id; the caller stores it.
+   */
+  function rollSession(when: number): SessionRecord | null {
+    const last = solves[solves.length - 1];
+    if (!session || !last || when - last.when < SESSION_GAP_MS) return null;
+    const s: SessionRecord = { id: newId(when), puzzle: '333', name: autoSessionName(when), createdAt: when, editedAt: when };
+    sessions.push(s); session = s; solves = []; selected = null; showAll = false;
+    toast(`New session after ${gapOf(when - last.when)} away: ${s.name}`);
+    return s;
   }
   async function pickSession(id: string): Promise<void> {
     const st = await deps.store;
@@ -474,12 +512,17 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const cur = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
     $('last').hidden = !cur || phase !== 'idle';
     if (cur) {
-      $('lastText').textContent = `${selected ? `#${solves.indexOf(cur) + 1}` : 'Last'}: ${formatTime(effectiveTime(cur))}${cur.moves ? ` · ${cur.moves.length} turns` : ''}`;
+      $('lastText').textContent = `${selected ? `#${solves.indexOf(cur) + 1}` : 'Last'}: ${formatTime(effectiveTime(cur))}${cur.moves ? ` · ${cur.moves.length} turns` : ''} · ${stampOf(cur.when)}`;
+      $('lastText').title = fullOf(cur.when);
       $('last').querySelectorAll<HTMLButtonElement>('button[data-pen]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pen) === cur.penalty));
     }
     // sessions
     const sel = $('session') as HTMLSelectElement;
-    sel.innerHTML = sessions.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
+    const now = Date.now();
+    sel.innerHTML = sessions.map((s) => {
+      const sp = spans.get(s.id);
+      return `<option value="${s.id}">${s.name}${sp ? ` · ${spanOf(sp.first, sp.last, now)} · ${sp.n}` : ' · empty'}</option>`;
+    }).join('');
     if (session) sel.value = session.id;
     // stats
     const times: Time[] = solves.map(effectiveTime);
@@ -494,7 +537,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       const i = solves.indexOf(v) + 1;
       const t = v.penalty === -1 ? 'DNF' : `${formatTime(effectiveTime(v))}${v.penalty === 2 ? '+' : ''}`;
       const m = v.moves ? `${v.moves.length} · ${(v.moves.length / Math.max(0.001, v.time / 1000)).toFixed(1)} tps` : v.source === 'import' ? 'csTimer' : '';
-      return `<li data-id="${v.id}" class="${v.id === selected ? 'sel' : ''}"><span class="n">${i}</span><span class="t">${t}</span><span class="s" title="${v.scramble}">${v.scramble}</span><span class="m">${m}</span></li>`;
+      return `<li data-id="${v.id}" class="${v.id === selected ? 'sel' : ''}" title="${fullOf(v.when)}"><span class="n">${i}</span><span class="t">${t}</span><span class="s" title="${v.scramble}">${v.scramble}</span><span class="m">${m}</span><span class="w">${stampOf(v.when, now)}</span></li>`;
     }).reverse().join('');
     $('more').hidden = showAll || solves.length <= 30;
   }

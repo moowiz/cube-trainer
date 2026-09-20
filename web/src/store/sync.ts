@@ -14,6 +14,25 @@ export interface SyncState {
   error?: string;
   pushed: number;
   pulled: number;
+  /** records edited here that the cloud has not acknowledged */
+  pending: number;
+  /** wall ms of the last push that left nothing pending (or found nothing to push) */
+  lastOk?: number;
+}
+
+/**
+ * What the header should warn about, or null: sync wanted but signed out, a failed push or
+ * listener, or edits the cloud has not taken for a while (offline: the SDK queues a commit and
+ * never rejects it, so `pending` sitting there is the only sign). Pure, for the tests.
+ */
+export function syncWarning(s: SyncState, now = Date.now(), online = true, stuckMs = 60_000): string | null {
+  if (s.status === 'off' || s.status === 'loading') return null;
+  if (s.status === 'signed-out') return 'Sync is on but you are signed out: solves stay on this device until you sign in again.';
+  if (s.status === 'error') return `Sync failed: ${s.error ?? 'unknown error'}`;
+  if (s.pending > 0 && (!online || now - (s.lastOk ?? 0) > stuckMs)) {
+    return `${s.pending} record${s.pending === 1 ? '' : 's'} not synced yet${online ? '' : ' (offline)'}. They will go up when the cloud answers.`;
+  }
+  return null;
 }
 
 type FB = typeof import('./firebase');
@@ -32,7 +51,7 @@ const getters: Record<Coll, (store: Store, id: string) => Promise<SolveRecord | 
 
 export class Sync {
   private fb: FB | null = null;
-  private state: SyncState = { status: 'off', pushed: 0, pulled: 0 };
+  private state: SyncState = { status: 'off', pushed: 0, pulled: 0, pending: 0 };
   private uid: string | null = null;
   private unsubs: (() => void)[] = [];
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -47,7 +66,7 @@ export class Sync {
   /** Load Firebase and follow the auth state; called at page load when sync was switched on before, and on Sign in. */
   async start(): Promise<void> {
     if (this.fb) return;
-    this.set({ status: 'loading' });
+    this.set({ status: 'loading', lastOk: Date.now() }); // the "pending too long" clock starts now, not at the epoch
     try { this.fb = await import('./firebase'); }
     catch (err) { this.set({ status: 'error', error: `Firebase failed to load: ${err instanceof Error ? err.message : err}` }); return; }
     const fb = this.fb;
@@ -55,6 +74,13 @@ export class Sync {
     fb.onAuthStateChanged(fb.auth, (user) => { void this.onUser(user); });
     this.store.onChange(() => this.schedulePush());
     window.addEventListener('online', () => this.schedulePush());
+    void this.countPending();
+  }
+
+  /** How many records wait for the cloud; kept on the state so the header can warn when they sit there. */
+  private async countPending(): Promise<void> {
+    try { const n = (await this.store.dirty()).length; if (n !== this.state.pending) this.set({ pending: n }); }
+    catch { /* the store is closing */ }
   }
 
   /**
@@ -86,7 +112,7 @@ export class Sync {
     this.stopListening();
     if (!user) { this.uid = null; this.set({ status: 'signed-out', user: undefined }); return; }
     this.uid = user.uid;
-    this.set({ status: 'syncing', user: { name: user.displayName ?? '', email: user.email ?? '' } });
+    this.set({ status: 'syncing', user: { name: user.displayName ?? '', email: user.email ?? '' }, lastOk: Date.now() });
     for (const coll of COLLS) this.listen(coll);
     await this.push();
   }
@@ -128,6 +154,7 @@ export class Sync {
   }
 
   private schedulePush(): void {
+    void this.countPending();
     if (!this.uid) return;
     clearTimeout(this.pushTimer);
     this.pushTimer = setTimeout(() => { void this.push(); }, 500);
@@ -153,8 +180,10 @@ export class Sync {
         if (!done.length) continue;
         await batch.commit();
         for (const { coll, id } of done) await this.store.clearDirty(coll, id);
-        this.set({ pushed: this.state.pushed + done.length });
+        this.set({ pushed: this.state.pushed + done.length, pending: Math.max(0, this.state.pending - done.length) });
       }
+      const left = (await this.store.dirty()).length;
+      this.set({ pending: left, ...(left === 0 ? { lastOk: Date.now() } : {}) });
       if (this.state.status === 'syncing' || this.state.status === 'error') this.set({ status: 'synced', error: undefined });
     } catch (err) {
       this.set({ status: 'error', error: `Push failed: ${err instanceof Error ? err.message : err}` });
