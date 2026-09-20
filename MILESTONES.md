@@ -24,7 +24,10 @@ landscape and the full feature catalogue in
 (M9 all but its written-down numbers), the timer is in daily use with
 csTimer's history imported (M10's timer half). Tap-to-fix is dropped as a
 requirement: a refused or wrong lock is rescanned. Next: M10's
-calibration and reader numbers, then M11.
+calibration and reader numbers, then M11. **M13's synthetic half was
+pulled forward on 2026-09-19** (the reader cannot be calibrated until
+the detector sees layers rather than hands); the work list and handoff
+are in `docs/twist-head-plan.md`.
 
 ---
 
@@ -503,10 +506,12 @@ round-trip check; `export_onnx.py` describes the channels in the sidecar
 and the app's decoder ignores them until it reads them. 2026-09-20:
 `tools/solve/twist_audit.py` scores a checkpoint's twist channel against
 the cube's move log on any recording (design doc 5.3, "The measurement"),
-so the plan-B question is answered by a run, not by labels. Not yet: the
-data_v6 render at scale (in progress, Windows), the run, `facekp.ts`
-decoding the twist, the reader's twist channel, real mid-turn labels (in
-progress, user).
+so the plan-B question is answered by a run, not by labels. `data_v6`
+is rendered (21k, 2026-09-20). **Handoff and work list:
+`docs/twist-head-plan.md`** - train (`tw-ft1`, `tw1`), audit, then either
+the app-side channel or the video-window model. Not yet: the run,
+`facekp.ts` decoding the twist, the reader's twist channel, real mid-turn
+labels (in progress, user).
 
 ---
 

@@ -159,7 +159,9 @@ def audit_labels(root: Path) -> None:
         # the turning face's quad is the rotated layer: its corners must not
         # coincide with the body-frame corners its neighbours still use
         vis = [g for g in FACE_DATA if lbl["faces"][g]["visible"]]
-        if tw["face"] in vis and abs(tw["deg"]) > 5:
+        # (near a full quarter turn the rotated square lands on the body frame
+        # again, so a shared corner there is expected)
+        if tw["face"] in vis and 5 < abs(tw["deg"]) < 85:
             tf = np.array(lbl["faces"][tw["face"]]["corners"])
             for g in vis:
                 if g == tw["face"]:
