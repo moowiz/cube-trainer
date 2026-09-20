@@ -49,14 +49,18 @@ type Phase = 'idle' | 'ready' | 'solving';
 const STYLE = `
   .tm { max-width: 560px; margin: 0 auto; }
   @media (min-width: 820px) { .tm { max-width: 720px; } }
-  .tm-scr { font-size: 20px; line-height: 1.6; word-spacing: .35em; padding: 6px 4px; text-align: center; min-height: 40px; }
-  .tm-scr .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
-  .tm-scr .gen { color: var(--ink-2); font-size: 15px; word-spacing: normal; }
+  .tm-scr { font-size: 26px; font-weight: 600; line-height: 1.5; word-spacing: .4em; padding: 6px 4px; text-align: center; min-height: 46px; letter-spacing: .01em; }
+  .tm-scr .done { color: var(--ink-2); font-weight: 400; text-decoration: underline; text-underline-offset: 5px; }
+  .tm-scr .gen { color: var(--ink-2); font-size: 15px; font-weight: 400; word-spacing: normal; }
+  /* the modifier is what gets misread across a desk: the prime is a real prime, big and red; the 2 is blue */
+  .mv .p { color: #B3261E; font-size: 1.15em; font-weight: 700; letter-spacing: 0; }
+  .mv .d { color: #1A56B8; font-weight: 700; }
+  .done .p, .done .d { color: inherit; font-weight: 400; }
   .tm-track { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 18px; }
   .tm-track.off { color: #7A4B00; font-weight: 600; }
   /* a solution on demand: the cube's belief with a smart cube, the scramble's state without */
   .tm-sol { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 22px; margin-top: 2px; }
-  .tm-sol .moves { display: block; font-size: 17px; line-height: 1.5; word-spacing: .35em; color: var(--ink); padding: 2px 4px; }
+  .tm-sol .moves { display: block; font-size: 20px; font-weight: 600; line-height: 1.5; word-spacing: .4em; color: var(--ink); padding: 2px 4px; }
   .tm-sol .moves .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .tm-sol .btn { padding: 2px 6px; font-size: 13px; }
   /* the tap pad: most of the screen on a phone; press and release starts, a tap stops */
@@ -85,6 +89,12 @@ const STYLE = `
   .tm-list .w { color: var(--ink-2); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 42px; text-align: right; }
   .tm-more { text-align: center; padding: 8px; }
 `;
+
+/** One move as markup: the face letter, then the prime (a real ′) or the 2 marked so they read from a distance. */
+export function moveHtml(m: string): string {
+  const mod = m.endsWith("'") ? '<span class="p">′</span>' : m.endsWith('2') ? '<span class="d">2</span>' : '';
+  return `<span class="mv">${mod ? m.slice(0, -1) : m}${mod}</span>`;
+}
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   if (!document.getElementById('timer-style')) {
@@ -177,7 +187,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let path: { states: string[]; moves: Move[]; wca: string[]; from: 'cube' | 'scramble' } | null = null;
   function drawSolution(done: number, half: boolean): void {
     if (!path) return;
-    const shown = path.wca.map((m, i) => `<span class="${i < done ? 'done' : ''}">${m}</span>`).join(' ');
+    const shown = path.wca.map((m, i) => `<span class="${i < done ? 'done' : ''}">${moveHtml(m)}</span>`).join(' ');
     const where = done >= path.moves.length ? 'Solved' : half ? `${done} of ${path.moves.length} done · halfway through ${path.wca[done]}` : done ? `${done} of ${path.moves.length} done` : `${path.moves.length} turns`;
     $('solText').innerHTML = `<span class="moves">${shown}</span>${where} · ${path.from === 'cube' ? 'the cube as the app believes it' : 'the scramble as shown'} · hold white on top, green facing you`;
   }
@@ -474,7 +484,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (!scramble) { el.innerHTML = '<span class="gen">generating a scramble…</span>'; $('track').textContent = ''; return; }
     const toks = scramble.split(' ');
     const applied = track && !track.off ? track.applied : track ? track.applied : 0;
-    el.innerHTML = toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${t}</span>`).join(' ');
+    el.innerHTML = toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ');
     const tr = $('track');
     if (!track) { tr.textContent = ''; tr.className = 'tm-track'; return; }
     if (track.off) { tr.textContent = `Off the scramble: undo back to turn ${track.applied} (underlined)`; tr.className = 'tm-track off'; }
