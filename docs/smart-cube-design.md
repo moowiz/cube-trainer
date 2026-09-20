@@ -459,6 +459,20 @@ Also decided: non-turning faces keep BODY-FRAME corners through a turn (the
 turning face's quad is the rotated layer), and slice / wide turns are out
 of the first head (`"face": "?"` masks such frames).
 
+**The measurement (2026-09-20, `tools/solve/twist_audit.py`).** The
+"fewer than half the real turns" test above needs no real twist labels:
+every recording carries the cube's move log, and a turn the cube reported
+at fitted send time T stopped at T - 5 ms (section 8), so the frames in
+[T - 355, T + 25] ms are that turn's and frames further than 600 ms from
+every turn are rest. The audit runs the two-stage detector over a solve's
+frames (12 ms/frame on the desktop CPU) and reports, per p(twisted)
+threshold, turns seen and rest false alarms; per layer; the class mix;
+whether the angle sweeps monotonically over a turn's frames; and detector
+coverage on its own (a turn with no quad at all is the hand problem, not
+the head's). `--strips N` draws the frames of each turn with the quads and
+reads. Run it on `tw-ft1` / `tw1` before any reader work; its verdict line
+is the plan-B trigger.
+
 ### 5.4 What M10 must record for this
 
 Full-rate video (every frame, not only detection frames: the `.webm` does

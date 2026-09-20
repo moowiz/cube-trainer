@@ -500,9 +500,13 @@ labels carry a `twist` field, non-turning faces keep body-frame corners
 QUAD - none / self / which edge borders the turning layer - plus the angle
 mod 90, since a single frame cannot tell +30 from -60), with metrics and a
 round-trip check; `export_onnx.py` describes the channels in the sidecar
-and the app's decoder ignores them until it reads them. Not yet: the
-data_v6 render at scale, the run, `facekp.ts` decoding the twist, the
-reader's twist channel, real mid-turn labels (in progress, user).
+and the app's decoder ignores them until it reads them. 2026-09-20:
+`tools/solve/twist_audit.py` scores a checkpoint's twist channel against
+the cube's move log on any recording (design doc 5.3, "The measurement"),
+so the plan-B question is answered by a run, not by labels. Not yet: the
+data_v6 render at scale (in progress, Windows), the run, `facekp.ts`
+decoding the twist, the reader's twist channel, real mid-turn labels (in
+progress, user).
 
 ---
 

@@ -18,10 +18,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import torch
-from PIL import Image
-
 from dataset import NORM_MEAN, NORM_STD, crop_letterbox, crop_window, letterbox_image, letterbox_params
 from model import build_model, decode_maps, decode_to_list, has_twist
+from PIL import Image
 from shapes import BOX_WH, KP_WH, PAD_VAL
 
 
@@ -38,7 +37,8 @@ class Detection:
     window: tuple[float, float, float, float]
     """center head: [{"score", "quad": (4,2) ndarray source px, "twist"?}], strongest first.
     "twist" (a --twist checkpoint only, M13): {"probs": 6 floats over none / self / edge0..3
-    in the quad's decoded corner order, "cls": argmax, "pTwisted": 1 - p(none),
+    in the quad's decoded corner order, "cls": argmax over all six, "twistCls": argmax over
+    the five twisted classes (which layer, given that one is turning), "pTwisted": 1 - p(none),
     "deg": the layer's angle mod 90}."""
     quads: list[dict] = field(default_factory=list)
     """legacy head only: [(face letter, conf, quad)] for every face >= legacy_thresh."""
@@ -119,6 +119,7 @@ class TwoStage:
                 det.quads.append({"score": float(scores[0, i]),
                                   "quad": np.array([to_source(float(u), float(v)) for u, v in q]),
                                   "twist": {"probs": [float(x) for x in probs], "cls": int(probs.argmax()),
+                                            "twistCls": int(1 + probs[1:].argmax()),
                                             "pTwisted": float(1 - probs[0]), "deg": float(tw["deg"][0, i])}})
         elif self.head == "center":
             for d in decode_to_list(pred, input_wh=self.input_wh, thresh=self.thresh)[0]:
