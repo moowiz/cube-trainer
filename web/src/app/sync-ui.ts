@@ -5,19 +5,24 @@
 // once sync has been switched on.
 
 import { openSheet, toast } from '../shell';
-import { Sync, syncWanted, syncWarning, type SyncState } from '../store/sync';
+import { Sync, syncChip, syncWanted, type SyncState } from '../store/sync';
 import { panel, store } from './context';
 
 let sync: Sync | null = null;
 let lastWarning: string | null = null;
 
-/** The chip in the tab bar: shown with the message while there is one; a new message also toasts once. */
+/** The chip in the tab bar: "Syncing" while records are on their way, a warning when they are not going; a new warning also toasts once. */
 function renderWarning(s: SyncState): void {
   const chip = document.getElementById('sync-warn');
   if (!chip) return;
-  const msg = syncWarning(s, Date.now(), navigator.onLine);
-  chip.hidden = msg === null;
-  chip.title = msg ?? '';
+  const c = syncChip(s, Date.now(), navigator.onLine);
+  chip.hidden = c === null;
+  chip.title = c?.text ?? '';
+  chip.classList.toggle('warn', c?.kind === 'warn');
+  chip.classList.toggle('busy', c?.kind === 'syncing');
+  chip.querySelector('.ico-txt')!.textContent = c?.kind === 'warn' ? '⚠' : '⟳';
+  chip.querySelector('.txt')!.textContent = c?.kind === 'warn' ? ' Not syncing' : ' Syncing';
+  const msg = c?.kind === 'warn' ? c.text : null;
   if (msg && msg !== lastWarning) toast(msg);
   lastWarning = msg;
 }

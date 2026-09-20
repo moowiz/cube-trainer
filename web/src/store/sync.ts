@@ -16,8 +16,8 @@ export interface SyncState {
   pulled: number;
   /** records edited here that the cloud has not acknowledged */
   pending: number;
-  /** wall ms of the last push that left nothing pending (or found nothing to push) */
-  lastOk?: number;
+  /** wall ms since when something has been pending (unset while nothing is) */
+  pendingSince?: number;
 }
 
 /**
@@ -29,9 +29,17 @@ export function syncWarning(s: SyncState, now = Date.now(), online = true, stuck
   if (s.status === 'off' || s.status === 'loading') return null;
   if (s.status === 'signed-out') return 'Sync is on but you are signed out: solves stay on this device until you sign in again.';
   if (s.status === 'error') return `Sync failed: ${s.error ?? 'unknown error'}`;
-  if (s.pending > 0 && (!online || now - (s.lastOk ?? 0) > stuckMs)) {
+  if (s.pending > 0 && (!online || now - (s.pendingSince ?? now) > stuckMs)) {
     return `${s.pending} record${s.pending === 1 ? '' : 's'} not synced yet${online ? '' : ' (offline)'}. They will go up when the cloud answers.`;
   }
+  return null;
+}
+
+/** The header chip, the way a document editor shows it: syncing while records are on their way, a warning when they are not going, nothing otherwise. */
+export function syncChip(s: SyncState, now = Date.now(), online = true): { kind: 'syncing' | 'warn'; text: string } | null {
+  const warn = syncWarning(s, now, online);
+  if (warn) return { kind: 'warn', text: warn };
+  if (s.pending > 0 && s.status !== 'off' && s.status !== 'loading') return { kind: 'syncing', text: `${s.pending} record${s.pending === 1 ? '' : 's'} on the way to the cloud` };
   return null;
 }
 
@@ -61,12 +69,18 @@ export class Sync {
 
   current(): SyncState { return this.state; }
 
-  private set(patch: Partial<SyncState>): void { this.state = { ...this.state, ...patch }; this.onState(this.state); }
+  private set(patch: Partial<SyncState>): void {
+    const next = { ...this.state, ...patch };
+    // the pending clock: starts when the queue fills, stops when it empties
+    if (next.pending > 0 && this.state.pending === 0) next.pendingSince = Date.now();
+    if (next.pending === 0) delete next.pendingSince;
+    this.state = next; this.onState(this.state);
+  }
 
   /** Load Firebase and follow the auth state; called at page load when sync was switched on before, and on Sign in. */
   async start(): Promise<void> {
     if (this.fb) return;
-    this.set({ status: 'loading', lastOk: Date.now() }); // the "pending too long" clock starts now, not at the epoch
+    this.set({ status: 'loading' });
     try { this.fb = await import('./firebase'); }
     catch (err) { this.set({ status: 'error', error: `Firebase failed to load: ${err instanceof Error ? err.message : err}` }); return; }
     const fb = this.fb;
@@ -112,7 +126,7 @@ export class Sync {
     this.stopListening();
     if (!user) { this.uid = null; this.set({ status: 'signed-out', user: undefined }); return; }
     this.uid = user.uid;
-    this.set({ status: 'syncing', user: { name: user.displayName ?? '', email: user.email ?? '' }, lastOk: Date.now() });
+    this.set({ status: 'syncing', user: { name: user.displayName ?? '', email: user.email ?? '' } });
     for (const coll of COLLS) this.listen(coll);
     await this.push();
   }
@@ -182,8 +196,7 @@ export class Sync {
         for (const { coll, id } of done) await this.store.clearDirty(coll, id);
         this.set({ pushed: this.state.pushed + done.length, pending: Math.max(0, this.state.pending - done.length) });
       }
-      const left = (await this.store.dirty()).length;
-      this.set({ pending: left, ...(left === 0 ? { lastOk: Date.now() } : {}) });
+      this.set({ pending: (await this.store.dirty()).length });
       if (this.state.status === 'syncing' || this.state.status === 'error') this.set({ status: 'synced', error: undefined });
     } catch (err) {
       this.set({ status: 'error', error: `Push failed: ${err instanceof Error ? err.message : err}` });

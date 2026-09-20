@@ -15,7 +15,7 @@ import { applySeq, parseAlg } from '../src/moves/moves';
 import { openStore } from '../src/store/local';
 import { effectiveTime, newId, type SessionRecord, type SolveRecord } from '../src/store/types';
 import { exportCsTimer, importCsTimer } from '../src/timer/cstimer';
-import { syncWarning } from '../src/store/sync';
+import { syncChip, syncWarning } from '../src/store/sync';
 import { averageOf, bestAverageOf, formatTime, meanOf, sessionStats, trimOf } from '../src/timer/stats';
 import { ScrambleTracker } from '../src/timer/track';
 import { SESSION_GAP_MS } from '../src/timer/trainer';
@@ -200,14 +200,21 @@ describe('the sync warning', () => {
   it('is quiet when sync is off, loading, or up to date', () => {
     expect(syncWarning({ ...base, status: 'off' }, t)).toBeNull();
     expect(syncWarning({ ...base, status: 'loading' }, t)).toBeNull();
-    expect(syncWarning({ ...base, status: 'synced', lastOk: t - 5_000 }, t)).toBeNull();
-    expect(syncWarning({ ...base, status: 'synced', pending: 3, lastOk: t - 5_000 }, t)).toBeNull();   // a push is in flight
+    expect(syncWarning({ ...base, status: 'synced' }, t)).toBeNull();
+    expect(syncWarning({ ...base, status: 'synced', pending: 3, pendingSince: t - 5_000 }, t)).toBeNull();   // a push is in flight
+  });
+
+  it('shows syncing while a push is in flight, whatever the time since the last one', () => {
+    expect(syncChip({ ...base, status: 'synced', pending: 1, pendingSince: t - 2_000 }, t)).toEqual({ kind: 'syncing', text: '1 record on the way to the cloud' });
+    expect(syncChip({ ...base, status: 'synced' }, t)).toBeNull();
+    expect(syncChip({ ...base, status: 'synced', pending: 1, pendingSince: t - 90_000 }, t)?.kind).toBe('warn');
+    expect(syncChip({ ...base, status: 'off', pending: 1, pendingSince: t - 90_000 }, t)).toBeNull();
   });
 
   it('warns when signed out, on an error, and when edits sit unacknowledged', () => {
     expect(syncWarning({ ...base, status: 'signed-out' }, t)).toMatch(/signed out/);
     expect(syncWarning({ ...base, status: 'error', error: 'permission-denied' }, t)).toBe('Sync failed: permission-denied');
-    expect(syncWarning({ ...base, status: 'synced', pending: 2, lastOk: t - 90_000 }, t)).toMatch(/^2 records not synced yet\./);
-    expect(syncWarning({ ...base, status: 'synced', pending: 1, lastOk: t - 5_000 }, t, false)).toMatch(/1 record not synced yet \(offline\)/);
+    expect(syncWarning({ ...base, status: 'synced', pending: 2, pendingSince: t - 90_000 }, t)).toMatch(/^2 records not synced yet\./);
+    expect(syncWarning({ ...base, status: 'synced', pending: 1, pendingSince: t - 5_000 }, t, false)).toMatch(/1 record not synced yet \(offline\)/);
   });
 });

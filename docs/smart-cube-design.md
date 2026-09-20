@@ -283,12 +283,14 @@ and the toast says how long the gap was; New session remains for a
 deliberate split. The list shows when each solve was (the clock for
 today's, the day for older ones; the full stamp on hover), and the picker
 shows each session's span and count; nothing new is stored, it all reads
-off `when`. The header grows a ⚠ chip whenever the cloud is not taking
-the solves: sync wanted but signed out, a failed push or listener, or
-records pending for over a minute (or any while offline: the SDK queues a
-commit and never rejects it, so `pending` sitting there is the only
-sign). `syncWarning` in `sync.ts` is the rule; the chip opens the
-settings sheet, whose sync row now counts the records waiting.
+off `when`. The header grows a sync chip, the way a document editor
+shows it: a spinning "Syncing" while records are on their way, and a ⚠
+whenever the cloud is not taking them: sync wanted but signed out, a
+failed push or listener, or records pending for over a minute since the
+queue filled (or any while offline: the SDK queues a commit and never
+rejects it, so `pending` sitting there is the only sign). `syncChip` /
+`syncWarning` in `sync.ts` are the rule; the chip opens the settings
+sheet, whose sync row counts the records waiting.
 
 ### 4.2 The recording rig (desktop)
 
