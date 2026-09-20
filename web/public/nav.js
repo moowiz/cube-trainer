@@ -5,6 +5,10 @@
 // in vite pages and static public/ pages; loaded as <script src="nav.js"
 // defer>. The floating page menu that used to live here went 2026-09-19
 // (it sat on the recording preview); the pages link to each other instead.
+// The chip also watches for a new deploy: version.json is fetched again
+// every few minutes and whenever the tab comes back into view, and when
+// its hash changes the chip turns amber and offers a reload (a tap; never
+// by itself - a solve or a recording may be running).
 (() => {
   const style = document.createElement('style');
   style.textContent = `
@@ -13,6 +17,7 @@
       background: rgba(20,22,28,.78); border: 1px solid rgba(255,255,255,.18); border-radius: 8px;
       padding: 4px 8px; white-space: pre; opacity: .8; backdrop-filter: blur(4px); }
     #page-ver:hover, #page-ver.open { opacity: 1; }
+    #page-ver.update { opacity: 1; color: #1B222C; background: #FFE9A8; border-color: #E0B24B; font-weight: 600; font-size: 13px; padding: 8px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
   `;
 
   // version chip: short form "hash · box17 / kpft8", tap for build time and which model is which
@@ -25,8 +30,28 @@
     const long = `${detail}\nTap to shrink`;
     ver.textContent = short;
     ver.title = `${detail}\nTap for details`;
-    ver.addEventListener('click', (e) => { e.stopPropagation(); ver.classList.toggle('open'); ver.textContent = ver.classList.contains('open') ? long : short; });
+    ver.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (ver.classList.contains('update')) { location.reload(); return; }
+      ver.classList.toggle('open'); ver.textContent = ver.classList.contains('open') ? long : short;
+    });
     ver.hidden = false;
+
+    // a new deploy: the chip becomes the update notice
+    let checking = false;
+    const check = () => {
+      if (checking || ver.classList.contains('update') || document.hidden) return;
+      checking = true;
+      fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((n) => {
+        if (n.hash === v.hash) return;
+        ver.classList.remove('open'); ver.classList.add('update');
+        ver.textContent = `↻ New version ${n.hash} · tap to reload`;
+        ver.title = `You are on ${v.hash}; ${n.hash} was deployed ${n.time}. Tap to reload (finish the solve or the recording first).`;
+      }).catch(() => undefined).finally(() => { checking = false; });
+    };
+    setInterval(check, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    window.addEventListener('focus', check);
   }).catch(() => ver.remove());
 
   const mount = () => { document.body.append(style, ver); };
