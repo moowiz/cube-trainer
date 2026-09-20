@@ -44,3 +44,4 @@ recordings/
 # agent worktrees (Claude Code)
 .claude/worktrees/
 model/preview_twist/
+model/data_v6*/

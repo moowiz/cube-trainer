@@ -135,6 +135,11 @@ def main():
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--head-lr-mult", type=float, default=1.0,
+                    help="center head: the last 1x1 conv's learning rate as a multiple of --lr. A "
+                         "--twist fine-tune from a checkpoint without the head starts its twist "
+                         "channels from scratch: at the fine-tune's 5e-5 they barely move in 15 "
+                         "epochs, so give the head ~10x (DECISION 2026-09-20, untested at scale)")
     ap.add_argument("--workers", type=int, default=8,
                     help="DataLoader workers. 8 with --compile (the main thread is idle enough "
                          "for them to pay), 4 with --compile off; ~56%% CPU either way")
@@ -253,9 +258,15 @@ def main():
     # (12.6 -> 0.9 ms/step measured 2026-09-12), and GradScaler hands the fused
     # step its found_inf tensor instead of calling .item() on it - the last
     # per-step device sync in the loop.
-    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4, fused=(device == "cuda"))
+    head_params = list(model.head.parameters()) if hasattr(model, "head") and args.head_lr_mult != 1.0 else []
+    head_ids = {id(p) for p in head_params}
+    groups = [{"params": [p for p in model.parameters() if id(p) not in head_ids], "lr": args.lr}]
+    if head_params:
+        groups.append({"params": head_params, "lr": args.lr * args.head_lr_mult})
+        print(f"head lr x{args.head_lr_mult:g} ({len(head_params)} tensors)")
+    opt = torch.optim.AdamW(groups, lr=args.lr, weight_decay=1e-4, fused=(device == "cuda"))
     total_steps = args.epochs * max(1, len(train_dl))
-    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=total_steps)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=[g["lr"] for g in groups], total_steps=total_steps)
     scaler = torch.amp.GradScaler(enabled=device == "cuda")
 
     best_px = float("inf")

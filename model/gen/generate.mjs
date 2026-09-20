@@ -89,11 +89,12 @@ async function main() {
   const port = server.address().port;
 
   const browser = await puppeteer.launch({
-    // 'shell' = chrome-headless-shell, not full Chrome: full Chrome cannot
-    // start inside the WSL sandbox (crashpad, AF_UNIX sockets - see
-    // docs/wsl-sandbox.md "Headless Chrome"). The shell has WebGL over
-    // SwiftShader, which is all the renderer ever had headless anyway.
-    headless: 'shell',
+    // Linux: 'shell' = chrome-headless-shell, not full Chrome, because full
+    // Chrome cannot start inside the WSL sandbox (crashpad, AF_UNIX sockets -
+    // docs/wsl-sandbox.md "Chrome and torch inside the sandbox"); the shell
+    // renders over SwiftShader at ~1.5/s. Windows: full headless Chrome, which
+    // gets the GPU and did data_v5 at 12.8/s. GEN_HEADLESS=shell|chrome overrides.
+    headless: (process.env.GEN_HEADLESS ?? (process.platform === 'win32' ? 'chrome' : 'shell')) === 'chrome' ? true : 'shell',
     // --no-sandbox: Chrome refuses to start as root ("Running as root without
     // --no-sandbox is not supported"), which is every container, including
     // the rented boxes in model/cloud/RUNBOOK.md. It costs nothing here: the

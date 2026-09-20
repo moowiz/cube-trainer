@@ -21,7 +21,7 @@ import torch
 from PIL import Image
 
 from dataset import NORM_MEAN, NORM_STD, crop_letterbox, crop_window, letterbox_image, letterbox_params
-from model import build_model, decode_to_list
+from model import build_model, decode_maps, decode_to_list, has_twist
 from shapes import BOX_WH, KP_WH, PAD_VAL
 
 
@@ -36,7 +36,10 @@ class Detection:
     box: tuple[float, float, float, float] | None
     """The padded, clamped window stage 2 looked at."""
     window: tuple[float, float, float, float]
-    """center head: [{"score", "quad": (4,2) ndarray source px}], strongest first."""
+    """center head: [{"score", "quad": (4,2) ndarray source px, "twist"?}], strongest first.
+    "twist" (a --twist checkpoint only, M13): {"probs": 6 floats over none / self / edge0..3
+    in the quad's decoded corner order, "cls": argmax, "pTwisted": 1 - p(none),
+    "deg": the layer's angle mod 90}."""
     quads: list[dict] = field(default_factory=list)
     """legacy head only: [(face letter, conf, quad)] for every face >= legacy_thresh."""
     faces: list[tuple[str, float, np.ndarray]] = field(default_factory=list)
@@ -49,13 +52,13 @@ class TwoStage:
 
     @classmethod
     def load(cls, ckpt_path: str, box_ckpt_path: str | None = None, thresh: float = 0.25,
-             device: str | None = None) -> "TwoStage":
+             device: str | None = None) -> TwoStage:
         device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
         head = ckpt.get("head", "legacy")
         input_wh = tuple(ckpt.get("input_wh", KP_WH))
         model = build_model(head, pretrained=False, input_hw=(input_wh[1], input_wh[0]),
-                            npts=ckpt.get("npts", 4)).to(device)
+                            npts=ckpt.get("npts", 4), twist=bool(ckpt.get("twist", False))).to(device)
         model.load_state_dict(ckpt["model"])
         model.eval()
         localizer = None
@@ -66,6 +69,7 @@ class TwoStage:
             localizer.load_state_dict(bck["model"])
             localizer.eval()
         print(f"head={head}  view={ckpt.get('view', 'frame')} {input_wh}  ckpt={ckpt_path}"
+              + ("  twist=on" if ckpt.get("twist") else "")
               + (f"  stage 1 {box_ckpt_path}" if localizer else ""))
         return cls(model, head, input_wh, localizer, device, thresh)
 
@@ -105,7 +109,18 @@ class TwoStage:
             return ((u * iw - dx) / scale + window[0], (v * ih - dy) / scale + window[1])
 
         det = Detection(obj=obj, box=box, window=window)
-        if self.head == "center":
+        if self.head == "center" and has_twist(pred):
+            scores, quads, tw = decode_maps(pred, input_wh=self.input_wh, thresh=self.thresh, with_twist=True)
+            for i in range(scores.shape[1]):
+                if scores[0, i] <= 0:
+                    continue
+                probs = tw["probs"][0, i].cpu().numpy()
+                q = quads[0, i].cpu().numpy()
+                det.quads.append({"score": float(scores[0, i]),
+                                  "quad": np.array([to_source(float(u), float(v)) for u, v in q]),
+                                  "twist": {"probs": [float(x) for x in probs], "cls": int(probs.argmax()),
+                                            "pTwisted": float(1 - probs[0]), "deg": float(tw["deg"][0, i])}})
+        elif self.head == "center":
             for d in decode_to_list(pred, input_wh=self.input_wh, thresh=self.thresh)[0]:
                 det.quads.append({"score": d["score"],
                                   "quad": np.array([to_source(u, v) for u, v in d["quad"]])})
