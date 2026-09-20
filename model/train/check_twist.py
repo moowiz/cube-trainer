@@ -87,7 +87,7 @@ def check_geometry() -> int:
     assert TWIST_FACES == "URFDLB"
     # 2 + 3. every (turning face, clockwise angle) moves every neighbour's
     # bordering row from corner k+1 toward corner k
-    for axis, ai in AXES.items():
+    for ai in AXES.values():
         for layer in (-1, 1):
             n = np.zeros(3)
             n[ai] = layer

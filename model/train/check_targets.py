@@ -27,9 +27,9 @@ import numpy as np
 import torch
 
 from model import (
+    POINT_COUNTS,
     TWIST_CH,
     TWIST_CLASSES,
-    POINT_COUNTS,
     center_loss,
     center_metrics,
     decode_maps,
