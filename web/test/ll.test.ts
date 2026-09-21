@@ -6,7 +6,7 @@ import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import { algAngle, features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
-  SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
+  SOLVED, aufToSolve, chainPartner, done, fitAlg, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
 } from '../src/ll/model';
 import { faceTurns } from '../src/cube/state';
 import { stageOf } from '../src/stage';
@@ -458,5 +458,20 @@ describe('the J perms: the 2x2 block sits where the hint says, at the alg\'s ang
     const c = PLL_CASES.find((x) => x.id === 'Jb')!;
     expect(block(state(inverse(c.alg)), 'left')).toBe('left end');
     expect(c.hint).toContain('the block is at its left end');
+  });
+});
+
+describe('the alternative algs solve their case', () => {
+  it('every alt is the same case as the standard alg (up to AUF) and solves it from the case, F2L kept', () => {
+    let n = 0;
+    for (const c of PLL_CASES) for (const a of c.alts ?? []) {
+      n++;
+      expect([c.id, a.alg, identify('pll', inverse(a.alg))?.id]).toEqual([c.id, a.alg, c.id]);
+      const fit = fitAlg('pll', inverse(c.alg), a.alg);
+      expect([c.id, a.alg, fit !== null]).toEqual([c.id, a.alg, true]);
+      expect([c.id, a.alg, state(`${inverse(c.alg)} ${fit!.pre} ${a.alg} ${fit!.post}`)]).toEqual([c.id, a.alg, SOLVED]);
+    }
+    expect(n).toBeGreaterThan(20);
+    for (const c of OCLL_CASES) expect([c.id, c.alts]).toEqual([c.id, undefined]); // the H and T ids are shared: alts are PLL's
   });
 });

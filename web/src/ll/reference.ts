@@ -38,6 +38,8 @@ const STYLE = `
   .llr-name small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
   .llr-alg { font-size: 15px; word-spacing: .25em; line-height: 1.5; }
   .llr-alg .ll-trig { padding-bottom: 12px; }
+  .llr-alt { border-left: 2px solid var(--line); padding-left: 8px; margin: 2px 0; }
+  .llr-alt small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
   .llr-hint, .llr-chain { font-size: 13px; color: var(--ink-2); }
   .llr-hint b, .llr-chain b { color: var(--ink); font-weight: 600; }
 `;
@@ -146,6 +148,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
           <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
           <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
           <div class="llr-alg">${algHtml(c.alg)}</div>
+          ${(c.alts ?? []).map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span><small>${esc(a.note)}</small></div>`).join('')}
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
           ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
           <div class="llr-chain">${chain}</div>

@@ -89,6 +89,20 @@ export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase
 }
 
 /**
+ * The AUFs that make `alg` solve the drill's stage from the state after `before` (an alternative alg
+ * for the case on the cube): the U turn to do first and, for PLL, the one after; null when it does not.
+ */
+export function fitAlg(kind: LLKind, before: string, alg: string): { pre: string; post: string } | null {
+  for (const pre of AUFS) {
+    const after = `${before} ${pre} ${alg}`;
+    if (kind === 'ocll') { if (done(kind, after)) return { pre, post: '' }; continue; }
+    const post = aufToSolve(after);
+    if (post !== null) return { pre, post };
+  }
+  return null;
+}
+
+/**
  * A random drill: the inverse of a random case's alg, in a random AUF. OCLL drills also get a
  * random corner/edge permutation first (a PLL alg without whole-cube rotations, so the setup can be
  * applied to a real cube as written), since after F2L the permutation is random too. PLL drills

@@ -4,15 +4,18 @@
 // that reveal the case, Check on the moves typed, and the standard alg with
 // its AUFs in brackets. The drill scaffold owns timer, box, result, keys.
 //
-// Four settings, inline after the hints and kept per drill: where the drill
+// Five settings, inline after the hints and kept per drill: where the drill
 // starts (its own stage, or the step before - the corners to orient, the
 // last pair to insert - so the case has to be recognised after solving that
 // your own way, as in a solve), whether the alg shows as soon as the case
 // does (learning the alg rather than the recognition), whether a solved
 // case brings the next one by itself (back to back on a smart cube: solve,
-// scramble along the underline, solve), and which cases New case draws
-// from (the ones being learnt; with an earlier start the case that comes
-// up is still whatever the step before leaves).
+// scramble along the underline, solve), a voice (speech synthesis) that
+// either says each move as the cube makes it or reads the next move of the
+// alg on show - eyes on the cube, not the screen, while an alg is learnt -
+// and which cases New case draws from (the ones being learnt; with an
+// earlier start the case that comes up is still whatever the step before
+// leaves).
 //
 // The picture is the cube in 3D, seen from above (the last layer is what
 // matters, the sides show the case's bars and headlights), turned to the open
@@ -39,7 +42,7 @@ import type { FaceId } from '../cube/frame';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
+import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
 import { algAngle } from './features';
 import { ensurePicStyle, picSvg } from './pic';
 import { openLLReference } from './reference';
@@ -77,7 +80,23 @@ const STYLE = `
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. */
-interface Settings { from: LLStart; auto: boolean; next: boolean; cases?: string[] }
+interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; cases?: string[] }
+type Voice = 'off' | 'echo' | 'read';
+const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move' };
+// what the voice says for a move: the letter, then prime / two; a wide move and a rotation by name
+const SPOKEN: Record<string, string> = { x: 'x', y: 'y', z: 'z', M: 'M', E: 'E', S: 'S' };
+function spoken(m: string): string {
+  const base = m[0]!, suf = m.slice(1);
+  const name = SPOKEN[base] ?? (base === base.toLowerCase() ? `wide ${base.toUpperCase()}` : base);
+  return `${name}${suf === "'" ? ' prime' : suf === '2' ? ' two' : ''}`;
+}
+function say(text: string): void {
+  if (typeof speechSynthesis === 'undefined') return;
+  speechSynthesis.cancel(); // the latest wins: a queue would lag behind fast turning
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 1.2; u.lang = 'en-US';
+  speechSynthesis.speak(u);
+}
 // DECISION: the result stays up this long before the next case replaces it (the time and the case's name)
 const NEXT_AFTER_MS = 1500;
 
@@ -88,10 +107,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false };
+  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off' };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
+  if (!(settings.voice in VOICE_LABEL)) settings.voice = 'off';
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
@@ -104,6 +124,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
         <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
+        <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
       </div>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>`,
     left: `
@@ -184,6 +205,15 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     tr.textContent = track.off ? `Off the scramble: undo back to turn ${track.applied} (underlined)` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
   }
   let tracker: ScrambleTracker | null = null, trackKey = '', track: TrackStatus | null = null;
+  let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
+  let fedCount = 0;                   // moves fed so far, for the echo
+  /** The cube's moves came in: echo the newest, or read the alg's next. */
+  function heard(text: string): void {
+    let toks: string[];
+    try { toks = tokens(text); } catch { return; }
+    if (settings.voice === 'echo' && toks.length > fedCount) say(toks.slice(fedCount).map(spoken).join(', '));
+    fedCount = toks.length;
+  }
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
     if (!scramble) { track = null; return; }
     const key = `${scramble}|${Object.values(colourOf).join(',')}|${hold().front}`;
@@ -206,7 +236,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
-    scramble = null; track = null;
+    scramble = null; track = null; lastRead = null; fedCount = 0;
     const gen = ++scrambleGen;
     setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
@@ -243,18 +273,39 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   /**
    * The steps as listed lines, [AUF]s in brackets, triggers labelled, each line applying the route
    * so far (from `before`, moves already done from the setup) so ▶ and the peek show the right cube.
+   * The last step's other algs (the case's alts, with their own AUFs from where the route leaves it)
+   * follow as "or" lines with the note on how each is built.
    */
   function putAlgLines(steps: RouteStep[], before = ''): void {
     const body = drill.result.body; body.innerHTML = '';
+    const line = (step: RouteStep, sofar: string): HTMLElement => {
+      const d = drill.algLine(stepShown(step), `${sofar} ${stepPlain(step)}`.trim(), sofar ? tokens(sofar).length : 0); d.classList.add('ll-alg');
+      markTriggers(d, step.alg, step.pre ? 1 : 0);
+      body.appendChild(d);
+      return d;
+    };
     let sofar = before;
+    let lastLine: HTMLElement | null = null;
     for (const s of steps) {
       if (steps.length > 1) body.insertAdjacentHTML('beforeend', `<div class="ll-step"><b>${s.name}</b> · ${stepMoves(s)} moves</div>`);
-      const d = drill.algLine(stepShown(s), `${sofar} ${stepPlain(s)}`.trim(), sofar ? tokens(sofar).length : 0); d.classList.add('ll-alg');
-      markTriggers(d, s.alg, s.pre ? 1 : 0);
-      body.appendChild(d);
+      lastLine = line(s, sofar);
       sofar = `${sofar} ${stepPlain(s)}`.trim();
     }
-    if (steps.some((s) => s.pre || s.post)) body.lastElementChild?.insertAdjacentHTML('beforeend', AUF_NOTE);
+    lastLine?.setAttribute('data-main', '1'); // the route the voice reads
+    const last = steps[steps.length - 1];
+    let anyAuf = steps.some((s) => s.pre || s.post);
+    if (last?.case?.alts) {
+      const at = sofar.slice(0, sofar.length - stepPlain(last).length).trim(); // the route before the last step
+      for (const alt of last.case.alts) {
+        const fit = fitAlg(kind, `${setup} ${at}`, alt.alg);
+        if (!fit) continue;
+        const step: RouteStep = { ...last, alg: alt.alg, pre: fit.pre, post: fit.post };
+        body.insertAdjacentHTML('beforeend', `<div class="ll-step">or · ${stepMoves(step)} moves · ${alt.note}</div>`);
+        lastLine = line(step, at);
+        anyAuf ||= !!(fit.pre || fit.post);
+      }
+    }
+    if (anyAuf) lastLine?.insertAdjacentHTML('beforeend', AUF_NOTE);
     followAlg(drill.moves());
   }
 
@@ -265,25 +316,31 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
    */
   function followAlg(text: string): void {
     const lines = [...drill.result.body.querySelectorAll<HTMLElement>('.ll-alg')];
-    const last = lines[lines.length - 1];
-    if (!last) return;
-    const route = tokens(last.dataset.alg ?? '');
+    if (!lines.length) return;
     let cur: string | null;
     try { cur = state(`${setup} ${tokens(text).join(' ')}`); } catch { cur = null; }
-    let done = 0, half = false;
-    if (cur !== null) {
-      const states = [state(setup)];
-      for (let i = 1; i <= route.length; i++) states.push(state(`${setup} ${route.slice(0, i).join(' ')}`));
-      const k = states.lastIndexOf(cur);
-      if (k >= 0) done = k;
-      else for (let i = 0; i < route.length; i++) {
-        const m = route[i]!;
-        if (!m.endsWith('2')) continue;
-        const before = `${setup} ${route.slice(0, i).join(' ')}`;
-        if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; break; }
-      }
-    }
+    // each line is its own route from the setup (an alt is another way from where the steps before leave the cube)
     for (const line of lines) {
+      const route = tokens(line.dataset.alg ?? '');
+      let done = 0, half = false, onRoute = false;
+      if (cur !== null) {
+        const states = [state(setup)];
+        for (let i = 1; i <= route.length; i++) states.push(state(`${setup} ${route.slice(0, i).join(' ')}`));
+        const k = states.lastIndexOf(cur);
+        if (k >= 0) { done = k; onRoute = true; }
+        else for (let i = 0; i < route.length; i++) {
+          const m = route[i]!;
+          if (!m.endsWith('2')) continue;
+          const before = `${setup} ${route.slice(0, i).join(' ')}`;
+          if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; onRoute = true; break; }
+        }
+      }
+      // the voice reads the next move of the main route (the other half of a double turn when halfway)
+      if (line.dataset.main && settings.voice === 'read' && onRoute) {
+        const next = route[done];
+        const words = next === undefined ? 'done' : half ? `${spoken(next[0]!)} again` : spoken(next);
+        if (words !== lastRead) { lastRead = words; say(words); }
+      }
       const skip = Number(line.dataset.skip ?? 0);
       for (const mv of line.querySelectorAll<HTMLElement>('.mv')) {
         const i = skip + Number(mv.dataset.i);
@@ -335,6 +392,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
     drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : ''));
+    if (settings.voice !== 'off' && t !== null) say(`${step?.name ?? 'skip'}, ${t.toFixed(1)}`);
     if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
     queueNext();
     if (kind === 'ocll' && stages.pll) {
@@ -367,6 +425,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement, nextBox = drill.$('chain') as HTMLInputElement;
   fromSel.value = settings.from; autoBox.checked = settings.auto; nextBox.checked = settings.next;
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
+  const voiceSel = drill.$('voice') as HTMLSelectElement;
+  voiceSel.value = settings.voice;
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : 'I will read the alg'); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
@@ -377,5 +438,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => { const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; }, armed: (t) => drill.armed(t), watch };
+  return {
+    load, render, scramble: () => scramble || setup || null, newScramble: newCase, watch,
+    feed: (text, t, source) => { heard(text); const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; },
+    // the cube is at the scramble: the voice reads the first move of the alg on show
+    armed: (t) => { drill.armed(t); fedCount = 0; followAlg(''); },
+  };
 }

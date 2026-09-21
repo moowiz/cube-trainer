@@ -130,6 +130,8 @@ const CHUNKS: { moves: string; label: string }[] = [
   { moves: "R U R' D R U' R' D'", label: 'commutator' },            // E perm, second half: [R U R', D]
   { moves: "R D R' U' R D' R'", label: 'commutator' },              // Ra: [R D R', U']
   { moves: "R' D2 R U' R' D2 R", label: 'commutator' },             // Aa: [R' D2 R, U'] (R' D2 R is its own inverse)
+  { moves: "L U' R U2 L' U R'", label: 'N half' },                   // Na's R/L alg is this twice
+  { moves: "R' U L' U2 R U' L", label: 'N half' },                   // Nb's likewise
   { moves: "D R' U R D'", label: "R' U R under D" },                 // Ga's ending
   { moves: "D' R U' R' D", label: "R U' R' under D" },               // Gc's ending
 ].sort((a, b) => tokens(b.moves).length - tokens(a.moves).length);
