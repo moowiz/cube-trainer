@@ -122,20 +122,29 @@ export function annotate(alg: string): TrickRow[] {
 }
 
 // ---- chunks: the longer blocks the PLL algs share, labelled on alg lines over the finger-level triggers ----
-// (2026-09-21, user: the same sequences keep coming round). Matched first, longest first; the triggers
-// fill what they leave. The sheet's rows stay finger by finger: a chunk is a reading aid, not a fingering.
+// (2026-09-21, user: the same sequences keep coming round). The longest match anywhere wins, then the next
+// longest that does not overlap; the triggers fill what they leave. The sheet's rows stay finger by finger:
+// a chunk is a reading aid, not a fingering. "X in Y" is X conjugated by Y (Y, X, Y undone).
 const CHUNKS: { moves: string; label: string }[] = [
   { moves: "R U R' U' R' F R2 U' R'", label: 'T core' },           // the middle of the T perm: in T, Jb, F and Na
   { moves: "F R U' R' U' R U R' F'", label: 'inserts in F' },        // Y's first half: R U' R', U', R U R' inside F ... F' (an OLL alg on its own)
+  { moves: "F R U R' U' R' F'", label: "sexy R' in F" },             // Rb's second half
+  { moves: "F' R2 U' R' U R' F", label: "R2 U' R' U R' in F'" },     // V's middle
+  { moves: "R' F' U' F R", label: "F' U' F in R'" },                 // Nb: the F insert wrapped in R' ... R
+  { moves: "R' F R' F' R", label: "F R' F' in R'" },                 // Nb: and its partner
   { moves: "R U' R' D R U R' D'", label: 'commutator' },            // E perm, first half: [R U' R', D]
   { moves: "R U R' D R U' R' D'", label: 'commutator' },            // E perm, second half: [R U R', D]
-  { moves: "R D R' U' R D' R'", label: 'commutator' },              // Ra: [R D R', U']
-  { moves: "R' D2 R U' R' D2 R", label: 'commutator' },             // Aa: [R' D2 R, U'] (R' D2 R is its own inverse)
+  { moves: "R D R' U' R D' R'", label: 'commutator' },              // Ra: [R D R', U'] (its closing U merges into the U2 after)
+  { moves: "R' D' R U' R' D R U", label: 'commutator' },            // Rb's D version: [R' D' R, U']
+  { moves: "U R' D2 R U' R' D2", label: 'commutator' },             // Aa: [U, R' D2 R] (its closing R merges into the R2 after)
+  { moves: "D2 R U R' D2 R U'", label: 'commutator' },              // Ab: [R' D2 R, U] (its opening R' merges into the R2 before)
+  { moves: "F R' B2 R F' R' B2", label: 'commutator' },             // Aa's F/B version: [F, R' B2 R] (closing R merged likewise)
+  { moves: "B' R F2 R' B R F2", label: 'commutator' },              // Ab's F/B version: [B', R F2 R']
   { moves: "L U' R U2 L' U R'", label: 'N half' },                   // Na's R/L alg is this twice
   { moves: "R' U L' U2 R U' L", label: 'N half' },                   // Nb's likewise
   { moves: "D R' U R D'", label: "R' U R under D" },                 // Ga's ending
   { moves: "D' R U' R' D", label: "R U' R' under D" },               // Gc's ending
-].sort((a, b) => tokens(b.moves).length - tokens(a.moves).length);
+];
 const CHUNK_TOKENS = CHUNKS.map((c) => ({ ...c, toks: tokens(c.moves) }));
 
 /**
@@ -145,19 +154,17 @@ const CHUNK_TOKENS = CHUNKS.map((c) => ({ ...c, toks: tokens(c.moves) }));
  */
 export function triggers(alg: string): { at: number; n: number; label: string }[] {
   const toks = tokens(alg);
+  const found: { at: number; n: number; label: string }[] = [];
+  for (const c of CHUNK_TOKENS) for (let i = 0; i + c.toks.length <= toks.length; i++) if (c.toks.every((m, k) => toks[i + k] === m)) found.push({ at: i, n: c.toks.length, label: c.label });
+  found.sort((a, b) => b.n - a.n || a.at - b.at);
   const out: { at: number; n: number; label: string }[] = [];
   const taken = new Array<boolean>(toks.length).fill(false);
-  for (let i = 0; i < toks.length; ) {
-    const c = CHUNK_TOKENS.find((x) => x.toks.every((m, k) => toks[i + k] === m));
-    if (!c) { i++; continue; }
-    out.push({ at: i, n: c.toks.length, label: c.label });
-    for (let k = 0; k < c.toks.length; k++) taken[i + k] = true;
-    i += c.toks.length;
-  }
+  const free = (at: number, n: number) => !taken.slice(at, at + n).some(Boolean);
+  for (const f of found) if (free(f.at, f.n)) { out.push(f); for (let k = 0; k < f.n; k++) taken[f.at + k] = true; }
   let at = 0;
   for (const r of annotate(alg)) {
     const n = r.moves.length;
-    if (r.label && !taken.slice(at, at + n).some(Boolean)) out.push({ at, n, label: r.label });
+    if (r.label && free(at, n)) out.push({ at, n, label: r.label });
     at += n;
   }
   return out.sort((a, b) => a.at - b.at);

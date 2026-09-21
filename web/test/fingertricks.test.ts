@@ -27,6 +27,12 @@ describe('fingertricks', () => {
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'")).toEqual([{ at: 4, n: 9, label: 'T core' }]); // Jb = R U R' F' + T core
     expect(triggers("x' R U' R' D R U R' D' R U R' D R U' R' D' x")).toEqual([{ at: 1, n: 8, label: 'commutator' }, { at: 9, n: 8, label: 'commutator' }]); // E perm
     expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "R' U R under D" }]); // Ga
+    // the longest match anywhere wins: Jb keeps its T core although "sexy R' in F'" would start a move earlier
+    expect(triggers("R U R' F' R U R' U' R' F R2 U' R'").map((g) => g.label)).toEqual(['T core']);
+    expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "F' U' F in R'"], [10, "F R' F' in R'"]]); // Nb
+    expect(triggers("x R' U R' D2 R U' R' D2 R2 x'").map((g) => [g.at, g.n, g.label])).toEqual([[2, 7, 'commutator']]); // Aa (the closing R is merged into the R2)
+    expect(triggers("x R2 D2 R U R' D2 R U' R x'").map((g) => [g.at, g.n, g.label])).toEqual([[2, 7, 'commutator']]); // Ab (the opening R' merged into the R2)
+    expect(triggers("R' U2 R U2 R' F R U R' U' R' F' R2").map((g) => [g.at, g.label])).toEqual([[5, "sexy R' in F"]]); // Rb
     expect(triggers("R U2 R' U' R U' R'")).toEqual([]); // R U2 R' is a unit but not a named trigger
   });
 
