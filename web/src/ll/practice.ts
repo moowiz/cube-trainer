@@ -42,15 +42,16 @@ export function caseStats(attempts: readonly AttemptRecord[], cases: readonly LL
     const timed = as.filter((a) => a.time !== null).map((a) => a.time!);
     const recentAs = as.slice(-RECENT);
     const fed = recentAs.filter((a) => a.recognition !== undefined && a.execution !== undefined);
+    const reps = (a: AttemptRecord) => a.start === 'repeat'; // an alg repeated on the cube in hand: nothing to recognise, the alg on show
     const asked = as.filter((a) => a.quiz === 'right' || a.quiz === 'wrong' || a.quiz === 'gaveUp');
     return {
       id: c.id, name: c.name, n: as.length,
       best: timed.length ? Math.min(...timed) : null,
       recent: mean(timed.slice(-RECENT)),
-      recognition: mean(fed.map((a) => a.recognition!)),
+      recognition: mean(fed.filter((a) => !reps(a)).map((a) => a.recognition!)),
       execution: mean(fed.map((a) => a.execution!)),
       quizRight: asked.filter((a) => a.quiz === 'right').length, quizAsked: asked.length,
-      assisted: as.filter((a) => a.assisted).length,
+      assisted: as.filter((a) => a.assisted && !reps(a)).length,
       last: as.length ? as[as.length - 1]!.when : null,
     };
   });

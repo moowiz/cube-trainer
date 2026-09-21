@@ -33,8 +33,9 @@ import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceHex, onSchemeChange } from '../cube/scheme';
 import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
 import { hold } from '../app/context';
+import { syncDriver } from '../app/sources';
 import { SLOTS, slotSolved } from '../f2l/model';
-import { toSourceLetters } from '../handoff';
+import { toSourceLetters, trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
 import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { ScrambleTracker, type TrackStatus } from '../timer/track';
@@ -48,6 +49,7 @@ import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, ro
 import { algAngle } from './features';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
+import { solveAny } from './scramble';
 import { caseStats, RECENT, secs, workOn } from './practice';
 import { openLLReference } from './reference';
 
@@ -103,8 +105,8 @@ const STYLE = `
   .ll-practice .note { margin-top: 6px; }
 `;
 
-/** `cases`: the ids New case draws from; absent means all of them. */
-interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; cases?: string[] }
+/** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
+interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; repeat: boolean; cases?: string[] }
 type Voice = 'off' | 'echo' | 'read' | 'quiz';
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
@@ -168,7 +170,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', alts: false };
+  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', alts: false, repeat: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
@@ -182,6 +184,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
         <label><input type="checkbox" id="${id('auto')}"> Show the alg once I start (or answer)</label>
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
+        <label title="The algs of the cases in the drill, one after another, from wherever the cube is: no scramble, the alg on show, wrong turns called"><input type="checkbox" id="${id('repeat')}"> Repeat the algs (no scramble)</label>
         <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
       </div>
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
@@ -193,9 +196,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble ll-scr" id="${id('setup')}"></div>
       <div class="ll-track" id="${id('track')}"></div>`,
-  }, { onNew: newCase, onCheck: check, onShow: onShow, onClear: () => { shown = null; render(); },
+  }, { onNew: () => (settings.repeat ? startRep(true) : newCase()), onCheck: (txt) => (settings.repeat ? checkRep(txt) : check(txt)), onShow: onShow, onClear: () => { shown = null; render(); },
     // a cube feeding the box is done when the case is (the AUF included: it is timed too)
-    isDone: (txt) => { try { return done(kind, `${setup} ${tokens(txt).join(' ')}`); } catch { return false; } },
+    isDone: (txt) => { try { return settings.repeat ? repDone(txt) : done(kind, `${setup} ${tokens(txt).join(' ')}`); } catch { return false; } },
     base: () => setup, onApply: (alg) => { shown = `${setup} ${alg}`; render(); } });
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
@@ -232,6 +235,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   /** ", after Sune by the standard algs" - what the case named depends on when the drill starts earlier. */
   const afterLead = () => (lead.length ? `, after ${leadNames()} by the standard alg${lead.length > 1 ? 's' : ''}` : '');
   function caseText(): string {
+    if (settings.repeat && sol) return `<b>${sol.name}</b> · rep ${repN + 1}${lastRep ? ` · last ${lastRep.name} ${lastRep.t === null ? '' : `${lastRep.t.toFixed(2)}s`}` : ''}`;
     if (recorded && cameUp) return `<b>${cameUp}</b>`;
     if (sol) return `<b>${sol.name}</b>${afterLead()}`;
     const r = stageOf(state(setup));
@@ -242,7 +246,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   function render(): void {
     drawPic();
-    drill.$('case').innerHTML = (drill.result.visible() && recorded) || !sol ? caseText() : '';
+    drill.$('case').innerHTML = settings.repeat || (drill.result.visible() && recorded) || !sol ? caseText() : '';
     renderScramble();
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, ms = results.reduce((a, r) => a + r.std, 0) / results.length;
@@ -253,6 +257,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // ---- the scramble, and following it on a smart cube (as the Solve tab does) ----
   function renderScramble(): void {
     const su = drill.$('setup'), tr = drill.$('track');
+    if (settings.repeat) { const cs = pool(); su.innerHTML = `Repeating ${cs.map((c) => c.name).join(', ')} from wherever the cube is: no scramble.`; tr.textContent = ''; tr.className = 'll-track'; return; }
     if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
     if (scramble === null) { su.innerHTML = 'Scramble WCA style: <span>…</span>'; tr.textContent = ''; return; }
     const toks = toWca(scramble).split(' ').filter(Boolean);
@@ -386,8 +391,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (settings.voice === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
   }
+  let belief: { facelets: string; colourOf: Record<FaceId, ColorName> } | null = null; // the cube's last known state, for a rep's start
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void {
-    if (!scramble) { track = null; return; }
+    if (facelets) belief = { facelets, colourOf };
+    if (!scramble || settings.repeat) { track = null; return; }
     const key = `${scramble}|${Object.values(colourOf).join(',')}|${hold().front}`;
     if (key !== trackKey) {
       try { tracker = new ScrambleTracker(toSourceLetters(colourOf, scramble, hold())); trackKey = key; }
@@ -415,6 +422,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
    * handed over from another tab is where it is, and keeps its AUF.
    */
   function load(alg: string, freeAuf = false): void {
+    if (settings.repeat) { setup = faceTurns(alg); startRep(false, true); return; }
     setup = faceTurns(alg);
     const derive = () => { const steps = route(kind, setup); sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? []; };
     derive();
@@ -452,13 +460,74 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     drill.setShowLabel('Hide the alg');
     drill.result.show(drill.$('rTitle').textContent ?? '', drill.$('rSub').textContent ?? '');
   }
+  // ---- repeat mode: the algs over and over on the cube in hand, no scramble (user, 2026-09-21) ----
+  // The cases in the drill in the table's order (Ra, Rb, Ra, Rb...), each rep from wherever the cube is:
+  // the setup is the cube's own state, the alg is on show and followed like a solve's (wrong turns
+  // called with their undo), and the rep is done when the cube reaches the alg's end state - the next
+  // alg starts there at once, so the reps run back to back.
+  let repAt = 0;   // the cycle's next case
+  let repN = 0;    // reps done since the mode came on
+  let lastRep: { name: string; t: number | null } | null = null;
+  let keepNext = false; // the next move read is queued after the name, not over it
+  // DECISION: the setup (the record's scramble, the state per turn) is re-solved to a short alg past this many moves
+  const REBASE_AT = 60;
+  /** The rep's alg is done: the cube is at the end of the case's alg (or one of its other algs) from the setup. */
+  function repDone(txt: string): boolean {
+    const c = sol?.case;
+    if (!c) return false;
+    const cur = state(`${setup} ${tokens(txt).join(' ')}`);
+    return [c.alg, ...(c.alts ?? []).map((a) => a.alg)].some((alg) => state(`${setup} ${alg}`) === cur);
+  }
+  /**
+   * The next rep: the cycle's next case (`advance`), or the same one again. The setup is where the cube is - the
+   * moves fed so far from the last setup, else the cube's own belief (the mode just switched on, the cube
+   * anywhere) - unless `placed` says the setup was just loaded with the cube's state.
+   */
+  function startRep(advance: boolean, placed = false): void {
+    const cs = pool();
+    if (advance) repAt++;
+    const c = cs[repAt % cs.length]!;
+    if (!placed) {
+      if (armedNow) setup = faceTurns(`${setup} ${tokens(drill.moves()).join(' ')}`);
+      else if (belief) { try { setup = trainerScramble({ ...belief, solution: solveAny(belief.facelets) }, hold()); } catch { /* a cube the trainer cannot hold: the setup stays */ } }
+    }
+    if (tokens(setup).length > REBASE_AT) setup = scrambleFor(setup);
+    sol = { stage: kind, name: c.name, hint: c.hint, pre: '', alg: c.alg, post: '', case: c }; lead = [];
+    shown = null; assisted = false; recorded = false; cameUp = null; held = false;
+    view.rx = TOP_VIEW.rx; view.ry = TOP_VIEW.ry;
+    scramble = setup; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
+    scrambleGen++;
+    drill.begin(); render();
+    drill.$('next').textContent = 'Next alg';
+    drill.$('showSol').click(); // the alg is what is practised: always on show
+    if (settings.voice !== 'off') { say(spokenName(kind, c), true); keepNext = true; }
+    shareScramble(setup, kind);
+    syncDriver(); // the cube is at the setup already: the driver arms now, and the first turn counts
+  }
+  /** A rep's alg done: recorded (its time is first turn to last), and the next rep starts from here. */
+  function checkRep(txt: string): void {
+    let toks: string[];
+    try { toks = tokens(txt); } catch { return; }
+    const { t } = drill.attempt(txt);
+    if (sol && !recorded) {
+      recorded = true;
+      repN++; lastRep = { name: sol.name, t };
+      results.push({ t: t ?? 0, n: toks.length, std: stepMoves(sol) });
+      drill.save({ scramble: setup, moves: toks.join(' '), optimal: stepMoves(sol), caseId: sol.name, assisted: true, start: 'repeat' });
+      if (drill.$('practice').hasAttribute('open')) void renderPractice();
+      if (settings.voice !== 'off' && t !== null) say(t.toFixed(1));
+    }
+    startRep(true);
+  }
+
   /** Bring the next case after a solve (the setting): after a pause, unless a case was loaded meanwhile. */
   function queueNext(): void {
     if (!settings.next) return;
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
+  function newCase(): void { drill.$('next').textContent = 'New case'; const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
 
   // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
   async function renderPractice(): Promise<void> {
@@ -604,7 +673,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
           const move = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           const words = move === null ? null : [...rots.map(spoken), move].join(', '); // the rotation with it: the move's letter assumes it
-          if (words && words !== lastRead) { lastRead = words; say(words); }
+          if (words && words !== lastRead) { lastRead = words; say(words, keepNext); keepNext = false; }
         }
         lastBad = bad.length;
       }
@@ -690,6 +759,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement, nextBox = drill.$('chain') as HTMLInputElement;
   fromSel.value = settings.from; autoBox.checked = settings.auto; nextBox.checked = settings.next;
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
+  const repeatBox = drill.$('repeat') as HTMLInputElement;
+  repeatBox.checked = settings.repeat;
+  repeatBox.addEventListener('change', () => { settings.repeat = repeatBox.checked; saveSettings(); repN = 0; lastRep = null; if (settings.repeat) startRep(false); else newCase(); });
   const voiceSel = drill.$('voice') as HTMLSelectElement;
   voiceSel.value = settings.voice;
   const sayBox = drill.$('say');
@@ -705,11 +777,19 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }));
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
-  newCase();
+  if (settings.repeat) startRep(false); else newCase();
   return {
-    load, render, scramble: () => scramble || setup || null, newScramble: newCase, watch,
-    feed: (text, t, source) => { heard(text); const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; },
+    // a rep's scramble is the setup itself, the cube's own state, even when that is solved ('')
+    load, render, scramble: () => (settings.repeat ? setup : scramble || setup || null), newScramble: () => (settings.repeat ? startRep(true) : newCase()), watch,
+    feed: (text, t, source) => {
+      heard(text);
+      const r = drill.feed(text, t, source);
+      // a rep undone back to its start re-arms with no moves, which clears the panel: the alg stays on show here
+      if (settings.repeat && !drill.result.visible()) drill.result.show(drill.$('rTitle').textContent ?? '', drill.$('rSub').textContent ?? '');
+      if (!r) followAlg(text);
+      return r;
+    },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.voice === 'quiz') askCase(); else followAlg(''); },
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.voice === 'quiz' && !settings.repeat) askCase(); else followAlg(''); },
   };
 }
