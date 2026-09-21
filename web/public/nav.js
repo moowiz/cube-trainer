@@ -43,7 +43,9 @@
     const check = () => {
       if (checking || ver.classList.contains('update') || document.hidden) return;
       checking = true;
-      fetch('version.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((n) => {
+      // a fresh query string: 'no-cache' only skips the browser's copy, and Pages' CDN keeps version.json up to
+      // ten minutes after a deploy under the same URL (a solve right after a push found the old hash)
+      fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((n) => {
         if (n.hash === v.hash) return;
         ver.classList.remove('open'); ver.classList.add('update');
         ver.textContent = `↻ New version ${n.hash} · tap to reload`;
