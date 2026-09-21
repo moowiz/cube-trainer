@@ -11,7 +11,7 @@
 
 /// <reference path="../cubejs.d.ts" />
 import Cube from 'cubejs';
-import { FACE_MOVES, inverse, movesStr, tokens, type Move } from '../cube/alg';
+import { FACE_MOVES, inverse, mergeMoves, movesStr, tokens, type Move } from '../cube/alg';
 import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';
 import { SOLVED, state } from '../cube/state';
@@ -160,17 +160,6 @@ export function crossFix(f: string): Move[] {
       const t = applyEdgeMove(cur, edgeMoveOf(m)), e = dist.get(slotsKey(t));
       if (e !== undefined && e < d) { out.push(m); cur = t; d = e; break; }
     }
-  }
-  return out;
-}
-
-/** Adjacent turns of one face merged (R2 R' -> R), so the fix reads as one scramble. */
-function mergeMoves(ms: readonly Move[]): Move[] {
-  const out: Move[] = [];
-  for (const m of ms) {
-    const last = out[out.length - 1];
-    if (last && last.face === m.face) { const q = (last.times + m.times) % 4; out.pop(); if (q) out.push({ face: m.face, times: q as 1 | 2 | 3 }); }
-    else out.push(m);
   }
   return out;
 }

@@ -9,16 +9,29 @@
 // last pair to insert - so the case has to be recognised after solving that
 // your own way, as in a solve) and whether the alg shows as soon as the case
 // does (learning the alg rather than the recognition).
+//
+// The picture is the cube in 3D, seen from above (the last layer is what
+// matters, the sides show the case's bars and headlights), turned to the open
+// slot when a pair is out; with F2L solved the top-down diagram sits under
+// it, arrows and all. The scramble is a short face-turn sequence for the
+// state (not an alg backwards, which would give the case away) and is
+// followed on a smart cube like the Solve tab's: turns done are underlined.
 
 import { moveCount, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
-import { state } from '../cube/state';
+import { faceTurns, state } from '../cube/state';
+import { hold } from '../app/context';
 import { SLOTS, slotSolved } from '../f2l/model';
+import { toSourceLetters } from '../handoff';
 import { stageOf } from '../stage';
 import { shareScramble, showTab, type Stage, stages } from '../shell';
+import { ScrambleTracker, type TrackStatus } from '../timer/track';
+import { moveHtml } from '../timer/trainer';
+import type { ColorName } from '../types';
+import type { FaceId } from '../cube/frame';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLKind } from './cases';
@@ -33,7 +46,13 @@ const BLURB: Record<LLKind, string> = {
 };
 
 const STYLE = `
-  .ll-pic { max-width: 300px; margin: 0 auto; }
+  .ll-3d { max-width: 250px; }
+  .ll-pic { max-width: 180px; margin: 6px auto 0; }
+  .ll-scr .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
+  .ll-scr .mv .p { color: #B3261E; font-weight: 600; } .ll-scr .mv .d { color: #1A56B8; font-weight: 600; }
+  .ll-scr .done .p, .ll-scr .done .d { color: inherit; font-weight: 400; }
+  .ll-track { font-size: 13px; color: var(--ink-2); padding: 0 4px 6px; min-height: 18px; }
+  .ll-track.off { color: #7A4B00; font-weight: 600; }
   .ll-case { font-size: 16px; min-height: 22px; }
   .ll-trig { display: inline-block; position: relative; padding: 0 2px 13px; margin: 0 2px; border-bottom: 2px solid var(--ink-2); line-height: 1.3; }
   .ll-trig i { position: absolute; left: 0; right: 0; bottom: -1px; font-size: 11px; font-style: normal; line-height: 1; text-align: center; white-space: nowrap; color: var(--ink-2); word-spacing: normal; letter-spacing: .02em; }
@@ -69,10 +88,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
       </div>`,
     left: `
+      <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
-      <div class="eo-stage" id="${id('stage')}" hidden><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg><p class="eo-hint" style="text-align:center;margin:2px 0 0">drag to rotate</p></div>
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
-      <div class="eo-scramble" id="${id('setup')}"></div>
+      <div class="eo-scramble ll-scr" id="${id('setup')}"></div>
+      <div class="ll-track" id="${id('track')}"></div>
       <p class="eo-note" id="${id('orient')}"></p>`,
   }, { onNew: newCase, onCheck: check, onHint: hintText, onShow: onShow, onClear: () => { shown = null; render(); },
     // a cube feeding the box is done when the case is (the AUF included: it is timed too)
@@ -81,7 +101,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
   let setup = '';
-  let scramble: string | null = null; // a short face-turn scramble for `setup` (the setup itself is an alg backwards), plus the earlier start's tail
+  let scramble: string | null = null; // a short face-turn scramble for `setup` (null while it is being solved)
   let scrambleGen = 0;
   // the standard route from the setup: the steps before the drill's own stage (an earlier start), then its case
   let lead: RouteStep[] = [];
@@ -91,16 +111,18 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let cameUp: string | null = null; // the case the moves checked actually reached (an earlier start decides it by how the step before was solved)
   const results: { t: number; n: number; std: number }[] = [];
 
-  // the last pair still out (a 'pair' start): the whole cube in 3D, turned to its slot, in place of the top-down picture
-  const view: View = { ...DEFAULT_VIEW };
+  // the cube in 3D from above (DECISION: rx 50, the top face large and the sides still readable), turned
+  // to the open slot when a pair is out; the top-down diagram under it once only the last layer is left
+  const TOP_VIEW: View = { rx: 50, ry: DEFAULT_VIEW.ry };
+  const view: View = { ...TOP_VIEW };
   const SLOT_RY: Record<string, number> = { FR: -35, FL: 35, BR: -125, BL: 125 };
   function drawPic(): void {
     const f = state(shown ?? setup);
-    const open = stageOf(f).pairs < 4 ? SLOTS.find((sl) => !slotSolved(f, sl)) : undefined;
-    drill.$('stage').hidden = !open;
-    drill.$('pic').parentElement!.hidden = !!open;
-    if (open) render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
-    else drill.$('pic').innerHTML = picSvg(f, kind);
+    const r = stageOf(f);
+    render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
+    const ll = r.pairs === 4 && r.eoBad === 0;
+    drill.$('pic').parentElement!.hidden = !ll;
+    if (ll) drill.$('pic').innerHTML = picSvg(f, kind);
   }
   orbit(drill.$('cube') as unknown as SVGSVGElement, view, drawPic);
 
@@ -120,9 +142,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     drawPic();
     const named = root.querySelector('.eo-chip[data-hint="name"].open');
     drill.$('case').innerHTML = named || (drill.result.visible() && recorded) || !sol ? caseText() : '';
-    const su = drill.$('setup');
-    su.innerHTML = setup ? 'Scramble: <span></span>' : '';
-    if (setup) su.querySelector('span')!.textContent = scramble === null ? '…' : toWca(scramble);
+    renderScramble();
     drill.$('orient').textContent = `Apply the scramble to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the ${lead.some((s) => s.stage === 'pair') ? 'cube' : 'top layer'} match the picture.`;
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, ms = results.reduce((a, r) => a + r.std, 0) / results.length;
@@ -130,31 +150,49 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     } else drill.setStats('');
   }
 
-  /**
-   * `alg` is the state; `g1` + `tail` split it into the part in G1 (the permutation, which gets a
-   * face-turn scramble) and what an earlier start adds after it (a loaded cube is all g1: the
-   * scramble is found if it is a PLL, else the alg is shown as it is).
-   */
-  function load(alg: string, split?: { g1: string; tail: string }): void {
-    setup = alg.trim();
-    const { g1, tail } = split ?? { g1: setup, tail: '' };
+  // ---- the scramble, and following it on a smart cube (as the Solve tab does) ----
+  function renderScramble(): void {
+    const su = drill.$('setup'), tr = drill.$('track');
+    if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
+    if (scramble === null) { su.innerHTML = 'Scramble: <span>…</span>'; tr.textContent = ''; return; }
+    const toks = toWca(scramble).split(' ').filter(Boolean);
+    const applied = track ? track.applied : 0;
+    su.innerHTML = `Scramble: ${toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ')}`;
+    if (!track) { tr.textContent = ''; tr.className = 'll-track'; return; }
+    tr.className = track.off ? 'll-track off' : 'll-track';
+    tr.textContent = track.off ? `Off the scramble: undo back to turn ${track.applied} (underlined)` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
+  }
+  let tracker: ScrambleTracker | null = null, trackKey = '', track: TrackStatus | null = null;
+  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
+    if (!scramble) { track = null; return; }
+    const key = `${scramble}|${Object.values(colourOf).join(',')}|${hold().front}`;
+    if (key !== trackKey) {
+      try { tracker = new ScrambleTracker(toSourceLetters(colourOf, scramble, hold())); trackKey = key; }
+      catch { tracker = null; trackKey = ''; }
+    }
+    track = tracker ? tracker.status(facelets) : null;
+    renderScramble();
+  }
+
+  /** Show the state after `alg`: worked from as face turns only, so the moves after it read in one frame (a V perm's y). */
+  function load(alg: string): void {
+    setup = faceTurns(alg);
     const steps = route(kind, setup);
     sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? [];
     shown = null; assisted = false; recorded = false; cameUp = null;
     const open = SLOTS.find((sl) => !slotSolved(state(setup), sl));
-    view.rx = DEFAULT_VIEW.rx; view.ry = open ? SLOT_RY[open]! : DEFAULT_VIEW.ry;
-    // the setup is an alg backwards (rotations, slices, 20 moves for an N perm): the drill shows a
-    // short face-turn scramble for the same state instead. DECISION: solved on a timeout, not
-    // here: the first solve builds the pruning tables (~200 ms), which would otherwise sit in the
-    // page's mount; the setup is shown if the state is somehow not a PLL.
-    scramble = null;
+    view.rx = TOP_VIEW.rx; view.ry = open ? SLOT_RY[open]! : TOP_VIEW.ry;
+    // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
+    // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
+    // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
+    scramble = null; track = null;
     const gen = ++scrambleGen;
-    setTimeout(() => { if (gen !== scrambleGen) return; const scr = scrambleFor(g1); scramble = scr === null ? setup : `${scr} ${tail}`.trim(); render(); });
+    setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
     render();
     if (settings.auto && sol) drill.$('showSol').click();
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from); load(r.setup, r); shareScramble(r.setup, kind); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from); load(r.setup); shareScramble(setup, kind); }
 
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first, the alg is what follows${kind === 'pll' ? '; a bracket at the end lines the layer up after it' : ''}.</small>`;
   /**
@@ -256,5 +294,5 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t) };
+  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch };
 }

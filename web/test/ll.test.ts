@@ -8,7 +8,7 @@ import { algHtml, chainSummary } from '../src/ll/reference';
 import {
   SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
 } from '../src/ll/model';
-import { settled } from '../src/cube/state';
+import { faceTurns } from '../src/cube/state';
 import { stageOf } from '../src/stage';
 
 const AUFS = ['', 'U', "U'", 'U2'];
@@ -147,8 +147,11 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     }
   });
 
-  it('is null off G1: an OCLL drill has twisted corners', () => {
-    expect(scrambleFor(inverse(OCLL_CASES[0]!.alg))).toBeNull();
+  it('off G1 (a twist alone) the shortest scramble is the alg backwards, as it must be; solved is empty', () => {
+    const sune = OCLL_CASES.find((c) => c.id === 'S')!;
+    const scr = scrambleFor(inverse(sune.alg), () => 0.5);
+    expect(state(scr)).toBe(state(inverse(sune.alg)));
+    expect(moveCount(scr)).toBe(7);
     expect(scrambleFor('')).toBe('');
   });
 });
@@ -157,8 +160,7 @@ describe('an earlier start: the drill after the step before it', () => {
   it('a PLL drill from OCLL: the corners twisted, the PLL drawn comes up after the standard OCLL from its angle', () => {
     const rng = makeRng(5);
     for (let i = 0; i < 30; i++) {
-      const { setup, g1, tail, case: want } = randomSetup('pll', rng, 'ocll');
-      expect(setup).toBe(`${g1} ${tail}`);
+      const { setup, case: want } = randomSetup('pll', rng, 'ocll');
       expect([setup, reached('pll', setup)]).toEqual([setup, false]);
       expect([setup, reached('ocll', setup)]).toEqual([setup, true]);
       const r = route('pll', setup)!;
@@ -170,7 +172,7 @@ describe('an earlier start: the drill after the step before it', () => {
       expect([setup, sp.k]).toEqual([setup, tokens(stepPlain(r[0]!)).length]);
       expect([setup, sp.case]).toEqual([setup, identify('pll', `${setup} ${stepPlain(r[0]!)}`)]);
       // the OCLL alg from the angle it was set up at gives back the case drawn (a symmetric OCLL may not)
-      const back = identify('pll', `${setup} ${inverse(tail.split(' ').slice(-1)[0] ?? '')}`);
+      const back = identify('pll', `${setup} ${inverse(setup.split(' ').slice(-1)[0] ?? '')}`);
       if (['H', 'Pi'].includes(r[0]!.name.split(' ')[0]!)) continue;
       expect([setup, (sp.case as { id: string }).id === want.id || back?.id === want.id]).toEqual([setup, true]);
     }
@@ -199,25 +201,28 @@ describe('an earlier start: the drill after the step before it', () => {
     }
   });
 
-  it('the face-turn scramble for g1 followed by the tail is the setup state (g1 is settled, so V perm\'s y does not turn the tail)', () => {
+  it('the scramble for an earlier start is face turns for the whole state, shorter than the setup and not the algs backwards', () => {
     const rng = makeRng(8);
-    let vs = 0;
-    for (let i = 0; i < 60; i++) {
-      const { setup, g1, tail, case: c } = randomSetup('pll', rng, i % 2 ? 'ocll' : 'pair');
-      if (c.id === 'V') vs++;
-      const scr = scrambleFor(g1, rng)!;
+    for (let i = 0; i < 12; i++) {
+      const { setup, case: c } = randomSetup('pll', rng, i % 2 ? 'ocll' : 'pair');
+      const scr = scrambleFor(setup, rng);
       expect([setup, scr]).toEqual([setup, expect.stringMatching(/^([URFDLB][2']? ?)*$/)]);
-      expect([setup, state(`${scr} ${tail}`)]).toEqual([setup, state(setup)]);
+      expect([setup, state(scr)]).toEqual([setup, state(setup)]);
+      expect([setup, moveCount(scr) <= 19]).toEqual([setup, true]);
+      // the tail of the setup (the OCLL alg backwards) is not the tail of the scramble
+      expect([setup, scr.endsWith(inverse(c.alg))]).toEqual([setup, false]);
     }
-    expect(vs).toBeGreaterThan(0);
   });
 
-  it('settled(): a trailing rotation cancels what the alg left turned', () => {
-    const v = PLL_CASES.find((c) => c.id === 'V')!;
-    expect(settled("R U R'")).toBe("R U R'");
-    expect(settled(inverse(v.alg))).toMatch(/ y$/);
-    expect(state(`${settled(inverse(v.alg))} R`)).toBe(state(`${scrambleFor(inverse(v.alg))} R`));
-    expect(state(`${inverse(v.alg)} R`)).not.toBe(state(`${scrambleFor(inverse(v.alg))} R`));
+  it('an OCLL drill: a permutation under every twist, and its scramble mixes the two', () => {
+    const rng = makeRng(9);
+    for (let i = 0; i < 12; i++) {
+      const { setup, case: c } = randomSetup('ocll', rng);
+      const scr = scrambleFor(setup, rng);
+      expect([setup, state(scr)]).toEqual([setup, state(setup)]);
+      expect([setup, moveCount(scr) <= 18]).toEqual([setup, true]);
+      expect([setup, scr.includes(inverse(c.alg))]).toEqual([setup, false]);
+    }
   });
 
   it('splitAt(): a skip when the moves land on the stage solved, null when they never reach it', () => {
@@ -389,5 +394,24 @@ describe('features(): what a PLL case looks like, the same in every AUF', () => 
     const t = PLL_CASES.find((c) => c.id === 'T')!.alg;
     for (const auf of ['U', "U'", 'U2']) expect(features(state(`${auf} ${inverse(t)} ${auf}`))).toEqual(features(state(inverse(t))));
     expect(features(state(inverse(OCLL_CASES[0]!.alg)))).toBeNull();
+  });
+});
+
+describe('faceTurns(): an alg as face turns only, the same cube', () => {
+  const ALGS = [
+    "r U R' U' r' F R F'", "F' r U R' U' r' F R", 'M2 U M U2 M\' U M2', "M' U M2 U M2 U M' U2 M2", "x R' U R' D2 R U' R' D2 R2 x'",
+    "R' U R' U' y R' F' R2 U' R' U R' F R F", "R U R' U R U2 R'", 'u R d\' E S2 z F b', "y R U R' y' L", "R R' U2 U", "r' U r",
+  ];
+  it('matches state() and reads as face turns', () => {
+    for (const a of ALGS) {
+      const f = faceTurns(a);
+      expect([a, f]).toEqual([a, expect.stringMatching(/^([URFDLB][2']?( |$))*$/)]);
+      expect([a, state(f)]).toEqual([a, state(a)]);
+    }
+  });
+  it('the moves after a wide move or slice are relabelled through its rotation', () => {
+    expect(faceTurns('r U')).toBe('L F');
+    expect(faceTurns("M' U")).toBe("L R' F");
+    expect(faceTurns("R R'")).toBe('');
   });
 });

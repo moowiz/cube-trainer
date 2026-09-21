@@ -21,6 +21,17 @@ export function movesStr(ms: readonly Move[]): string {
   return ms.map(moveStr).join(' ');
 }
 
+/** Adjacent turns of one face merged (R2 R' -> R, R R' -> nothing), so a joined sequence reads as one alg. */
+export function mergeMoves(ms: readonly Move[]): Move[] {
+  const out: Move[] = [];
+  for (const m of ms) {
+    const last = out[out.length - 1];
+    if (last && last.face === m.face) { const q = (last.times + m.times) % 4; out.pop(); if (q) out.push({ face: m.face, times: q as 1 | 2 | 3 }); }
+    else out.push(m);
+  }
+  return out;
+}
+
 /** The same turn the other way round (half turns are their own inverse). */
 export function flipMove(m: Move): Move {
   return { face: m.face, times: (4 - m.times) as 1 | 2 | 3 };

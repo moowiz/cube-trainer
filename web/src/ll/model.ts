@@ -5,11 +5,11 @@
 
 import { inverse, moveCount, tokens } from '../cube/alg';
 import { facesAt, NORMAL, type Vec } from '../cube/geometry';
-import { SOLVED, aufToSolve, settled, state } from '../cube/state';
+import { SOLVED, aufToSolve, faceTurns, state } from '../cube/state';
 import { DATA } from '../f2l/data';
 import { findCase, fullAlg, SLOTS, SLOT_WORD, slotSolved, slotState } from '../f2l/model';
 import { stageOf } from '../stage';
-import { solveG1 } from './scramble';
+import { solveAny } from './scramble';
 import { CASES, type LLCase, type LLKind } from './cases';
 
 export { inverse, moveCount, tokens } from '../cube/alg';
@@ -95,30 +95,29 @@ export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase
  * get a random AUF before the inverse too: the same permutation seen from any of its four sides,
  * which is what recognition has to cope with.
  *
- * `setup` is `g1` then `tail`: the part in Kociemba's G1 (the permutation, which scrambleFor()
- * turns into a face-turn scramble) and what an earlier start adds after it (a PLL drill from
- * OCLL: a random OCLL case's alg backwards; from the last pair: a random last-slot case's alg
- * backwards too). `g1` is settled: its state and its frame are the same as the scramble's, so
- * the tail reads the same after either. The case drawn is the drill's own; the earlier steps are
- * whatever comes up, as in a solve, and the case that actually comes up after them depends on
- * how they are solved (the route() through the standard algs gives one answer).
+ * An earlier start adds to the setup after the permutation: a PLL drill from OCLL, a random OCLL
+ * case's alg backwards; from the last pair, a random last-slot case's alg backwards too. The case
+ * drawn is the drill's own; the earlier steps are whatever comes up, as in a solve, and the case
+ * that actually comes up after them depends on how they are solved (the route() through the
+ * standard algs gives one answer). The setup is face turns only; the trainer shows scrambleFor().
  */
-export function randomSetup(kind: LLKind, rng: () => number = Math.random, from: LLStart = kind): { setup: string; g1: string; tail: string; case: LLCase } {
+export function randomSetup(kind: LLKind, rng: () => number = Math.random, from: LLStart = kind): { setup: string; case: LLCase } {
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(rng() * a.length)]!;
   const c = pick(CASES[kind]);
-  const g1: string[] = [], tail: string[] = [];
-  if (kind === 'ocll' && rng() < 0.8) g1.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
-  if (kind === 'pll') g1.push(pick(AUFS), inverse(c.alg), pick(AUFS));
-  else tail.push(inverse(c.alg), pick(AUFS));
-  if (kind === 'pll' && from !== 'pll') tail.push(inverse(pick(CASES.ocll).alg), pick(AUFS));
+  const parts: string[] = [];
+  // an OCLL drill's permutation is a random PLL (always one: a lone twist's shortest scramble is its alg backwards)
+  if (kind === 'ocll') parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
+  if (kind === 'pll') parts.push(pick(AUFS), inverse(c.alg), pick(AUFS));
+  else parts.push(inverse(c.alg), pick(AUFS));
+  if (kind === 'pll' && from !== 'pll') parts.push(inverse(pick(CASES.ocll).alg), pick(AUFS));
   if (from === 'pair') {
     // a random last-slot position of a random slot: the sheet's alg for it backwards (R/U-only, no AUF bracket)
     const slot = pick(SLOTS);
     const cases = Object.values(DATA.slots[slot].cases).filter((f) => f.section === 'Last slot');
-    tail.push(inverse(fullAlg('', pick(cases).simple)), pick(AUFS));
+    parts.push(inverse(fullAlg('', pick(cases).simple)), pick(AUFS));
   }
-  const g = settled(g1.filter(Boolean).join(' ')), t = tail.filter(Boolean).join(' ');
-  return { setup: `${g} ${t}`.trim(), g1: g, tail: t, case: c };
+  // each part applied in the home frame: the alg before it may end turned (a V perm's y)
+  return { setup: parts.filter(Boolean).reduce((acc, part) => faceTurns(`${acc} ${part}`), ''), case: c };
 }
 
 /**
@@ -178,14 +177,13 @@ export const stepPlain = (s: RouteStep): string => [s.pre, s.alg, s.post].filter
 export const stepMoves = (s: RouteStep): number => moveCount(stepPlain(s));
 
 /**
- * A scramble for a PLL drill's state: face turns only (no rotations, no slices, nothing that reads
- * as a known alg backwards), so it can be applied to a real cube from solved. The optimal phase-2
- * solution inverted (see ./scramble.ts), 7-13 moves; null when the state is not a PLL (an OCLL
- * drill's corners are twisted, so its setup stays the alg as written).
+ * A scramble for a drill's state: face turns only (no rotations, no slices, nothing that reads as
+ * a known alg backwards), so it can be applied to a real cube from solved without giving the case
+ * away. A short solution inverted (see ./scramble.ts): 7-13 moves for a PLL, a few more with the
+ * corners twisted or a pair out, the orientation and the permutation mixed into one sequence.
  */
-export function scrambleFor(setup: string, rng: () => number = Math.random): string | null {
-  const sol = solveG1(state(setup), rng);
-  return sol === null ? null : inverse(sol);
+export function scrambleFor(setup: string, rng: () => number = Math.random): string {
+  return inverse(solveAny(state(setup), rng));
 }
 
 // ---- PLL arrows: where each top-layer piece has to go ----

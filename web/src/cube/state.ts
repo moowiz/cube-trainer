@@ -6,7 +6,7 @@
 
 /// <reference path="../cubejs.d.ts" />
 import Cube from 'cubejs';
-import { tokens } from './alg';
+import { faceMoves, mergeMoves, movesStr, tokens } from './alg';
 
 export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 export const FACES = 'URFDLB';
@@ -50,16 +50,35 @@ export function state(alg: string): string {
   throw new Error('no rotation brings the centres home'); // cannot happen for a real cube
 }
 
+// a wide move or a slice is the outer layer(s) the other way plus a whole-cube rotation: r = L x, M = L' R x'
+const WIDE_ROT: Record<string, string> = { R: 'x', L: "x'", U: 'y', D: "y'", F: 'z', B: "z'" };
+const SLICE_LIKE: Record<string, string> = { M: 'L', E: 'D', S: 'F' };
+const OPP: Record<string, string> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
+const flipSuffix = (s: string): string => (s === "'" ? '' : s === '' ? "'" : s);
+const withSuffix = (rot: string, suf: string): string => (rot.endsWith("'") ? rot[0] + flipSuffix(suf) : rot + suf);
+
 /**
- * `alg` with the whole-cube rotation it leaves behind cancelled (a trailing x/y/z), so moves
- * appended after it read in the frame it started in: state(settled(a) + b) is the state of a
- * face-turn scramble for a followed by b, which state(a + b) is not when a ends turned (V perm's y).
+ * `alg` as face turns only, in the frame it started in: rotations are dropped and the moves after
+ * them relabelled, a wide move becomes the opposite face (r = L x), a slice both outer layers
+ * (M = L' R x'); same-face turns merged. The same cube as state(alg), by test. What a smart cube
+ * sees (it reports the layers that turned, in fixed letters) and what a scramble should read as.
  */
-export function settled(alg: string): string {
-  const toks = tokens(alg).join(' ');
-  if (centresHome(rawFacelets(toks))) return toks;
-  for (const rot of allRotations()) if (centresHome(new Cube().move(`${toks} ${rot}`).asString())) return `${toks} ${rot}`;
-  throw new Error('no rotation brings the centres home');
+export function faceTurns(alg: string): string {
+  const rots: string[] = [];
+  const out: string[] = [];
+  let centres = SOLVED; // which face's centre sits at each position after the rotations so far
+  const phys = (face: string): string => centres[CENTRE[face]!]!;
+  const turn = (rot: string) => { rots.push(rot); centres = rawFacelets(rots.join(' ')); };
+  for (const t of tokens(alg)) {
+    const base = t[0]!, suf = t.slice(1);
+    if ('xyz'.includes(base)) { turn(t); continue; }
+    if ('URFDLB'.includes(base)) { out.push(phys(base) + suf); continue; }
+    const like = SLICE_LIKE[base] ?? base.toUpperCase();
+    if (base in SLICE_LIKE) out.push(phys(like) + flipSuffix(suf), phys(OPP[like]!) + suf);
+    else out.push(phys(OPP[like]!) + suf);
+    turn(withSuffix(WIDE_ROT[like]!, suf));
+  }
+  return movesStr(mergeMoves(faceMoves(out.join(' '))!));
 }
 
 /** '' when `alg` solves the cube, the U turn that would finish it, or null. */
