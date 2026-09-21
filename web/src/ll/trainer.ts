@@ -272,10 +272,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     quizOpen = false; listener?.abort(); listener = null;
     const c = sol?.case;
     const name = c ? spokenName(kind, c) : '';
-    if (heard === 'giveup') { quizSaid = `gave up (${name})`; say(name); }
-    else if (c && heard === c.id) { quizSaid = `${heard}: right`; say(`right, ${name}`); }
-    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; say(`no, ${name}`); }
-    setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200); // the first move after the name
+    // the name, then how to hold it for the alg ("V perm: the bars of two at the back and on your left")
+    const hold = c && kind === 'pll' ? `. ${algAngle(c)}` : '';
+    if (heard === 'giveup') { quizSaid = `gave up (${name})`; say(`${name}${hold}`); }
+    else if (c && heard === c.id) { quizSaid = `${heard}: right`; say(`right, ${name}${hold}`); }
+    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; say(`no, ${name}${hold}`); }
+    setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200 + (hold ? 1800 : 0)); // the first move after the name and the hold
   }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
