@@ -452,12 +452,12 @@ describe('the J perms: the 2x2 block sits where the hint says, at the alg\'s ang
   it('Ja: bar of three on the right, the block at its right end (the back)', () => {
     const c = PLL_CASES.find((x) => x.id === 'Ja')!;
     expect(block(state(inverse(c.alg)), 'right')).toBe('right end');
-    expect(c.hint).toContain('the block is at its right end');
+    expect(c.hint).toContain('block at its right end');
   });
   it('Jb: bar of three on the left, the block at its left end (the back)', () => {
     const c = PLL_CASES.find((x) => x.id === 'Jb')!;
     expect(block(state(inverse(c.alg)), 'left')).toBe('left end');
-    expect(c.hint).toContain('the block is at its left end');
+    expect(c.hint).toContain('block at its left end');
   });
 });
 
@@ -473,5 +473,75 @@ describe('the alternative algs solve their case', () => {
     }
     expect(n).toBeGreaterThan(20);
     for (const c of OCLL_CASES) expect([c.id, c.alts]).toEqual([c.id, undefined]); // the H and T ids are shared: alts are PLL's
+  });
+});
+
+describe('every PLL hint tells its case from the other twenty, from the sides alone, in every AUF', () => {
+  // the four sides in clockwise order seen from above (front, right, back, left), each read left to right
+  // as you face it; facing side k, the side to your right is k+1, the far side k+2, the one to your left k+3
+  const SEEN = [[18, 19, 20], [9, 10, 11], [45, 46, 47], [36, 37, 38]];
+  type Side = { l: string; m: string; r: string; pat: 'bar3' | 'headlights' | 'bar2L' | 'bar2R' | 'none' };
+  const sidesOf = (f: string): Side[] => SEEN.map(([a, b, c]) => {
+    const l = f[a!]!, m = f[b!]!, r = f[c!]!;
+    return { l, m, r, pat: l === m && m === r ? 'bar3' : l === r ? 'headlights' : l === m ? 'bar2L' : m === r ? 'bar2R' : 'none' };
+  });
+  const count = (s: Side[], p: Side['pat'] | 'bar2') => s.filter((x) => (p === 'bar2' ? x.pat === 'bar2L' || x.pat === 'bar2R' : x.pat === p)).length;
+  const at = (s: Side[], k: number) => s[((k % 4) + 4) % 4]!;
+  const only = (s: Side[], p: Side['pat']) => (count(s, p) === 1 ? s.findIndex((x) => x.pat === p) : -1);
+  // relative to the side faced: the side to the right has its near end on the left as seen (bar2L), far end bar2R;
+  // the side to the left has its near end on the right (bar2R); the far side's end "toward your right" is bar2L
+  const HL = (s: Side[]) => only(s, 'headlights');
+  const hlBar = (s: Side[], where: 'right' | 'far' | 'left', end: 'near' | 'far' | 'towardRight' | 'towardLeft') => {
+    const k = HL(s); if (k < 0 || count(s, 'bar2') !== 1 || count(s, 'none') !== 2) return false;
+    const side = at(s, k + { right: 1, far: 2, left: 3 }[where]);
+    const want = where === 'right' ? (end === 'near' ? 'bar2L' : 'bar2R') : where === 'left' ? (end === 'near' ? 'bar2R' : 'bar2L') : end === 'towardRight' ? 'bar2L' : 'bar2R';
+    return side.pat === want;
+  };
+  const PRED: Record<string, (s: Side[]) => boolean> = {
+    // headlights, a 2x2 block at the far right / far left (the block: a bar on the side to the right at its far end AND the far side's bar toward the right)
+    Aa: (s) => { const k = HL(s); return k >= 0 && count(s, 'bar2') === 2 && at(s, k + 1).pat === 'bar2R' && at(s, k + 2).pat === 'bar2L'; },
+    Ab: (s) => { const k = HL(s); return k >= 0 && count(s, 'bar2') === 2 && at(s, k + 3).pat === 'bar2L' && at(s, k + 2).pat === 'bar2R'; },
+    E: (s) => count(s, 'none') === 4,
+    F: (s) => count(s, 'bar3') === 1 && count(s, 'none') === 3,
+    Ga: (s) => hlBar(s, 'right', 'far'),
+    Gb: (s) => hlBar(s, 'far', 'towardLeft'),
+    Gc: (s) => hlBar(s, 'left', 'far'),
+    Gd: (s) => hlBar(s, 'far', 'towardRight'),
+    Ra: (s) => hlBar(s, 'right', 'near'),
+    Rb: (s) => hlBar(s, 'left', 'near'),
+    H: (s) => count(s, 'headlights') === 4 && s.every((x, i) => x.m === at(s, i + 2).l),
+    Z: (s) => count(s, 'headlights') === 4 && s.every((x, i) => x.m === at(s, i + 1).l || x.m === at(s, i + 3).l),
+    // a bar of three with the block at its right end: the side to the right has a bar at its near end (and it matches the bar's corner)
+    Ja: (s) => { const k = only(s, 'bar3'); return k >= 0 && count(s, 'bar2') === 3 && at(s, k + 1).pat === 'bar2L'; },
+    Jb: (s) => { const k = only(s, 'bar3'); return k >= 0 && count(s, 'bar2') === 3 && at(s, k + 3).pat === 'bar2R'; },
+    Na: (s) => s.every((x) => x.pat === 'bar2R'),
+    Nb: (s) => s.every((x) => x.pat === 'bar2L'),
+    T: (s) => { const k = HL(s); return k >= 0 && count(s, 'bar2') === 2 && at(s, k + 1).pat === 'bar2L' && at(s, k + 3).pat === 'bar2R' && at(s, k + 2).pat === 'none'; },
+    // a bar of three, headlights elsewhere: facing the bar, the edge on your left (k+3) belongs on your right (k+1): its colour is that side's headlights
+    Ua: (s) => { const k = only(s, 'bar3'); return k >= 0 && count(s, 'headlights') === 3 && at(s, k + 3).m === at(s, k + 1).l; },
+    Ub: (s) => { const k = only(s, 'bar3'); return k >= 0 && count(s, 'headlights') === 3 && at(s, k + 1).m === at(s, k + 3).l; },
+    // two bars meeting at a corner: a side with its bar at the right end, the next side with its bar at the left end
+    V: (s) => count(s, 'bar2') === 2 && count(s, 'none') === 2 && s.some((x, i) => x.pat === 'bar2R' && at(s, i + 1).pat === 'bar2L'),
+    Y: (s) => count(s, 'bar2') === 2 && count(s, 'none') === 2 && s.some((x, i) => x.pat === 'bar2L' && at(s, i + 1).pat === 'bar2R'),
+  };
+  it('each predicate holds for its case in all four AUFs and for no other case', () => {
+    const states = PLL_CASES.map((c) => ({ c, f: AUFS.map((u) => state(`${inverse(c.alg)} ${u}`)) }));
+    for (const { c, f } of states) {
+      const pred = PRED[c.id]!;
+      expect([c.id, f.map((x) => pred(sidesOf(x)))]).toEqual([c.id, [true, true, true, true]]);
+      for (const other of states) if (other.c.id !== c.id) expect([c.id, other.c.id, other.f.map((x) => pred(sidesOf(x)))]).toEqual([c.id, other.c.id, [false, false, false, false]]);
+    }
+  });
+  it('the first sentence names the telling feature (the words the predicate encodes)', () => {
+    const first = (h: string) => h.split(/(?<=[a-z)])\. /)[0]!;
+    const WORDS: Record<string, RegExp> = {
+      Aa: /block .*far right/, Ab: /block .*far left/, E: /no headlights and no bars/, F: /one bar of three and nothing else/,
+      Ga: /right at its far end/, Gb: /far side toward your left/, Gc: /left at its far end/, Gd: /far side toward your right/,
+      H: /all four sides, every edge the opposite/, Z: /all four sides, every edge a neighbouring/,
+      Ja: /block at its right end/, Jb: /block at its left end/, Na: /every side, at the right end/, Nb: /every side, at the left end/,
+      Ra: /right at the end nearest you/, Rb: /left at the end nearest you/, T: /bar of two on each side next to them, both at the end touching/,
+      Ua: /counter-clockwise/, Ub: /cycling clockwise/, V: /meeting at one corner/, Y: /do not share a corner/,
+    };
+    for (const c of PLL_CASES) expect([c.id, first(c.hint)]).toEqual([c.id, expect.stringMatching(WORDS[c.id]!)]);
   });
 });

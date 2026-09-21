@@ -68,7 +68,13 @@ const STYLE = `
   .ll-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-opts label { display: inline-flex; align-items: center; gap: 6px; }
   .ll-opts select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
-  .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 8px; } .ll-step b { color: var(--ink); font-weight: 600; }
+  .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 10px; } .ll-step b { color: var(--ink); font-weight: 600; }
+  .eo-result .ll-alg { margin: 4px 0 8px; line-height: 1.9; }
+  .eo-result .ll-alg .eo-apply { float: right; margin: 4px 0 0 8px; }
+  .eo-result .ll-alg small { clear: both; }
+  .ll-alts { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-alts summary { cursor: pointer; }
+  .ll-alts .ll-step { margin-top: 8px; }
   .eo-result .ll-alg .mv.done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .eo-result .ll-alg .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
   .ll-cases { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
@@ -80,7 +86,7 @@ const STYLE = `
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. */
-interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; cases?: string[] }
+interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; cases?: string[] }
 type Voice = 'off' | 'echo' | 'read';
 const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move' };
 // what the voice says for a move: the letter, then prime / two; a wide move and a rotation by name
@@ -107,7 +113,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off' };
+  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', alts: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
@@ -269,7 +275,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   });
   renderCases();
 
-  const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first, the alg is what follows${kind === 'pll' ? '; a bracket at the end lines the layer up after it' : ''}.</small>`;
+  const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first${kind === 'pll' ? '; a bracket at the end lines it up after' : ''}.</small>`;
   /**
    * The steps as listed lines, [AUF]s in brackets, triggers labelled, each line applying the route
    * so far (from `before`, moves already done from the setup) so ▶ and the peek show the right cube.
@@ -293,19 +299,26 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     }
     lastLine?.setAttribute('data-main', '1'); // the route the voice reads
     const last = steps[steps.length - 1];
-    let anyAuf = steps.some((s) => s.pre || s.post);
-    if (last?.case?.alts) {
+    if (steps.some((s) => s.pre || s.post)) lastLine?.insertAdjacentHTML('beforeend', AUF_NOTE);
+    // the other algs for the case, folded (the setting remembers whether they are open)
+    const alts = (last?.case?.alts ?? []).map((alt) => ({ alt, fit: fitAlg(kind, `${setup} ${sofar.slice(0, sofar.length - stepPlain(last!).length)}`, alt.alg) })).filter((x) => x.fit);
+    if (last && alts.length) {
       const at = sofar.slice(0, sofar.length - stepPlain(last).length).trim(); // the route before the last step
-      for (const alt of last.case.alts) {
-        const fit = fitAlg(kind, `${setup} ${at}`, alt.alg);
-        if (!fit) continue;
-        const step: RouteStep = { ...last, alg: alt.alg, pre: fit.pre, post: fit.post };
-        body.insertAdjacentHTML('beforeend', `<div class="ll-step">or · ${stepMoves(step)} moves · ${alt.note}</div>`);
-        lastLine = line(step, at);
-        anyAuf ||= !!(fit.pre || fit.post);
+      const box = document.createElement('details'); box.className = 'll-alts'; box.open = settings.alts;
+      box.innerHTML = `<summary>Other algs for ${last.name} (${alts.length})</summary>`;
+      box.addEventListener('toggle', () => { settings.alts = box.open; saveSettings(); });
+      body.appendChild(box);
+      let altAuf = false, altLine: HTMLElement | null = null;
+      for (const { alt, fit } of alts) {
+        const step: RouteStep = { ...last, alg: alt.alg, pre: fit!.pre, post: fit!.post };
+        box.insertAdjacentHTML('beforeend', `<div class="ll-step">${stepMoves(step)} moves · ${alt.note}</div>`);
+        const d = drill.algLine(stepShown(step), `${at} ${stepPlain(step)}`.trim(), at ? tokens(at).length : 0); d.classList.add('ll-alg');
+        markTriggers(d, step.alg, step.pre ? 1 : 0);
+        box.appendChild(d);
+        altLine = d; altAuf ||= !!(fit!.pre || fit!.post);
       }
+      if (altAuf && !steps.some((s) => s.pre || s.post)) altLine?.insertAdjacentHTML('beforeend', AUF_NOTE);
     }
-    if (anyAuf) lastLine?.insertAdjacentHTML('beforeend', AUF_NOTE);
     followAlg(drill.moves());
   }
 
@@ -326,7 +339,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       if (cur !== null) {
         const states = [state(setup)];
         for (let i = 1; i <= route.length; i++) states.push(state(`${setup} ${route.slice(0, i).join(' ')}`));
-        const k = states.lastIndexOf(cur);
+        const k = states.indexOf(cur); // the earliest: a rotation changes nothing, so it is not "done" before it is made
         if (k >= 0) { done = k; onRoute = true; }
         else for (let i = 0; i < route.length; i++) {
           const m = route[i]!;
