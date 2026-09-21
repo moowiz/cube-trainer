@@ -47,6 +47,7 @@ import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
+import { onFavsChange } from './favs';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
@@ -782,8 +783,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // the case list, as a chip after the hints: tap a case there to drill it
   const refBtn = document.createElement('button'); refBtn.type = 'button'; refBtn.className = 'eo-chip'; refBtn.id = id('ref');
   refBtn.textContent = `All ${CASES[kind].length} cases`;
-  // a case's main alg changed there: the case on show is re-derived (a rep restarts on its new alg)
-  refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }, () => { if (settings.repeat) startRep(false); else load(setup); }));
+  // a case's main alg changed (starred there, or synced from another device): the case on show is re-derived (a rep restarts on its new alg)
+  const favChanged = () => { if (settings.repeat) startRep(false); else load(setup); };
+  refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }, favChanged));
+  onFavsChange(favChanged);
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();

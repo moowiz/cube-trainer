@@ -63,24 +63,21 @@ export const PLL_CASES: LLCase[] = [
 export const CASES: Record<LLKind, LLCase[]> = { ocll: OCLL_CASES, pll: PLL_CASES };
 
 // ---- the favourite alg: any of a case's algs can be made its main (user, 2026-09-21), which is what the
-// drill shows, follows and reads; the standard one then sits among the alts. The choice is kept per case
-// in localStorage and applied to the table in place; the table's users key their caches on casesVersion().
+// drill shows, follows and reads; the standard one then sits among the alts. The choice is applied to the
+// table in place; the table's users key their caches on casesVersion(). Keeping it (the store's favs
+// collection, synced to Firestore with the rest) is ll/favs.ts's job: this file stays pure for the tests.
 const STANDARD: Record<LLKind, Map<string, Pick<LLCase, 'alg' | 'alts'>>> = {
   ocll: new Map(OCLL_CASES.map((c) => [c.id, { alg: c.alg, alts: c.alts?.map((a) => ({ ...a })) }])),
   pll: new Map(PLL_CASES.map((c) => [c.id, { alg: c.alg, alts: c.alts?.map((a) => ({ ...a })) }])),
 };
-const FAV_KEY = 'zz-ll-favs';
 let version = 0;
 /** Bumped whenever a case's main alg changes: anything computed off the table is stale past it. */
 export function casesVersion(): number { return version; }
 /** The table's own main alg for a case (the one a favourite replaced). */
 export function standardAlg(kind: LLKind, id: string): string | undefined { return STANDARD[kind].get(id)?.alg; }
-function readFavs(): Record<LLKind, Record<string, string>> {
-  try { return { ocll: {}, pll: {}, ...JSON.parse(localStorage.getItem(FAV_KEY) || '{}') }; } catch { return { ocll: {}, pll: {} }; }
-}
 /**
  * Make `alg` (one of the case's algs, as written in the table) the case's main; null puts the standard
- * one back. Persisted when there is storage. Returns false for an alg the case does not have.
+ * one back. Returns false for an alg the case does not have. Nothing changes when it is the main already.
  */
 export function setMainAlg(kind: LLKind, id: string, alg: string | null): boolean {
   const std = STANDARD[kind].get(id), c = CASES[kind].find((x) => x.id === id);
@@ -88,20 +85,11 @@ export function setMainAlg(kind: LLKind, id: string, alg: string | null): boolea
   const own = [std.alg, ...(std.alts ?? []).map((a) => a.alg)];
   if (alg !== null && !own.includes(alg)) return false;
   const fav = alg === std.alg ? null : alg;
+  if (c.alg === (fav ?? std.alg)) return true;
   c.alg = fav ?? std.alg;
   c.alts = fav ? [{ alg: std.alg, note: 'the standard alg' }, ...(std.alts ?? []).filter((a) => a.alg !== fav)] : std.alts?.map((a) => ({ ...a }));
   version++;
-  try {
-    const favs = readFavs();
-    if (fav) favs[kind][id] = fav; else delete favs[kind][id];
-    localStorage.setItem(FAV_KEY, JSON.stringify(favs));
-  } catch { /* no storage (tests) */ }
   return true;
 }
 /** Is the case's main alg a favourite (not the standard one)? */
 export function isFavourite(kind: LLKind, id: string): boolean { return CASES[kind].find((x) => x.id === id)?.alg !== standardAlg(kind, id); }
-// the stored favourites applied at load
-if (typeof localStorage !== 'undefined') {
-  const favs = readFavs();
-  for (const kind of ['ocll', 'pll'] as const) for (const [id, alg] of Object.entries(favs[kind] ?? {})) setMainAlg(kind, id, alg);
-}

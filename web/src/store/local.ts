@@ -4,11 +4,11 @@
 // through applyRemote, which keeps the later edit and marks nothing.
 // Tests run it on fake-indexeddb.
 
-import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type SessionRecord, type SolveRecord } from './types';
+import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type FavRecord, type SessionRecord, type SolveRecord } from './types';
 
-export type Coll = 'solves' | 'sessions' | 'attempts';
-export type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : AttemptRecord;
-type AnyRecord = SolveRecord | SessionRecord | AttemptRecord;
+export type Coll = 'solves' | 'sessions' | 'attempts' | 'favs';
+export type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : C extends 'attempts' ? AttemptRecord : FavRecord;
+type AnyRecord = SolveRecord | SessionRecord | AttemptRecord | FavRecord;
 
 export interface Store {
   putSolve(s: SolveRecord): Promise<void>;
@@ -26,6 +26,10 @@ export interface Store {
   listAttempts(stage?: AttemptStage, since?: number): Promise<AttemptRecord[]>;
   /** every attempt, tombstones included (export, sync) */
   allAttempts(): Promise<AttemptRecord[]>;
+  putFav(f: FavRecord): Promise<void>;
+  getFav(id: string): Promise<FavRecord | undefined>;
+  /** the favourite algs in force (tombstones left out) */
+  listFavs(): Promise<FavRecord[]>;
   /** a record from the other side: kept when the local edit is later; returns what happened */
   applyRemote<C extends Coll>(coll: C, r: RecordOf<C>): Promise<'applied' | 'kept'>;
   /** records edited here and not yet pushed */
@@ -46,7 +50,7 @@ function withPuzzle<T extends { puzzle?: unknown }>(r: T): T & { puzzle: typeof 
   return r.puzzle ? (r as T & { puzzle: typeof DEFAULT_PUZZLE }) : { ...r, puzzle: DEFAULT_PUZZLE };
 }
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export function openStore(name = 'cube-coach'): Promise<Store> {
   return new Promise((resolve, reject) => {
@@ -72,12 +76,13 @@ export function openStore(name = 'cube-coach'): Promise<Store> {
           store.openCursor().onsuccess = (curEv) => {
             const cursor = (curEv.target as IDBRequest<IDBCursorWithValue | null>).result;
             if (!cursor) return;
-            const row = cursor.value as AnyRecord;
+            const row = cursor.value as SolveRecord | SessionRecord;
             if (!row.puzzle) cursor.update({ ...row, puzzle: DEFAULT_PUZZLE });
             cursor.continue();
           };
         }
       }
+      if (oldVersion < 3) db.createObjectStore('favs', { keyPath: 'id' });
     };
     open.onerror = () => reject(open.error);
     open.onsuccess = () => resolve(wrap(open.result));
@@ -118,6 +123,9 @@ function wrap(db: IDBDatabase): Store {
       return rows.filter((a) => !a.deleted && (since === undefined || a.when >= since)).sort((a, b) => a.when - b.when).map(withPuzzle);
     },
     async allAttempts() { return (await all<AttemptRecord>('attempts')).map(withPuzzle); },
+    putFav: (f) => put('favs', f, true),
+    getFav: (id) => get<FavRecord>('favs', id),
+    async listFavs() { return (await all<FavRecord>('favs')).filter((f) => !f.deleted); },
     async applyRemote(coll, r) {
       const mine = await get<AnyRecord>(coll, r.id);
       if (mine && mine.editedAt >= r.editedAt) return 'kept';

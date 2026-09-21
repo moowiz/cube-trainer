@@ -87,6 +87,18 @@ export interface AttemptRecord {
   deleted?: boolean;
 }
 
+/** A case's favourite alg (the one the drill uses instead of the table's standard one); a tombstone puts the standard back. */
+export interface FavRecord {
+  /** `${kind}/${caseId}` */
+  id: string;
+  kind: 'ocll' | 'pll';
+  caseId: string;
+  /** the alg, as written in the case table (its main or one of its alts) */
+  alg: string;
+  editedAt: number;
+  deleted?: boolean;
+}
+
 /** The time that counts: raw + 2 s, or null for a DNF. */
 export function effectiveTime(s: Pick<SolveRecord, 'time' | 'penalty'>): number | null {
   return s.penalty === -1 ? null : s.time + s.penalty * 1000;

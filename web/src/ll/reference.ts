@@ -11,7 +11,8 @@ import { onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { closeSheet, openSheet } from '../shell';
 import { triggers } from '../ui/fingertricks';
-import { CASES, isFavourite, type LLCase, type LLKind, setMainAlg } from './cases';
+import { CASES, isFavourite, type LLCase, type LLKind } from './cases';
+import { onFavsChange, setFavourite } from './favs';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
@@ -190,7 +191,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
     if (fav) {
       const id = fav.closest<HTMLElement>('.llr-case')!.dataset.id!;
       // the star on the main puts the standard alg back; on an alt it makes that one the main
-      if (setMainAlg(kind, id, fav.classList.contains('on') ? null : fav.dataset.fav!)) { feat = feats(); draw(); changed?.(); }
+      if (setFavourite(kind, id, fav.classList.contains('on') ? null : fav.dataset.fav!)) { feat = feats(); draw(); changed?.(); }
       return;
     }
     if (t.closest('.llr-player')) return; // the player's own controls
@@ -203,6 +204,9 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   };
   panel.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).classList.contains('llr-case')) { e.preventDefault(); (e.target as HTMLElement).click(); } };
   if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) draw(); }); }
+  // a favourite from another device while the sheet is up: redrawn (the case list is whatever the table says)
+  if (!favsHooked) { favsHooked = true; onFavsChange(() => { if (!document.getElementById('ref-sheet')!.hidden) { feat = feats(); draw(); } }); }
   openSheet('ref-sheet');
 }
 let schemeHooked = false;
+let favsHooked = false;

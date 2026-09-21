@@ -14,11 +14,14 @@ import { initWake } from './app/wake';
 import { initAlgs } from './algs/sheet';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
+import { initFavs } from './ll/favs';
 import { mountLL } from './ll/trainer';
 import { initShell, stages } from './shell';
 import { mountTimer } from './timer/trainer';
 import { setAttemptReader, setAttemptSink } from './ui/drill';
 
+// the favourite algs from the store onto the case table (async: the drills hear it and re-derive their case)
+void initFavs(store);
 // the stages: PLL before OCLL (whose Continue button needs it), F2L, EO, and the timer
 stages.pll = mountLL(panel('pll-panel'), 'pll');
 stages.ocll = mountLL(panel('ocll-panel'), 'ocll');
@@ -46,4 +49,5 @@ initAlgs();
   attempts: () => store.then((st) => st.allAttempts()),
   solves: () => store.then((st) => st.allSolves()),
   sessions: () => store.then((st) => st.allSessions()),
+  favs: () => store.then((st) => st.listFavs()),
 };

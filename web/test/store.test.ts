@@ -91,7 +91,7 @@ describe('the puzzle field', () => {
 
     // The upgrade must have stamped the rows on disk, not merely defaulted them at read time.
     const raw = await new Promise<IDBDatabase>((resolve, reject) => {
-      const o = indexedDB.open(name, 2);
+      const o = indexedDB.open(name);
       o.onsuccess = () => resolve(o.result);
       o.onerror = () => reject(o.error);
     });
@@ -108,7 +108,7 @@ describe('the puzzle field', () => {
     const name = `t-${Math.random()}`;
     const st = await openStore(name);
     const raw = await new Promise<IDBDatabase>((resolve, reject) => {
-      const o = indexedDB.open(name, 2);
+      const o = indexedDB.open(name);
       o.onsuccess = () => resolve(o.result);
       o.onerror = () => reject(o.error);
     });
@@ -123,6 +123,21 @@ describe('the puzzle field', () => {
     });
     raw.close();
     expect((await st.getSolve('no-puzzle'))?.puzzle).toBe('333');
+    st.close();
+  });
+});
+
+describe('favs', () => {
+  it('keeps a favourite alg per case, a tombstone puts the standard back, and the later edit wins from remote', async () => {
+    const st = await openStore(`t-${Math.random()}`);
+    await st.putFav({ id: 'pll/Ja', kind: 'pll', caseId: 'Ja', alg: "x R2 F R F' R U2 r' U r U2 x'", editedAt: 10 });
+    expect((await st.listFavs()).map((f) => f.id)).toEqual(['pll/Ja']);
+    expect((await st.dirty()).map((d) => d.coll)).toContain('favs');
+    // an older remote edit is kept out, a newer one applied
+    expect(await st.applyRemote('favs', { id: 'pll/Ja', kind: 'pll', caseId: 'Ja', alg: 'other', editedAt: 5 })).toBe('kept');
+    expect(await st.applyRemote('favs', { id: 'pll/Ja', kind: 'pll', caseId: 'Ja', alg: 'other', editedAt: 20, deleted: true })).toBe('applied');
+    expect(await st.listFavs()).toEqual([]);
+    expect((await st.getFav('pll/Ja'))?.deleted).toBe(true);
     st.close();
   });
 });

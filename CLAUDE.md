@@ -75,7 +75,8 @@ web/
                      check `node scripts/check-smart.mjs` replays one through the built page
     timer/           the Solve tab (the timer that replaces csTimer): trainer (the tab), stats (averages,
                      csTimer's 5% trim), cstimer (its export file both ways), track (scramble following)
-    store/           the solve store: types (records in WCA notation), local (IndexedDB, always), sync
+    store/           the solve store: types (records in WCA notation; solves, sessions, drill attempts, favourite
+                     algs), local (IndexedDB, always), sync
                      (optional Firestore layer, Google sign-in), firebase (the only SDK import, lazy)
 firebase/            firestore.rules (per-user) + firebase.json; paste into the console or deploy with the CLI
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
@@ -85,7 +86,7 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
                      where the moves done reached the stage), scramble (Kociemba two-phase, best total under a
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
-                     top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main, kept in localStorage),
+                     top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main; favs.ts keeps that in the store's favs collection, synced),
                      trainer (start-from and show-right-away settings; the cube in 3D from above with the
                      diagram under it; the scramble followed on a smart cube like the Solve tab's; a voice
                      that reads the alg or asks the case - hear.ts parses the answer; a repeat mode: the

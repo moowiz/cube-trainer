@@ -1,12 +1,12 @@
 // Optional cloud sync for the solve store (docs/smart-cube-design.md 4.1):
 // the local IndexedDB store stays the source of truth; when sync is on
 // and the user is signed in, every dirty record is pushed to Firestore
-// under users/{uid}/{solves|sessions}/{id} and every record another
+// under users/{uid}/{solves|sessions|attempts|favs}/{id} and every record another
 // device wrote comes back through a snapshot listener and applyRemote
 // (the later edit wins). Firebase itself loads lazily (firebase.ts).
 
 import type { Coll, Store } from './local';
-import type { AttemptRecord, SessionRecord, SolveRecord } from './types';
+import type { AttemptRecord, FavRecord, SessionRecord, SolveRecord } from './types';
 
 export interface SyncState {
   status: 'off' | 'loading' | 'signed-out' | 'syncing' | 'synced' | 'error';
@@ -44,17 +44,18 @@ export function syncChip(s: SyncState, now = Date.now(), online = true): { kind:
 }
 
 type FB = typeof import('./firebase');
-const COLLS: Coll[] = ['solves', 'sessions', 'attempts'];
+const COLLS: Coll[] = ['solves', 'sessions', 'attempts', 'favs'];
 const ON_KEY = 'cube.sync.on';
 
 export function syncWanted(): boolean { try { return localStorage.getItem(ON_KEY) === '1'; } catch { return false; } }
 function setWanted(on: boolean): void { try { if (on) localStorage.setItem(ON_KEY, '1'); else localStorage.removeItem(ON_KEY); } catch { /* no storage */ } }
 
 /** How to fetch one record by id, per collection (sessions has no get-by-id on Store). */
-const getters: Record<Coll, (store: Store, id: string) => Promise<SolveRecord | SessionRecord | AttemptRecord | undefined>> = {
+const getters: Record<Coll, (store: Store, id: string) => Promise<SolveRecord | SessionRecord | AttemptRecord | FavRecord | undefined>> = {
   solves: (store, id) => store.getSolve(id),
   sessions: async (store, id) => (await store.allSessions()).find((s) => s.id === id),
   attempts: (store, id) => store.getAttempt(id),
+  favs: (store, id) => store.getFav(id),
 };
 
 export class Sync {
@@ -154,7 +155,7 @@ export class Sync {
             if (at === null) continue; // our own pending write, not yet stamped by the server
             const rec = { ...data } as Record<string, unknown>;
             delete rec.updatedAt;
-            const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord & AttemptRecord);
+            const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord & AttemptRecord & FavRecord);
             if (applied === 'applied') pulled++;
             if (at > newest) newest = at;
           }
