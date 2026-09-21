@@ -108,6 +108,27 @@ the twist. `--select real` picks best.pt on corners only; look at `tw_*` at
 that epoch yourself. Expect `tw_f1` well above 0.9 and `tw_deg` under ~5 on
 synthetic val; if not, something is wrong before any real-frame question.
 
+**Step 1 result (2026-09-20).** The quick look failed and the real run
+passed, and the difference is instructive:
+
+- `tw-ft1` (kpft8 + fresh head, lr 5e-5): `tw_f1` 0.31, `tw_deg` 10.1 after
+  15 epochs. Two causes. The class loss was 92% `none` per epoch (the real
+  photos x150 are half the epoch, all static) and the head learned that
+  prior: 70% of turning val faces read `none`. Fixed by balancing the two
+  halves of the class loss per batch (`model.center_loss`). Re-run as
+  `tw-ft2`: `tw_f1` 0.57 - but the angle head never moved in either run
+  (every face read ~0 deg = the mean of (cos 4a, sin 4a)): kpft8's features
+  do not carry the angle and a 5e-5 fine-tune does not grow it. The corners
+  paid for the attempt too (val_px 3.06 -> 3.57).
+- `tw1` (from scratch, balanced loss, 150 epochs, 2 h 50 at 1250 img/s):
+  `tw_f1` 0.90, `tw_cls` 0.85, `tw_deg` 3.0, val_px 3.10. On data_v6 val
+  faces: 1.2% of static faces read turning, 12% of turning faces read
+  `none` (mostly the <= 5 deg ones the ramp down-weights), `self` 58/63,
+  edges ~85% right modulo one consistent cyclic shift (the corner order the
+  metric already accounts for), angle error 4.5 deg mean / 2.1 median (6.7
+  on >= 12 deg). Both bars met. **The head needs the backbone trained with
+  it; do not fine-tune a twist head onto a corner checkpoint again.**
+
 ### Step 2 - the measurement (WSL or Windows; a minute per solve)
 
 ```

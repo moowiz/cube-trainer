@@ -169,6 +169,14 @@ cd model && make export      # writes web/public/models/facekp.onnx
   train.py (Start-Process cmd/batch) silently fail on this machine anyway
   (instant exit 0): run training as a normal session background task and use
   `--resume` after interruptions.
+- `BackendCompilerFailed ... PermissionError [WinError 5] ... torchinductor_moowi\triton\0\tmp.<uuid>`
+  on the first batch = a stale Inductor cache: a graph-cache entry whose Triton
+  kernel dir is missing/empty, and torch 2.6's bundler renames a directory onto
+  it (POSIX-only; fixed upstream in 2.7). Delete
+  `%LOCALAPPDATA%\Temp\torchinductor_moowi\fxgraph` and rerun (~1 min recompile).
+  Not a code bug; don't patch inductor config. Upgrading torch is deliberately
+  deferred (2026-09-20): triton-windows must match the torch minor and the
+  ONNX exporter default changed in 2.9, so it is its own chore with re-export checks.
 
 ## Prior art
 

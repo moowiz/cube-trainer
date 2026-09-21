@@ -326,6 +326,17 @@ def center_loss(maps: torch.Tensor, targets, off_weight: float = 1.0,
         logits = maps[:, c0:c0 + TWIST_CLASSES].float()
         ce = nn.functional.cross_entropy(logits, cls_t, reduction="none")   # (B,H,W)
         cw = targets.tw_cw.float()
+        # DECISION (2026-09-20): balance the two halves of the class loss.
+        # Static frames outnumber turning ones ~9:1 per epoch (the real
+        # photos x150 alone are half of it, all static) and tw-ft1 learned
+        # exactly that prior: 70% of turning val faces read `none`. The
+        # `none` cells' weight is scaled so their mass equals the turning
+        # cells' mass in the batch (never scaled up; a batch without a
+        # turning face contributes no class loss).
+        is_none = cls_t == 0        # targets.TWIST_NONE; targets is imported lazily in this module
+        m_none = (cw * is_none).sum()
+        m_turn = (cw * ~is_none).sum()
+        cw = torch.where(is_none, cw * (m_turn / m_none.clamp(min=1e-6)).clamp(max=1.0), cw)
         cls_loss = (ce * cw).sum() / cw.sum().clamp(min=1e-6)
         ang_p = maps[:, c0 + TWIST_CLASSES:c0 + TWIST_CH].float()
         ang = nn.functional.smooth_l1_loss(ang_p, targets.tw_ang.float(), beta=0.3,
