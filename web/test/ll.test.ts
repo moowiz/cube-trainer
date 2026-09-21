@@ -439,3 +439,24 @@ describe('algAngle(): where to hold a PLL for its alg', () => {
     }
   });
 });
+
+describe('the J perms: the 2x2 block sits where the hint says, at the alg\'s angle', () => {
+  // the bar of three is on the right (Ja) / left (Jb); the block is the corner at one of its ends whose
+  // sticker on the NEXT side matches that side's edge. Facing the right side the back is on your right;
+  // facing the left side the back is on your left.
+  const block = (f: string, side: 'right' | 'left') => {
+    if (side === 'right') { const bar = f[9] === f[10] && f[10] === f[11]; const backEnd = f[45] === f[46]; const frontEnd = f[19] === f[20]; return bar && backEnd && !frontEnd ? 'right end' : bar && frontEnd && !backEnd ? 'left end' : 'no block'; }
+    const bar = f[36] === f[37] && f[37] === f[38]; const backEnd = f[46] === f[47]; const frontEnd = f[18] === f[19];
+    return bar && backEnd && !frontEnd ? 'left end' : bar && frontEnd && !backEnd ? 'right end' : 'no block';
+  };
+  it('Ja: bar of three on the right, the block at its right end (the back)', () => {
+    const c = PLL_CASES.find((x) => x.id === 'Ja')!;
+    expect(block(state(inverse(c.alg)), 'right')).toBe('right end');
+    expect(c.hint).toContain('the block is at its right end');
+  });
+  it('Jb: bar of three on the left, the block at its left end (the back)', () => {
+    const c = PLL_CASES.find((x) => x.id === 'Jb')!;
+    expect(block(state(inverse(c.alg)), 'left')).toBe('left end');
+    expect(c.hint).toContain('the block is at its left end');
+  });
+});

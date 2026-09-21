@@ -6,6 +6,10 @@
 // the alg listed always solves it. The hints hold in every AUF: they were
 // checked against the sides of each case (bar of three, headlights, bar of
 // two, nothing) and say where things are relative to the distinctive one.
+// "Seen from a side" reads left to right facing that side: R1 is the front
+// end of the right face, B1 the right end of the back, L1 the back end of
+// the left (test/ll.test.ts checks Ja / Jb's block end this way; the J
+// hints had it mirrored until 2026-09-21).
 
 export type LLKind = 'ocll' | 'pll';
 
@@ -38,8 +42,8 @@ export const PLL_CASES: LLCase[] = [
   { id: 'Gc', name: 'Gc', alg: "R2 U' R U' R U R' U R2 U D' R U' R' D", hint: 'headlights and one bar of two. Face the headlights: the bar is on the side to your left, at its far end' },
   { id: 'Gd', name: 'Gd', alg: "R U R' U' D R2 U' R U' R' U R' U R2 D'", hint: 'headlights and one bar of two. Face the headlights: the bar is on the far side, toward your right' },
   { id: 'H', name: 'H', alg: 'M2 U M2 U2 M2 U M2', hint: 'headlights on all four sides, every edge opposite its colour' },
-  { id: 'Ja', name: 'Ja', alg: "L' U' L F L' U' L U L F' L2 U L", hint: 'a bar of three with a 2x2 block on one end. Face the bar: the block is on your left. The other two sides have a bar of two each' },
-  { id: 'Jb', name: 'Jb', alg: "R U R' F' R U R' U' R' F R2 U' R'", hint: 'a bar of three with a 2x2 block on one end. Face the bar: the block is on your right. The other two sides have a bar of two each' },
+  { id: 'Ja', name: 'Ja', alg: "L' U' L F L' U' L U L F' L2 U L", hint: 'a bar of three with a 2x2 block at one end (the corner there matches the edge on the next side too). Face the bar of three: the block is at its right end. The other three sides each show a bar of two' },
+  { id: 'Jb', name: 'Jb', alg: "R U R' F' R U R' U' R' F R2 U' R'", hint: 'a bar of three with a 2x2 block at one end (the corner there matches the edge on the next side too). Face the bar of three: the block is at its left end. The other three sides each show a bar of two' },
   { id: 'Na', name: 'Na', alg: "R U R' U R U R' F' R U R' U' R' F R2 U' R' U2 R U' R'", hint: 'a bar of two on every side, on your right as you face it; diagonal corners and opposite edges swap' },
   { id: 'Nb', name: 'Nb', alg: "R' U R U' R' F' U' F R U R' F R' F' R U' R", hint: 'a bar of two on every side, on your left as you face it; diagonal corners and opposite edges swap' },
   { id: 'Ra', name: 'Ra', alg: "R U' R' U' R U R D R' U' R D' R' U2 R'", hint: 'headlights and one bar of two. Face the headlights: the bar is on the side to your right, at the end nearest you' },
