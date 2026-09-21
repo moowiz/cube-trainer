@@ -94,7 +94,7 @@ const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I
 
 // ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
 // servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
-interface Recognizer { lang: string; maxAlternatives: number; interimResults: boolean; start(): void; abort(): void; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null }
+interface Recognizer { lang: string; continuous: boolean; maxAlternatives: number; interimResults: boolean; start(): void; abort(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null }
 const recognizerCtor = (): (new () => Recognizer) | null => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
 // what the voice says for a move: the letter, then prime / two; a wide move and a rotation by name
 const SPOKEN: Record<string, string> = { x: 'x', y: 'y', z: 'z', M: 'M', E: 'E', S: 'S' };
@@ -248,23 +248,29 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!c || lead.length || !Ctor) { if (!Ctor) say('no speech recognition here'); quizOpen = false; return; }
     quizOpen = true;
     say('what case?');
-    let tries = 0;
+    // DECISION: the mic stays open up to this long: recognising a case takes a few seconds of looking, and Chrome
+    // on a phone ends a session after a short silence, so the session is restarted until an answer or the limit
+    const LISTEN_MS = 30_000;
+    const started = performance.now();
     const listen = () => {
       if (!quizOpen) return;
+      if (performance.now() - started > LISTEN_MS) { answer('giveup'); return; }
       const r = new Ctor(); listener = r;
-      r.lang = 'en-US'; r.maxAlternatives = 5; r.interimResults = false;
+      r.lang = 'en-US'; r.continuous = true; r.maxAlternatives = 5; r.interimResults = false;
       r.onresult = (e) => {
-        const alts = Array.from(e.results[0] ?? [], (x) => x.transcript);
-        const heard = alts.map((a) => heardCase(a, CASES[kind].map((x) => x.id))).find((h) => h !== null) ?? null;
-        quizSaid = alts[0] ?? null;
-        if (heard === null) { if (++tries < 3) { say('say it again?'); setTimeout(listen, 600); } else answer('giveup'); return; }
-        answer(heard);
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const alts = Array.from(e.results[i] ?? [], (x) => x.transcript);
+          const heard = alts.map((a) => heardCase(a, CASES[kind].map((x) => x.id))).find((h) => h !== null) ?? null;
+          quizSaid = alts[0] ?? null;
+          if (heard !== null) { answer(heard); return; }
+          say('say it again?');
+        }
       };
-      r.onerror = (e) => { if (!quizOpen) return; if (e.error === 'no-speech' && ++tries < 3) { say('say it again?'); setTimeout(listen, 600); } else answer('giveup'); };
-      r.onend = () => { if (listener === r) listener = null; };
+      r.onerror = (e) => { if (quizOpen && (e.error === 'not-allowed' || e.error === 'audio-capture')) { say('no microphone'); answer('giveup'); } }; // a no-speech end just restarts
+      r.onend = () => { if (listener === r) { listener = null; if (quizOpen) setTimeout(listen, 100); } };
       try { r.start(); } catch { answer('giveup'); }
     };
-    setTimeout(listen, 900); // after "what case?" has been said
+    setTimeout(listen, 700); // after "what case?" has been said
   }
   /** The quiz's answer: `heard` is a case id, a wrong name, or 'giveup'; the alg is read from here on. */
   function answer(heard: string): void {
