@@ -29,7 +29,8 @@ describe('fingertricks', () => {
     expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "D [R' U R] D'" }]); // Ga
     // the longest match anywhere wins: Jb keeps its T core although "sexy R' in F'" would start a move earlier
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'").map((g) => g.label)).toEqual(['T core']);
-    expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "R' [F' U' F] R"], [10, "R' [F R' F'] R"]]); // Nb
+    expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "R' [F' U' F] R"], [10, "R' [F R' F'] R"]]); // Nb's face-turn alt
+    expect(triggers("r' D' F r U' r' F' D r2 U r' U' r' F r F'").map((g) => [g.at, g.label])).toEqual([[12, 'wide sledge']]); // Nb (J Perm's, wide moves)
     expect(triggers("x R' U R' D2 R U' R' D2 R2 x'").map((g) => [g.at, g.n, g.label])).toEqual([[2, 8, 'A commutator']]); // Aa (the closing R and the R after are the R2)
     expect(triggers("x R2 D2 R U R' D2 R U' R x'").map((g) => [g.at, g.n, g.label])).toEqual([[1, 8, 'A commutator backwards']]); // Ab (an R' and the opening R' are the R2)
     expect(triggers("R' U2 R U2 R' F R U R' U' R' F' R2").map((g) => [g.at, g.label])).toEqual([[5, "F [sexy R'] F'"]]); // Rb

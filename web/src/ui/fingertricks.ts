@@ -76,6 +76,7 @@ const TRIGGERS: { moves: string; name: string; label?: string; how: string }[] =
   { moves: "U' R' U R", name: 'Inverse reverse sexy', label: 'inv. reverse sexy', how: 'One unit: U\' right index, wrist down, U left index, wrist up.' },
   { moves: "L' U' L U", name: 'Left sexy', label: 'left sexy', how: 'The mirror: left wrist up, U\' with the right index, left wrist down, U with the left index.' },
   { moves: "R' F R F'", name: 'Sledgehammer', label: 'sledge', how: 'Right wrist down, F with the left index pushing the top edge right, wrist up, F\' with the right index pulling the top edge left. No regrip if the thumb stays on the front.' },
+  { moves: "r' F r F'", name: 'Wide sledgehammer', label: 'wide sledge', how: 'Sledgehammer with the thumb over two layers: right wrist down taking the middle slice along, F left index, wrist up, F\' right index.' },
   { moves: "F R' F' R", name: 'Hedgeslammer', label: 'hedge', how: 'Sledgehammer backwards: F left index, wrist down, F\' right index, wrist up.' },
   { moves: "R U2 R'", name: 'R U2 R\'', how: 'Wrist up, double flick, wrist down - keep the right hand on the layer throughout.' },
   { moves: "R U R'", name: 'R U R\'', how: 'Wrist up, U with the left index, wrist down. The right hand never leaves the layer.' },
