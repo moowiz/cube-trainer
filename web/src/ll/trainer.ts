@@ -492,7 +492,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
    * moves fed so far from the last setup, else the cube's own belief (the mode just switched on, the cube
    * anywhere) - unless `placed` says the setup was just loaded with the cube's state.
    */
-  function startRep(advance: boolean, placed = false): void {
+  function startRep(advance: boolean, placed = false, lined = false): void {
     const cs = pool();
     if (advance) repAt++;
     const c = cs[repAt % cs.length]!;
@@ -504,15 +504,29 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     sol = { stage: kind, name: c.name, hint: c.hint, pre: '', alg: c.alg, post: '', case: c }; lead = [];
     shown = null; assisted = false; recorded = false; cameUp = null; held = false;
     view.rx = TOP_VIEW.rx; view.ry = TOP_VIEW.ry;
-    scramble = setup; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    scramble = setup; track = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    if (!lined) lastRead = null; // lined up: the first move was read already, and is the same
     quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     scrambleGen++;
     drill.begin(); render();
     drill.$('next').textContent = 'Next alg';
     drill.$('showSol').click(); // the alg is what is practised: always on show
-    if (settings.voice !== 'off') { say(spokenName(kind, c), true); keepNext = true; }
+    if (settings.voice !== 'off' && !lined) { say(spokenName(kind, c), true); keepNext = true; } // the same rep lined up: the name was said
     shareScramble(setup, kind);
     syncDriver(); // the cube is at the setup already: the driver arms now, and the first turn counts
+  }
+  /**
+   * Repeat mode: the turns so far are top-layer turns only (the case being lined up for the alg, or solved
+   * after it, as in a solve) and the alg does not begin with one: the setup moves by them and the rep
+   * restarts there, so they are neither "wrong" nor timed. True when that happened.
+   */
+  function absorbAuf(text: string): boolean {
+    let toks: string[];
+    try { toks = tokens(text); } catch { return false; }
+    if (!toks.length || !toks.every((m) => /^U/.test(m)) || !sol || /^U/.test(tokens(sol.alg)[0] ?? '')) return false;
+    setup = faceTurns(`${setup} ${toks.join(' ')}`);
+    startRep(false, true, true);
+    return true;
   }
   /** A rep's alg done: recorded (its time is first turn to last), and the next rep starts from here. */
   function checkRep(txt: string): void {
@@ -794,6 +808,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // a rep's scramble is the setup itself, the cube's own state, even when that is solved ('')
     load, render, scramble: () => (settings.repeat ? setup : scramble || setup || null), newScramble: () => (settings.repeat ? startRep(true) : newCase()), watch,
     feed: (text, t, source) => {
+      // a rep lined up first (a U turn or two before the alg, as in a solve): the rep starts from there instead
+      if (settings.repeat && absorbAuf(text)) return false;
       heard(text);
       const r = drill.feed(text, t, source);
       // a rep undone back to its start re-arms with no moves, which clears the panel: the alg stays on show here

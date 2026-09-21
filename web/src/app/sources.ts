@@ -63,6 +63,7 @@ export function syncDriver(): void {
   step(null);
 }
 let stepping = false, resync = false;
+let lastKey: string | null = null; // the scramble the driver was last stepped on
 /** The open stage's drill is on a solve from its own scramble (the turns are being fed to it). */
 export function driverArmed(): boolean { return driver.isArmed(); }
 
@@ -90,8 +91,11 @@ function stepOnce(item: SourceItem | null): void {
   const scr = stage?.scramble() ?? null;
   let expected: string | null = null;
   if (scr !== null) { try { expected = expectedFacelets(scr, hold(), src.colourOf); } catch { expected = null; } }
-  const wasArmed = driver.isArmed();
-  const feeds = driver.step(src, expected, scr === null ? null : `${tab}:${scr}`);
+  const key = scr === null ? null : `${tab}:${scr}`;
+  // armed before this step on the same scramble; a new scramble's arming is always news to the stage
+  const wasArmed = driver.isArmed() && key === lastKey;
+  lastKey = key;
+  const feeds = driver.step(src, expected, key);
   if (!wasArmed && driver.isArmed()) stage?.armed?.(item?.kind === 'move' ? item.t : performance.now());
   // a replayed capture is a cube for the stages' purposes; the typed box never feeds through here
   const kind = src.kind === 'camera' ? 'camera' : 'cube';
