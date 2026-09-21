@@ -121,12 +121,43 @@ export function annotate(alg: string): TrickRow[] {
   return rows;
 }
 
-/** The named triggers in `alg` (sexy, sledge...): where each starts, how many moves, and its short label. */
+// ---- chunks: the longer blocks the PLL algs share, labelled on alg lines over the finger-level triggers ----
+// (2026-09-21, user: the same sequences keep coming round). Matched first, longest first; the triggers
+// fill what they leave. The sheet's rows stay finger by finger: a chunk is a reading aid, not a fingering.
+const CHUNKS: { moves: string; label: string }[] = [
+  { moves: "R U R' U' R' F R2 U' R'", label: 'T core' },           // the middle of the T perm: in T, Jb, F and Na
+  { moves: "R U' R' D R U R' D'", label: 'commutator' },            // E perm, first half: [R U' R', D]
+  { moves: "R U R' D R U' R' D'", label: 'commutator' },            // E perm, second half: [R U R', D]
+  { moves: "R D R' U' R D' R'", label: 'commutator' },              // Ra: [R D R', U']
+  { moves: "R' D2 R U' R' D2 R", label: 'commutator' },             // Aa: [R' D2 R, U'] (R' D2 R is its own inverse)
+  { moves: "D R' U R D'", label: "R' U R under D" },                 // Ga's ending
+  { moves: "D' R U' R' D", label: "R U' R' under D" },               // Gc's ending
+].sort((a, b) => tokens(b.moves).length - tokens(a.moves).length);
+const CHUNK_TOKENS = CHUNKS.map((c) => ({ ...c, toks: tokens(c.moves) }));
+
+/**
+ * The named blocks in `alg` by token position: where each starts, how many moves, its short label.
+ * The shared chunks first (a T core, a commutator), then the finger-level triggers (sexy, sledge)
+ * where no chunk is.
+ */
 export function triggers(alg: string): { at: number; n: number; label: string }[] {
+  const toks = tokens(alg);
   const out: { at: number; n: number; label: string }[] = [];
+  const taken = new Array<boolean>(toks.length).fill(false);
+  for (let i = 0; i < toks.length; ) {
+    const c = CHUNK_TOKENS.find((x) => x.toks.every((m, k) => toks[i + k] === m));
+    if (!c) { i++; continue; }
+    out.push({ at: i, n: c.toks.length, label: c.label });
+    for (let k = 0; k < c.toks.length; k++) taken[i + k] = true;
+    i += c.toks.length;
+  }
   let at = 0;
-  for (const r of annotate(alg)) { if (r.label) out.push({ at, n: r.moves.length, label: r.label }); at += r.moves.length; }
-  return out;
+  for (const r of annotate(alg)) {
+    const n = r.moves.length;
+    if (r.label && !taken.slice(at, at + n).some(Boolean)) out.push({ at, n, label: r.label });
+    at += n;
+  }
+  return out.sort((a, b) => a.at - b.at);
 }
 
 /** The first sentence: what the layer does, no fingers ("Middle slice between front and back, same way as F"). */

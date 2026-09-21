@@ -22,7 +22,11 @@ describe('fingertricks', () => {
 
   it('names the triggers in a PLL by position: Y perm ends sexy, sledge', () => {
     expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
-    expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 4, label: 'sexy' }, { at: 8, n: 4, label: 'reverse sexy' }]); // T perm
+    // T perm: the T core takes the first nine; sexy inside it and the reverse sexy straddling its end go unlabelled
+    expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 9, label: 'T core' }]);
+    expect(triggers("R U R' F' R U R' U' R' F R2 U' R'")).toEqual([{ at: 4, n: 9, label: 'T core' }]); // Jb = R U R' F' + T core
+    expect(triggers("x' R U' R' D R U R' D' R U R' D R U' R' D' x")).toEqual([{ at: 1, n: 8, label: 'commutator' }, { at: 9, n: 8, label: 'commutator' }]); // E perm
+    expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "R' U R under D" }]); // Ga
     expect(triggers("R U2 R' U' R U' R'")).toEqual([]); // R U2 R' is a unit but not a named trigger
   });
 
