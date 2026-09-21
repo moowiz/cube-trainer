@@ -354,7 +354,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // a middle-slice turn reaches the cube as its two outer layers the other way (M = L' R, the core turning with the
   // slice), each as quarter turns: the echo gathers L and R turns that arrive close together, merges them, and says
   // the slice when that is what they make; anything else is said move by move, in order
-  const SLICE_OF_PAIR: Record<string, string> = { "L' R": 'M', "R L'": 'M', "L R'": "M'", "R' L": "M'", 'L2 R2': 'M2', 'R2 L2': 'M2' };
+  const SLICE_OF_PAIR: Record<string, string> = {
+    "L' R": 'M', "R L'": 'M', "L R'": "M'", "R' L": "M'", 'L2 R2': 'M2', 'R2 L2': 'M2',
+    "F' B": 'S', "B F'": 'S', "F B'": "S'", "B' F": "S'", 'F2 B2': 'S2', 'B2 F2': 'S2',
+    "D' U": 'E', "U D'": 'E', "D U'": "E'", "U' D": "E'", 'D2 U2': 'E2', 'U2 D2': 'E2',
+  };
   /** Adjacent outer-layer pairs that are a slice (L' R -> M), the rest as they are. */
   function foldSlices(moves: string[]): string[] {
     const out: string[] = [];
@@ -377,7 +381,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
   function echo(moves: string[]): void {
     for (const m of moves) {
-      if (/^[LR]/.test(m)) { pending.push(m); clearTimeout(pendingTimer); pendingTimer = setTimeout(flushEcho, ECHO_HOLD_MS); continue; }
+      // an L/R or F/B turn waits for its other half (an M or S slice); U and D are said at once (no E slice in any alg here)
+      if (/^[LRFB]/.test(m)) {
+        if (pending.length && /^[LR]/.test(pending[0]!) !== /^[LR]/.test(m)) flushEcho();
+        pending.push(m); clearTimeout(pendingTimer); pendingTimer = setTimeout(flushEcho, ECHO_HOLD_MS); continue;
+      }
       flushEcho();
       say(spoken(m));
     }
