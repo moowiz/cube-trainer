@@ -534,8 +534,9 @@ labels (in progress, user).
   update prompt) - do it only when the app must open with no network.
 
 - **Timer extras csTimer has (written down 2026-09-17, not now),** in the
-  order they would matter: a time trend graph with the averages as lines
-  and a distribution histogram (~2 h); subset scrambles for timed sessions
+  order they would matter: ~~a time trend graph with the averages as
+  lines~~ (shipped 2026-09-20: `timer/graph.ts`, the Graph button on the
+  Solve tab) and a distribution histogram (~1 h); subset scrambles for timed sessions
   (EOCross solved, last layer only, EO solved) from a constrained
   random-state generator with parity tests (~3 h); a picture of the
   scrambled state for hand scrambles (net renderer exists, ~30 min); a

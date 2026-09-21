@@ -13,7 +13,7 @@ import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
 import { relabelTurns, toSourceLetters, type Hold } from '../handoff';
-import { shareScramble, sheetOpen, toast, type Stage } from '../shell';
+import { openSheet, shareScramble, sheetOpen, toast, type Stage } from '../shell';
 import { solveState, validateState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
@@ -21,9 +21,10 @@ import type { ColorName, FaceId } from '../types';
 import { downloadText } from '../ui/download';
 import { exportCsTimer, importCsTimer } from './cstimer';
 import { applySeq, type Move } from '../moves/moves';
+import { mountGraph, type GraphData } from './graph';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
-import { autoSessionName, fullOf, gapOf, spanOf, stampOf } from './when';
+import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
@@ -79,6 +80,9 @@ const STYLE = `
   .tm-sess select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); flex: 1; }
   .tm-stats { font-size: 13px; color: var(--ink-2); line-height: 1.7; padding: 2px 2px 8px; }
   .tm-stats b { color: var(--ink); font-weight: 600; }
+  .tm-stats .eo-link { padding: 0 4px; font-size: 13px; }
+  .st-scope { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 14px; }
+  .st-scope .n { color: var(--ink-2); font-size: 13px; }
   .tm-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
   .tm-list li { display: flex; gap: 10px; align-items: baseline; padding: 7px 4px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px; }
   .tm-list li.sel { background: var(--panel); }
@@ -122,7 +126,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         <button class="btn" type="button" data-pen="0">OK</button><button class="btn" type="button" data-pen="2">+2</button><button class="btn" type="button" data-pen="-1">DNF</button><button class="btn" type="button" data-del="1">Delete</button>
       </div>
       <div class="tm-sess"><select id="tm-session" aria-label="Session"></select><button class="btn" type="button" id="tm-newsess" title="Split here. A solve after a two-hour pause starts a new session by itself.">New session</button></div>
-      <div class="tm-stats" id="tm-stats"></div>
+      <div class="tm-stats"><span id="tm-stats"></span> <button class="btn eo-link" type="button" id="tm-graph" title="The times over the session or over everything, with the running averages as lines">Graph</button></div>
       <ol class="tm-list" id="tm-list"></ol>
       <div class="tm-more" id="tm-more" hidden><button class="btn eo-link" type="button" id="tm-moreBtn">Show all</button></div>
     </div>`;
@@ -425,6 +429,32 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   });
   $('moreBtn').onclick = () => { showAll = true; render(); };
 
+  // ---- the stats sheet: the graph over this session or over everything ----
+  let statsScope: 'session' | 'all' = 'session';
+  let drawGraph: ((d: GraphData) => void) | null = null;
+  const statsPanel = document.getElementById('stats-panel');
+  const statsOpen = () => !!statsPanel && !document.getElementById('stats-sheet')?.hidden;
+  async function renderStats(): Promise<void> {
+    if (!statsPanel || !statsOpen()) return;
+    if (!drawGraph) {
+      statsPanel.innerHTML = `<div class="st-scope"><div class="eo-seg" id="st-scope"><button type="button" data-v="session">This session</button><button type="button" data-v="all">All sessions</button></div><span class="n" id="st-n"></span></div><div id="st-graph"></div>`;
+      statsPanel.querySelector('#st-scope')!.addEventListener('click', (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
+        if (!b) return;
+        statsScope = b.dataset.v as 'session' | 'all';
+        void renderStats();
+      });
+      drawGraph = mountGraph(statsPanel.querySelector<HTMLElement>('#st-graph')!);
+    }
+    statsPanel.querySelectorAll<HTMLButtonElement>('#st-scope button').forEach((b) => b.classList.toggle('on', b.dataset.v === statsScope));
+    let rows = solves;
+    if (statsScope === 'all') rows = (await (await deps.store).allSolves()).filter((v) => !v.deleted).sort((a, b) => a.when - b.when);
+    const n = statsPanel.querySelector<HTMLElement>('#st-n')!;
+    n.textContent = rows.length ? `${rows.length} solves${statsScope === 'session' && session ? ` in ${session.name}` : ''}` : '';
+    drawGraph({ times: rows.map(effectiveTime), whens: rows.map((v) => v.when), dated: statsScope === 'all', dayOf: (w) => dayOf(w) });
+  }
+  $('graph').onclick = () => { openSheet('stats-sheet'); void renderStats(); };
+
   // history in and out (the controls live in the settings sheet)
   const hist = (id: string) => document.getElementById(id);
   hist('hist-import')?.addEventListener('click', () => (hist('hist-file') as HTMLInputElement | null)?.click());
@@ -550,6 +580,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       return `<li data-id="${v.id}" class="${v.id === selected ? 'sel' : ''}" title="${fullOf(v.when)}"><span class="n">${i}</span><span class="t">${t}</span><span class="s" title="${v.scramble}">${v.scramble}</span><span class="m">${m}</span><span class="w">${stampOf(v.when, now)}</span></li>`;
     }).reverse().join('');
     $('more').hidden = showAll || solves.length <= 30;
+    if (statsOpen()) void renderStats();
   }
   const tick = () => { if (phase !== 'idle') renderTime(); requestAnimationFrame(tick); };
   tick();

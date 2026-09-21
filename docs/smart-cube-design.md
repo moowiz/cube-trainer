@@ -273,8 +273,13 @@ runs cross-origin isolated (COOP same-origin, for wasm threads), which
 cuts a popup off from its opener and made the in-app popup end in
 `auth/popup-closed-by-user` on the first try (2026-09-17); the service
 worker serves the sign-in page without those headers and the app reads
-the user back from the shared IndexedDB persistence. Not built: a time
-graph, sessions renamed or deleted, and the recording rig below.
+the user back from the shared IndexedDB persistence. Not built: sessions
+renamed or deleted, and the recording rig below. **The graph shipped
+2026-09-20** (`timer/graph.ts`, the Graph button under the session's
+numbers, a sheet): every solve a dot, ao5 / ao12 / ao50 / ao100 as lines
+with a legend that toggles them, this session or all sessions (the axis
+then marks the days), the scale capped at the 98th percentile with the
+outliers pinned at the top, a crosshair tooltip, and a table view.
 
 **2026-09-20:** a session is a sitting. A solve more than two hours after
 the session's last one starts a new session by itself, named by the clock

@@ -17,6 +17,7 @@ import { effectiveTime, newId, type SessionRecord, type SolveRecord } from '../s
 import { exportCsTimer, importCsTimer } from '../src/timer/cstimer';
 import { syncChip, syncWarning } from '../src/store/sync';
 import { averageOf, bestAverageOf, formatTime, meanOf, sessionStats, trimOf } from '../src/timer/stats';
+import { WINDOWS, countStep, graphSvg, layoutGraph, percentile, rolling, secondsLabel, secondsStep } from '../src/timer/graph';
 import { ScrambleTracker } from '../src/timer/track';
 import { SESSION_GAP_MS } from '../src/timer/trainer';
 import { autoSessionName, fullOf, gapOf, spanOf, stampOf } from '../src/timer/when';
@@ -56,6 +57,70 @@ describe('averages', () => {
   it('a +2 adds two seconds; a DNF has no time', () => {
     expect(effectiveTime({ time: 10_000, penalty: 2 })).toBe(12_000);
     expect(effectiveTime({ time: 10_000, penalty: -1 })).toBeNull();
+  });
+});
+
+describe('the graph', () => {
+  const ramp = Array.from({ length: 20 }, (_, i) => 20_000 - i * 500); // 20.0 down to 10.5
+  it('a running average starts once there are n and follows the list', () => {
+    const r = rolling(ramp, 5);
+    expect(r.slice(0, 4)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(r[4]).toBe(averageOf(ramp.slice(0, 5), 5));
+    expect(r[19]).toBe(averageOf(ramp, 5));
+    expect(rolling([null, null, 10_000, 11_000, 12_000], 5)[4]).toBeNull();
+  });
+  it('ticks are clean numbers with a cap on how many', () => {
+    expect(secondsStep(10, 5)).toBe(2); expect(secondsStep(200, 6)).toBe(60); expect(secondsStep(0.4, 6)).toBe(0.1);
+    expect(countStep(20, 8)).toBe(5); expect(countStep(1000, 8)).toBe(200);
+    expect(secondsLabel(12)).toBe('12'); expect(secondsLabel(65)).toBe('1:05'); expect(secondsLabel(12.5)).toBe('12.5');
+    expect(percentile([1, 2, 3, 4, 5], 0.5)).toBe(3); expect(percentile([], 0.5)).toBeUndefined();
+  });
+  it('lays every solve out inside the plot and draws the lines that are on', () => {
+    const g = layoutGraph(ramp, { width: 400, height: 280, shown: ['ao5', 'ao12'] });
+    expect(g.points).toHaveLength(20);
+    for (const p of g.points) { expect(p.x).toBeGreaterThanOrEqual(g.x0); expect(p.x).toBeLessThanOrEqual(g.x1); expect(p.y).toBeGreaterThanOrEqual(g.y0); expect(p.y).toBeLessThanOrEqual(g.y1); }
+    expect(g.lines.map((l) => l.key)).toEqual(['ao5', 'ao12']);
+    expect(g.best?.t).toBe(10_500);
+    expect(g.lo).toBeLessThanOrEqual(10_500); expect(g.hi).toBeGreaterThanOrEqual(20_000);
+    // later solves are further right, faster ones lower
+    expect(g.points[19]!.x).toBeGreaterThan(g.points[0]!.x);
+    expect(g.points[19]!.y).toBeGreaterThan(g.points[0]!.y);
+    expect(Object.keys(g.series)).toEqual(WINDOWS.map((w) => w.key));
+    expect(g.series.ao50![19]).toBeUndefined();
+  });
+  it('one huge solve is pinned at the top, not the scale', () => {
+    const times = [...Array.from({ length: 60 }, () => 15_000), 120_000];
+    const g = layoutGraph(times, { width: 400, height: 280, shown: ['ao5'] });
+    expect(g.hi).toBeLessThan(60_000);
+    const last = g.points[g.points.length - 1]!;
+    expect(last.clipped).toBe(true); expect(last.y).toBe(g.y0);
+    // the ao5 with the outlier in it is still on the scale
+    expect(g.hi).toBeGreaterThanOrEqual(g.series.ao5![60] as number);
+  });
+  it('DNFs are left out of the dots and break a line', () => {
+    const ten = Array.from({ length: 5 }, () => 10_000);
+    const times: (number | null)[] = [...ten, null, null, ...ten];
+    const g = layoutGraph(times, { width: 400, height: 280, shown: ['ao5'] });
+    expect(g.points).toHaveLength(10);
+    // one DNF in an ao5 is the trimmed worst; two make it a DNF and the line stops until they are out of the window
+    expect(g.lines[0]!.d.split('M')).toHaveLength(3);
+  });
+  it('end labels never sit on each other and the svg names each line', () => {
+    const flat = Array.from({ length: 120 }, () => 12_000);
+    const g = layoutGraph(flat, { width: 500, height: 280, shown: WINDOWS.map((w) => w.key) });
+    const ys = g.endLabels.map((l) => l.y);
+    for (let i = 1; i < ys.length; i++) expect(ys[i]! - ys[i - 1]!).toBeGreaterThanOrEqual(13);
+    const svg = graphSvg(g);
+    for (const w of WINDOWS) expect(svg).toContain(`>${w.key}</text>`);
+    expect(svg).toContain('best 12.00');
+    expect(layoutGraph([], { width: 300, height: 200, shown: [] }).points).toEqual([]);
+  });
+  it('x ticks can be the days, one where the day changes and none on top of another', () => {
+    const days = ramp.map((_, i) => (i < 8 ? '1 Sep' : i < 9 ? '2 Sep' : i < 14 ? '3 Sep' : '4 Sep'));
+    const g = layoutGraph(ramp, { width: 400, height: 280, shown: [], days });
+    expect(g.xTicks.map((t) => t.label)).toEqual(['1 Sep', '2 Sep', '4 Sep']); // 3 Sep would sit on 2 Sep
+    for (let i = 1; i < g.xTicks.length; i++) expect(g.xTicks[i]!.x - g.xTicks[i - 1]!.x).toBeGreaterThanOrEqual(76);
+    expect(graphSvg(g)).toContain('text-anchor="start">1 Sep');
   });
 });
 

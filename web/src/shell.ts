@@ -148,6 +148,7 @@ export function initShell(): void {
   el('algs-close').onclick = () => closeSheet('algs-sheet');
   el('tricks-close').onclick = () => closeSheet('tricks-sheet');
   el('ref-close').onclick = () => closeSheet('ref-sheet');
+  el('stats-close').onclick = () => closeSheet('stats-sheet');
   const closeSheetEl = (s: HTMLElement) => (s.id === 'scan-sheet' ? closeScan() : closeSheet(s.id));
   document.querySelectorAll<HTMLElement>('.zz-sheet').forEach((s) => s.addEventListener('click', (e) => { if (e.target === s) closeSheetEl(s); }));
   // keys: Escape closes a sheet; c / r open the scanner (fresh / resumed), s the settings, l the cube, a the algs, from any stage - all under the right hand on Dvorak
