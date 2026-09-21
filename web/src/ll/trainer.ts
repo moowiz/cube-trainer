@@ -29,7 +29,7 @@ import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
-import { faceTurns, state } from '../cube/state';
+import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
 import { hold } from '../app/context';
 import { SLOTS, slotSolved } from '../f2l/model';
 import { toSourceLetters } from '../handoff';
@@ -38,7 +38,7 @@ import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { ScrambleTracker, type TrackStatus } from '../timer/track';
 import { moveHtml } from '../timer/trainer';
 import type { ColorName } from '../types';
-import type { FaceId } from '../cube/frame';
+import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
@@ -106,9 +106,10 @@ function offList(turns: readonly string[]): string[] {
 }
 /** A chunk label as words: the move letters in it said as moves ("sexy R prime in F"). */
 const spokenLabel = (label: string): string => label.split(' ').map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(' ');
-function say(text: string): void {
+/** Speak; the latest wins (a queue would lag behind fast turning) unless `keep` lets what is being said finish first. */
+function say(text: string, keep = false): void {
   if (typeof speechSynthesis === 'undefined') return;
-  speechSynthesis.cancel(); // the latest wins: a queue would lag behind fast turning
+  if (!keep) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.2; u.lang = 'en-US';
   speechSynthesis.speak(u);
@@ -226,21 +227,34 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
   let fedCount = 0;                   // moves fed so far, for the echo
-  /** The moves done (`text`) after the last of them that left the cube on `route`: the wrong turns, in order. */
-  function offRoute(route: string[], text: string): string[] {
+  /**
+   * The moves done (`text`) after the last of them that left the cube on `route`: the wrong turns, in order,
+   * and `at`, the route index of the state they left from.
+   */
+  function offRoute(route: string[], text: string): { bad: string[]; at: number } {
     let toks: string[];
-    try { toks = tokens(text); } catch { return []; }
-    const onIt = new Set<string>();
-    for (let i = 0; i <= route.length; i++) onIt.add(state(`${setup} ${route.slice(0, i).join(' ')}`));
-    for (let k = toks.length; k >= 0; k--) if (onIt.has(state(`${setup} ${toks.slice(0, k).join(' ')}`))) return toks.slice(k);
-    return toks;
+    try { toks = tokens(text); } catch { return { bad: [], at: 0 }; }
+    const onIt = new Map<string, number>();
+    for (let i = route.length; i >= 0; i--) onIt.set(state(`${setup} ${route.slice(0, i).join(' ')}`), i); // the earliest index wins
+    for (let k = toks.length; k >= 0; k--) { const i = onIt.get(state(`${setup} ${toks.slice(0, k).join(' ')}`)); if (i !== undefined) return { bad: toks.slice(k), at: i }; }
+    return { bad: toks, at: 0 };
   }
-  /** The off-the-alg line in the result panel: the wrong turns and their undo; gone when back on. */
-  function showOff(bad: string[]): void {
+  /**
+   * The cube's fixed letters (what a smart cube reports) as the letters of the frame the alg's rotations
+   * up to route index `at` leave the cube in: an x, and the user's "U" is the cube's F. Identity without rotations.
+   */
+  function inHand(route: string[], at: number, alg: string): string {
+    const rots = route.slice(0, at).filter((m) => /^[xyz]/.test(m));
+    if (!rots.length) return alg;
+    const raw = rawFacelets(rots.join(' '));
+    return relabel(alg, frameMap(raw[CENTRE.D!]! as FaceId, raw[CENTRE.F!]! as FaceId));
+  }
+  /** The off-the-alg line in the result panel: the wrong turns and their undo (in the hand's frame); gone when back on. */
+  function showOff(bad: string[], undo: string[]): void {
     let el = drill.result.body.querySelector<HTMLElement>('.ll-off');
     if (!bad.length) { el?.remove(); return; }
     if (!el) { el = document.createElement('div'); el.className = 'll-off'; drill.result.body.prepend(el); }
-    el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${tokens(inverse(bad.join(' '))).map(moveHtml).join(' ')}`;
+    el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${undo.map(moveHtml).join(' ')}`;
   }
   /** The cube's moves came in: echo the newest, or read the alg's next. */
   function heard(text: string): void {
@@ -295,7 +309,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble'); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
 
   // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
   const inPool = (c: LLCase) => !settings.cases || settings.cases.includes(c.id);
@@ -393,18 +407,24 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       }
       if (line.dataset.main) {
         // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
-        const bad = onRoute || cur === null ? [] : offList(offRoute(route, text));
-        showOff(bad);
+        const off = onRoute || cur === null ? { bad: [], at: 0 } : offRoute(route, text);
+        // the wrong turns and their undo in the letters of the frame the alg has the cube in (after its x, the cube's F is your U)
+        const bad = tokens(inHand(route, off.at, offList(off.bad).join(' ')));
+        const undo = bad.length ? tokens(inverse(bad.join(' '))) : [];
+        showOff(bad, undo);
         if (bad.length) {
-          const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${tokens(inverse(bad.join(' '))).map(spoken).join(', ')}`;
+          const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${undo.map(spoken).join(', ')}`;
           if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
         }
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
-        // the scramble; a chunk (sexy, the T core) is named at its start and its moves are not read one by one
+        // the scramble; a rotation is skipped (the cube cannot see it: the move after it is read, in the alg's own letters);
+        // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
         else if (settings.voice === 'read' && onRoute && armedNow) {
-          const next = route[done];
-          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= done && done < g.at + g.n);
-          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : trig ? (trig.at === done ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
+          let d = done;
+          while (route[d] && /^[xyz]/.test(route[d]!)) d++;
+          const next = route[d];
+          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n);
+          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           if (words && words !== lastRead) { lastRead = words; say(words); }
         }
         lastBad = bad.length;
