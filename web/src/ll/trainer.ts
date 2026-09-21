@@ -1,10 +1,12 @@
 // The last-layer drill, mounted twice: once as the OCLL tab, once as PLL.
 // A case (random, or a cube handed over by a scan or the previous stage),
-// the top-down last-layer diagram in the trainer's colour scheme, hints
-// that reveal the case, Check on the moves typed, and the standard alg with
-// its AUFs in brackets. The drill scaffold owns timer, box, result, keys.
+// the top-down last-layer diagram in the trainer's colour scheme, and the
+// standard alg with its AUFs in brackets. The drill scaffold owns timer, box,
+// result, keys - quiet here (2026-09-21: no hint chips, no moves box, no
+// timer buttons, the timer small): the moves come from the smart cube, the
+// case is named by the result or the voice, and the alg is a tap away.
 //
-// Five settings, inline after the hints and kept per drill: where the drill
+// Five settings, inline under the case list button, kept per drill: where the drill
 // starts (its own stage, or the step before - the corners to orient, the
 // last pair to insert - so the case has to be recognised after solving that
 // your own way, as in a solve), whether the alg shows as soon as the case
@@ -25,10 +27,10 @@
 // followed on a smart cube like the Solve tab's: turns done are underlined.
 
 import { faceMoves, inverse, mergeMoves, moveCount, movesStr, tokens } from '../cube/alg';
-import { toWca, WCA_HOLD } from '../cube/frame';
+import { toWca } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
-import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
+import { faceHex, onSchemeChange } from '../cube/scheme';
 import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
 import { hold } from '../app/context';
 import { SLOTS, slotSolved } from '../f2l/model';
@@ -162,10 +164,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
-    hints: [{ key: 'name', label: 'Hint: case name' }, { key: 'look', label: 'Hint: what to look for' }],
-    movesLabel: 'Moves you did', placeholder: kind === 'pll' ? "e.g. U R U R' U' R' F R2 U' R' U' R U R' F' U2" : "e.g. U2 R U R' U R U2 R'",
-    note: 'Solve it on your cube. Space starts and stops the timer, N is a new case.',
-    showLabel: 'Show the alg',
+    quiet: true, showLabel: 'Show the alg',
     afterHints: `
       <div class="ll-opts">
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
@@ -180,9 +179,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble ll-scr" id="${id('setup')}"></div>
-      <div class="ll-track" id="${id('track')}"></div>
-      <p class="eo-note" id="${id('orient')}"></p>`,
-  }, { onNew: newCase, onCheck: check, onHint: hintText, onShow: onShow, onClear: () => { shown = null; render(); },
+      <div class="ll-track" id="${id('track')}"></div>`,
+  }, { onNew: newCase, onCheck: check, onShow: onShow, onClear: () => { shown = null; render(); },
     // a cube feeding the box is done when the case is (the AUF included: it is timed too)
     isDone: (txt) => { try { return done(kind, `${setup} ${tokens(txt).join(' ')}`); } catch { return false; } },
     base: () => setup, onApply: (alg) => { shown = `${setup} ${alg}`; render(); } });
@@ -230,10 +228,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   function render(): void {
     drawPic();
-    const named = root.querySelector('.eo-chip[data-hint="name"].open');
-    drill.$('case').innerHTML = named || (drill.result.visible() && recorded) || !sol ? caseText() : '';
+    drill.$('case').innerHTML = (drill.result.visible() && recorded) || !sol ? caseText() : '';
     renderScramble();
-    drill.$('orient').textContent = `Apply the scramble to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the ${lead.some((s) => s.stage === 'pair') ? 'cube' : 'top layer'} match the picture.`;
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, ms = results.reduce((a, r) => a + r.std, 0) / results.length;
       drill.setStats(`This session: ${results.length} solved, mean ${mt.toFixed(2)}s, ${mn.toFixed(1)} moves (standard algs mean ${ms.toFixed(1)}).`);
@@ -244,10 +240,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function renderScramble(): void {
     const su = drill.$('setup'), tr = drill.$('track');
     if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
-    if (scramble === null) { su.innerHTML = 'Scramble: <span>…</span>'; tr.textContent = ''; return; }
+    if (scramble === null) { su.innerHTML = 'Scramble WCA style: <span>…</span>'; tr.textContent = ''; return; }
     const toks = toWca(scramble).split(' ').filter(Boolean);
     const applied = track ? track.applied : 0;
-    su.innerHTML = `Scramble: ${toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ')}`;
+    su.innerHTML = `Scramble WCA style: ${toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ')}`;
     if (!track) { tr.textContent = ''; tr.className = 'll-track'; return; }
     tr.className = track.off ? 'll-track off' : 'll-track';
     tr.textContent = track.off ? `Off the scramble${offTurns.length ? ` after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : `: undo back to turn ${track.applied} (underlined)`}` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
@@ -636,12 +632,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       drill.result.handoff.appendChild(btn);
     }
     render();
-  }
-
-  function hintText(key: string): string {
-    const plain = caseText().replace(/<[^>]+>/g, '');
-    if (key === 'name') { setTimeout(render); return sol ? `${sol.name}${afterLead()}` : plain; }
-    return sol ? `${lead.length ? `${afterLead().slice(2)}: ` : ''}${hintOf(sol)}` : plain;
   }
 
   function onShow(open: boolean): void {

@@ -32,11 +32,16 @@ export interface DrillSpec {
   title: string;
   blurb: string;
   newLabel: string;
-  hints: { key: string; label: string }[];
-  movesLabel: string;
-  placeholder: string;
+  hints?: { key: string; label: string }[];
+  movesLabel?: string;
+  placeholder?: string;
   /** under the timer row */
-  note: string;
+  note?: string;
+  /**
+   * The drill is done on a cube that reports its turns (the last-layer drills): no timer buttons, no
+   * moves box, no Check - the box stays, hidden, as the store of the moves fed; the timer shows small.
+   */
+  quiet?: boolean;
   /** the reveal link under the result */
   showLabel: string;
   /** HTML for the picture column (the stage's own elements, with ids under the prefix) */
@@ -52,7 +57,7 @@ export interface DrillHandlers {
   /** do these moves reach the stage's target? (a source feeding the box checks itself when they do) */
   isDone?(text: string): boolean;
   /** a hint chip was opened: return its text */
-  onHint(key: string): string;
+  onHint?(key: string): string;
   /** the reveal link toggled; `open` is the new state */
   onShow(open: boolean): void;
   /** a click on the hints row that was not a plain chip (a stage's own buttons there) */
@@ -150,6 +155,8 @@ export const STYLE = `
   .eo-status { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 4px 4px; gap: 10px; }
   .eo-bad { font-size: 16px; } .eo-bad b { font-weight: 600; } .eo-bad.zero { color: var(--good); }
   .eo-timer { font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 300; line-height: 1; }
+  .drill.quiet .eo-timer { font-size: 14px; font-weight: 400; color: var(--ink-2); }
+  .drill.quiet .eo-hints:empty { display: none; }
   .eo-scramble { color: var(--ink-2); font-size: 14px; padding: 2px 4px 8px; word-spacing: .25em; line-height: 1.5; }
   .eo-scramble span { color: var(--ink); }
   .eo-row { display: flex; gap: 6px; margin-top: 8px; }
@@ -195,24 +202,26 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const s = document.createElement('style'); s.id = 'drill-style'; s.textContent = STYLE; document.head.appendChild(s);
   }
   const id = (n: string) => `${spec.id}-${n}`;
+  const hints = spec.hints ?? [];
+  const q = spec.quiet ? ' hidden' : '';
   root.innerHTML = `
-    <div class="drill">
+    <div class="drill${spec.quiet ? ' quiet' : ''}">
       <div class="eo-head">
         <div><h1>${spec.title}</h1><p id="${id('sub')}">${spec.blurb}</p></div>
         <button id="${id('next')}" class="btn eo-primary" type="button">${spec.newLabel}</button>
       </div>
       <div class="eo-left">${spec.left}</div>
       <div class="eo-right">
-        <div class="eo-hints" id="${id('hints')}">${spec.hints.map((c) => `<button type="button" class="eo-chip" data-hint="${c.key}">${c.label}</button>`).join('')}</div>
+        <div class="eo-hints" id="${id('hints')}">${hints.map((c) => `<button type="button" class="eo-chip" data-hint="${c.key}">${c.label}</button>`).join('')}</div>
         ${spec.afterHints ?? ''}
-        <div class="eo-row">
+        <div class="eo-row"${q}>
           <button id="${id('timerBtn')}" class="btn eo-primary" type="button" style="flex:1">Start timer</button>
           <button id="${id('timerReset')}" class="btn" type="button" title="Reset timer (Esc)">Reset</button>
         </div>
-        <p class="eo-note">${spec.note}</p>
-        <label class="eo-lbl" for="${id('sol')}">${spec.movesLabel}</label>
-        <textarea id="${id('sol')}" class="eo-moves" rows="2" placeholder="${spec.placeholder}" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
-        <div class="eo-row">
+        <p class="eo-note"${q}>${spec.note ?? ''}</p>
+        <label class="eo-lbl" for="${id('sol')}"${q}>${spec.movesLabel ?? ''}</label>
+        <textarea id="${id('sol')}" class="eo-moves" rows="2" placeholder="${spec.placeholder ?? ''}" autocomplete="off" autocapitalize="off" spellcheck="false"${q}></textarea>
+        <div class="eo-row"${q}>
           <button id="${id('check')}" class="btn eo-primary" type="button">Check</button>
           <button id="${id('clear')}" class="btn" type="button">Clear</button>
           <button id="${id('tricks')}" class="btn" type="button" title="Finger by finger: the moves in the box, or the scramble when the box is empty">✋ Fingertricks</button>
@@ -234,7 +243,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     return e;
   };
   const box = $('sol') as HTMLTextAreaElement;
-  const labels = Object.fromEntries(spec.hints.map((c) => [c.key, c.label]));
+  const labels = Object.fromEntries(hints.map((c) => [c.key, c.label]));
 
   // timer, and where the attempt's moves came from
   let startAt: number | null = null, endAt: number | null = null;
@@ -288,7 +297,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const t = e.target as HTMLElement;
     if (h.onHintsClick?.(t)) return;
     const b = t.closest<HTMLButtonElement>('.eo-chip[data-hint]');
-    if (!b || b.classList.contains('open')) return;
+    if (!b || b.classList.contains('open') || !h.onHint) return;
     b.classList.add('open');
     b.textContent = h.onHint(b.dataset.hint!);
   });
@@ -305,7 +314,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-alg]');
     if (!el) return;
     const apply = (e.target as HTMLElement).closest('.eo-apply');
-    drill.fill(el.dataset.alg!, apply ? 'On the picture, and in the moves box. Press Check when you have done it on your cube.' : spec.id === 'eo' ? 'Put in the moves box. Add your cross moves, then Check.' : 'Put in the moves box. Press Check when you have done it.');
+    drill.fill(el.dataset.alg!, spec.quiet ? (apply ? 'On the picture.' : 'Copied.') : apply ? 'On the picture, and in the moves box. Press Check when you have done it on your cube.' : spec.id === 'eo' ? 'Put in the moves box. Add your cross moves, then Check.' : 'Put in the moves box. Press Check when you have done it.');
     if (apply) { hidePeek(); h.onApply?.(el.dataset.alg!); }
   });
 
@@ -394,7 +403,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
       return d;
     },
     resetHints() { root.querySelectorAll<HTMLButtonElement>('.eo-chip[data-hint]').forEach((b) => { b.textContent = labels[b.dataset.hint!]; b.classList.remove('open'); }); },
-    refreshHints() { root.querySelectorAll<HTMLButtonElement>('.eo-chip[data-hint].open').forEach((b) => { b.textContent = h.onHint(b.dataset.hint!); }); },
+    refreshHints() { if (h.onHint) root.querySelectorAll<HTMLButtonElement>('.eo-chip[data-hint].open').forEach((b) => { b.textContent = h.onHint!(b.dataset.hint!); }); },
     setStats: (t) => { $('stats').textContent = t; },
     showOpen, closeShow,
     setShowLabel: (t) => { $('showSol').textContent = t; },
