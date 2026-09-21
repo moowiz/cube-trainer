@@ -123,15 +123,20 @@ function offList(turns: readonly string[]): string[] {
 }
 /**
  * A chunk label as words: the move letters in it said as moves ("sexy R prime in F"); a commutator
- * [A, B] as "commutator A, with B" (A, B, A undone, B undone), with what is written around it.
+ * [A, B] as "commutator A, with B" (A, B, A undone, B undone); a conjugate Y [X] Y' as "Y, then X,
+ * then Y prime", so the first move is always said.
  */
 function spokenLabel(label: string): string {
   const moves = (t: string) => t.trim().split(/\s+/).filter(Boolean).map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(', ');
-  const m = /^(.*?)\[([^,\]]+),([^\]]+)\](.*)$/.exec(label);
+  const m = /^(.*?)\[([^\]]+)\](.*)$/.exec(label);
   if (!m) return moves(label).replace(/, /g, ' ');
-  return `${m[1]!.trim() ? `${moves(m[1]!)}, then ` : ''}commutator ${moves(m[2]!)}, with ${moves(m[3]!)}${m[4]!.trim() ? `, then ${moves(m[4]!)}` : ''}`;
+  const before = m[1]!.trim(), inner = m[2]!, after = m[3]!.trim();
+  if (inner.includes(',')) {
+    const [a, b] = inner.split(',');
+    return `${before ? `${moves(before)}, then ` : ''}commutator ${moves(a!)}, with ${moves(b!)}${after ? `, then ${moves(after)}` : ''}`;
+  }
+  return `${before ? `${moves(before)}, then ` : ''}${moves(inner)}${after ? `, then ${moves(after)}` : ''}`;
 }
-/** Speak; the latest wins (a queue would lag behind fast turning) unless `keep` lets what is being said finish first. */
 function say(text: string, keep = false): void {
   if (typeof speechSynthesis === 'undefined') return;
   if (!keep) speechSynthesis.cancel();

@@ -124,14 +124,15 @@ export function annotate(alg: string): TrickRow[] {
 // ---- chunks: the longer blocks the PLL algs share, labelled on alg lines over the finger-level triggers ----
 // (2026-09-21, user: the same sequences keep coming round). The longest match anywhere wins, then the next
 // longest that does not overlap; the triggers fill what they leave. The sheet's rows stay finger by finger:
-// a chunk is a reading aid, not a fingering. "X in Y" is X conjugated by Y (Y, X, Y undone).
+// a chunk is a reading aid, not a fingering. "Y [X] Y'" is X conjugated by Y: Y, then X, then Y undone - the
+// notation says which move comes first (user, 2026-09-21: "under D" did not); "[A, B]" is a commutator.
 const CHUNKS: { moves: string; label: string }[] = [
   { moves: "R U R' U' R' F R2 U' R'", label: 'T core' },           // the middle of the T perm: in T, Jb, F and Na
-  { moves: "F R U' R' U' R U R' F'", label: 'inserts in F' },        // Y's first half: R U' R', U', R U R' inside F ... F' (an OLL alg on its own)
-  { moves: "F R U R' U' R' F'", label: "sexy R' in F" },             // Rb's second half
-  { moves: "F' R2 U' R' U R' F", label: "R2 U' R' U R' in F'" },     // V's middle
-  { moves: "R' F' U' F R", label: "F' U' F in R'" },                 // Nb: the F insert wrapped in R' ... R
-  { moves: "R' F R' F' R", label: "F R' F' in R'" },                 // Nb: and its partner
+  { moves: "F R U' R' U' R U R' F'", label: "F [R U' R' U' R U R'] F'" },        // Y's first half: R U' R', U', R U R' inside F ... F' (an OLL alg on its own)
+  { moves: "F R U R' U' R' F'", label: "F [sexy R'] F'" },             // Rb's second half
+  { moves: "F' R2 U' R' U R' F", label: "F' [R2 U' R' U R'] F" },     // V's middle
+  { moves: "R' F' U' F R", label: "R' [F' U' F] R" },                 // Nb: the F insert wrapped in R' ... R
+  { moves: "R' F R' F' R", label: "R' [F R' F'] R" },                 // Nb: and its partner
   // commutators as their notation: [A, B] is A, B, A undone, B undone; a move merged into the alg's R2 / U2 is written after
   { moves: "R U' R' D R U R' D'", label: "[R U' R', D]" },            // E perm, first half
   { moves: "R U R' D R U' R' D'", label: "[R U R', D]" },             // E perm, second half
@@ -143,8 +144,8 @@ const CHUNKS: { moves: string; label: string }[] = [
   { moves: "B' R F2 R' B R F2 R2", label: "[B', R F2 R'] R" },        // Ab's F/B version: closing R' and the R2 make R
   { moves: "L U' R U2 L' U R'", label: 'N half' },                   // Na's R/L alg is this twice
   { moves: "R' U L' U2 R U' L", label: 'N half' },                   // Nb's likewise
-  { moves: "D R' U R D'", label: "R' U R under D" },                 // Ga's ending
-  { moves: "D' R U' R' D", label: "R U' R' under D" },               // Gc's ending
+  { moves: "D R' U R D'", label: "D [R' U R] D'" },                 // Ga's ending
+  { moves: "D' R U' R' D", label: "D' [R U' R'] D" },               // Gc's ending
 ];
 const CHUNK_TOKENS = CHUNKS.map((c) => ({ ...c, toks: tokens(c.moves) }));
 

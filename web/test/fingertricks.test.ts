@@ -21,18 +21,18 @@ describe('fingertricks', () => {
   });
 
   it('names the triggers in a PLL by position: Y perm ends sexy, sledge', () => {
-    expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 0, n: 9, label: 'inserts in F' }, { at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
+    expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 0, n: 9, label: "F [R U' R' U' R U R'] F'" }, { at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
     // T perm: the T core takes the first nine; sexy inside it and the reverse sexy straddling its end go unlabelled
     expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 9, label: 'T core' }]);
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'")).toEqual([{ at: 4, n: 9, label: 'T core' }]); // Jb = R U R' F' + T core
     expect(triggers("x' R U' R' D R U R' D' R U R' D R U' R' D' x")).toEqual([{ at: 1, n: 8, label: "[R U' R', D]" }, { at: 9, n: 8, label: "[R U R', D]" }]); // E perm
-    expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "R' U R under D" }]); // Ga
+    expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "D [R' U R] D'" }]); // Ga
     // the longest match anywhere wins: Jb keeps its T core although "sexy R' in F'" would start a move earlier
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'").map((g) => g.label)).toEqual(['T core']);
-    expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "F' U' F in R'"], [10, "F R' F' in R'"]]); // Nb
+    expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "R' [F' U' F] R"], [10, "R' [F R' F'] R"]]); // Nb
     expect(triggers("x R' U R' D2 R U' R' D2 R2 x'").map((g) => [g.at, g.n, g.label])).toEqual([[2, 8, "[U, R' D2 R] R"]]); // Aa (the closing R and the R after are the R2)
     expect(triggers("x R2 D2 R U R' D2 R U' R x'").map((g) => [g.at, g.n, g.label])).toEqual([[1, 8, "R' [R' D2 R, U]"]]); // Ab (an R' and the opening R' are the R2)
-    expect(triggers("R' U2 R U2 R' F R U R' U' R' F' R2").map((g) => [g.at, g.label])).toEqual([[5, "sexy R' in F"]]); // Rb
+    expect(triggers("R' U2 R U2 R' F R U R' U' R' F' R2").map((g) => [g.at, g.label])).toEqual([[5, "F [sexy R'] F'"]]); // Rb
     expect(triggers("R U2 R' U' R U' R'")).toEqual([]); // R U2 R' is a unit but not a named trigger
   });
 
