@@ -432,7 +432,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           while (route[d] && /^[xyz]/.test(route[d]!)) d++;
           const next = route[d];
           const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n);
-          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
+          // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
+          const words = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           if (words && words !== lastRead) { lastRead = words; say(words); }
         }
         lastBad = bad.length;
