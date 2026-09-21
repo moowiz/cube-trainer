@@ -126,6 +126,7 @@ export function annotate(alg: string): TrickRow[] {
 // fill what they leave. The sheet's rows stay finger by finger: a chunk is a reading aid, not a fingering.
 const CHUNKS: { moves: string; label: string }[] = [
   { moves: "R U R' U' R' F R2 U' R'", label: 'T core' },           // the middle of the T perm: in T, Jb, F and Na
+  { moves: "F R U' R' U' R U R' F'", label: 'inserts in F' },        // Y's first half: R U' R', U', R U R' inside F ... F' (an OLL alg on its own)
   { moves: "R U' R' D R U R' D'", label: 'commutator' },            // E perm, first half: [R U' R', D]
   { moves: "R U R' D R U' R' D'", label: 'commutator' },            // E perm, second half: [R U R', D]
   { moves: "R D R' U' R D' R'", label: 'commutator' },              // Ra: [R D R', U']
