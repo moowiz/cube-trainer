@@ -52,8 +52,13 @@
     .zz-sheet-box { max-width: 900px; margin: 0 auto; min-height: 0; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); overflow: hidden; }
     /* the scanner lays itself out in columns (camera, state, pipeline) past 1100px: give it the width */
     #scan-sheet .zz-sheet-box { max-width: 1900px; }
+    /* the sheets that are grids of cards (the algs, the case reference) fill a desktop */
+    #algs-sheet .zz-sheet-box, #ref-sheet .zz-sheet-box { max-width: 1400px; }
     .zz-sheet-head { border-radius: 14px 14px 0 0; }
   }
+  /* a desktop monitor: the phone-sized type and 900px columns are what browser zoom fixes, so do it here (zoom is standard CSS since 2024) */
+  @media (min-width: 1600px) { html { zoom: 1.2; } }
+  @media (min-width: 2200px) { html { zoom: 1.4; } }
   /* the scan sheet docked in a corner while a solve is followed: the camera and the follow strip, the stage live underneath */
   .zz-sheet.docked { inset: auto 12px 12px auto; width: min(300px, calc(100vw - 24px)); padding: 0; background: none; overflow: visible; cursor: pointer; }
   .zz-sheet.docked .zz-sheet-box { min-height: 0; max-width: none; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.35); border: 1px solid var(--line); }

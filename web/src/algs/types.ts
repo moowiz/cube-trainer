@@ -4,7 +4,7 @@
 // the claim each case makes about what it touches, so a typo in an alg
 // cannot ship as a "parity" that scrambles the cube.
 
-export type PuzzleId = '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
+export type PuzzleId = '333' | '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
 
 /** What an NxN or FTO alg is allowed to change on a solved puzzle (checked by test). */
 export interface Check {
@@ -26,8 +26,9 @@ export interface AlgCase {
   note?: string;
   /** NxN only: the picture is the case (the alg's inverse on a solved cube) - top view with one row of each side
    *  (`top`), with two rows (`top2`, the whole 2x2 but its bottom), the three-face view (`iso`), or none.
+   *  `ll` is the last-layer drills' top-down picture (ll/pic.ts), `ll-arrows` the same with PLL's arrows.
    *  The FTO has one view (the square from the front corner, cube/fto.ts) and draws every case unless `none`. */
-  pic?: 'top' | 'top2' | 'iso' | 'none';
+  pic?: 'top' | 'top2' | 'iso' | 'll' | 'll-arrows' | 'none';
   /** NxN only: a rotation the picture is turned by, so the pieces the alg moves are in view (the check ignores it) */
   setup?: string;
   /** NxN and FTO: the claim the test verifies */

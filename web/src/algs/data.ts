@@ -11,11 +11,30 @@
 // things on two different sites. Colours follow the trainer: white down,
 // yellow on top.
 
-import type { Puzzle } from './types';
+import { CASES } from '../ll/cases';
+import type { AlgCase, Puzzle } from './types';
 
 const SS = 'https://www.speedsolving.com/wiki/index.php/';
 const CCS = 'https://cubingcheatsheet.com/';
 const SCDB = 'https://www.speedcubedb.com/a/';
+
+// The 3x3's last layer is the OCLL and PLL tables the drills use (ll/cases.ts, verified by test/ll.test.ts):
+// here as a sheet, in the trainer's frame (white down, so the last layer is yellow on top), with the drills'
+// pictures. The drills' own "All cases" sheet keeps the filters and the tap-to-drill.
+// (an OCLL alg may permute the top edges as well as orient the corners, Sune does; the check only pins the layer)
+const ll = (kind: 'ocll' | 'pll'): AlgCase[] => CASES[kind].map((c) => ({
+  name: kind === 'pll' ? `${c.name} perm` : c.name, alg: c.alg, note: `${c.hint[0]!.toUpperCase()}${c.hint.slice(1)}.`,
+  pic: kind === 'pll' ? 'll-arrows' : 'll', check: { top: true },
+}));
+const p333: Puzzle = {
+  id: '333', name: '3x3 LL', n: 3, viewer: '3x3x3',
+  notation: 'WCA moves in the trainer\'s frame: white down, the colour you chose in front, so the last layer is yellow and on top. The pictures are the top face with a row of each side; the PLL arrows show where each piece goes.',
+  intro: 'ZZ\'s last layer: the edges are already oriented after EOCross and F2L, so it is <b>OCLL</b> (orient the corners, seven cases) then <b>PLL</b> (permute, twenty-one). The same tables the OCLL and PLL tabs drill.',
+  sections: [
+    { title: 'OCLL: orient the corners', blurb: 'Seven cases. Look at where the yellow corner stickers are; the note says how to hold the case.', cases: ll('ocll') },
+    { title: 'PLL: permute the last layer', blurb: 'Twenty-one cases, each shown in one of its four positions; recognise it from the bars and headlights.', cases: ll('pll') },
+  ],
+};
 
 const p222: Puzzle = {
   id: '222', name: '2x2', n: 2, viewer: '2x2x2',
@@ -247,4 +266,4 @@ const fto: Puzzle = {
   ],
 };
 
-export const PUZZLES: Puzzle[] = [p222, p444, p555, pyra, skewb, fto];
+export const PUZZLES: Puzzle[] = [p333, p222, p444, p555, pyra, skewb, fto];

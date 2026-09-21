@@ -43,8 +43,8 @@ const others = PUZZLES.filter((p) => !p.n && p.id !== 'fto');
 const cases = (p: Puzzle): [string, AlgCase][] => p.sections.flatMap((s) => s.cases.map((c): [string, AlgCase] => [`${p.name} / ${s.title} / ${c.name}`, c]));
 
 describe('the sheet has the six puzzles and well-formed cases', () => {
-  it('lists 2x2, 4x4, 5x5, Pyraminx, Skewb and FTO once each', () => {
-    expect(PUZZLES.map((p) => p.id)).toEqual(['222', '444', '555', 'pyra', 'skewb', 'fto']);
+  it('lists the 3x3 last layer, 2x2, 4x4, 5x5, Pyraminx, Skewb and FTO once each', () => {
+    expect(PUZZLES.map((p) => p.id)).toEqual(['333', '222', '444', '555', 'pyra', 'skewb', 'fto']);
   });
   for (const p of PUZZLES) {
     it(`${p.name}: names are unique, algs and notes are filled in, sources are https`, () => {

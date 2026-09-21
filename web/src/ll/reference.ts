@@ -26,8 +26,8 @@ const STYLE = `
   .llr-tags { font-size: 12px; color: var(--ink-2); }
   .llr-chains { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
   .llr-chains b { color: var(--ink); font-weight: 600; }
-  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-  .llr-case { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+  .llr-case { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; align-content: start; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
   .llr-case:hover { background: #fff; }
   .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
   .llr-play.on { color: var(--ink); font-weight: 600; }
