@@ -133,15 +133,17 @@ const CHUNKS: { moves: string; label: string }[] = [
   { moves: "F' R2 U' R' U R' F", label: "F' [R2 U' R' U R'] F" },     // V's middle
   { moves: "R' F' U' F R", label: "R' [F' U' F] R" },                 // Nb: the F insert wrapped in R' ... R
   { moves: "R' F R' F' R", label: "R' [F R' F'] R" },                 // Nb: and its partner
-  // commutators as their notation: [A, B] is A, B, A undone, B undone; a move merged into the alg's R2 / U2 is written after
-  { moves: "R U' R' D R U R' D'", label: "[R U' R', D]" },            // E perm, first half
-  { moves: "R U R' D R U' R' D'", label: "[R U R', D]" },             // E perm, second half
-  { moves: "R D R' U' R D' R' U2", label: "[R D R', U'] U" },         // Ra: the commutator's closing U and the U after it are the U2
-  { moves: "R' D' R U' R' D R U", label: "[R' D' R, U']" },           // Rb's D version
-  { moves: "U R' D2 R U' R' D2 R2", label: "[U, R' D2 R] R" },        // Aa: the closing R and the R after it are the R2
-  { moves: "R2 D2 R U R' D2 R U'", label: "R' [R' D2 R, U]" },        // Ab: an R' before the commutator's opening R' is the R2
-  { moves: "F R' B2 R F' R' B2 R2", label: "[F, R' B2 R] R" },        // Aa's F/B version
-  { moves: "B' R F2 R' B R F2 R2", label: "[B', R F2 R'] R" },        // Ab's F/B version: closing R' and the R2 make R
+  // the commutators, named (user, 2026-09-21: the notation read aloud is no help; none has a name in the wild -
+  // speedsolving.com's list of named algorithms has Niklas, Sune, Bruno, Allan and the like, no PLL commutators).
+  // A commutator [A, B] is A, B, A undone, B undone; a move merged into the alg's R2 / U2 is inside the chunk.
+  { moves: "R U' R' D R U R' D'", label: "E half, U' first" },       // E perm, first half: [R U' R', D]
+  { moves: "R U R' D R U' R' D'", label: 'E half, U first' },        // E perm, second half: [R U R', D]
+  { moves: "R D R' U' R D' R' U2", label: 'R commutator' },          // Ra: [R D R', U'], its closing U and the U after are the U2
+  { moves: "R' D' R U' R' D R U", label: "R commutator, D' version" }, // Rb's D version: [R' D' R, U']
+  { moves: "U R' D2 R U' R' D2 R2", label: 'A commutator' },         // Aa: [U, R' D2 R], its closing R and the R after are the R2
+  { moves: "R2 D2 R U R' D2 R U'", label: 'A commutator backwards' }, // Ab: R' then [R' D2 R, U], the R' and the R' merged into the R2
+  { moves: "F R' B2 R F' R' B2 R2", label: 'A commutator, F B version' },  // Aa's F/B version: [F, R' B2 R]
+  { moves: "B' R F2 R' B R F2 R2", label: 'A commutator backwards, F B version' }, // Ab's F/B version: [B', R F2 R']
   { moves: "L U' R U2 L' U R'", label: 'N half' },                   // Na's R/L alg is this twice
   { moves: "R' U L' U2 R U' L", label: 'N half' },                   // Nb's likewise
   { moves: "D R' U R D'", label: "D [R' U R] D'" },                 // Ga's ending
