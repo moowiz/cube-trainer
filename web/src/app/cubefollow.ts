@@ -29,9 +29,10 @@ import { hold } from './context';
 import { cubeActive } from './smart';
 import { activeSource, onSourceChange, syncDriver } from './sources';
 
-// DECISION: a pause is 2 s without a turn - longer than reading the next chunk of a scramble
-// (which the tracker rules out anyway), shorter than deciding what to do with a hand-scrambled cube.
-const PAUSE_MS = 2000;
+// DECISION: a pause is 15 s without a turn (user, 2026-09-21: at 2 s a think mid-PLL, with the
+// cross broken by the alg, flipped the tabs). A hand-scrambled cube takes that long to be picked
+// up; a lull mid-solve never is.
+const PAUSE_MS = 15_000;
 // DECISION: the base is re-solved once the turns since it pass this many and the cube rests
 const REBASE_AFTER = 40;
 

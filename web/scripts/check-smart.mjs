@@ -142,7 +142,7 @@ const HAND = "R U F' L2 B";
 const capHand = capture(await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), HAND), '');
 const handOpened = await page.evaluate(async (text) => {
   await window.ZZ.smart.replay(text);
-  await new Promise((r) => setTimeout(r, 4000)); // the replay stamps its turns ahead of the clock; the pause is 2 s after the last
+  await new Promise((r) => setTimeout(r, 17_000)); // the replay stamps its turns ahead of the clock; the pause is 15 s after the last
   return { tab: window.ZZ.activeTab(), eo: (window.ZZ.eo.scramble() ?? '').replace(/\s+/g, ' ').trim(), toast: document.getElementById('toast').textContent };
 }, capHand.text);
 console.log(JSON.stringify(handOpened));
@@ -152,7 +152,7 @@ check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scram
 await page.click('.tabs button[data-t="solve"]');
 const solveTabStill = await page.evaluate(async (text) => {
   await window.ZZ.smart.replay(text);
-  await new Promise((r) => setTimeout(r, 4000));
+  await new Promise((r) => setTimeout(r, 17_000));
   return window.ZZ.activeTab();
 }, capHand.text);
 check(solveTabStill === 'solve', `the Solve tab is left alone by the follow (${solveTabStill})`);

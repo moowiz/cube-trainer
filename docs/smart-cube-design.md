@@ -197,7 +197,7 @@ open tab's scramble (the same `ScrambleTracker` the timer follows the
 scramble with rules those turns out, until matched: after that the turns
 are the solve even when they retrace the scramble, which a short
 last-layer scramble's solve does exactly). A cube scrambled by hand is
-picked up at the first pause (2 s) behind the mark and off the scramble
+picked up at the first pause (15 s; 2 s flipped the tabs on a think mid-PLL) behind the mark and off the scramble
 path: its state is loaded into the tabs like a lock. The trainer-frame
 scramble is a base (cubejs's solution of a resting state, inverted; free
 when solved) plus the turns since, re-solved when the cube rests so it
