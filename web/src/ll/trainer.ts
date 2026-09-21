@@ -782,7 +782,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // the case list, as a chip after the hints: tap a case there to drill it
   const refBtn = document.createElement('button'); refBtn.type = 'button'; refBtn.className = 'eo-chip'; refBtn.id = id('ref');
   refBtn.textContent = `All ${CASES[kind].length} cases`;
-  refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }));
+  // a case's main alg changed there: the case on show is re-derived (a rep restarts on its new alg)
+  refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }, () => { if (settings.repeat) startRep(false); else load(setup); }));
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();

@@ -85,7 +85,7 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
                      where the moves done reached the stage), scramble (Kociemba two-phase, best total under a
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
-                     top-down picture), reference (the case list sheet: pictures, algs with triggers, chains),
+                     top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main, kept in localStorage),
                      trainer (start-from and show-right-away settings; the cube in 3D from above with the
                      diagram under it; the scramble followed on a smart cube like the Solve tab's; a voice
                      that reads the alg or asks the case - hear.ts parses the answer; a repeat mode: the

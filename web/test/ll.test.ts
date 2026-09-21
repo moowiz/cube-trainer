@@ -2,7 +2,7 @@
 // cubejs here (state() normalisation quirks especially) was checked by
 // actually running it, not guessed - see the comment on the y/R test.
 import { describe, expect, it } from 'vitest';
-import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
+import { CASES, OCLL_CASES, PLL_CASES, isFavourite, setMainAlg, standardAlg } from '../src/ll/cases';
 import { algAngle, features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
@@ -600,5 +600,28 @@ describe('practice stats: what to work on', () => {
     expect([H.n, H.recent]).toEqual([1, 1500]);
     // H has too few attempts to judge, Y is slow and misnamed, T is fine
     expect(workOn(stats).map((s) => s.id)).toEqual(['H', 'Y', 'T']);
+  });
+});
+
+describe('a favourite alg: any of a case\'s algs as its main', () => {
+  it('swaps the alt in, keeps the case identifiable, routes with it, and the standard alg comes back', () => {
+    const ja = PLL_CASES.find((c) => c.id === 'Ja')!;
+    const std = ja.alg, alt = ja.alts![0]!.alg;
+    expect(standardAlg('pll', 'Ja')).toBe(std);
+    expect(setMainAlg('pll', 'Ja', "R U R' U'")).toBe(false); // not one of its algs
+    expect(setMainAlg('pll', 'Ja', alt)).toBe(true);
+    expect([ja.alg, isFavourite('pll', 'Ja')]).toEqual([alt, true]);
+    expect(ja.alts![0]).toEqual({ alg: std, note: 'the standard alg' });
+    expect(ja.alts!.some((a) => a.alg === alt)).toBe(false);
+    // the case is still found from every angle, and the route solves it with the favourite
+    for (const pre of ['', 'U', 'U2', "U'"]) {
+      const setup = `${pre} ${inverse(std)}`;
+      expect(identify('pll', setup)?.id).toBe('Ja');
+      const sol = solution('pll', setup)!;
+      expect(sol.case.alg).toBe(alt);
+      expect(state(`${setup} ${sol.pre} ${sol.case.alg} ${sol.post}`)).toBe(SOLVED);
+    }
+    expect(setMainAlg('pll', 'Ja', null)).toBe(true);
+    expect([ja.alg, isFavourite('pll', 'Ja'), ja.alts![0]!.alg]).toEqual([std, false, alt]);
   });
 });

@@ -11,7 +11,7 @@ import { onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { closeSheet, openSheet } from '../shell';
 import { triggers } from '../ui/fingertricks';
-import { CASES, type LLCase, type LLKind } from './cases';
+import { CASES, isFavourite, type LLCase, type LLKind, setMainAlg } from './cases';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
@@ -40,6 +40,9 @@ const STYLE = `
   .llr-alg .ll-trig { padding-bottom: 12px; }
   .llr-alt { border-left: 2px solid var(--line); padding-left: 8px; margin: 2px 0; }
   .llr-alt small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
+  .llr-fav { font: inherit; font-size: 15px; line-height: 1; padding: 2px 5px; border: 0; background: none; color: var(--ink-2); cursor: pointer; vertical-align: middle; word-spacing: normal; }
+  .llr-fav.on { color: #C8930A; }
+  .llr-fav:hover { color: var(--ink); }
   .llr-hint, .llr-chain { font-size: 13px; color: var(--ink-2); }
   .llr-hint b, .llr-chain b { color: var(--ink); font-weight: 600; }
 `;
@@ -102,8 +105,11 @@ export function chainSummary(kind: LLKind): { self: LLCase[]; pairs: [LLCase, LL
   return { self, pairs, oneWay };
 }
 
-/** Open the reference sheet for `kind`; `drill(setup)` is called with a case's setup alg when one is tapped. */
-export function openLLReference(kind: LLKind, drill: (setup: string) => void): void {
+/**
+ * Open the reference sheet for `kind`; `drill(setup)` is called with a case's setup alg when one is tapped,
+ * `changed` when a case's main alg is changed with the star (the drill's case may be showing the old one).
+ */
+export function openLLReference(kind: LLKind, drill: (setup: string) => void, changed?: () => void): void {
   if (!document.getElementById('llr-style')) {
     const s = document.createElement('style'); s.id = 'llr-style'; s.textContent = STYLE; document.head.appendChild(s);
   }
@@ -114,15 +120,16 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
   if (!panel || !head || !sub) throw new Error('index.html is missing the reference sheet');
   head.textContent = `${TITLE[kind]}: the ${CASES[kind].length} cases`;
   sub.textContent = kind === 'pll'
-    ? 'Each case as it looks from the front with its standard alg; the arrows show where each piece goes. Tap a case to drill it.'
-    : 'Each case as it looks from the front (any permutation) with its standard alg. Tap a case to drill it.';
+    ? 'Each case as it looks from the front with its alg; the arrows show where each piece goes. Tap a case to drill it; star another of its algs to make that the one the drill uses.'
+    : 'Each case as it looks from the front (any permutation) with its alg. Tap a case to drill it; star another of its algs to make that the one the drill uses.';
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const feats = new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
+  const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
+  let feat = feats();
   const active = new Set<string>();
-  const shown = (c: LLCase) => { const f = feats.get(c.id); return !f || FILTERS.every((x) => !active.has(x.key) || x.test(f)); };
+  const shown = (c: LLCase) => { const f = feat.get(c.id); return !f || FILTERS.every((x) => !active.has(x.key) || x.test(f)); };
   const filterBar = () => {
     if (kind !== 'pll') return '';
-    const count = (x: Filter) => CASES[kind].filter((c) => { const f = feats.get(c.id); return f && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
+    const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
     let group = '', out = '<div class="llr-filters">';
     for (const x of FILTERS) {
       if (x.group !== group) { out += `${group ? '<span class="gap"></span>' : ''}<span class="lbl">${x.group}</span>`; group = x.group; }
@@ -142,13 +149,14 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
       ${filterBar()}
       <div class="llr-grid">${CASES[kind].filter(shown).map((c) => {
         const p = chainPartner(kind, c);
-        const f = feats.get(c.id);
+        const f = feat.get(c.id);
+        const star = (alg: string, on: boolean) => `<button type="button" class="llr-fav${on ? ' on' : ''}" data-fav="${esc(alg)}" title="${on ? 'This is the alg the drill uses (tap for the standard one)' : 'Make this the alg the drill uses'}">${on ? '★' : '☆'}</button>`;
         const chain = !p ? '' : p.id === c.id ? 'Chains to itself: the alg again solves it.' : `Chains to <b>${esc(p.name)}</b>: after the alg, that is the case on the cube${chainPartner(kind, p)?.id === c.id ? ', and its alg brings this one back' : ''}.`;
         return `<div class="llr-case" data-id="${esc(c.id)}" role="button" tabindex="0">
           <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
           <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
-          <div class="llr-alg">${algHtml(c.alg)}</div>
-          ${(c.alts ?? []).map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span><small>${esc(a.note)}</small></div>`).join('')}
+          <div class="llr-alg">${algHtml(c.alg)}${(c.alts ?? []).length ? star(c.alg, true) : ''}${isFavourite(kind, c.id) ? '<small class="llr-tags"> your pick</small>' : ''}</div>
+          ${(c.alts ?? []).map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
           ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
           <div class="llr-chain">${chain}</div>
@@ -176,6 +184,13 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
       const handle = mountPlayer(host, nxnAnimatable(3, c.alg, state(inverse(c.alg))));
       player = { destroy: () => handle.destroy(), button: play };
       play.classList.add('on');
+      return;
+    }
+    const fav = t.closest<HTMLElement>('[data-fav]');
+    if (fav) {
+      const id = fav.closest<HTMLElement>('.llr-case')!.dataset.id!;
+      // the star on the main puts the standard alg back; on an alt it makes that one the main
+      if (setMainAlg(kind, id, fav.classList.contains('on') ? null : fav.dataset.fav!)) { feat = feats(); draw(); changed?.(); }
       return;
     }
     if (t.closest('.llr-player')) return; // the player's own controls

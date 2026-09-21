@@ -10,7 +10,7 @@ import { DATA } from '../f2l/data';
 import { findCase, fullAlg, SLOTS, SLOT_WORD, slotSolved, slotState } from '../f2l/model';
 import { stageOf } from '../stage';
 import { solveAny } from './scramble';
-import { CASES, type LLCase, type LLKind } from './cases';
+import { CASES, casesVersion, type LLCase, type LLKind } from './cases';
 
 export { inverse, moveCount, tokens } from '../cube/alg';
 export { SOLVED, aufToSolve, state } from '../cube/state';
@@ -46,9 +46,9 @@ function orientationPattern(f: string): string {
 }
 
 // every case in every AUF (and, for PLL, every pre-AUF too: the same permutation seen from another side)
-const CASE_KEYS: Record<LLKind, Map<string, LLCase> | null> = { ocll: null, pll: null };
+const CASE_KEYS: Record<LLKind, { at: number; m: Map<string, LLCase> } | null> = { ocll: null, pll: null };
 function caseKeys(kind: LLKind): Map<string, LLCase> {
-  if (CASE_KEYS[kind]) return CASE_KEYS[kind]!;
+  if (CASE_KEYS[kind]?.at === casesVersion()) return CASE_KEYS[kind]!.m;
   const m = new Map<string, LLCase>();
   for (const c of CASES[kind]) {
     for (const post of AUFS) {
@@ -56,7 +56,7 @@ function caseKeys(kind: LLKind): Map<string, LLCase> {
       else for (const pre of AUFS) m.set(state(`${pre} ${inverse(c.alg)} ${post}`), c);
     }
   }
-  CASE_KEYS[kind] = m;
+  CASE_KEYS[kind] = { at: casesVersion(), m };
   return m;
 }
 
