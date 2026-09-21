@@ -1,8 +1,11 @@
 // The last-layer case reference: every OCLL or PLL case with its picture,
 // its alg (triggers labelled), what to look for, and what it chains to -
 // the case a solved cube is at after the alg, so two cases can be drilled
-// back to back with no scramble. Tapping a case drills it.
+// back to back with no scramble. Tapping a case drills it; its "play"
+// button opens the 3D player (algs/player.ts) in the card instead.
 
+import { nxnAnimatable } from '../algs/nxn3d';
+import { mountPlayer } from '../algs/player';
 import { inverse, moveCount, tokens } from '../cube/alg';
 import { onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
@@ -26,6 +29,10 @@ const STYLE = `
   .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
   .llr-case { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
   .llr-case:hover { background: #fff; }
+  .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
+  .llr-play.on { color: var(--ink); font-weight: 600; }
+  .llr-player { grid-column: 1 / -1; cursor: auto; }
+  .llr-player:empty { display: none; }
   .llr-case .ll-pic { grid-row: span 5; max-width: none; margin: 0; }
   .llr-name { font-weight: 600; font-size: 16px; }
   .llr-name small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
@@ -135,28 +142,49 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
         const p = chainPartner(kind, c);
         const f = feats.get(c.id);
         const chain = !p ? '' : p.id === c.id ? 'Chains to itself: the alg again solves it.' : `Chains to <b>${esc(p.name)}</b>: after the alg, that is the case on the cube${chainPartner(kind, p)?.id === c.id ? ', and its alg brings this one back' : ''}.`;
-        return `<button type="button" class="llr-case" data-id="${esc(c.id)}">
+        return `<div class="llr-case" data-id="${esc(c.id)}" role="button" tabindex="0">
           <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
           <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
           <div class="llr-alg">${algHtml(c.alg)}</div>
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.</div>
           ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
           <div class="llr-chain">${chain}</div>
-        </button>`;
+          <button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>
+          <div class="llr-player"></div>
+        </div>`;
       }).join('')}</div>`;
   };
-  render();
+  // the 3D player: one open at a time, in the case's card; a redraw drops it
+  let player: { destroy(): void; button: HTMLElement } | null = null;
+  const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
+  const draw = () => { closePlayer(); render(); };
+  draw();
   panel.onclick = (e) => {
-    const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]');
-    if (chip) { const k = chip.dataset.filter!; if (active.has(k)) active.delete(k); else active.add(k); render(); return; }
-    const b = (e.target as HTMLElement).closest<HTMLElement>('.llr-case');
+    const t = e.target as HTMLElement;
+    const chip = t.closest<HTMLElement>('[data-filter]');
+    if (chip) { const k = chip.dataset.filter!; if (active.has(k)) active.delete(k); else active.add(k); draw(); return; }
+    const play = t.closest<HTMLElement>('[data-play]');
+    if (play) {
+      const wasOpen = player?.button === play;
+      closePlayer();
+      const c = CASES[kind].find((x) => x.id === play.dataset.play);
+      if (wasOpen || !c) return;
+      const host = play.closest('.llr-case')!.querySelector<HTMLElement>('.llr-player')!;
+      const handle = mountPlayer(host, nxnAnimatable(3, c.alg, state(inverse(c.alg))));
+      player = { destroy: () => handle.destroy(), button: play };
+      play.classList.add('on');
+      return;
+    }
+    if (t.closest('.llr-player')) return; // the player's own controls
+    const b = t.closest<HTMLElement>('.llr-case');
     if (!b) return;
     const c = CASES[kind].find((x) => x.id === b.dataset.id);
     if (!c) return;
     closeSheet('ref-sheet');
     drill(inverse(c.alg));
   };
-  if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) render(); }); }
+  panel.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).classList.contains('llr-case')) { e.preventDefault(); (e.target as HTMLElement).click(); } };
+  if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) draw(); }); }
   openSheet('ref-sheet');
 }
 let schemeHooked = false;

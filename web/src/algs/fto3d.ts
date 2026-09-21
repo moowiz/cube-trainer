@@ -4,8 +4,10 @@
 // particular are easy to get backwards from a diagram alone). ftoPolys is
 // the pure half: a scene (state + whole-puzzle rotations done so far + an
 // in-progress move) to the polygons render.ts paints, so the composition
-// can be checked without a DOM. mountFtoPlayer wraps it with a play/step UI
-// and a requestAnimationFrame loop.
+// can be checked without a DOM. The play/step UI and animation loop live in
+// player.ts, generalised for the n×n cubes too (nxn3d.ts); ftoAnimatable
+// is this puzzle's adapter to that contract, and mountFtoPlayer is kept as
+// a one-line wrapper so any caller that only knows the FTO keeps working.
 //
 // The animation trick: a sticker's screen position is always its fixed
 // slot's geometry (STICKER_GEOM), rotated by the whole-puzzle turns done so
@@ -21,7 +23,8 @@
 // the forward animation, ending on the already-updated state at k=0.
 
 import { applyOp, FTO_FACES, FTO_HEX, FTO_NORMAL, FTO_STICKERS, ftoOps, ftoPoint, inverseOp, rotate, type FtoFrame, type FtoOp, type FtoState, type Vec } from '../cube/fto';
-import { orbit, renderPolys, type Poly, type View } from '../cube/render';
+import type { Poly } from '../cube/render';
+import { mountPlayer, type Animatable, type AnimOp } from './player';
 
 export interface FtoScene {
   /** stickers in the START frame */
@@ -65,164 +68,36 @@ export function ftoPolys(scene: FtoScene): Poly[] {
   });
 }
 
-const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2);
+/** An AnimOp carrying the real FtoOp it came from, so apply/invert can hand it straight to cube/fto.ts. */
+interface FtoAnimOp extends AnimOp {
+  readonly fop: FtoOp;
+}
+
+/** The FTO as an Animatable for mountPlayer: `alg` in `frame`'s notation, starting from `start`. */
+export function ftoAnimatable(alg: string, frame: FtoFrame, start: FtoState): Animatable<FtoState> {
+  const ops: FtoAnimOp[] = ftoOps(alg, frame).map((fop) => ({ token: fop.token, axis: fop.axis, angle: fop.angle, rotation: fop.sel === 'all', moving: fop.moving, fop }));
+  return {
+    ops,
+    start,
+    apply: (state, op) => applyOp(state, (op as FtoAnimOp).fop),
+    invert: (op) => {
+      const o = op as FtoAnimOp;
+      const fop = inverseOp(o.fop);
+      return { token: o.token, axis: fop.axis, angle: fop.angle, rotation: o.rotation, moving: o.moving, fop };
+    },
+    // ftoPolys wants a real FtoOp in scene.anim.op (it reads .sel); unwrap the FtoAnimOp back to it.
+    polys: (scene) => ftoPolys({
+      state: scene.state,
+      rots: scene.rots,
+      anim: scene.anim ? { op: (scene.anim.op as FtoAnimOp).fop, k: scene.anim.k } : undefined,
+    }),
+    // DECISION: nearly straight at the front corner, as the sheet's pictures are, tilted just enough to read as a solid
+    scale: 140,
+    view: { rx: 8, ry: -10 },
+  };
+}
 
 /** Mount a play/step viewer for `alg` (in `frame`'s notation) starting from `start`; returns a handle to tear it down. */
 export function mountFtoPlayer(host: HTMLElement, opts: { alg: string; frame: FtoFrame; start: FtoState }): { destroy(): void } {
-  const ops = ftoOps(opts.alg, opts.frame);
-  const scene: FtoScene = { state: opts.start, rots: [] };
-  let i = 0; // ops committed so far
-  let rafId = 0;
-  let playTimer = 0;
-  let playing = false;
-  let running: { op: FtoOp; commit: () => void } | null = null; // the move currently animating, if any
-
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('class', 'fto3d');
-  host.appendChild(svg);
-
-  const ctl = document.createElement('div');
-  ctl.className = 'fto3d-ctl';
-  const mkBtn = (label: string, aria: string) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.setAttribute('aria-label', aria);
-    ctl.appendChild(b);
-    return b;
-  };
-  const resetBtn = mkBtn('↺', 'reset');
-  const backBtn = mkBtn('◀', 'back');
-  const fwdBtn = mkBtn('▶', 'forward');
-  const playBtn = mkBtn('▶▶', 'play');
-  host.appendChild(ctl);
-
-  const tokRow = document.createElement('div');
-  tokRow.className = 'fto3d-alg';
-  const spans = ops.map((op) => {
-    const sp = document.createElement('span');
-    sp.className = 'tok';
-    sp.textContent = op.token;
-    tokRow.appendChild(sp);
-    return sp;
-  });
-  host.appendChild(tokRow);
-
-  // DECISION: nearly straight at the front corner, as the sheet's pictures are, tilted just enough to read as a solid
-  const view: View = { rx: 8, ry: -10 };
-  const redraw = () => renderPolys(svg, ftoPolys(scene), view, 140);
-  const updateTokens = () => spans.forEach((sp, idx) => {
-    sp.classList.toggle('done', idx < i);
-    sp.classList.toggle('now', running !== null && idx === i);
-  });
-  orbit(svg, view, redraw);
-
-  const setPlayLabel = () => {
-    playBtn.textContent = playing ? '❚❚' : '▶▶';
-    playBtn.setAttribute('aria-label', playing ? 'pause' : 'play');
-  };
-  function stopPlay() {
-    playing = false;
-    clearTimeout(playTimer);
-    setPlayLabel();
-  }
-
-  /** Snap any move in progress to its end and run its commit, without waiting for the timer. */
-  function finishAnim() {
-    if (!running) return;
-    cancelAnimationFrame(rafId);
-    const done = running;
-    running = null;
-    scene.anim = undefined;
-    done.commit();
-  }
-  function startAnim(op: FtoOp, dir: 1 | -1, commit: () => void) {
-    const dur = op.sel === 'all' ? 450 : 380;
-    const t0 = performance.now();
-    running = { op, commit };
-    scene.anim = { op, k: dir === 1 ? 0 : 1 };
-    updateTokens();
-    redraw();
-    const frame = (t: number) => {
-      if (!host.isConnected) { running = null; return; } // torn out of the page mid-move: just stop
-      const raw = Math.min(1, (t - t0) / dur);
-      const eased = easeInOut(raw);
-      scene.anim = { op, k: dir === 1 ? eased : 1 - eased };
-      redraw();
-      if (raw < 1) { rafId = requestAnimationFrame(frame); return; }
-      running = null;
-      scene.anim = undefined;
-      commit();
-    };
-    rafId = requestAnimationFrame(frame);
-  }
-
-  function forwardStep(after?: () => void) {
-    finishAnim();
-    if (i >= ops.length) { after?.(); return; }
-    const op = ops[i]!;
-    startAnim(op, 1, () => {
-      scene.state = op.sel === 'all' ? scene.state : applyOp(scene.state, op);
-      if (op.sel === 'all') scene.rots.push({ axis: op.axis, angle: op.angle });
-      i++;
-      updateTokens();
-      redraw();
-      after?.();
-    });
-  }
-  function backStep() {
-    finishAnim();
-    if (i <= 0) return;
-    i--;
-    const op = ops[i]!;
-    if (op.sel === 'all') scene.rots.pop();
-    else scene.state = applyOp(scene.state, inverseOp(op));
-    startAnim(op, -1, () => {
-      updateTokens();
-      redraw();
-    });
-  }
-  function playStep() {
-    if (!playing) return;
-    if (i >= ops.length) { stopPlay(); return; }
-    forwardStep(() => {
-      if (!playing) return;
-      if (i >= ops.length) { stopPlay(); return; }
-      playTimer = window.setTimeout(playStep, 150);
-    });
-  }
-
-  const reset = () => {
-    stopPlay();
-    finishAnim();
-    scene.state = opts.start;
-    scene.rots = [];
-    scene.anim = undefined;
-    i = 0;
-    updateTokens();
-    redraw();
-  };
-  resetBtn.addEventListener('click', reset);
-  backBtn.addEventListener('click', () => { stopPlay(); backStep(); });
-  fwdBtn.addEventListener('click', () => { stopPlay(); forwardStep(); });
-  playBtn.addEventListener('click', () => {
-    if (playing) { stopPlay(); return; }
-    if (i >= ops.length) reset(); // play at the end runs it again from the case
-    playing = true;
-    setPlayLabel();
-    playStep();
-  });
-
-  updateTokens();
-  redraw();
-
-  return {
-    destroy() {
-      playing = false;
-      clearTimeout(playTimer);
-      cancelAnimationFrame(rafId);
-      running = null;
-      host.innerHTML = '';
-    },
-  };
+  return mountPlayer(host, ftoAnimatable(opts.alg, opts.frame, opts.start));
 }

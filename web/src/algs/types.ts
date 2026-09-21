@@ -43,6 +43,8 @@ export interface AlgSection {
   /** one or two sentences: when this section applies, what to know */
   blurb?: string;
   cases: AlgCase[];
+  /** shown folded, with the title as the toggle: the full tables that are there for reference, not for learning */
+  folded?: boolean;
 }
 
 export interface Puzzle {

@@ -9,6 +9,8 @@
 // cube/alg.ts (the 3x3 parser cubejs feeds on) because 2R and 3Rw are not
 // cubejs tokens; the 3x3 trainers keep using that one.
 
+import type { Vec } from './fto';
+
 export type Face = 'U' | 'R' | 'F' | 'D' | 'L' | 'B';
 export const FACES: readonly Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 
@@ -109,7 +111,7 @@ export function invertTokens(tokens: readonly string[]): string[] {
 
 // ---- moves: axis, layers, quarter turns ----
 
-interface Turn { axis: 0 | 1 | 2; layers: number[]; times: number }
+interface Turn { axis: 0 | 1 | 2; layers: number[]; times: number; face: Face }
 
 const FACE_AXIS: Record<Face, 0 | 1 | 2> = { R: 0, L: 0, U: 1, D: 1, F: 2, B: 2 };
 const POSITIVE: Record<Face, boolean> = { R: true, U: true, F: true, L: false, D: false, B: false }; // R U F turn the positive way about their axis
@@ -152,7 +154,7 @@ function parseTurn(n: number, token: string): Turn {
     if (k < 1 || k >= n) throw new Error(`Could not read: ${token}`);
     layers = [coord(k)];
   }
-  return { axis, layers, times: q };
+  return { axis, layers, times: q, face };
 }
 
 // the positive quarter turn about each axis, in coordinates doubled and centred so they stay integers: (x, y, z) -> ...
@@ -193,6 +195,29 @@ function permutation(n: number, turn: Turn): number[] {
   }
   permCache.set(key, dest);
   return dest;
+}
+
+// one application of ROT[axis] (permutation()'s base step) is a rotation by -90° about the positive face's
+// normal for that axis - checked directly against the Rodrigues formula (rotate() in fto.ts) for all three
+// axes: e.g. ROT[0] ([x,y,z] -> [x,z,-y]) is exactly rotate(p, NORMAL.R, -PI/2). Composing turn.times of them
+// (what permutation() does) is the same rotation applied turn.times times, i.e. angle = -turn.times * (PI/2)
+// about that same axis - not a separate guess at the sign, the same composition permutation() already trusts.
+const CANON: readonly Vec[] = [NORMAL.R, NORMAL.U, NORMAL.F];
+
+/**
+ * `alg`'s moves as geometric ops for a 3D player (algs/nxn3d.ts): the axis and signed angle a face/slice/wide
+ * turn or a whole-puzzle rotation turns about, whether it is a rotation (x/y/z, which moves every sticker here,
+ * unlike the FTO), and the sticker indices it carries (`dest[i]` is where sticker i lands, for the adapter's
+ * apply - not part of the player's own AnimOp contract, but harmless extra data on the object it returns).
+ */
+export function nxnOps(n: number, alg: string): { token: string; axis: Vec; angle: number; rotation: boolean; moving: number[]; dest: number[] }[] {
+  return expandNxN(alg).map((token) => {
+    const turn = parseTurn(n, token);
+    const dest = permutation(n, turn);
+    const moving: number[] = [];
+    for (let i = 0; i < dest.length; i++) if (dest[i] !== i) moving.push(i);
+    return { token, axis: CANON[turn.axis]!, angle: -turn.times * (Math.PI / 2), rotation: isRotation(token), moving, dest };
+  });
 }
 
 function applyTokens(n: number, tokens: readonly string[], state: string): string {

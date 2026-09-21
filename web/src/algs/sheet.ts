@@ -6,13 +6,15 @@
 // in a 3D viewer - the FTO plays here, in the card (fto3d.ts), with twizzle as a second link. Content is
 // data.ts; nothing here decides what an alg is.
 
-import { applyFto, ftoTokens, invertFto, twizzleFto, type FtoFrame } from '../cube/fto';
+import { applyFto, ftoTokens, invertFto, twizzleFto } from '../cube/fto';
 import { applyNxN, expandNxN, invertTokens, rawNxN } from '../cube/nxn';
 import { onSchemeChange } from '../cube/scheme';
 import { algsHooks } from '../shell';
 import { PUZZLES } from './data';
-import { mountFtoPlayer } from './fto3d';
+import { ftoAnimatable } from './fto3d';
+import { nxnAnimatable } from './nxn3d';
 import { picFto, picIso, picTop } from './pic';
+import { mountPlayer } from './player';
 import type { AlgCase, Puzzle, PuzzleId } from './types';
 
 const KEY = 'zz-algs';
@@ -26,6 +28,12 @@ const STYLE = `
   .algs-notation { font-size: 13px; color: var(--ink-2); margin: 0 0 16px; line-height: 1.5; max-width: 760px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
   .algs-notation code { font: inherit; color: var(--ink); font-weight: 600; }
   .algs-sec h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 18px 2px 4px; }
+  .algs-sec h3 small { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 8px; }
+  details.algs-sec summary { cursor: pointer; list-style: none; }
+  details.algs-sec summary::-webkit-details-marker { display: none; }
+  details.algs-sec summary h3 { display: inline-block; }
+  details.algs-sec summary h3::before { content: '▸ '; }
+  details.algs-sec[open] summary h3::before { content: '▾ '; }
   .algs-sec .blurb { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.45; max-width: 760px; }
   .algs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
   .algs-case { display: grid; grid-template-columns: 1fr; gap: 3px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
@@ -46,14 +54,6 @@ const STYLE = `
   .algs-links button.on { color: var(--ink); font-weight: 600; }
   .algs-player { grid-column: 1 / -1; }
   .algs-player:empty { display: none; }
-  .fto3d { display: block; width: 100%; max-width: 300px; height: auto; margin: 6px auto 0; touch-action: none; cursor: grab; }
-  .fto3d polygon { stroke: #2b3340; stroke-width: 1.2; stroke-linejoin: round; }
-  .fto3d-ctl { display: flex; justify-content: center; gap: 6px; margin-top: 4px; }
-  .fto3d-ctl button { font: inherit; font-size: 15px; min-width: 44px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
-  .fto3d-alg { font-size: 15px; word-spacing: .1em; line-height: 1.6; text-align: center; margin-top: 4px; }
-  .fto3d-alg .tok { display: inline-block; padding: 0 3px; border-radius: 4px; color: var(--ink); }
-  .fto3d-alg .tok.done { color: var(--ink-2); opacity: .55; }
-  .fto3d-alg .tok.now { background: var(--ink); color: var(--bg); }
 `;
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -102,14 +102,15 @@ export function algLength(p: Puzzle, alg: string): number {
 function caseHtml(p: Puzzle, c: AlgCase, idx: number): string {
   const svg = caseSvg(p, c);
   const link = viewerUrl(p, c);
+  const playable = p.id === 'fto' || !!p.n;
   return `<div class="algs-case${svg ? ' pic' : ''}">
     ${svg ? `<div class="algs-pic">${svg}</div>` : ''}
     <div class="algs-name">${esc(c.name)}<small>${algLength(p, c.alg)} moves</small></div>
     <div class="algs-alg">${esc(c.alg)}</div>
     ${c.alt?.length ? `<div class="algs-alt">${c.alt.map((a) => `<b>or</b> ${esc(a)}`).join('<br>')}</div>` : ''}
     ${c.note ? `<div class="algs-note">${esc(c.note)}</div>` : ''}
-    <div class="algs-links">${p.id === 'fto' ? `<button type="button" data-play="${idx}">▶ play it here</button>` : ''}${link ? `<a href="${link}" target="_blank" rel="noopener">${p.id === 'fto' ? 'twizzle' : '▶ play it in 3D'}</a>` : ''}${c.source ? `<a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div>
-    ${p.id === 'fto' ? '<div class="algs-player"></div>' : ''}
+    <div class="algs-links">${playable ? `<button type="button" data-play="${idx}">▶ play it here</button>` : ''}${link ? `<a href="${link}" target="_blank" rel="noopener">${p.id === 'fto' ? 'twizzle' : '▶ play it in 3D'}</a>` : ''}${c.source ? `<a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div>
+    ${playable ? '<div class="algs-player"></div>' : ''}
   </div>`;
 }
 
@@ -119,7 +120,12 @@ function puzzleHtml(p: Puzzle): string {
   return `
     ${p.intro ? `<p class="algs-intro">${p.intro}</p>` : ''}
     <div class="algs-notation">${p.notation}</div>
-    ${p.sections.map((s) => `<section class="algs-sec"><h3>${esc(s.title)}</h3>${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c, allCases(p).indexOf(c))).join('')}</div></section>`).join('')}`;
+    ${p.sections.map((s) => {
+      const body = `${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c, allCases(p).indexOf(c))).join('')}</div>`;
+      return s.folded
+        ? `<details class="algs-sec"><summary><h3>${esc(s.title)}<small>${s.cases.length} cases</small></h3></summary>${body}</details>`
+        : `<section class="algs-sec"><h3>${esc(s.title)}</h3>${body}</section>`;
+    }).join('')}`;
 }
 
 /** Mount the sheet: the picker, the remembered puzzle, redraws on scheme changes. Called once from main.ts. */
@@ -148,8 +154,9 @@ export function initAlgs(): void {
       const p = PUZZLES.find((x) => x.id === chosen)!;
       const c = allCases(p)[Number(play.dataset.play)]!;
       const host = play.closest('.algs-case')!.querySelector<HTMLElement>('.algs-player')!;
-      const frame: FtoFrame = c.frame ?? 'ben';
-      const handle = mountFtoPlayer(host, { alg: c.alg, frame, start: applyFto(setupAlg(p, c.alg), undefined, frame) });
+      const handle = p.id === 'fto'
+        ? mountPlayer(host, ftoAnimatable(c.alg, c.frame ?? 'ben', applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben')))
+        : mountPlayer(host, nxnAnimatable(p.n!, c.alg, rawNxN(p.n!, c.setup ?? '', applyNxN(p.n!, setupAlg(p, c.alg)))));
       player = { destroy: () => handle.destroy(), button: play };
       play.classList.add('on');
       return;
