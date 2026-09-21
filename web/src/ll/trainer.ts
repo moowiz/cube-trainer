@@ -66,6 +66,8 @@ const STYLE = `
   .ll-opts label { display: inline-flex; align-items: center; gap: 6px; }
   .ll-opts select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 8px; } .ll-step b { color: var(--ink); font-weight: 600; }
+  .eo-result .ll-alg .mv.done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
+  .eo-result .ll-alg .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
   .ll-cases { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-cases summary { cursor: pointer; }
   .ll-caselist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
@@ -253,6 +255,42 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       sofar = `${sofar} ${stepPlain(s)}`.trim();
     }
     if (steps.some((s) => s.pre || s.post)) body.lastElementChild?.insertAdjacentHTML('beforeend', AUF_NOTE);
+    followAlg(drill.moves());
+  }
+
+  /**
+   * The listed alg followed on the cube (as the Solve tab follows its solution): the moves done so far
+   * from the setup reach a state; where that state sits along the listed route, the moves up to it read
+   * as done, and a quarter turn into a double turn as halfway. Off the route nothing is marked.
+   */
+  function followAlg(text: string): void {
+    const lines = [...drill.result.body.querySelectorAll<HTMLElement>('.ll-alg')];
+    const last = lines[lines.length - 1];
+    if (!last) return;
+    const route = tokens(last.dataset.alg ?? '');
+    let cur: string | null;
+    try { cur = state(`${setup} ${tokens(text).join(' ')}`); } catch { cur = null; }
+    let done = 0, half = false;
+    if (cur !== null) {
+      const states = [state(setup)];
+      for (let i = 1; i <= route.length; i++) states.push(state(`${setup} ${route.slice(0, i).join(' ')}`));
+      const k = states.lastIndexOf(cur);
+      if (k >= 0) done = k;
+      else for (let i = 0; i < route.length; i++) {
+        const m = route[i]!;
+        if (!m.endsWith('2')) continue;
+        const before = `${setup} ${route.slice(0, i).join(' ')}`;
+        if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; break; }
+      }
+    }
+    for (const line of lines) {
+      const skip = Number(line.dataset.skip ?? 0);
+      for (const mv of line.querySelectorAll<HTMLElement>('.mv')) {
+        const i = skip + Number(mv.dataset.i);
+        mv.classList.toggle('done', i < done);
+        mv.classList.toggle('half', half && i === done);
+      }
+    }
   }
   /** Label the named triggers (sexy, sledge...) on a built alg line: the case's moves start at move `offset` (after a [U] AUF). */
   function markTriggers(line: HTMLElement, alg: string, offset: number): void {
@@ -339,5 +377,5 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   newCase();
-  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch };
+  return { load, render, scramble: () => scramble || setup || null, newScramble: newCase, feed: (text, t, source) => { const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; }, armed: (t) => drill.armed(t), watch };
 }

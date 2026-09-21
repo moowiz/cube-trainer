@@ -24,11 +24,13 @@ stages.pll = mountLL(panel('pll-panel'), 'pll');
 stages.ocll = mountLL(panel('ocll-panel'), 'ocll');
 stages.f2l = mountF2L(panel('f2l-panel'));
 stages.eo = mountEO(panel('eo-panel'));
-stages.solve = mountTimer(panel('solve-panel'), { store, hold, onSolve: (s) => { void rig.current()?.solve(s); } });
+// a solve or a drill attempt done: a good moment for nav.js to look for a new deploy (the chip offers the reload)
+const solved = () => document.dispatchEvent(new Event('zz-solved'));
+stages.solve = mountTimer(panel('solve-panel'), { store, hold, onSolve: (s) => { void rig.current()?.solve(s); solved(); } });
 initShell();
 
 // the drills' finished attempts go to the store (per-case memory, M11)
-setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); });
+setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); solved(); });
 
 initSyncUi();
 initSmart();

@@ -6,7 +6,8 @@
 // defer>. The floating page menu that used to live here went 2026-09-19
 // (it sat on the recording preview); the pages link to each other instead.
 // The chip also watches for a new deploy: version.json is fetched again
-// every few minutes and whenever the tab comes back into view, and when
+// every few minutes, whenever the tab comes back into view, and when a
+// solve or drill attempt finishes (the app's 'zz-solved' event), and when
 // its hash changes the chip turns amber and offers a reload (a tap; never
 // by itself - a solve or a recording may be running).
 (() => {
@@ -52,6 +53,7 @@
     setInterval(check, 5 * 60 * 1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
     window.addEventListener('focus', check);
+    document.addEventListener('zz-solved', check); // the app: a solve or a drill attempt just finished
   }).catch(() => ver.remove());
 
   const mount = () => { document.body.append(style, ver); };
