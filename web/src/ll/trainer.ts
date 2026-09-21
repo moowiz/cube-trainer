@@ -4,13 +4,15 @@
 // that reveal the case, Check on the moves typed, and the standard alg with
 // its AUFs in brackets. The drill scaffold owns timer, box, result, keys.
 //
-// Three settings, inline after the hints and kept per drill: where the drill
+// Four settings, inline after the hints and kept per drill: where the drill
 // starts (its own stage, or the step before - the corners to orient, the
 // last pair to insert - so the case has to be recognised after solving that
 // your own way, as in a solve), whether the alg shows as soon as the case
-// does (learning the alg rather than the recognition), and which cases New
-// case draws from (the ones being learnt; with an earlier start the case
-// that comes up is still whatever the step before leaves).
+// does (learning the alg rather than the recognition), whether a solved
+// case brings the next one by itself (back to back on a smart cube: solve,
+// scramble along the underline, solve), and which cases New case draws
+// from (the ones being learnt; with an earlier start the case that comes
+// up is still whatever the step before leaves).
 //
 // The picture is the cube in 3D, seen from above (the last layer is what
 // matters, the sides show the case's bars and headlights), turned to the open
@@ -72,7 +74,9 @@ const STYLE = `
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. */
-interface Settings { from: LLStart; auto: boolean; cases?: string[] }
+interface Settings { from: LLStart; auto: boolean; next: boolean; cases?: string[] }
+// DECISION: the result stays up this long before the next case replaces it (the time and the case's name)
+const NEXT_AFTER_MS = 1500;
 
 export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   if (!document.getElementById('ll-style')) {
@@ -81,7 +85,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false };
+  const settings: Settings = { from: kind, auto: false, next: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
@@ -96,6 +100,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="ll-opts">
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
         <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
+        <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
       </div>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>`,
     left: `
@@ -203,6 +208,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     render();
     if (settings.auto && sol) drill.$('showSol').click();
   }
+  /** Bring the next case after a solve (the setting): after a pause, unless a case was loaded meanwhile. */
+  function queueNext(): void {
+    if (!settings.next) return;
+    const gen = scrambleGen;
+    setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
+  }
   function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); }
 
   // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
@@ -284,6 +295,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
     drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : ''));
     if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
+    queueNext();
     if (kind === 'ocll' && stages.pll) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
       btn.textContent = 'Continue to PLL with this cube';
@@ -311,8 +323,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
 
   // the settings: where the drill starts (a new case at once), and the alg shown as soon as the case is
-  const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement;
-  fromSel.value = settings.from; autoBox.checked = settings.auto;
+  const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement, nextBox = drill.$('chain') as HTMLInputElement;
+  fromSel.value = settings.from; autoBox.checked = settings.auto; nextBox.checked = settings.next;
+  nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
