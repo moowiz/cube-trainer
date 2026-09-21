@@ -44,6 +44,7 @@ import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
 import { algAngle } from './features';
+import { heardCase } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { openLLReference } from './reference';
 
@@ -88,8 +89,13 @@ const STYLE = `
 
 /** `cases`: the ids New case draws from; absent means all of them. */
 interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; cases?: string[] }
-type Voice = 'off' | 'echo' | 'read';
-const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move' };
+type Voice = 'off' | 'echo' | 'read' | 'quiz';
+const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move', quiz: 'asks me the case, then reads' };
+
+// ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
+// servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
+interface Recognizer { lang: string; maxAlternatives: number; interimResults: boolean; start(): void; abort(): void; onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null }
+const recognizerCtor = (): (new () => Recognizer) | null => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
 // what the voice says for a move: the letter, then prime / two; a wide move and a rotation by name
 const SPOKEN: Record<string, string> = { x: 'x', y: 'y', z: 'z', M: 'M', E: 'E', S: 'S' };
 function spoken(m: string): string {
@@ -232,6 +238,45 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let tracker: ScrambleTracker | null = null, trackKey = '', track: TrackStatus | null = null;
   let offTurns: string[] = []; // the turns made since the cube left the scramble path, trainer letters
   let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
+  let quizOpen = false;        // the case was asked and not yet answered: nothing is read until it is
+  let quizSaid: string | null = null; // what the quiz heard, for the result
+  let listener: Recognizer | null = null;
+  /** Ask the case's name and listen; right, wrong or given up, the alg is then read. */
+  function askCase(): void {
+    const c = sol?.case;
+    const Ctor = recognizerCtor();
+    if (!c || lead.length || !Ctor) { if (!Ctor) say('no speech recognition here'); quizOpen = false; return; }
+    quizOpen = true;
+    say('what case?');
+    let tries = 0;
+    const listen = () => {
+      if (!quizOpen) return;
+      const r = new Ctor(); listener = r;
+      r.lang = 'en-US'; r.maxAlternatives = 5; r.interimResults = false;
+      r.onresult = (e) => {
+        const alts = Array.from(e.results[0] ?? [], (x) => x.transcript);
+        const heard = alts.map((a) => heardCase(a, CASES[kind].map((x) => x.id))).find((h) => h !== null) ?? null;
+        quizSaid = alts[0] ?? null;
+        if (heard === null) { if (++tries < 3) { say('say it again?'); setTimeout(listen, 600); } else answer('giveup'); return; }
+        answer(heard);
+      };
+      r.onerror = (e) => { if (!quizOpen) return; if (e.error === 'no-speech' && ++tries < 3) { say('say it again?'); setTimeout(listen, 600); } else answer('giveup'); };
+      r.onend = () => { if (listener === r) listener = null; };
+      try { r.start(); } catch { answer('giveup'); }
+    };
+    setTimeout(listen, 900); // after "what case?" has been said
+  }
+  /** The quiz's answer: `heard` is a case id, a wrong name, or 'giveup'; the alg is read from here on. */
+  function answer(heard: string): void {
+    if (!quizOpen) return;
+    quizOpen = false; listener?.abort(); listener = null;
+    const c = sol?.case;
+    const name = c ? spokenName(kind, c) : '';
+    if (heard === 'giveup') { quizSaid = `gave up (${name})`; say(name); }
+    else if (c && heard === c.id) { quizSaid = `${heard}: right`; say(`right, ${name}`); }
+    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; say(`no, ${name}`); }
+    setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200); // the first move after the name
+  }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
   let fedCount = 0;                   // moves fed so far, for the echo
@@ -264,10 +309,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!el) { el = document.createElement('div'); el.className = 'll-off'; drill.result.body.prepend(el); }
     el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${undo.map(moveHtml).join(' ')}`;
   }
-  /** The cube's moves came in: echo the newest, or read the alg's next. */
+  /** The cube's moves came in: echo the newest, or read the alg's next; a turn during the quiz is the answer. */
   function heard(text: string): void {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
+    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; }
     if (settings.voice === 'echo' && toks.length > fedCount) say(toks.slice(fedCount).map(spoken).join(', '));
     fedCount = toks.length;
   }
@@ -305,6 +351,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
     scramble = null; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    quizOpen = false; quizSaid = null; listener?.abort(); listener = null;
     const gen = ++scrambleGen;
     setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
@@ -427,7 +474,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
         // the scramble; a rotation is read together with the move after it (the cube cannot see it, and the move's letter assumes it);
         // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
-        else if (settings.voice === 'read' && onRoute && armedNow) {
+        else if ((settings.voice === 'read' || settings.voice === 'quiz') && onRoute && armedNow && !quizOpen) {
           let d = done;
           const rots: string[] = [];
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
@@ -490,7 +537,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     }
     const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
-    drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : ''));
+    drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : '') + (quizSaid ? ` You said: ${quizSaid}.` : ''));
     if (settings.voice !== 'off' && t !== null) say(`${step?.case ? spokenName(kind, step.case) : 'skip'}, ${t.toFixed(1)}`);
     if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
     queueNext();
@@ -526,7 +573,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
   const voiceSel = drill.$('voice') as HTMLSelectElement;
   voiceSel.value = settings.voice;
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : 'I will read the alg'); });
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? 'I will ask the case' : 'I will read the alg'); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
@@ -541,6 +588,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     load, render, scramble: () => scramble || setup || null, newScramble: newCase, watch,
     feed: (text, t, source) => { heard(text); const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; followAlg(''); },
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.voice === 'quiz') askCase(); else followAlg(''); },
   };
 }

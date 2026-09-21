@@ -545,3 +545,15 @@ describe('every PLL hint tells its case from the other twenty, from the sides al
     for (const c of PLL_CASES) expect([c.id, first(c.hint)]).toEqual([c.id, expect.stringMatching(WORDS[c.id]!)]);
   });
 });
+
+describe('heardCase(): what the speech recogniser wrote, as a PLL id', () => {
+  it('reads letters as said, spelled or run together, skips "perm" and an article, and hears a surrender', async () => {
+    const { heardCase } = await import('../src/ll/hear');
+    const ids = PLL_CASES.map((c) => c.id);
+    for (const [said, want] of [
+      ['G a perm', 'Ga'], ['gee alpha', 'Ga'], ['G. B.', 'Gb'], ['ga', 'Ga'], ['G see perm', 'Gc'], ['golf delta', 'Gd'],
+      ['T', 'T'], ['tea perm', 'T'], ['a T perm', 'T'], ['the Y perm', 'Y'], ['you be', 'Ub'], ['are a', 'Ra'], ['N A perm', 'Na'], ['zed', 'Z'],
+      ['give up', 'giveup'], ["I don't know", 'giveup'], ['skip it', 'giveup'], ['banana', null], ['G', 'G'],
+    ] as const) expect([said, heardCase(said, ids)]).toEqual([said, want]);
+  });
+});
