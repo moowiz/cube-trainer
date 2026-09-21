@@ -335,12 +335,43 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!el) { el = document.createElement('div'); el.className = 'll-off'; drill.result.body.prepend(el); }
     el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${undo.map(moveHtml).join(' ')}`;
   }
+  // a middle-slice turn reaches the cube as its two outer layers the other way (M = L' R, the core turning with the
+  // slice), each as quarter turns: the echo gathers L and R turns that arrive close together, merges them, and says
+  // the slice when that is what they make; anything else is said move by move, in order
+  const SLICE_OF_PAIR: Record<string, string> = { "L' R": 'M', "R L'": 'M', "L R'": "M'", "R' L": "M'", 'L2 R2': 'M2', 'R2 L2': 'M2' };
+  /** Adjacent outer-layer pairs that are a slice (L' R -> M), the rest as they are. */
+  function foldSlices(moves: string[]): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < moves.length; i++) {
+      const pair = i + 1 < moves.length ? SLICE_OF_PAIR[`${moves[i]} ${moves[i + 1]}`] : undefined;
+      if (pair) { out.push(pair); i++; } else out.push(moves[i]!);
+    }
+    return out;
+  }
+  const ECHO_HOLD_MS = 250; // DECISION: a slice's layers arrive within a few ms; a hand's separate L then R rarely inside this
+  let pending: string[] = [];
+  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  function flushEcho(): void {
+    clearTimeout(pendingTimer); pendingTimer = undefined;
+    if (!pending.length) return;
+    const merged = tokens(faceTurns(pending.join(' ')));
+    pending = [];
+    const slice = merged.length === 2 ? SLICE_OF_PAIR[merged.join(' ')] : undefined;
+    say(slice ? spoken(slice) : merged.map(spoken).join(', '));
+  }
+  function echo(moves: string[]): void {
+    for (const m of moves) {
+      if (/^[LR]/.test(m)) { pending.push(m); clearTimeout(pendingTimer); pendingTimer = setTimeout(flushEcho, ECHO_HOLD_MS); continue; }
+      flushEcho();
+      say(spoken(m));
+    }
+  }
   /** The cube's moves came in: echo the newest, or read the alg's next; a turn during the quiz is the answer. */
   function heard(text: string): void {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
     if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; }
-    if (settings.voice === 'echo' && toks.length > fedCount) say(toks.slice(fedCount).map(spoken).join(', '));
+    if (settings.voice === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
   }
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void {
@@ -515,9 +546,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       if (line.dataset.main) {
         // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
         const off = onRoute || cur === null ? { bad: [], at: 0 } : offRoute(route, text);
-        // the wrong turns and their undo in the letters of the frame the alg has the cube in (after its x, the cube's F is your U)
-        const bad = tokens(inHand(route, off.at, offList(off.bad).join(' ')));
-        const undo = bad.length ? tokens(inverse(bad.join(' '))) : [];
+        // the wrong turns and their undo in the letters of the frame the alg has the cube in (after its x, the cube's F is
+        // your U), a slice's two layers folded back into the slice (L' R is the M the hand made)
+        const bad = foldSlices(tokens(inHand(route, off.at, offList(off.bad).join(' '))));
+        const undo = bad.length ? foldSlices(tokens(inverse(bad.join(' ')))) : [];
         showOff(bad, undo);
         if (bad.length) {
           const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${undo.map(spoken).join(', ')}`;
