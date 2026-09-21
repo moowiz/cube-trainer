@@ -8,34 +8,26 @@
 /// <reference path="../cubejs.d.ts" />
 import Cube from 'cubejs';
 import { toWca } from '../cube/frame';
-import { followReport, followScramble, StageFollower } from '../follow';
+import { describeStage, followReport, followScramble, StageFollower } from '../follow';
 import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } from '../handoff';
 import type { Move } from '../moves/moves';
 import { ReaderSource } from '../moves/readersource';
 import type { MoveRecord } from '../moves/record';
 import { activeTab, closeScan, dockScan, expectedScramble, openScan, scanHooks, scanStarted, shareScramble, showTab, stages, toast } from '../shell';
-import { stageOf, type Stage, type StageReport } from '../stage';
+import { stageOf, type Stage } from '../stage';
 import { solveState } from '../state';
 import { DEFAULT_SCHEME_NAMES, type ColorName } from '../types';
 import { mountScanner, type ScannerHandle } from '../ui/scanner';
 import { frontColour, hold, panel, scans } from './context';
 import { rig } from './rig';
+import { cubeFollowing } from './cubefollow';
 import { cubeActive } from './smart';
-import { setFallback, useSource } from './sources';
+import { setFallback, syncDriver, useSource } from './sources';
 
 /** The current scramble as the scanner should expect it: trainer frame for the check, WCA form to show. */
 function expected(): { scramble: string; hold: { down: 'white'; front: ColorName }; shown: string } | null {
   const s = expectedScramble();
   return s ? { scramble: s, hold: { down: 'white', front: frontColour() }, shown: toWca(s) } : null;
-}
-
-/** What a stage report says in words, for the toast: the stage to solve, no hints about the state. */
-function describe(r: StageReport): string {
-  if (r.stage === 'solved') return 'Your cube is solved.';
-  if (r.stage === 'eo') return 'EOCross to solve → EO trainer';
-  if (r.stage === 'f2l') return 'EOCross done → F2L';
-  if (r.stage === 'ocll') return 'F2L done → OCLL';
-  return 'Corners oriented → PLL';
 }
 
 /** Does the locked scan match the expected scramble? '' when there is nothing to compare. */
@@ -84,7 +76,7 @@ function useInTrainer(scan: ScannedCube): void {
     setFallback(reader);
     if (!cubeActive()) useSource(reader);
   } else closeScan();
-  toast((match ? `${match} · ` : '') + describe(report));
+  toast((match ? `${match} · ` : '') + describeStage(report));
   window.scrollTo({ top: 0 });
 }
 
@@ -99,6 +91,8 @@ function onFollow(scan: ScannedCube, moves: readonly Move[], record: MoveRecord)
   setFallback(reader);
   if (!cubeActive()) useSource(reader);
   reader.update(scan, record);
+  // with the smart cube following the solve, the camera's reading of the same cube stays out of the tabs
+  if (cubeFollowing()) return;
   let scramble: string;
   try { scramble = followScramble(scan, moves, hold()); } catch { return; }
   const report = followReport(scramble);
@@ -117,7 +111,8 @@ function onFollow(scan: ScannedCube, moves: readonly Move[], record: MoveRecord)
   console.log(`FOLLOW stage=${next} after ${moves.length} turns: ${moves.join(' ')}`);
   shareScramble(scramble, null);
   showTab(next);
-  toast(describe(report));
+  syncDriver(); // the stage opened at the cube's own state: its drill arms now, not when the belief comes round again
+  toast(describeStage(report));
   window.scrollTo({ top: 0 });
 }
 

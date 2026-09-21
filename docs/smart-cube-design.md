@@ -184,6 +184,27 @@ corners oriented for OCLL, solved for PLL), and Check fires itself.
 Recognition (New -> first event) and execution (first -> last event) are
 both stored with the attempt (M12 uses them).
 
+**Following the solve on the cube (2026-09-21, `app/cubefollow.ts`, the
+setting "Follow my solve on the smart cube", on by default):** the
+camera's follow mode - the stages advancing as the cube crosses them -
+without a lock. It runs on the drill tabs only (the Solve tab's timer
+owns the cube). The cube's turns are sure and whole, so no debounce: a
+solve is followed by its furthest stage so far (`follow.ts
+SolveFollower`), and a tab opens only on a crossing beyond it - an alg
+dips through earlier stages (a Sune breaks the cross on its first move)
+and must not bounce the tabs. A solve starts when the cube reaches the
+open tab's scramble (the same `ScrambleTracker` the timer follows the
+scramble with rules those turns out, until matched: after that the turns
+are the solve even when they retrace the scramble, which a short
+last-layer scramble's solve does exactly). A cube scrambled by hand is
+picked up at the first pause (2 s) behind the mark and off the scramble
+path: its state is loaded into the tabs like a lock. The trainer-frame
+scramble is a base (cubejs's solution of a resting state, inverted; free
+when solved) plus the turns since, re-solved when the cube rests so it
+stays short. `sources.syncDriver` arms the opened stage's drill at once
+(the belief is already past the scramble by the next turn); the camera's
+follow uses it too, and yields to the cube's when both run.
+
 ### 3.5 What can be built before the cube arrives
 
 Everything except the last check: the interfaces, the typed and replay

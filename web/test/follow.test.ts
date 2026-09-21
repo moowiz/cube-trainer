@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
 import { handle, windowLog, type SolverResponse } from '../src/colour/solve.worker';
 import { solve } from '../src/colour/solve';
-import { colourString, followReport, followScramble, StageFollower } from '../src/follow';
+import { colourString, describeStage, followReport, followScramble, SolveFollower, StageFollower, stageRank } from '../src/follow';
 import { applySeq, parseAlg } from '../src/moves/moves';
 import { trainerScramble, type ScannedCube } from '../src/handoff';
 import { scrambleState } from '../src/scramble';
@@ -75,6 +75,82 @@ describe('StageFollower', () => {
     const f = new StageFollower(1);
     f.reset('pll');
     expect(f.update('f2l')).toBe('f2l');
+  });
+});
+
+describe('SolveFollower (the smart cube: whole turns, no debounce)', () => {
+  /** the stage after each turn of `alg` from the state `from` reaches, in the trainer's frame */
+  const stagesAlong = (from: string, alg: string): ReturnType<typeof followReport>['stage'][] => {
+    const out: ReturnType<typeof followReport>['stage'][] = [];
+    let s = from;
+    for (const m of parseAlg(alg)) { s = `${s} ${m}`.trim(); out.push(followReport(s).stage); }
+    return out;
+  };
+
+  it('opens a stage only when the cube crosses beyond the furthest one so far: a Sune never bounces the tabs', () => {
+    const f = new SolveFollower();
+    f.restart('ocll');
+    // the anti-Sune undoing a Sune: the cross breaks on R, comes back on the last R' with the cube solved
+    const seen = stagesAlong("R U R' U R U2 R'", "R U2 R' U' R U' R'");
+    expect(seen[0]).toBe('eo');                             // the dip
+    const switches = seen.map((st) => f.turned(st));
+    expect(switches.slice(0, -1).every((x) => x === null)).toBe(true);
+    expect(switches[switches.length - 1]).toBe('solved');  // the alg's end is the crossing
+    expect(f.mark()).toBe('solved');
+  });
+
+  it('a full solve is followed stage by stage, each announced once', () => {
+    const f = new SolveFollower();
+    f.restart('eo');
+    // the solve: F' fixes EO (the scramble's F flipped four edges), a pair goes in, the anti-Sune finishes
+    const solveAlg = "F' U R U' R' R U2 R' U' R U' R'";
+    const seen = stagesAlong(Cube.inverse(solveAlg), solveAlg);
+    const switches = seen.map((st) => f.turned(st)).filter(Boolean);
+    expect(seen[0]).toBe('f2l');                            // F' orients the edges; the cross is intact, a pair is out
+    expect(switches[switches.length - 1]).toBe('solved');
+    expect(new Set(switches).size).toBe(switches.length);   // each stage crossed into once
+    expect([...switches].sort((a, b) => stageRank(a!) - stageRank(b!))).toEqual(switches);
+  });
+
+  it('before the first state is known, the first turn only sets the mark', () => {
+    const f = new SolveFollower();
+    expect(f.turned('pll')).toBeNull();
+    expect(f.mark()).toBe('pll');
+    expect(f.turned('solved')).toBe('solved');
+  });
+
+  it('a pause behind the mark restarts the follow there (a cube scrambled by hand after a solve)', () => {
+    const f = new SolveFollower();
+    f.restart('solved');
+    expect(f.paused('solved')).toBeNull();
+    expect(f.paused('eo')).toBe('eo');
+    expect(f.mark()).toBe('eo');
+    expect(f.turned('f2l')).toBe('f2l');
+  });
+
+  it('the first pause takes the stage as the mark; a solved cube is nothing to load', () => {
+    const f = new SolveFollower();
+    expect(f.paused('solved')).toBeNull();
+    expect(f.mark()).toBe('solved');
+    const g = new SolveFollower();
+    expect(g.paused('f2l')).toBe('f2l');
+    expect(g.paused('f2l')).toBeNull();
+  });
+
+  it('a pause mid-solve at the mark or beyond changes nothing', () => {
+    const f = new SolveFollower();
+    f.restart('f2l');
+    expect(f.paused('f2l')).toBeNull();
+    expect(f.paused('ocll')).toBeNull();
+    expect(f.mark()).toBe('f2l');
+  });
+});
+
+describe('describeStage', () => {
+  it('names the stage to solve next', () => {
+    expect(describeStage(followReport(''))).toMatch(/solved/);
+    expect(describeStage(followReport('F'))).toMatch(/EO/);
+    expect(describeStage(followReport("R U R'"))).toMatch(/F2L/);
   });
 });
 

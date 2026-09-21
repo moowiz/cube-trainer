@@ -6,6 +6,7 @@
 import { hold, panel, store } from './app/context';
 import { rig } from './app/rig';
 import { initRecordButton } from './app/record';
+import { initCubeFollow } from './app/cubefollow';
 import { initScannerBridge } from './app/scanner-bridge';
 import { initSmart } from './app/smart';
 import { initSyncUi } from './app/sync-ui';
@@ -32,6 +33,7 @@ setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); });
 initSyncUi();
 initSmart();
 initScannerBridge();
+initCubeFollow();
 initRecordButton();
 initWake();
 initAlgs();

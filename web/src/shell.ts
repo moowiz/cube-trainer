@@ -51,12 +51,20 @@ export function activeTab(): Tab {
   return TABS.find((k) => !el(`${k}-panel`).hidden) ?? 'eo';
 }
 
+const tabListeners = new Set<(t: Tab) => void>();
+/** Hear every tab switch (a tap, a lock routed, a follow moving on), after it is shown. */
+export function onTabChange(cb: (t: Tab) => void): () => void {
+  tabListeners.add(cb);
+  return () => { tabListeners.delete(cb); };
+}
+
 export function showTab(t: Tab): void {
   for (const k of TABS) {
     el(`${k}-panel`).hidden = k !== t;
     document.querySelector(`.tabs button[data-t="${k}"]`)?.classList.toggle('on', k === t);
   }
   try { localStorage.setItem('zz-tab', t); } catch { /* no storage */ }
+  for (const cb of tabListeners) cb(t);
 }
 
 /** How the trainer holds the cube, in words, for the moves typed into it. */

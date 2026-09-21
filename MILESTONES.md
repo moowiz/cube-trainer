@@ -607,7 +607,10 @@ labels (in progress, user).
   the epoch since the last read turn, so pausing to show the cube re-locks
   it in full and a lock that disagrees with the reader replaces it. Runs
   end to end on recordings; the reader-driven switch awaits a real
-  follow session in good light.
+  follow session in good light. 2026-09-21: the same follow on the smart
+  cube, no lock needed (design doc 3.4, `app/cubefollow.ts`; a setting, on
+  by default; the Solve tab is left to the timer); `check-smart.mjs`
+  replays a solve through EO -> F2L -> OCLL -> solved and a hand scramble.
   Hands are an occlusion mask, not a signal (design doc 8). The original sketch:
   phone camera watches a full solve;
   the app reconstructs the move sequence with timestamps, segments it into

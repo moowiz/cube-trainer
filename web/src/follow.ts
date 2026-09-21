@@ -72,3 +72,58 @@ export class StageFollower {
     return stage;
   }
 }
+
+/** What a stage report says in words, for the toast: the stage to solve, no hints about the state. */
+export function describeStage(r: StageReport): string {
+  if (r.stage === 'solved') return 'Your cube is solved.';
+  if (r.stage === 'eo') return 'EOCross to solve → EO trainer';
+  if (r.stage === 'f2l') return 'EOCross done → F2L';
+  if (r.stage === 'ocll') return 'F2L done → OCLL';
+  return 'Corners oriented → PLL';
+}
+
+const STAGE_RANK: Record<Stage, number> = { eo: 0, f2l: 1, ocll: 2, pll: 3, solved: 4 };
+/** How far along a ZZ solve a stage is (EO first, solved last). */
+export const stageRank = (s: Stage): number => STAGE_RANK[s];
+
+/**
+ * Follows a solve on a source whose every item is a whole turn (the smart
+ * cube): no debounce is needed, but an alg passes through earlier stages
+ * on its way (a Sune breaks the cross on its first move and rebuilds it on
+ * its last), so a solve is followed by its furthest stage so far - the
+ * MARK - and a tab is switched to only when the cube crosses into a stage
+ * beyond it. Falling behind the mark is either mid-alg (the next crossing
+ * catches up) or a new scramble: the host decides which at a pause, with
+ * `paused`, and tells the follower where a new solve starts with `restart`
+ * (the cube reached the open tab's scramble, or a state was loaded).
+ */
+export class SolveFollower {
+  private mark_: Stage | null = null;
+
+  /** The furthest stage this solve has reached; null before the first state is known. */
+  mark(): Stage | null { return this.mark_; }
+
+  /** A new solve starts here (a scramble matched, a state loaded, the follow engaged). */
+  restart(stage: Stage | null): void { this.mark_ = stage; }
+
+  /** After a turn: the stage crossed into when it is beyond the mark (a tab to open), else null. */
+  turned(stage: Stage): Stage | null {
+    if (this.mark_ === null) { this.mark_ = stage; return null; }
+    if (stageRank(stage) <= stageRank(this.mark_)) return null;
+    this.mark_ = stage;
+    return stage;
+  }
+
+  /**
+   * At a pause (the cube idle a while, off any scramble path): the stage to restart from when the
+   * cube has fallen behind the mark - a new scramble by hand - else null. The first pause after
+   * the follow engaged just takes the stage as the mark, unless the cube is solved (nothing to
+   * load: the tab's scramble is about to be applied).
+   */
+  paused(stage: Stage): Stage | null {
+    if (this.mark_ === null) { this.mark_ = stage; return stage === 'solved' ? null : stage; }
+    if (stageRank(stage) >= stageRank(this.mark_)) return null;
+    this.mark_ = stage;
+    return stage;
+  }
+}

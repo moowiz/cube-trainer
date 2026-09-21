@@ -51,10 +51,23 @@ export function dropSource(src: MoveSource): void {
   if (active === src) useSource(fallback);
 }
 
+/**
+ * Run the driver against the open stage without a new item: after a stage was opened with the
+ * cube's own state loaded (follow mode), so it arms right there instead of waiting for the belief
+ * to come round to that state again - it moves on with the very next turn.
+ */
+export function syncDriver(): void { step(null); }
+
 function onItem(item: SourceItem): void {
+  // the open stage hears the item first, then the listeners: a follow that moves the tabs on this
+  // item (it finished the stage) does so after the stage has judged it
+  step(item);
+  notify();
+}
+
+function step(item: SourceItem | null): void {
   const src = active;
   if (!src) return;
-  notify();
   const tab = activeTab();
   const stage = stages[tab];
   stage?.watch?.(src.state(), src.colourOf);
@@ -63,7 +76,7 @@ function onItem(item: SourceItem): void {
   if (scr !== null) { try { expected = expectedFacelets(scr, hold(), src.colourOf); } catch { expected = null; } }
   const wasArmed = driver.isArmed();
   const feeds = driver.step(src, expected, scr === null ? null : `${tab}:${scr}`);
-  if (!wasArmed && driver.isArmed()) stage?.armed?.(item.kind === 'move' ? item.t : performance.now());
+  if (!wasArmed && driver.isArmed()) stage?.armed?.(item?.kind === 'move' ? item.t : performance.now());
   // a replayed capture is a cube for the stages' purposes; the typed box never feeds through here
   const kind = src.kind === 'camera' ? 'camera' : 'cube';
   for (const f of feeds) {

@@ -120,6 +120,7 @@
       <section class="set-sec"><h3>Cube</h3>
         <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every stage, scramble and scan uses this.</span></div>
           <select id="frontc"></select></div>
+        <div class="eo-opt"><div><div class="lbl"><label><input type="checkbox" id="cubefollow" checked> Follow my solve on the smart cube</label></div><span class="sub">On the drill tabs, as the cube you solve crosses into the next stage - EO, F2L, OCLL, PLL - that tab opens with it loaded, like the camera's follow mode. A cube scrambled by hand is picked up at the first pause. The Solve tab is left alone: the timer owns the cube there.</span></div></div>
       </section>
       <section class="set-sec" id="timer-settings"><h3>Timer</h3>
     <div class="eo-opt"><div><div class="lbl">Next scramble by itself</div><span class="sub">After a solve the next scramble appears without a tap: scramble, solve, repeat.</span></div>
@@ -157,7 +158,7 @@
 </div>
 <div id="cube-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Your cube</b><span class="sub">What the app believes your cube looks like: from a smart cube when one is connected, else from the camera while it follows a solve. With a smart cube, every stage's timer starts and checks itself as you turn.</span><button type="button" class="btn" id="cube-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Your cube</b><span class="sub">What the app believes your cube looks like: from a smart cube when one is connected, else from the camera while it follows a solve. With a smart cube, every stage's timer starts and checks itself as you turn, and the drill tabs follow your solve (a setting).</span><button type="button" class="btn" id="cube-close">Close</button></div>
     <div class="zz-sheet-body" id="cube-panel"></div>
   </div>
 </div>

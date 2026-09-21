@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import Cube from 'cubejs';
 
 const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(webDir, 'dist');
@@ -52,9 +53,10 @@ function capture(scrambleAlg, solveAlg) {
 let failed = 0;
 const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++; };
 
-const browser = await puppeteer.launch({ headless: true });
+const browser = await puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true });
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
+if (process.env.DEBUG) page.on('console', (m) => console.log('[page]', m.text()));
 await page.goto(`http://127.0.0.1:${port}/?tab=eo`, { waitUntil: 'networkidle0' });
 
 // the EO tab's goal: EOCross, so the drill is done only when the undo is complete (with the goal EO
@@ -113,9 +115,49 @@ check(sheet.open, 'the Cube sheet opens');
 check(/replayed capture/.test(sheet.badge) && /last turn/.test(sheet.badge), 'the badge names the source and the last turn');
 check(sheet.polys === 27 && sheet.rects === 54, `the 3D picture (${sheet.polys} stickers) and the net (${sheet.rects}) are drawn`);
 
-// ---- the Solve tab: the timer arms at its own scramble, times the solve from the cube's stamps, saves it ----
+// ---- following the solve on the cube (the setting, on by default): the drill tabs move with the cube ----
+// A solve that crosses the stages: F' finishes EOCross, a pair goes in (F2L done), the anti-Sune solves it.
+// The EO tab holds its inverse as the scramble; the cube applies the scramble, then the solve.
 await page.click('#cube-close');
+const SOLVE = "F' U R U' R' R U2 R' U' R U' R'";
+const SCR2 = inverse(SOLVE);
+await page.evaluate((s) => window.ZZ.eo.load(s), SCR2);
+const [cubeScr2, cubeSolve2] = await page.evaluate((a, b) => [window.ZZ.smart.cubeAlg(a), window.ZZ.smart.cubeAlg(b)], SCR2, SOLVE);
+const capFollow = capture(cubeScr2, cubeSolve2);
+const solveTurns2 = capFollow.turns - capture(cubeScr2, '').turns;
+await page.evaluate((text) => window.ZZ.smart.replay(text), capFollow.text);
+const followed = await page.evaluate(() => ({
+  tab: window.ZZ.activeTab(),
+  toast: document.getElementById('toast').textContent,
+  scrs: Object.fromEntries(window.ZZ.tabs.map((t) => [t, (window.ZZ[t].scramble() ?? '').replace(/\s+/g, ' ').trim()])),
+}));
+console.log(JSON.stringify(followed));
+check(followed.tab === 'ocll', `the cube crossed into OCLL last (F2L done): the OCLL tab is open (${followed.tab})`);
+check(new RegExp(`Solved ✓ ${solveTurns2} turns`).test(followed.toast), `the solved cube was announced with its ${solveTurns2} turns: "${followed.toast}"`);
+const stateOf = (alg) => new Cube().move(alg).asString();
+check(stateOf(followed.scrs.ocll) === stateOf("R U R' U R U2 R'"), 'every tab was loaded with the cube as it stood when F2L was done (the Sune state)');
+check(window_all_equal(Object.fromEntries(['solve', 'eo', 'f2l', 'ocll'].map((t) => [t, stateOf(followed.scrs[t])]))), 'the tabs up to OCLL hold that same state (the PLL tab, not yet at its stage, keeps its own)');
+// a cube scrambled by hand (no tab's scramble): the first pause loads it into the tab its stage calls for
+const HAND = "R U F' L2 B";
+const capHand = capture(await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), HAND), '');
+const handOpened = await page.evaluate(async (text) => {
+  await window.ZZ.smart.replay(text);
+  await new Promise((r) => setTimeout(r, 4000)); // the replay stamps its turns ahead of the clock; the pause is 2 s after the last
+  return { tab: window.ZZ.activeTab(), eo: (window.ZZ.eo.scramble() ?? '').replace(/\s+/g, ' ').trim(), toast: document.getElementById('toast').textContent };
+}, capHand.text);
+console.log(JSON.stringify(handOpened));
+check(handOpened.tab === 'eo', `the pause after a hand scramble opens the EO tab (${handOpened.tab})`);
+check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scrambled cube: ${handOpened.eo}`);
+// the same on the Solve tab does nothing: the timer owns the cube there
 await page.click('.tabs button[data-t="solve"]');
+const solveTabStill = await page.evaluate(async (text) => {
+  await window.ZZ.smart.replay(text);
+  await new Promise((r) => setTimeout(r, 4000));
+  return window.ZZ.activeTab();
+}, capHand.text);
+check(solveTabStill === 'solve', `the Solve tab is left alone by the follow (${solveTabStill})`);
+
+// ---- the Solve tab: the timer arms at its own scramble, times the solve from the cube's stamps, saves it ----
 await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
 const timerScramble = await page.evaluate(() => window.ZZ.solve.scramble());
 const timerCube = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), timerScramble);
@@ -141,7 +183,8 @@ check(/1<\/b> solves|1 solves/.test(solve.stats) || solve.stats.includes('1 solv
 // every tab holds the Solve tab's scramble
 const scrs = await page.evaluate(() => Object.fromEntries(window.ZZ.tabs.map((t) => [t, (window.ZZ[t].scramble() ?? '').replace(/\s+/g, ' ').trim()])));
 console.log(JSON.stringify(scrs));
-check(!!scrs.solve && window_all_equal(scrs), `every tab holds the same scramble (${JSON.stringify(scrs)})`);
+// (the same cube, not the same text: a last-layer tab re-scrambles the state so the case is not given away)
+check(!!scrs.solve && window_all_equal(Object.fromEntries(Object.entries(scrs).map(([t, a]) => [t, stateOf(a)]))), `every tab holds the same cube (${JSON.stringify(scrs)})`);
 function window_all_equal(o) { const v = Object.values(o); return v.every((x) => x === v[0]); }
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
