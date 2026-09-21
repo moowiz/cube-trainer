@@ -216,7 +216,9 @@ export function nxnOps(n: number, alg: string): { token: string; axis: Vec; angl
     const dest = permutation(n, turn);
     const moving: number[] = [];
     for (let i = 0; i < dest.length; i++) if (dest[i] !== i) moving.push(i);
-    return { token, axis: CANON[turn.axis]!, angle: -turn.times * (Math.PI / 2), rotation: isRotation(token), moving, dest };
+    // times is quarter turns the positive way mod 4: 3 is the same permutation as -1, but a viewer should turn the short way
+    const q = turn.times === 3 ? -1 : turn.times;
+    return { token, axis: CANON[turn.axis]!, angle: -q * (Math.PI / 2), rotation: isRotation(token), moving, dest };
   });
 }
 

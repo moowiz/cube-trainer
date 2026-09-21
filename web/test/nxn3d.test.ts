@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { nxnAnimatable } from '../src/algs/nxn3d';
 import type { Vec } from '../src/cube/fto';
-import { rawNxN, solvedNxN } from '../src/cube/nxn';
+import { nxnOps, rawNxN, solvedNxN } from '../src/cube/nxn';
 
 /** {pts, fill} for one poly, points sorted within the quad and rounded, so set-equality survives relabelling and float noise. */
 function polySig(p: { pts: readonly Vec[]; fill: string }): string {
@@ -64,5 +64,18 @@ describe('nxnOps: applied through the adapter reproduces rawNxN', () => {
     let state = a.start;
     for (const op of a.ops) state = a.apply(state, op);
     expect(state).toBe(rawNxN(n, alg));
+  });
+});
+
+describe('nxnOps turns the short way', () => {
+  it('no move animates more than a half turn: L, D, B, M, E, S and their primes are one quarter turn, not three', () => {
+    for (const token of ['L', "L'", 'D', "D'", 'B', "B'", 'M', "M'", 'E', 'S', 'Lw', "Dw'", 'R', "R'", 'U2', "L2'"]) {
+      const [op] = nxnOps(3, token);
+      expect(Math.abs(op!.angle), token).toBeLessThanOrEqual(Math.PI + 1e-9);
+      if (!/2/.test(token)) expect(Math.abs(op!.angle), token).toBeCloseTo(Math.PI / 2);
+    }
+    // and M turns the way L does, M' the way R does (about the shared axis)
+    expect(nxnOps(3, 'M')[0]!.angle).toBeCloseTo(nxnOps(3, 'L')[0]!.angle);
+    expect(nxnOps(3, "M'")[0]!.angle).toBeCloseTo(nxnOps(3, 'R')[0]!.angle);
   });
 });
