@@ -112,7 +112,7 @@ function spokenLabel(label: string): string {
   const moves = (t: string) => t.trim().split(/\s+/).filter(Boolean).map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(', ');
   const m = /^(.*?)\[([^,\]]+),([^\]]+)\](.*)$/.exec(label);
   if (!m) return moves(label).replace(/, /g, ' ');
-  return [m[1]!.trim() && `${moves(m[1]!)}, then`, `commutator ${moves(m[2]!)}, with ${moves(m[3]!)}`, m[4]!.trim() && `, then ${moves(m[4]!)}`].filter(Boolean).join(' ');
+  return `${m[1]!.trim() ? `${moves(m[1]!)}, then ` : ''}commutator ${moves(m[2]!)}, with ${moves(m[3]!)}${m[4]!.trim() ? `, then ${moves(m[4]!)}` : ''}`;
 }
 /** Speak; the latest wins (a queue would lag behind fast turning) unless `keep` lets what is being said finish first. */
 function say(text: string, keep = false): void {
