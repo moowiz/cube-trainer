@@ -72,7 +72,9 @@ function step(item: SourceItem | null): void {
   if (!src) return;
   const tab = activeTab();
   const stage = stages[tab];
-  stage?.watch?.(src.state(), src.colourOf);
+  let turn: string | undefined;
+  if (item?.kind === 'move') { try { turn = relabelTurns(src.colourOf, [item.move], hold()); } catch { turn = undefined; } }
+  stage?.watch?.(src.state(), src.colourOf, turn);
   const scr = stage?.scramble() ?? null;
   let expected: string | null = null;
   if (scr !== null) { try { expected = expectedFacelets(scr, hold(), src.colourOf); } catch { expected = null; } }

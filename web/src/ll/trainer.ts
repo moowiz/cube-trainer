@@ -24,7 +24,7 @@
 // state (not an alg backwards, which would give the case away) and is
 // followed on a smart cube like the Solve tab's: turns done are underlined.
 
-import { moveCount, tokens } from '../cube/alg';
+import { inverse, moveCount, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
@@ -60,7 +60,8 @@ const STYLE = `
   .ll-scr .mv .p { color: #B3261E; font-weight: 600; } .ll-scr .mv .d { color: #1A56B8; font-weight: 600; }
   .ll-scr .done .p, .ll-scr .done .d { color: inherit; font-weight: 400; }
   .ll-track { font-size: 13px; color: var(--ink-2); padding: 0 4px 6px; min-height: 18px; }
-  .ll-track.off { color: #7A4B00; font-weight: 600; }
+  .ll-track.off, .ll-off { color: #7A4B00; font-weight: 600; }
+  .ll-off { font-size: 14px; margin: 4px 0 8px; } .ll-off .mv { padding: 0 2px; }
   .ll-case { font-size: 16px; min-height: 22px; }
   .ll-trig { display: inline-block; position: relative; padding: 0 2px 13px; margin: 0 2px; border-bottom: 2px solid var(--ink-2); line-height: 1.3; }
   .ll-trig i { position: absolute; left: 0; right: 0; bottom: -1px; font-size: 11px; font-style: normal; line-height: 1; text-align: center; white-space: nowrap; color: var(--ink-2); word-spacing: normal; letter-spacing: .02em; }
@@ -208,11 +209,29 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     su.innerHTML = `Scramble: ${toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ')}`;
     if (!track) { tr.textContent = ''; tr.className = 'll-track'; return; }
     tr.className = track.off ? 'll-track off' : 'll-track';
-    tr.textContent = track.off ? `Off the scramble: undo back to turn ${track.applied} (underlined)` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
+    tr.textContent = track.off ? `Off the scramble${offTurns.length ? ` after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : `: undo back to turn ${track.applied} (underlined)`}` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
   }
   let tracker: ScrambleTracker | null = null, trackKey = '', track: TrackStatus | null = null;
+  let offTurns: string[] = []; // the turns made since the cube left the scramble path, trainer letters
+  let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let fedCount = 0;                   // moves fed so far, for the echo
+  /** The moves done (`text`) after the last of them that left the cube on `route`: the wrong turns, in order. */
+  function offRoute(route: string[], text: string): string[] {
+    let toks: string[];
+    try { toks = tokens(text); } catch { return []; }
+    const onIt = new Set<string>();
+    for (let i = 0; i <= route.length; i++) onIt.add(state(`${setup} ${route.slice(0, i).join(' ')}`));
+    for (let k = toks.length; k >= 0; k--) if (onIt.has(state(`${setup} ${toks.slice(0, k).join(' ')}`))) return toks.slice(k);
+    return toks;
+  }
+  /** The off-the-alg line in the result panel: the wrong turns and their undo; gone when back on. */
+  function showOff(bad: string[]): void {
+    let el = drill.result.body.querySelector<HTMLElement>('.ll-off');
+    if (!bad.length) { el?.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.className = 'll-off'; drill.result.body.prepend(el); }
+    el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${tokens(inverse(bad.join(' '))).map(moveHtml).join(' ')}`;
+  }
   /** The cube's moves came in: echo the newest, or read the alg's next. */
   function heard(text: string): void {
     let toks: string[];
@@ -220,14 +239,21 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (settings.voice === 'echo' && toks.length > fedCount) say(toks.slice(fedCount).map(spoken).join(', '));
     fedCount = toks.length;
   }
-  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
+  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void {
     if (!scramble) { track = null; return; }
     const key = `${scramble}|${Object.values(colourOf).join(',')}|${hold().front}`;
     if (key !== trackKey) {
       try { tracker = new ScrambleTracker(toSourceLetters(colourOf, scramble, hold())); trackKey = key; }
       catch { tracker = null; trackKey = ''; }
     }
+    const was = track;
     track = tracker ? tracker.status(facelets) : null;
+    // off the scramble: keep the turns since (a turn back onto it clears them) and say so once per turn
+    if (track?.off && !armedNow) {
+      if (turn) offTurns.push(turn);
+      if (settings.voice !== 'off' && turn) say(`wrong. undo ${spoken(toWca(inverse(turn)))}`); // the scramble is read in WCA letters, so is its undo
+    } else if (was?.off && !track?.off) { offTurns = []; if (settings.voice !== 'off' && track && !track.matched) say('back on'); }
+    else offTurns = [];
     renderScramble();
   }
 
@@ -242,7 +268,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
-    scramble = null; track = null; lastRead = null; fedCount = 0;
+    scramble = null; track = null; lastRead = null; fedCount = 0; offTurns = []; armedNow = false;
     const gen = ++scrambleGen;
     setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
@@ -255,7 +281,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble'); }
 
   // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
   const inPool = (c: LLCase) => !settings.cases || settings.cases.includes(c.id);
@@ -348,11 +374,17 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; onRoute = true; break; }
         }
       }
-      // the voice reads the next move of the main route (the other half of a double turn when halfway)
-      if (line.dataset.main && settings.voice === 'read' && onRoute) {
-        const next = route[done];
-        const words = next === undefined ? 'done' : half ? `${spoken(next[0]!)} again` : spoken(next);
-        if (words !== lastRead) { lastRead = words; say(words); }
+      if (line.dataset.main) {
+        // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
+        const bad = onRoute || cur === null ? [] : offRoute(route, text);
+        showOff(bad);
+        if (bad.length) { const words = `wrong. undo ${bad.slice().reverse().map((m) => spoken(inverse(m))).join(', ')}`; if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); } }
+        // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at the scramble
+        else if (settings.voice === 'read' && onRoute && armedNow) {
+          const next = route[done];
+          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : spoken(next); // the end is announced by the check
+          if (words && words !== lastRead) { lastRead = words; say(words); }
+        }
       }
       const skip = Number(line.dataset.skip ?? 0);
       for (const mv of line.querySelectorAll<HTMLElement>('.mv')) {
@@ -455,6 +487,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     load, render, scramble: () => scramble || setup || null, newScramble: newCase, watch,
     feed: (text, t, source) => { heard(text); const r = drill.feed(text, t, source); if (!r) followAlg(text); return r; },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; followAlg(''); },
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; followAlg(''); },
   };
 }

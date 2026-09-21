@@ -22,8 +22,8 @@ export interface Stage {
   feed?(text: string, t: number, source?: 'cube' | 'camera'): boolean;
   /** The cube that feeds this stage reached its scramble at host time `t` (inspection may start). */
   armed?(t: number): void;
-  /** The belief of the cube that feeds this stage changed (its letters coloured `colourOf`), before arming too. */
-  watch?(facelets: string | null, colourOf: Record<FaceId, ColorName>): void;
+  /** The belief of the cube that feeds this stage changed (its letters coloured `colourOf`), before arming too; `turn` is the move that did it (trainer letters), if a move did. */
+  watch?(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void;
 }
 
 export const stages: Partial<Record<Tab, Stage>> = {};
