@@ -104,8 +104,16 @@ function offList(turns: readonly string[]): string[] {
   const fm = faceMoves(turns.join(' '));
   return fm ? movesStr(mergeMoves(fm)).split(' ').filter(Boolean) : turns.slice();
 }
-/** A chunk label as words: the move letters in it said as moves ("sexy R prime in F"). */
-const spokenLabel = (label: string): string => label.split(' ').map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(' ');
+/**
+ * A chunk label as words: the move letters in it said as moves ("sexy R prime in F"); a commutator
+ * [A, B] as "commutator A, with B" (A, B, A undone, B undone), with what is written around it.
+ */
+function spokenLabel(label: string): string {
+  const moves = (t: string) => t.trim().split(/\s+/).filter(Boolean).map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(', ');
+  const m = /^(.*?)\[([^,\]]+),([^\]]+)\](.*)$/.exec(label);
+  if (!m) return moves(label).replace(/, /g, ' ');
+  return [m[1]!.trim() && `${moves(m[1]!)}, then`, `commutator ${moves(m[2]!)}, with ${moves(m[3]!)}`, m[4]!.trim() && `, then ${moves(m[4]!)}`].filter(Boolean).join(' ');
+}
 /** Speak; the latest wins (a queue would lag behind fast turning) unless `keep` lets what is being said finish first. */
 function say(text: string, keep = false): void {
   if (typeof speechSynthesis === 'undefined') return;
