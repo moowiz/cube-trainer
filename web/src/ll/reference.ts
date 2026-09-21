@@ -12,7 +12,7 @@ import { state } from '../cube/state';
 import { closeSheet, openSheet } from '../shell';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
-import { features, type Features } from './features';
+import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
 
@@ -39,7 +39,7 @@ const STYLE = `
   .llr-alg { font-size: 15px; word-spacing: .25em; line-height: 1.5; }
   .llr-alg .ll-trig { padding-bottom: 12px; }
   .llr-hint, .llr-chain { font-size: 13px; color: var(--ink-2); }
-  .llr-chain b { color: var(--ink); font-weight: 600; }
+  .llr-hint b, .llr-chain b { color: var(--ink); font-weight: 600; }
 `;
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
@@ -146,7 +146,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void): v
           <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
           <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
           <div class="llr-alg">${algHtml(c.alg)}</div>
-          <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.</div>
+          <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
           ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
           <div class="llr-chain">${chain}</div>
           <button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>

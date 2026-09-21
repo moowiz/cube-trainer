@@ -136,7 +136,7 @@ export function splitAt(kind: LLKind, setup: string, toks: readonly string[]): {
 }
 
 /** One step of the standard route from a setup to the drill's target: the AUF first, the alg, (PLL) the AUF after. */
-export interface RouteStep { stage: 'pair' | 'ocll' | 'pll'; name: string; hint: string; pre: string; alg: string; post: string }
+export interface RouteStep { stage: 'pair' | 'ocll' | 'pll'; name: string; hint: string; pre: string; alg: string; post: string; case?: LLCase }
 
 /**
  * The route from the state after `alg` to the drill's target through the tabled algs, the last
@@ -163,12 +163,12 @@ export function route(kind: LLKind, alg: string): RouteStep[] | null {
   if (kind === 'pll' && !reached('pll', cur)) {
     const sol = solution('ocll', cur);
     if (!sol) return null;
-    steps.push({ stage: 'ocll', name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: '' });
+    steps.push({ stage: 'ocll', name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: '', case: sol.case });
     cur = `${cur} ${sol.pre} ${sol.case.alg}`;
   }
   const sol = solution(kind, cur);
   if (!sol) return null;
-  steps.push({ stage: kind, name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: sol.post });
+  steps.push({ stage: kind, name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: sol.post, case: sol.case });
   return steps;
 }
 

@@ -3,7 +3,7 @@
 // actually running it, not guessed - see the comment on the y/R test.
 import { describe, expect, it } from 'vitest';
 import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
-import { features } from '../src/ll/features';
+import { algAngle, features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
   SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
@@ -413,5 +413,29 @@ describe('faceTurns(): an alg as face turns only, the same cube', () => {
     expect(faceTurns('r U')).toBe('L F');
     expect(faceTurns("M' U")).toBe("L R' F");
     expect(faceTurns("R R'")).toBe('');
+  });
+});
+
+describe('algAngle(): where to hold a PLL for its alg', () => {
+  it('names the one bar of three or the one side of headlights where the alg has it, and says when any side works', () => {
+    const by = Object.fromEntries(PLL_CASES.map((c) => [c.id, algAngle(c)]));
+    expect(by.Ra).toBe('the headlights on your left');   // the recognition hint faces the headlights; the alg does not
+    expect(by.Rb).toBe('the headlights facing you');
+    expect(by.Ja).toBe('the bar of three on your right');
+    expect(by.Ua).toBe('the bar of three at the back');
+    expect(by.V).toBe('the bars of two at the back and on your left');
+    expect(by.H).toBe('from any side');
+    expect(by.Na).toBe('from any side');
+    expect(by.Z).toMatch(/^the side facing you reads \w+, \w+, \w+ left to right \(or the opposite side\)$/);
+  });
+  it('the side it names shows that pattern at the alg\'s angle, for every case', () => {
+    const strips: Record<string, number[]> = { 'facing you': [18, 19, 20], 'on your right': [9, 10, 11], 'at the back': [45, 46, 47], 'on your left': [36, 37, 38] };
+    for (const c of PLL_CASES) {
+      const a = algAngle(c), f = state(inverse(c.alg));
+      const m = /^the (bar of three|headlights) (facing you|on your right|at the back|on your left)/.exec(a);
+      if (!m) continue;
+      const [l, mid, r] = strips[m[2]!]!.map((i) => f[i]);
+      expect([c.id, m[1] === 'bar of three' ? l === mid && mid === r : l === r && l !== mid]).toEqual([c.id, true]);
+    }
   });
 });

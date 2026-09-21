@@ -4,6 +4,10 @@
 // the same in every AUF, so a case has one set of features whichever way
 // the layer is turned. The reference sheet filters and tags cases by them.
 
+import { inverse } from '../cube/alg';
+import { faceColorName } from '../cube/scheme';
+import { aufToSolve, state } from '../cube/state';
+import type { LLCase } from './cases';
 import { pllArrows } from './model';
 
 export type CornerPerm = 'solved' | '3-cycle' | 'adjacent swap' | 'diagonal swap' | 'two swaps';
@@ -42,4 +46,34 @@ export function features(f: string): Features | null {
     else sides.none++;
   }
   return { corners, edges, sides };
+}
+
+// the side strips left to right AS SEEN FROM THAT SIDE (F1 F2 F3; R1 R2 R3 runs front to back, seen from the right
+// the front is on your left; B1 B2 B3 runs from the right side; L1 L2 L3 from the back)
+const SEEN: { where: string; strip: number[] }[] = [
+  { where: 'facing you', strip: [18, 19, 20] }, { where: 'on your right', strip: [9, 10, 11] }, { where: 'at the back', strip: [45, 46, 47] }, { where: 'on your left', strip: [36, 37, 38] },
+];
+type Pattern = 'bar3' | 'headlights' | 'bar2' | 'none';
+const patternOf = (f: string, [a, b, c]: number[]): Pattern => { const l = f[a!], m = f[b!], r = f[c!]; return l === m && m === r ? 'bar3' : l === r ? 'headlights' : l === m || m === r ? 'bar2' : 'none'; };
+
+/**
+ * Where to hold the case for its alg (the hints say what to look for from any angle; the alg
+ * needs one): the one bar of three or the one side of headlights and where it is, the two bars
+ * of two, else the front's three colours in the current scheme. With a note when the alg works
+ * from more than one angle.
+ */
+export function algAngle(c: LLCase): string {
+  const f = state(inverse(c.alg));
+  const angles = ['', 'U', 'U2', "U'"].filter((k) => aufToSolve(`${inverse(c.alg)} ${k} ${c.alg}`) !== null).length;
+  if (angles === 4) return 'from any side';
+  const sides = SEEN.map((s) => ({ where: s.where, pat: patternOf(f, s.strip) }));
+  const only = (p: Pattern) => { const hits = sides.filter((s) => s.pat === p); return hits.length === 1 ? hits[0]! : null; };
+  const also = angles === 2 ? ' (or the opposite side)' : '';
+  const bar3 = only('bar3'), head = only('headlights');
+  if (bar3) return `the bar of three ${bar3.where}${also}`;
+  if (head) return `the headlights ${head.where}${also}`;
+  const bars = sides.filter((s) => s.pat === 'bar2');
+  if (bars.length === 2) return `the bars of two ${bars[0]!.where} and ${bars[1]!.where}${also}`;
+  const [a, b, d] = SEEN[0]!.strip.map((i) => faceColorName(f[i]!));
+  return `the side facing you reads ${a}, ${b}, ${d} left to right${also}`;
 }

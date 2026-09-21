@@ -40,6 +40,7 @@ import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
+import { algAngle } from './features';
 import { ensurePicStyle, picSvg } from './pic';
 import { openLLReference } from './reference';
 
@@ -143,6 +144,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   orbit(drill.$('cube') as unknown as SVGSVGElement, view, drawPic);
 
   const leadNames = () => lead.map((s) => s.name).join(', then ');
+  /** What to look for, and (PLL: the hints read from any angle, the alg needs one) where to hold it for the alg. */
+  const hintOf = (s: RouteStep) => (s.stage === 'pll' && s.case ? `${s.hint}. For the alg: ${algAngle(s.case)}` : s.hint);
   /** ", after Sune by the standard algs" - what the case named depends on when the drill starts earlier. */
   const afterLead = () => (lead.length ? `, after ${leadNames()} by the standard alg${lead.length > 1 ? 's' : ''}` : '');
   function caseText(): string {
@@ -283,7 +286,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const sp = splitAt(kind, setup, toks)!;
     const before = toks.slice(0, sp.k).join(' ');
     const hit = sp.case && sp.case !== 'skip' ? solution(kind, `${setup} ${before}`) : null;
-    const step: RouteStep | null = hit ? { stage: kind, name: hit.case.name, hint: hit.case.hint, pre: hit.pre, alg: hit.case.alg, post: hit.post } : null;
+    const step: RouteStep | null = hit ? { stage: kind, name: hit.case.name, hint: hit.case.hint, pre: hit.pre, alg: hit.case.alg, post: hit.post, case: hit.case } : null;
     const own = n - moveCount(before);
     cameUp = step?.name ?? (sp.case === 'skip' ? `${TITLE[kind]} skip` : null);
     if (!recorded) {
@@ -308,7 +311,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function hintText(key: string): string {
     const plain = caseText().replace(/<[^>]+>/g, '');
     if (key === 'name') { setTimeout(render); return sol ? `${sol.name}${afterLead()}` : plain; }
-    return sol ? `${lead.length ? `${afterLead().slice(2)}: ` : ''}${sol.hint}` : plain;
+    return sol ? `${lead.length ? `${afterLead().slice(2)}: ` : ''}${hintOf(sol)}` : plain;
   }
 
   function onShow(open: boolean): void {
@@ -318,7 +321,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!sol) { drill.result.show('No tabled alg', caseText().replace(/<[^>]+>/g, '')); drill.result.body.innerHTML = ''; return; }
     const steps = [...lead, sol];
     const total = steps.reduce((a, s) => a + stepMoves(s), 0);
-    drill.result.show(lead.length ? `${leadNames()}, then ${sol.name}: ${total} moves` : `${sol.name}: ${stepMoves(sol)} moves`, lead.length ? `${afterLead().slice(2)}: ${sol.hint}` : sol.hint);
+    drill.result.show(lead.length ? `${leadNames()}, then ${sol.name}: ${total} moves` : `${sol.name}: ${stepMoves(sol)} moves`, lead.length ? `${afterLead().slice(2)}: ${hintOf(sol)}` : hintOf(sol));
     putAlgLines(steps);
   }
 
