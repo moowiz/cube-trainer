@@ -6,11 +6,11 @@
 
 export type PuzzleId = '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
 
-/** What an NxN alg is allowed to change on a solved cube (checked by test). */
+/** What an NxN or FTO alg is allowed to change on a solved puzzle (checked by test). */
 export interface Check {
   /** the piece types the alg may move; anything else must stay put */
   only?: ('corner' | 'edge' | 'centre')[];
-  /** the alg may only change stickers in the top layer */
+  /** the alg may only change stickers in the top layer (on the FTO: the U face's layer and the three triangles paired with its corners) */
   top?: boolean;
   /** the alg does change something (the default); false for a pure rotation check */
   changes?: boolean;
@@ -25,12 +25,15 @@ export interface AlgCase {
   /** what it does, or how to recognise it: one or two sentences, in colours not letters */
   note?: string;
   /** NxN only: the picture is the case (the alg's inverse on a solved cube) - top view with one row of each side
-   *  (`top`), with two rows (`top2`, the whole 2x2 but its bottom), the three-face view (`iso`), or none */
+   *  (`top`), with two rows (`top2`, the whole 2x2 but its bottom), the three-face view (`iso`), or none.
+   *  The FTO has one view (the square from the front corner, cube/fto.ts) and draws every case unless `none`. */
   pic?: 'top' | 'top2' | 'iso' | 'none';
   /** NxN only: a rotation the picture is turned by, so the pieces the alg moves are in view (the check ignores it) */
   setup?: string;
-  /** NxN only: the claim the test verifies */
+  /** NxN and FTO: the claim the test verifies */
   check?: Check;
+  /** FTO only: the alg is written in lowcubes' edge-in-front letters, not Ben's (cube/fto.ts EIF_TO_BEN); shown as written */
+  frame?: 'eif';
   /** where the alg came from */
   source?: string;
 }

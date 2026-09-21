@@ -2,14 +2,15 @@
 // Pyraminx, Skewb, FTO) in index.html's #algs-sheet. A puzzle picker,
 // the puzzle's notation and intro, then its sections of cases: for the
 // cubes a picture of the case (the alg's inverse on the n×n model, in the
-// user's colour scheme), the alg, what it does, and a link that plays it
+// user's colour scheme; the FTO from its front corner), the alg, what it does, and a link that plays it
 // in a 3D viewer. Content is data.ts; nothing here decides what an alg is.
 
+import { applyFto, ftoTokens, invertFto, twizzleFto } from '../cube/fto';
 import { applyNxN, expandNxN, invertTokens, rawNxN } from '../cube/nxn';
 import { onSchemeChange } from '../cube/scheme';
 import { algsHooks } from '../shell';
 import { PUZZLES } from './data';
-import { picIso, picTop } from './pic';
+import { picFto, picIso, picTop } from './pic';
 import type { AlgCase, Puzzle, PuzzleId } from './types';
 
 const KEY = 'zz-algs';
@@ -45,30 +46,42 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 // alg.cubing.net and twizzle take an alg in the URL with spaces as _ and primes as - (their own URL form; commas and brackets are fine as they are)
 const urlAlg = (alg: string) => alg.trim().replace(/\s+/g, '_').replace(/'/g, '-');
 
-/** The alg's inverse: the setup that puts the case on a solved puzzle (the suffix rule works for every puzzle's tokens). */
-export function setupAlg(alg: string): string {
-  return invertTokens(expandNxN(alg)).join(' ');
+/**
+ * The alg's inverse: the setup that puts the case on a solved puzzle. The cube rule (a half turn is its own
+ * inverse) serves the pyraminx and skewb too; the FTO's `X2` is `X'`, so it has its own.
+ */
+export function setupAlg(p: Puzzle, alg: string): string {
+  return p.id === 'fto' ? invertFto(ftoTokens(alg)).join(' ') : invertTokens(expandNxN(alg)).join(' ');
 }
 
-/** The 3D viewer link for a case: alg.cubing.net for the cubes, pyraminx and skewb; twizzle for the FTO. Both show the case, then play the alg. */
+/**
+ * The 3D viewer link for a case: alg.cubing.net for the cubes, pyraminx and skewb; twizzle for the FTO, which
+ * gets the alg in Ben's letters with the rotations pushed through (twizzle reads neither lowcubes' letters nor
+ * `Rw` / `Uo`). Both show the case, then play the alg.
+ */
 export function viewerUrl(p: Puzzle, c: AlgCase): string | null {
   if (!p.viewer) return null;
-  return p.id === 'fto'
-    ? `https://alpha.twizzle.net/edit/?puzzle=${p.viewer}&alg=${urlAlg(c.alg)}&setup-alg=${urlAlg(setupAlg(c.alg))}`
-    : `https://alg.cubing.net/?puzzle=${p.viewer}&alg=${urlAlg(c.alg)}&setup=${urlAlg(setupAlg(c.alg))}`;
+  if (p.id !== 'fto') return `https://alg.cubing.net/?puzzle=${p.viewer}&alg=${urlAlg(c.alg)}&setup=${urlAlg(setupAlg(p, c.alg))}`;
+  const alg = twizzleFto(c.alg, c.frame ?? 'ben');
+  return `https://alpha.twizzle.net/edit/?puzzle=${p.viewer}&alg=${urlAlg(alg)}&setup-alg=${urlAlg(setupAlg(p, alg))}`;
 }
 
-/** The picture of a case: the alg's inverse on a solved n×n, turned by the case's setup rotation for the view; null when there is none. */
+/** The picture of a case: the alg's inverse on a solved puzzle (an n×n turned by the case's setup rotation for the view; the FTO from its front corner); null when there is none. */
 export function caseSvg(p: Puzzle, c: AlgCase): string | null {
-  if (!p.n || c.pic === 'none') return null;
-  const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(c.alg)));
-  const inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
+  if (c.pic === 'none') return null;
+  let inner: string;
+  if (p.id === 'fto') inner = picFto(applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'));
+  else if (p.n) {
+    const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(p, c.alg)));
+    inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
+  } else return null;
   return `<svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${inner}</svg>`;
 }
 
-/** How many moves an alg is, counting a wide or slice move as one. */
+/** How many moves an alg is, counting a wide or slice move as one and a whole-puzzle rotation as none. */
 export function algLength(p: Puzzle, alg: string): number {
   if (p.n) return expandNxN(alg).length;
+  if (p.id === 'fto') return ftoTokens(alg).filter((t) => !/^(?:[A-Za-z]+o|[RLF]t)(?:2'|2|')?$/.test(t)).length;
   return alg.replace(/[()[\]:,]/g, ' ').trim().split(/\s+/).filter(Boolean).length;
 }
 

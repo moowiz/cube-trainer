@@ -2,9 +2,10 @@
 // Researched 2026-09-20 from cubingcheatsheet.com (2x2-6x6), jperm.net,
 // speedcubedb.com, the speedsolving wiki, sarah.cubing.net (skewb, 5x5 L2E)
 // and Ben Streeter's FTO document. Every cube alg is run on the n×n model
-// by test/algs.test.ts and must do what its `check` claims; the Pyraminx,
-// Skewb and FTO algs were run once through cubing.js (2026-09-20) and the
-// notes describe what that run showed, not what a source claimed. Notation
+// by test/algs.test.ts and must do what its `check` claims, and so is every
+// FTO alg (cube/fto.ts, itself checked against cubing.js and lowcubes);
+// the Pyraminx and Skewb algs were run once through cubing.js (2026-09-20)
+// and the notes describe what that run showed, not what a source claimed. Notation
 // is WCA throughout (Rw wide, 2R one inner layer, 3Rw three layers) even
 // where a source wrote lowercase, because lowercase means two different
 // things on two different sites. Colours follow the trainer: white down,
@@ -172,32 +173,63 @@ const skewb: Puzzle = {
   ],
 };
 
+const BEN = 'https://docs.google.com/document/d/e/2PACX-1vTDL7-XvpNrhIc2Q_1nHfeJyG7tIazgBCq88PE8ahqIbvPb3LPQsM3_vsdqX6y8sxte1n5jGk2J3c5V/pub';
+const LC = 'https://www.lowcubes.com/fto/tcp';
+// Every FTO alg runs on cube/fto.ts (checked against cubing.js and lowcubes' model by test/fto.test.ts); the notes
+// say what that run showed. In the picture the U face is the top triangle with its apex at the centre, so its
+// corners are top-left, top-right and bottom; a corner's "inner" triangle is the one on the U face beside it, its
+// "outer" triangle the one on the back face behind it (top end of the left strip, top end of the right strip, and
+// the F face's top triangle for the bottom corner).
 const fto: Puzzle = {
   id: 'fto', name: 'FTO', viewer: 'fto',
-  notation: 'Ben Streeter\'s notation, which twizzle uses: hold the octahedron with a corner pointing at you. The four faces around that corner are <code>U</code> (upper), <code>F</code> (lower), <code>L</code> and <code>R</code>; the four at the back are <code>B</code> (behind F), <code>D</code> (behind U), <code>BL</code> and <code>BR</code>. A letter turns that face 120° clockwise looking at it, a prime anticlockwise. Standard colours: white on U, green on F. A triple is a corner with the two triangles on either side of it.',
-  intro: '<b>Bencisco</b> (Ben Streeter\'s method) is the standard: a block, the first centre, two triples, the second centre, the last two centres, then the last bottom triple and the last three triples. Everything but the end is intuitive; the memorised part is four algs. Edges have no orientation and ride along with the triangles. Checked by simulation on 2026-09-20.',
+  notation: 'Ben Streeter\'s notation, which twizzle uses: hold the octahedron with a corner pointing at you. The four faces around that corner are <code>U</code> (upper), <code>F</code> (lower), <code>L</code> and <code>R</code>; the four at the back are <code>D</code> (behind U), <code>B</code> (behind F), <code>BL</code> and <code>BR</code>. A letter turns that face 120° clockwise looking at it, a prime anticlockwise, <code>X2</code> is two turns (the same as <code>X\'</code>). <code>Xw</code> turns the face and the slice under it, <code>Xs</code> the slice alone, <code>Xo</code> the whole puzzle the way X turns. Standard colours: white on U, green on F. A triple is a corner with the two triangles on either side of it. The pictures look at the front corner: U is the top triangle, F the bottom, L and R the sides, and the strips around the square are the back faces\' rows along the shared edges (B above, D below, BL left, BR right). The TCP cases are written in lowcubes\' edge-in-front letters instead, explained under their heading.',
+  intro: '<b>Bencisco</b> (Ben Streeter\'s method) is the standard: a block, the first centre, two triples, the second centre, the last two centres, then the last bottom triple and the last three triples. Everything but the end is intuitive; the memorised part is four algs, or the eighteen TCP cases for a two-look finish. Edges have no orientation and ride along with the triangles.',
   sections: [
     {
       title: 'Triples: sledge and hedge',
-      blurb: 'Both cycle the three triples around the U face, one each way, and flip the two triangles that the R layer shares with them.',
+      blurb: 'Both cycle the three corners of the U face, one each way, and carry six triangles round in two cycles: the triangles do not stay with their corners.',
       cases: [
-        { name: 'Sledge (clockwise)', alg: "R' L R L'", alt: ["F' U F U'"], note: 'The three corners of the U face cycle clockwise with their triangles: the front corner\'s triple goes to the right-top vertex, that one to the left-top, the left-top one to the front. The alternative does the same from the F face.', source: 'https://docs.google.com/document/d/e/2PACX-1vTDL7-XvpNrhIc2Q_1nHfeJyG7tIazgBCq88PE8ahqIbvPb3LPQsM3_vsdqX6y8sxte1n5jGk2J3c5V/pub' },
-        { name: 'Hedge (anticlockwise)', alg: "R B' R' B", note: 'The same three triples the other way round.', source: 'https://docs.google.com/document/d/e/2PACX-1vTDL7-XvpNrhIc2Q_1nHfeJyG7tIazgBCq88PE8ahqIbvPb3LPQsM3_vsdqX6y8sxte1n5jGk2J3c5V/pub' },
+        { name: 'Sledge (clockwise)', alg: "R' L R L'", note: 'Corners top-right → bottom → top-left. Triangles: inner top-right → outer bottom → inner top-left, and outer top-left → outer top-right → inner bottom. Any two faces that share only a corner make a sledge: F\' U F U\' is the same shape aimed at the R face (its bottom-right, centre and top-right corners).', check: { only: ['corner', 'centre'], top: true }, source: BEN },
+        { name: 'Hedge (anticlockwise)', alg: "R B' R' B", note: 'Corners top-left → bottom → top-right. Triangles: outer top-left → outer bottom → inner top-right, and inner bottom → outer top-right → inner top-left.', check: { only: ['corner', 'centre'], top: true }, source: BEN },
       ],
     },
     {
       title: 'Last three triples: the corner cycle',
-      blurb: 'After the triangles are placed with sledges and hedges, the three corners of the R face may still need cycling. Both algs carry three triangles round with the corners.',
+      blurb: 'After the triangles are placed with sledges and hedges, the three corners of the R face (the right triangle of the picture) may still need cycling. Both algs carry the R triangle beside each corner round with it.',
       cases: [
-        { name: 'Corners clockwise', alg: "F' U F' D' F U' F' D F'", note: 'Cycles the three corners of the R face (front, right-top, right-bottom) clockwise, each with one triangle.', source: 'https://docs.google.com/document/d/e/2PACX-1vTDL7-XvpNrhIc2Q_1nHfeJyG7tIazgBCq88PE8ahqIbvPb3LPQsM3_vsdqX6y8sxte1n5jGk2J3c5V/pub' },
-        { name: 'Corners anticlockwise', alg: "F D' F U F' D F U' F", note: 'The inverse: the same three corners the other way.', source: 'https://docs.google.com/document/d/e/2PACX-1vTDL7-XvpNrhIc2Q_1nHfeJyG7tIazgBCq88PE8ahqIbvPb3LPQsM3_vsdqX6y8sxte1n5jGk2J3c5V/pub' },
+        { name: 'Corners clockwise', alg: "F' U F' D' F U' F' D F'", note: 'Cycles the three corners of the R face (bottom-right → centre → top-right, clockwise looking at R), each with the R triangle beside it. Nothing else moves.', check: { only: ['corner', 'centre'] }, source: BEN },
+        { name: 'Corners anticlockwise', alg: "F D' F U F' D F U' F", note: 'The inverse: the same three corners the other way, each with its R triangle.', check: { only: ['corner', 'centre'] }, source: BEN },
       ],
     },
     {
       title: 'Last bottom triple',
       blurb: 'Ninety-odd cases, most of them a setup move, a sledge and the setup undone. One to show the shape; the full table is at zwegner.github.io/cubing/fto/lbt-algs.html.',
       cases: [
-        { name: 'Keyhole insert', alg: "BL R' L' R L BL'", note: 'A BL setup, a sledge from the left, and the setup undone: cycles the U face\'s three triples with a different pair of triangles than the plain sledge.', source: 'https://zwegner.github.io/cubing/fto/lbt-algs.html' },
+        { name: 'Keyhole insert', alg: "BL R' L' R L BL'", note: 'A BL setup, a sledge from the left, and the setup undone: the same corner cycle as the sledge (top-right → bottom → top-left) with a different pair of triangle cycles, one of them reaching a triangle of F by the bottom-left corner of the picture.', check: { only: ['corner', 'centre'] }, source: 'https://zwegner.github.io/cubing/fto/lbt-algs.html' },
+      ],
+    },
+    {
+      title: 'TCP: the last three triples in two looks (lowcubes)',
+      blurb: 'lowcubes\' 2-look L3T: pair formation, then one of these eighteen places the three corners with their triangles. They are written in lowcubes\' <b>edge-in-front</b> letters, not Ben\'s: hold an edge toward you, <code>U</code> above it, <code>F</code> below it (the last face), <code>L</code> and <code>R</code> beside F, <code>D</code> opposite U, <code>B</code> opposite F, <code>Bl</code> and <code>Br</code> beside U at the back. <code>Rt2</code> turns the whole puzzle 180° about the corner between U, F, R and Br; <code>R2\'</code> is <code>R</code>. In the picture the last face F is the top triangle, U\'s row is the strip above it, L and R are the side triangles, D the bottom one, Bl and Br the side strips. A cases cycle the corners clockwise (bottom → top-left → top-right), B cases anticlockwise, C cases turn the two top corners in place; each note then lists the triangle cycles (→) and swaps (↔). Playing one in 3D shows it in Ben\'s letters with the rotations pushed through.',
+      cases: [
+        { name: 'A1', alg: "U' R U R'", note: 'Corners clockwise; inner bottom → inner top-left → outer top-right; outer top-left → inner top-right → outer bottom.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'A2', alg: "Uo' U R' U' R' D' R U R' D R U' R Uo", note: 'Corners clockwise; inner bottom → inner top-left → outer bottom → outer top-right; outer top-left ↔ inner top-right.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'A3', alg: "Fo R' D R' U' R D R U R' D R Fo'", note: 'Corners clockwise; inner bottom → inner top-left → outer top-left; outer top-right → inner top-right → outer bottom.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'A4', alg: "Rt2 U D' R U' R' D Lo' U R' U' R Ro'", note: 'Corners clockwise; one long cycle: inner bottom → inner top-left → outer bottom → outer top-left → inner top-right → one of Br\'s triangles at the back (not in the picture) → outer top-right.', frame: 'eif', check: { only: ['corner', 'centre'] }, source: LC },
+        { name: 'A5', alg: "Rt2 U Rw' U' R U Rw R2' U' R Rt2", note: 'Corners clockwise; inner bottom → inner top-left → outer top-right; outer top-left ↔ inner top-right; outer bottom ↔ D\'s triangle at the bottom-right of the picture.', frame: 'eif', check: { only: ['corner', 'centre'] }, source: LC },
+        { name: 'A6', alg: "Rt2 R' U' Rw' R U' R U R' Rw U Rt2", note: 'Corners clockwise; five triangles cycle, inner bottom → inner top-left → outer top-left → inner top-right → outer top-right; the outer bottom one stays.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'B1', alg: "Fo R U' R' U Fo'", note: 'Corners anticlockwise; outer top-right → inner top-left → outer bottom; inner bottom → inner top-right → outer top-left.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'B2', alg: "U' R U R D R' U' R D' R' U R'", note: 'Corners anticlockwise; outer top-right ↔ inner top-left; inner bottom → inner top-right → outer bottom → outer top-left.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'B3', alg: "F' R' D' R U' R' D' R' U R D' R", note: 'The whole layer turns clockwise (corners, edges and the side triangles beside them) except two triangle cycles: inner bottom → inner top-left → outer bottom → outer top-left, and outer top-right ↔ inner top-right.', frame: 'eif', check: { top: true }, source: LC },
+        { name: 'B4', alg: "Fo U' D R' U R D' Ro R' U R U' Rt2", note: 'Corners anticlockwise; one long cycle: outer top-right → inner top-left → one of Bl\'s triangles at the back (not in the picture) → outer top-left → inner bottom → inner top-right → outer bottom.', frame: 'eif', check: { only: ['corner', 'centre'] }, source: LC },
+        { name: 'B5', alg: "Fo U' Rw U R' U' Rw2 R' U R' Fo'", note: 'Corners anticlockwise; outer top-right ↔ inner top-left; inner bottom → inner top-right → outer top-left; outer bottom ↔ D\'s triangle at the bottom-left of the picture.', frame: 'eif', check: { only: ['corner', 'centre'] }, source: LC },
+        { name: 'B6', alg: "Fo R U R' Rw U R' U' R Rw' U' Fo'", note: 'Corners anticlockwise; five triangles cycle, outer top-right → inner top-left → outer top-left → inner bottom → inner top-right; the outer bottom one stays.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'C1', alg: "U' R' D R' U R D' R", note: 'The two top corners turn in place; outer top-left → inner top-left → outer top-right → inner top-right → outer bottom.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'C2', alg: "Uo' U R D' R U' R' D R' Uo", note: 'The two top corners turn in place; outer top-left → inner top-left → outer bottom → outer top-right → inner top-right.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
+        { name: 'C3', alg: "Fo' F R Br R' L R Br' R2' L' R Fo", note: 'The whole layer turns clockwise (corners, edges and the side triangles beside them) except two triangle cycles: inner bottom → inner top-left → outer top-left, and outer top-right → inner top-right → outer bottom.', frame: 'eif', check: { top: true }, source: LC },
+        { name: 'C4', alg: "F' R' D' R U' R' D R2 U R'", note: 'The whole layer turns anticlockwise (corners, edges and the side triangles beside them) except two triangle cycles: outer top-left → inner top-left → outer bottom, and inner bottom → inner top-right → outer top-right.', frame: 'eif', check: { top: true }, source: LC },
+        { name: 'C5', alg: "Uo R' U' R D' R U' R' D R' U' R Uo'", note: 'The two top corners turn in place; outer top-left → inner top-left → R\'s triangle at the bottom-right of the picture → outer top-right → inner top-right.', frame: 'eif', check: { only: ['corner', 'centre'] }, source: LC },
+        { name: 'C6', alg: "R U' R' U Ro R' U R U' Ro'", note: 'The two top corners turn in place; outer top-left ↔ inner top-left and outer top-right ↔ inner top-right: the two top corners\' triangles change sides.', frame: 'eif', check: { only: ['corner', 'centre'], top: true }, source: LC },
       ],
     },
   ],
