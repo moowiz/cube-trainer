@@ -4,11 +4,13 @@
 // that reveal the case, Check on the moves typed, and the standard alg with
 // its AUFs in brackets. The drill scaffold owns timer, box, result, keys.
 //
-// Two settings, inline after the hints and kept per drill: where the drill
+// Three settings, inline after the hints and kept per drill: where the drill
 // starts (its own stage, or the step before - the corners to orient, the
 // last pair to insert - so the case has to be recognised after solving that
-// your own way, as in a solve) and whether the alg shows as soon as the case
-// does (learning the alg rather than the recognition).
+// your own way, as in a solve), whether the alg shows as soon as the case
+// does (learning the alg rather than the recognition), and which cases New
+// case draws from (the ones being learnt; with an earlier start the case
+// that comes up is still whatever the step before leaves).
 //
 // The picture is the cube in 3D, seen from above (the last layer is what
 // matters, the sides show the case's bars and headlights), turned to the open
@@ -34,7 +36,7 @@ import type { ColorName } from '../types';
 import type { FaceId } from '../cube/frame';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
-import { CASES, type LLKind } from './cases';
+import { CASES, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
 import { ensurePicStyle, picSvg } from './pic';
 import { openLLReference } from './reference';
@@ -61,9 +63,16 @@ const STYLE = `
   .ll-opts label { display: inline-flex; align-items: center; gap: 6px; }
   .ll-opts select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 8px; } .ll-step b { color: var(--ink); font-weight: 600; }
+  .ll-cases { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-cases summary { cursor: pointer; }
+  .ll-caselist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  .ll-caselist .eo-chip { padding: 4px 9px; }
+  .ll-caselist .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+  .ll-caselist .eo-link { padding: 2px 4px; font-size: 13px; }
 `;
 
-interface Settings { from: LLStart; auto: boolean }
+/** `cases`: the ids New case draws from; absent means all of them. */
+interface Settings { from: LLStart; auto: boolean; cases?: string[] }
 
 export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   if (!document.getElementById('ll-style')) {
@@ -75,6 +84,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const settings: Settings = { from: kind, auto: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
+  if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
@@ -86,7 +96,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="ll-opts">
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
         <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
-      </div>`,
+      </div>
+      <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>`,
     left: `
       <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
@@ -192,7 +203,25 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     render();
     if (settings.auto && sol) drill.$('showSol').click();
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from); load(r.setup); shareScramble(setup, kind); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); }
+
+  // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
+  const inPool = (c: LLCase) => !settings.cases || settings.cases.includes(c.id);
+  const pool = (): LLCase[] => CASES[kind].filter(inPool);
+  function renderCases(): void {
+    const n = pool().length, all = CASES[kind].length;
+    drill.$('casesN').textContent = n === all ? `all ${all}` : n ? `${n} of ${all}` : `none picked, so all ${all}`;
+    drill.$('caselist').innerHTML = CASES[kind].map((c) => `<button type="button" class="eo-chip${inPool(c) ? ' on' : ''}" data-case="${c.id}">${c.name}</button>`).join('')
+      + '<button type="button" class="eo-link" data-cases="all">all</button><button type="button" class="eo-link" data-cases="none">none</button>';
+  }
+  drill.$('caselist').addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-case], [data-cases]');
+    if (!t) return;
+    if (t.dataset.cases) settings.cases = t.dataset.cases === 'all' ? undefined : [];
+    else { const on = new Set(pool().map((c) => c.id)); if (on.has(t.dataset.case!)) on.delete(t.dataset.case!); else on.add(t.dataset.case!); settings.cases = on.size === CASES[kind].length ? undefined : [...on]; }
+    saveSettings(); renderCases();
+  });
+  renderCases();
 
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first, the alg is what follows${kind === 'pll' ? '; a bracket at the end lines the layer up after it' : ''}.</small>`;
   /**

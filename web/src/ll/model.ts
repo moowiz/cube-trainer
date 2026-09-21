@@ -100,10 +100,11 @@ export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase
  * drawn is the drill's own; the earlier steps are whatever comes up, as in a solve, and the case
  * that actually comes up after them depends on how they are solved (the route() through the
  * standard algs gives one answer). The setup is face turns only; the trainer shows scrambleFor().
+ * `pool` is the cases to draw from (the ones being learnt); empty means all of them.
  */
-export function randomSetup(kind: LLKind, rng: () => number = Math.random, from: LLStart = kind): { setup: string; case: LLCase } {
+export function randomSetup(kind: LLKind, rng: () => number = Math.random, from: LLStart = kind, pool: readonly LLCase[] = CASES[kind]): { setup: string; case: LLCase } {
   const pick = <T,>(a: readonly T[]): T => a[Math.floor(rng() * a.length)]!;
-  const c = pick(CASES[kind]);
+  const c = pick(pool.length ? pool : CASES[kind]);
   const parts: string[] = [];
   // an OCLL drill's permutation is a random PLL (always one: a lone twist's shortest scramble is its alg backwards)
   if (kind === 'ocll') parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
