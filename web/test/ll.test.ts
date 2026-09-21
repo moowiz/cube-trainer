@@ -6,7 +6,7 @@ import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import { algAngle, features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
-  SOLVED, aufToSolve, chainPartner, done, fitAlg, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
+  SOLVED, aufToSolve, chainPartner, done, fitAlg, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, trimAuf, solution, splitAt, state, stepPlain, tokens,
 } from '../src/ll/model';
 import { faceTurns } from '../src/cube/state';
 import { stageOf } from '../src/stage';
@@ -153,6 +153,21 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     expect(state(scr)).toBe(state(inverse(sune.alg)));
     expect(moveCount(scr)).toBe(7);
     expect(scrambleFor('')).toBe('');
+  });
+
+  it("trimAuf(): the trailing top-layer turns come off (the case's AUF), and the setup moved by their inverse is the same case", () => {
+    expect(trimAuf("R U R' U2")).toEqual({ scramble: "R U R'", auf: 'U2' });
+    expect(trimAuf("R U R' U U'")).toEqual({ scramble: "R U R'", auf: "U U'" });
+    expect(trimAuf("U R U R'")).toEqual({ scramble: "U R U R'", auf: '' });
+    expect(trimAuf('U2')).toEqual({ scramble: '', auf: 'U2' });
+    const rng = makeRng(6);
+    for (const c of PLL_CASES) {
+      const setup = `U ${inverse(c.alg)}`;
+      const t = trimAuf(scrambleFor(setup, rng));
+      const moved = `${setup} ${inverse(t.auf)}`;
+      expect([c.id, state(t.scramble)]).toEqual([c.id, state(moved)]);
+      expect([c.id, identify('pll', moved)?.id]).toEqual([c.id, c.id]);
+    }
   });
 });
 
@@ -554,7 +569,16 @@ describe('heardCase(): what the speech recogniser wrote, as a PLL id', () => {
       ['G a perm', 'Ga'], ['gee alpha', 'Ga'], ['G. B.', 'Gb'], ['ga', 'Ga'], ['G see perm', 'Gc'], ['golf delta', 'Gd'],
       ['T', 'T'], ['tea perm', 'T'], ['a T perm', 'T'], ['the Y perm', 'Y'], ['you be', 'Ub'], ['are a', 'Ra'], ['N A perm', 'Na'], ['zed', 'Z'],
       ['give up', 'giveup'], ["I don't know", 'giveup'], ['skip it', 'giveup'], ['banana', null], ['G', 'G'],
+      ['epsilon', 'E'], ['epsilon perm', 'E'], ['gamma beta', 'Gb'], ['theta', 'T'], ['nu alpha', 'Na'], ['rho bravo', 'Rb'], ['eta perm', 'H'], ['zeta', 'Z'], ['upsilon a', 'Ua'],
     ] as const) expect([said, heardCase(said, ids)]).toEqual([said, want]);
+  });
+  it('wordsFor(): every PLL letter and a/b/c/d has at least a NATO or Greek word, and each word means only that letter', async () => {
+    const { wordsFor, heardCase } = await import('../src/ll/hear');
+    const ids = PLL_CASES.map((c) => c.id);
+    for (const l of [...new Set(PLL_CASES.map((c) => c.id[0]!)), 'A', 'B', 'C', 'D']) {
+      expect([l, wordsFor(l).length > 0]).toEqual([l, true]);
+      for (const w of wordsFor(l)) if (ids.includes(l)) expect([w, heardCase(w, ids)]).toEqual([w, l]);
+    }
   });
 });
 

@@ -201,6 +201,18 @@ export function scrambleFor(setup: string, rng: () => number = Math.random): str
   return inverse(solveAny(state(setup), rng));
 }
 
+/**
+ * A scramble's trailing top-layer turns (trainer letters; a D turn as the scramble is shown, WCA
+ * hold) split off: they only set the AUF the case comes in, which a drill does not care about
+ * (user, 2026-09-21), so the drill drops them and moves its setup by their inverse instead.
+ */
+export function trimAuf(scramble: string): { scramble: string; auf: string } {
+  const toks = tokens(scramble);
+  let n = toks.length;
+  while (n > 0 && /^U/.test(toks[n - 1]!)) n--;
+  return { scramble: toks.slice(0, n).join(' '), auf: toks.slice(n).join(' ') };
+}
+
 // ---- PLL arrows: where each top-layer piece has to go ----
 // U turns the layer (x, z) -> (-z, x); the AUF that leaves the most pieces home is the frame the
 // arrows are drawn in (a case is defined up to AUF), each piece pointing at its slot in that frame.

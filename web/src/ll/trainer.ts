@@ -44,9 +44,9 @@ import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
+import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
-import { heardCase } from './hear';
+import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { caseStats, RECENT, secs, workOn } from './practice';
 import { openLLReference } from './reference';
@@ -82,6 +82,9 @@ const STYLE = `
   .ll-alts .ll-step { margin-top: 8px; }
   .eo-result .ll-alg .mv.done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .eo-result .ll-alg .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
+  .ll-say { margin: -4px 2px 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-say summary { cursor: pointer; }
+  .ll-say div { margin-top: 6px; line-height: 1.5; } .ll-say b { color: var(--ink); font-weight: 600; }
   .ll-cases { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-cases summary { cursor: pointer; }
   .ll-caselist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
@@ -103,6 +106,15 @@ const STYLE = `
 /** `cases`: the ids New case draws from; absent means all of them. */
 interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; cases?: string[] }
 type Voice = 'off' | 'echo' | 'read' | 'quiz';
+/**
+ * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
+ * letter, then a/b/c/d; any word listed for a letter says it, and a surrender ends the wait.
+ */
+function sayNote(kind: LLKind): string {
+  const letters = [...new Set(CASES[kind].map((c) => c.id[0]!))].sort();
+  const row = (l: string) => `<b>${l}</b> ${wordsFor(l).join(', ')}`;
+  return `Say the letter, then a/b/c/d if it has one: “G alpha”, “J bravo”, “N a”, “T perm”. The letter as itself, or any of these: ${letters.map(row).join(' · ')}. The variant: ${['A', 'B', 'C', 'D'].map(row).join(' · ')}. Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.`;
+}
 const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move', quiz: 'asks me the case, then reads' };
 
 // ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
@@ -168,10 +180,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     afterHints: `
       <div class="ll-opts">
         <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
-        <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
+        <label><input type="checkbox" id="${id('auto')}"> Show the alg once I start (or answer)</label>
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
       </div>
+      <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
       <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div></details>`,
     left: `
@@ -194,6 +207,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let sol: RouteStep | null = null;
   let shown: string | null = null; // the alg whose state the picture shows (setup + moves after a Check)
   let assisted = false, recorded = false;
+  let held = false; // the alg is ready (its lines in the panel, for the voice) but the panel hidden until the solve starts
   let cameUp: string | null = null; // the case the moves checked actually reached (an earlier start decides it by how the step before was solved)
   const results: { t: number; n: number; std: number }[] = [];
 
@@ -297,6 +311,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`); }
     else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`); }
     else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`); }
+    reveal();
     setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200 + (hold ? 1800 : 0)); // the first move after the name and the hold
   }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
@@ -367,6 +382,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
     if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; }
+    if (armedNow && toks.length) reveal();
     if (settings.voice === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
   }
@@ -392,12 +408,17 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     renderScramble();
   }
 
-  /** Show the state after `alg`: worked from as face turns only, so the moves after it read in one frame (a V perm's y). */
-  function load(alg: string): void {
+  /**
+   * Show the state after `alg`: worked from as face turns only, so the moves after it read in one
+   * frame (a V perm's y). A random case (`freeAuf`) is defined up to its AUF, so the scramble drops
+   * its trailing top-layer turns and the setup moves to where the shorter scramble lands; a cube
+   * handed over from another tab is where it is, and keeps its AUF.
+   */
+  function load(alg: string, freeAuf = false): void {
     setup = faceTurns(alg);
-    const steps = route(kind, setup);
-    sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? [];
-    shown = null; assisted = false; recorded = false; cameUp = null;
+    const derive = () => { const steps = route(kind, setup); sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? []; };
+    derive();
+    shown = null; assisted = false; recorded = false; cameUp = null; held = false;
     const open = SLOTS.find((sl) => !slotSolved(state(setup), sl));
     view.rx = TOP_VIEW.rx; view.ry = open ? SLOT_RY[open]! : TOP_VIEW.ry;
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
@@ -406,10 +427,30 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     scramble = null; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
     quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     const gen = ++scrambleGen;
-    setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
+    setTimeout(() => {
+      if (gen !== scrambleGen) return;
+      const t = trimAuf(scrambleFor(setup));
+      if (freeAuf && t.auf) {
+        setup = faceTurns(`${setup} ${inverse(t.auf)}`);
+        derive(); shareScramble(setup, kind);
+        if (drill.showOpen() && sol) onShow(true); // the alg on show is for the setup as it was
+      }
+      scramble = freeAuf ? t.scramble : `${t.scramble} ${t.auf}`.trim();
+      render();
+    });
     drill.begin();
     render();
-    if (settings.auto && sol) drill.$('showSol').click();
+    // the setting: the alg comes up by itself, but not while the case is being looked at (user, 2026-09-21:
+    // the scramble done, the screen is where the recognition happens): its lines are made now, hidden, and
+    // shown at the first turn after the scramble, or the quiz's answer
+    if (settings.auto && sol) { drill.$('showSol').click(); drill.result.hide(); drill.setShowLabel('Show the alg'); held = true; }
+  }
+  /** The held alg shown: the solve has started, or the case was answered. */
+  function reveal(): void {
+    if (!held) return;
+    held = false;
+    drill.setShowLabel('Hide the alg');
+    drill.result.show(drill.$('rTitle').textContent ?? '', drill.$('rSub').textContent ?? '');
   }
   /** Bring the next case after a solve (the setting): after a pause, unless a case was loaded meanwhile. */
   function queueNext(): void {
@@ -417,7 +458,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
 
   // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
   async function renderPractice(): Promise<void> {
@@ -651,7 +692,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
   const voiceSel = drill.$('voice') as HTMLSelectElement;
   voiceSel.value = settings.voice;
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? 'I will ask the case' : 'I will read the alg'); });
+  const sayBox = drill.$('say');
+  const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
+  showSay();
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? 'I will ask the case' : 'I will read the alg'); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
