@@ -28,7 +28,7 @@ export type FtoFrame = 'ben' | 'eif';
 /** A state: for each of the 72 sticker positions, the index (into FTO_FACES) of the face whose colour sits there. */
 export type FtoState = number[];
 
-type Vec = readonly [number, number, number];
+export type Vec = readonly [number, number, number];
 const S2 = Math.SQRT1_2;
 /** The six corners: front and back, and the four diagonals up-left, up-right, down-left, down-right. */
 const CORNER: Record<string, Vec> = { N: [0, 0, 1], K: [0, 0, -1], ul: [-S2, S2, 0], ur: [S2, S2, 0], dl: [-S2, -S2, 0], dr: [S2, -S2, 0] };
@@ -45,7 +45,7 @@ const norm = (a: Vec): Vec => scale(a, 1 / Math.hypot(...a));
 const near = (a: Vec, b: Vec) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6;
 
 /** Rodrigues: rotation of `p` about the unit axis `k` by `t` radians (right-hand rule). */
-function rotate(p: Vec, k: Vec, t: number): Vec {
+export function rotate(p: Vec, k: Vec, t: number): Vec {
   const c = Math.cos(t), s = Math.sin(t), kd = dot(k, p);
   const cross: Vec = [k[1] * p[2] - k[2] * p[1], k[2] * p[0] - k[0] * p[2], k[0] * p[1] - k[1] * p[0]];
   return [p[0] * c + cross[0] * s + k[0] * kd * (1 - c), p[1] * c + cross[1] * s + k[1] * kd * (1 - c), p[2] * c + cross[2] * s + k[2] * kd * (1 - c)];
@@ -192,23 +192,51 @@ export function invertFto(tokens: readonly string[]): string[] {
 type Frame = { axis: Vec; angle: number }[];
 const toStart = (frame: Frame, v: Vec): Vec => frame.reduceRight((p, r) => rotate(p, r.axis, -r.angle), v); // undo the rotations, latest first
 
+/** One move of an alg with its axis in the frame the alg started in, which is where the state lives. */
+export interface FtoOp {
+  token: string;
+  axis: Vec;
+  /** radians about `axis`, right-hand rule (a clockwise face turn is negative) */
+  angle: number;
+  /** what turns: the face's layer, the slice under it, both, or the whole puzzle (a rotation, which moves no sticker) */
+  sel: 'face' | 'slice' | 'wide' | 'all';
+  /** the sticker positions the move carries round (every one for a rotation) */
+  moving: number[];
+}
+
+/** The alg's moves as ops in the starting frame. Throws `Could not read: <token>` on a bad move. */
+export function ftoOps(alg: string, frame: FtoFrame = 'ben'): FtoOp[] {
+  const rot: Frame = [];
+  const out: FtoOp[] = [];
+  for (const token of ftoTokens(alg)) {
+    const op = parseOp(token, frame);
+    if (op.sel === 'all') { rot.push({ axis: op.axis, angle: op.angle }); }
+    const axis = op.sel === 'all' ? toStart(rot.slice(0, -1), op.axis) : toStart(rot, op.axis);
+    const moving = op.sel === 'all' ? FTO_STICKERS.map((s) => s.idx) : permutation({ ...op, axis }).map((d, i) => (d === i ? -1 : i)).filter((i) => i >= 0);
+    out.push({ token, axis, angle: op.angle, sel: op.sel, moving });
+  }
+  return out;
+}
+
+/** The state after one op (a rotation changes nothing: it is the viewer's business). */
+export function applyOp(state: FtoState, op: FtoOp): FtoState {
+  if (op.sel === 'all') return state;
+  const dest = permutation(op);
+  const out = new Array<number>(72);
+  for (let i = 0; i < 72; i++) out[dest[i]!] = state[i]!;
+  return out;
+}
+
+/** The op that undoes `op`, animatable the same way (the layer occupies the same positions after the turn). */
+export const inverseOp = (op: FtoOp): FtoOp => ({ ...op, angle: -op.angle });
+
 /**
  * Stickers after `alg` from `state` (default solved), in the frame the alg started in. A whole-puzzle rotation
  * turns the frame the later moves are read in and moves nothing. Throws `Could not read: <token>` on a bad move.
  */
 export function applyFto(alg: string, state: FtoState = solvedFto(), frame: FtoFrame = 'ben'): FtoState {
   if (state.length !== 72) throw new Error('state is not an FTO');
-  let cur = state.slice();
-  const rot: Frame = [];
-  for (const t of ftoTokens(alg)) {
-    const op = parseOp(t, frame);
-    if (op.sel === 'all') { rot.push({ axis: op.axis, angle: op.angle }); continue; }
-    const dest = permutation({ ...op, axis: toStart(rot, op.axis) });
-    const out = new Array<number>(72);
-    for (let i = 0; i < 72; i++) out[dest[i]!] = cur[i]!;
-    cur = out;
-  }
-  return cur;
+  return ftoOps(alg, frame).reduce(applyOp, state);
 }
 
 /** Indices of the stickers that differ between two states. */
@@ -224,15 +252,12 @@ export function diffFto(a: FtoState, b: FtoState): number[] {
  * puzzle is dropped, which the viewer does not show anyway.
  */
 export function twizzleFto(alg: string, frame: FtoFrame = 'ben'): string {
-  const rot: Frame = [];
   const out: string[] = [];
   const suffix = (k: number) => (k === 1 ? '' : k === -1 ? "'" : k === 2 ? '2' : "2'");
-  for (const t of ftoTokens(alg)) {
-    const op = parseOp(t, frame);
-    if (op.sel === 'all') { rot.push({ axis: op.axis, angle: op.angle }); continue; }
-    const axis = toStart(rot, op.axis);
-    const face = FTO_FACES.find((f) => near(FTO_NORMAL[f], axis));
-    if (!face) throw new Error(`FTO: ${t} is not about a face after the rotations before it`); // rotations map faces to faces; cannot happen
+  for (const op of ftoOps(alg, frame)) {
+    if (op.sel === 'all') continue;
+    const face = FTO_FACES.find((f) => near(FTO_NORMAL[f], op.axis));
+    if (!face) throw new Error(`FTO: ${op.token} is not about a face after the rotations before it`); // rotations map faces to faces; cannot happen
     const k = Math.round(-op.angle / THIRD), s = suffix(k);
     if (op.sel !== 'slice') out.push(face + s);
     if (op.sel !== 'face') out.push(`2${face}${s}`);

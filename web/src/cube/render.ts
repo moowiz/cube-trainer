@@ -1,9 +1,12 @@
 // Pictures of a cube: the 3D view (mild perspective, ink outlines, no body)
 // and the net, both as SVG. Each sticker is one element carrying its
 // facelet index in data-idx, so a trainer can colour, class, mark, and
-// listen to clicks on stickers without owning any geometry.
+// listen to clicks on stickers without owning any geometry. The 3D view is
+// a general polygon painter (renderPolys: cull, sort by depth, project)
+// that the cube feeds its facelet quads and the FTO its triangles; orbit()
+// drags either.
 
-import { NORMAL, STICKERS, key, type Vec } from './geometry';
+import { STICKERS, key, type Vec } from './geometry';
 
 export interface View { rx: number; ry: number }
 export const DEFAULT_VIEW: View = { rx: 28, ry: -35 };
@@ -26,10 +29,10 @@ function rotView(p: Vec, view: View): Vec {
   return [x, y, z];
 }
 const W = 340, SCALE = 78, D = 16;
-function project(p: Vec, view: View): [number, number] {
+function project(p: Vec, view: View, scale: number): [number, number] {
   const [x, y, z] = rotView(p, view);
   const k = D / (D - z);
-  return [x * SCALE * k, -y * SCALE * k];
+  return [x * scale * k, -y * scale * k];
 }
 function tangents(n: Vec): [Vec, Vec] {
   const a = n.findIndex((v) => v !== 0);
@@ -38,24 +41,55 @@ function tangents(n: Vec): [Vec, Vec] {
 const add = (a: Vec, b: Vec, k = 1): Vec => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
 const fmt = (v: number) => v.toFixed(1);
 
-/** Draw the cube into `svg` from `view`; `cells[i]` describes facelet i. */
-export function render3d(svg: SVGSVGElement, cells: readonly Cell[], view: View): void {
-  // faces back to front so the most facing one is on top; faces turned away are not drawn
-  const order = Object.keys(NORMAL).map((f) => ({ f, z: rotView(NORMAL[f], view)[2] })).filter((o) => o.z > 0).sort((a, b) => a.z - b.z);
+/** One polygon to paint: its corners and outward normal in model space, and how to draw it. */
+export interface Poly {
+  pts: readonly Vec[];
+  n: Vec;
+  fill: string;
+  /** extra class on the element */
+  cls?: string;
+  /** data-idx on the element (a sticker index), for click handlers */
+  idx?: number;
+  /** a dot at the centre (EO's bad-edge marks) */
+  mark?: boolean;
+}
+
+/**
+ * Paint polygons into `svg` from `view`: the ones facing away are dropped, the rest are drawn far to near by
+ * the depth of their centre. `scale` is pixels per model unit inside a viewBox `W` wide centred on the origin
+ * (the cube's cubie units at 78; a unit-radius puzzle wants more).
+ */
+export function renderPolys(svg: SVGSVGElement, polys: readonly Poly[], view: View, scale = SCALE): void {
+  const seen = polys
+    .map((p) => {
+      const c = p.pts.reduce((a, b) => add(a, b), [0, 0, 0] as Vec);
+      return { p, nz: rotView(p.n, view)[2], z: rotView(c, view)[2] / p.pts.length };
+    })
+    .filter((o) => o.nz > 0)
+    .sort((a, b) => a.z - b.z);
   let out = '';
-  for (const o of order) {
-    for (const s of STICKERS) {
-      if (s.face !== o.f) continue;
-      const cell = cells[s.idx];
-      const [t1, t2] = tangents(s.n);
-      const c = add(s.pos, s.n, 0.5);
-      const pts = [add(add(c, t1, .45), t2, .45), add(add(c, t1, -.45), t2, .45), add(add(c, t1, -.45), t2, -.45), add(add(c, t1, .45), t2, -.45)].map((p) => project(p, view));
-      out += `<polygon data-idx="${s.idx}" class="${cell.cls ?? ''}" points="${pts.map((p) => p.map(fmt).join(',')).join(' ')}" fill="${cell.fill}"/>`;
-      if (cell.mark) { const [px, py] = project(c, view); out += `<circle cx="${fmt(px)}" cy="${fmt(py)}" r="5" fill="#1b222c" opacity=".8"/>`; }
+  for (const { p } of seen) {
+    const pts = p.pts.map((q) => project(q, view, scale));
+    out += `<polygon${p.idx === undefined ? '' : ` data-idx="${p.idx}"`} class="${p.cls ?? ''}" points="${pts.map((q) => q.map(fmt).join(',')).join(' ')}" fill="${p.fill}"/>`;
+    if (p.mark) {
+      const c = p.pts.reduce((a, b) => add(a, b), [0, 0, 0] as Vec);
+      const [px, py] = project([c[0] / p.pts.length, c[1] / p.pts.length, c[2] / p.pts.length], view, scale);
+      out += `<circle cx="${fmt(px)}" cy="${fmt(py)}" r="5" fill="#1b222c" opacity=".8"/>`;
     }
   }
   svg.setAttribute('viewBox', `${-W / 2} ${-W / 2} ${W} ${W}`);
   svg.innerHTML = out;
+}
+
+/** Draw the cube into `svg` from `view`; `cells[i]` describes facelet i. */
+export function render3d(svg: SVGSVGElement, cells: readonly Cell[], view: View): void {
+  const polys: Poly[] = STICKERS.map((s) => {
+    const cell = cells[s.idx]!;
+    const [t1, t2] = tangents(s.n);
+    const c = add(s.pos, s.n, 0.5);
+    return { pts: [add(add(c, t1, .45), t2, .45), add(add(c, t1, -.45), t2, .45), add(add(c, t1, -.45), t2, -.45), add(add(c, t1, .45), t2, -.45)], n: s.n, fill: cell.fill, cls: cell.cls, idx: s.idx, mark: cell.mark };
+  });
+  renderPolys(svg, polys, view);
 }
 
 // the net: face origins in cells and the two axes each face is read along

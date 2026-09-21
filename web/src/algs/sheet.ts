@@ -3,13 +3,15 @@
 // the puzzle's notation and intro, then its sections of cases: for the
 // cubes a picture of the case (the alg's inverse on the n×n model, in the
 // user's colour scheme; the FTO from its front corner), the alg, what it does, and a link that plays it
-// in a 3D viewer. Content is data.ts; nothing here decides what an alg is.
+// in a 3D viewer - the FTO plays here, in the card (fto3d.ts), with twizzle as a second link. Content is
+// data.ts; nothing here decides what an alg is.
 
-import { applyFto, ftoTokens, invertFto, twizzleFto } from '../cube/fto';
+import { applyFto, ftoTokens, invertFto, twizzleFto, type FtoFrame } from '../cube/fto';
 import { applyNxN, expandNxN, invertTokens, rawNxN } from '../cube/nxn';
 import { onSchemeChange } from '../cube/scheme';
 import { algsHooks } from '../shell';
 import { PUZZLES } from './data';
+import { mountFtoPlayer } from './fto3d';
 import { picFto, picIso, picTop } from './pic';
 import type { AlgCase, Puzzle, PuzzleId } from './types';
 
@@ -40,6 +42,18 @@ const STYLE = `
   .algs-links { font-size: 12px; margin-top: 2px; }
   .algs-links a { color: var(--ink-2); }
   .algs-links a + a { margin-left: 10px; }
+  .algs-links button { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; margin-right: 10px; }
+  .algs-links button.on { color: var(--ink); font-weight: 600; }
+  .algs-player { grid-column: 1 / -1; }
+  .algs-player:empty { display: none; }
+  .fto3d { display: block; width: 100%; max-width: 300px; height: auto; margin: 6px auto 0; touch-action: none; cursor: grab; }
+  .fto3d polygon { stroke: #2b3340; stroke-width: 1.2; stroke-linejoin: round; }
+  .fto3d-ctl { display: flex; justify-content: center; gap: 6px; margin-top: 4px; }
+  .fto3d-ctl button { font: inherit; font-size: 15px; min-width: 44px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  .fto3d-alg { font-size: 15px; word-spacing: .1em; line-height: 1.6; text-align: center; margin-top: 4px; }
+  .fto3d-alg .tok { display: inline-block; padding: 0 3px; border-radius: 4px; color: var(--ink); }
+  .fto3d-alg .tok.done { color: var(--ink-2); opacity: .55; }
+  .fto3d-alg .tok.now { background: var(--ink); color: var(--bg); }
 `;
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -85,7 +99,7 @@ export function algLength(p: Puzzle, alg: string): number {
   return alg.replace(/[()[\]:,]/g, ' ').trim().split(/\s+/).filter(Boolean).length;
 }
 
-function caseHtml(p: Puzzle, c: AlgCase): string {
+function caseHtml(p: Puzzle, c: AlgCase, idx: number): string {
   const svg = caseSvg(p, c);
   const link = viewerUrl(p, c);
   return `<div class="algs-case${svg ? ' pic' : ''}">
@@ -94,15 +108,18 @@ function caseHtml(p: Puzzle, c: AlgCase): string {
     <div class="algs-alg">${esc(c.alg)}</div>
     ${c.alt?.length ? `<div class="algs-alt">${c.alt.map((a) => `<b>or</b> ${esc(a)}`).join('<br>')}</div>` : ''}
     ${c.note ? `<div class="algs-note">${esc(c.note)}</div>` : ''}
-    <div class="algs-links">${link ? `<a href="${link}" target="_blank" rel="noopener">▶ play it in 3D</a>` : ''}${c.source ? `<a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div>
+    <div class="algs-links">${p.id === 'fto' ? `<button type="button" data-play="${idx}">▶ play it here</button>` : ''}${link ? `<a href="${link}" target="_blank" rel="noopener">${p.id === 'fto' ? 'twizzle' : '▶ play it in 3D'}</a>` : ''}${c.source ? `<a href="${esc(c.source)}" target="_blank" rel="noopener">source</a>` : ''}</div>
+    ${p.id === 'fto' ? '<div class="algs-player"></div>' : ''}
   </div>`;
 }
+
+const allCases = (p: Puzzle): AlgCase[] => p.sections.flatMap((s) => s.cases);
 
 function puzzleHtml(p: Puzzle): string {
   return `
     ${p.intro ? `<p class="algs-intro">${p.intro}</p>` : ''}
     <div class="algs-notation">${p.notation}</div>
-    ${p.sections.map((s) => `<section class="algs-sec"><h3>${esc(s.title)}</h3>${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c)).join('')}</div></section>`).join('')}`;
+    ${p.sections.map((s) => `<section class="algs-sec"><h3>${esc(s.title)}</h3>${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c, allCases(p).indexOf(c))).join('')}</div></section>`).join('')}`;
 }
 
 /** Mount the sheet: the picker, the remembered puzzle, redraws on scheme changes. Called once from main.ts. */
@@ -113,12 +130,30 @@ export function initAlgs(): void {
   let chosen: PuzzleId = PUZZLES[0]!.id;
   try { const v = localStorage.getItem(KEY); if (PUZZLES.some((p) => p.id === v)) chosen = v as PuzzleId; } catch { /* no storage */ }
   let drawn = false;
+  // the 3D player: one open at a time, inside the case's card; a redraw of the sheet drops it
+  let player: { destroy(): void; button: HTMLElement } | null = null;
+  const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
   const render = () => {
+    closePlayer();
     const p = PUZZLES.find((x) => x.id === chosen) ?? PUZZLES[0]!;
     panel.innerHTML = `<div class="algs-pick">${PUZZLES.map((x) => `<button type="button" data-p="${x.id}" class="${x.id === chosen ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div><div class="algs-body">${puzzleHtml(p)}</div>`;
     drawn = true;
   };
   panel.addEventListener('click', (e) => {
+    const play = (e.target as HTMLElement).closest<HTMLElement>('[data-play]');
+    if (play) {
+      const wasOpen = player?.button === play;
+      closePlayer();
+      if (wasOpen) return;
+      const p = PUZZLES.find((x) => x.id === chosen)!;
+      const c = allCases(p)[Number(play.dataset.play)]!;
+      const host = play.closest('.algs-case')!.querySelector<HTMLElement>('.algs-player')!;
+      const frame: FtoFrame = c.frame ?? 'ben';
+      const handle = mountFtoPlayer(host, { alg: c.alg, frame, start: applyFto(setupAlg(p, c.alg), undefined, frame) });
+      player = { destroy: () => handle.destroy(), button: play };
+      play.classList.add('on');
+      return;
+    }
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-p]');
     if (!b) return;
     chosen = b.dataset.p as PuzzleId;
