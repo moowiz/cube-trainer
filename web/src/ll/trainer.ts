@@ -425,15 +425,17 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
         }
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
-        // the scramble; a rotation is skipped (the cube cannot see it: the move after it is read, in the alg's own letters);
+        // the scramble; a rotation is read together with the move after it (the cube cannot see it, and the move's letter assumes it);
         // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
         else if (settings.voice === 'read' && onRoute && armedNow) {
           let d = done;
-          while (route[d] && /^[xyz]/.test(route[d]!)) d++;
+          const rots: string[] = [];
+          while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
           const next = route[d];
           const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n);
           // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
-          const words = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
+          const move = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
+          const words = move === null ? null : [...rots.map(spoken), move].join(', '); // the rotation with it: the move's letter assumes it
           if (words && words !== lastRead) { lastRead = words; say(words); }
         }
         lastBad = bad.length;
