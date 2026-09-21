@@ -24,7 +24,7 @@
 // state (not an alg backwards, which would give the case away) and is
 // followed on a smart cube like the Solve tab's: turns done are underlined.
 
-import { inverse, moveCount, tokens } from '../cube/alg';
+import { faceMoves, inverse, mergeMoves, moveCount, movesStr, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
@@ -99,6 +99,11 @@ function spoken(m: string): string {
 }
 /** A case name as the voice should say it: the PLL ids letter by letter ("N A", not "nah"), the OCLL names as words. */
 const spokenName = (kind: LLKind, c: { id: string; name: string }): string => (kind === 'pll' ? `${c.id.split('').join(' ')} perm` : c.name);
+/** Wrong turns as a list to undo: same-face turns merged (R F F' is just R), so an undo shortens it. */
+function offList(turns: readonly string[]): string[] {
+  const fm = faceMoves(turns.join(' '));
+  return fm ? movesStr(mergeMoves(fm)).split(' ').filter(Boolean) : turns.slice();
+}
 /** A chunk label as words: the move letters in it said as moves ("sexy R prime in F"). */
 const spokenLabel = (label: string): string => label.split(' ').map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(' ');
 function say(text: string): void {
@@ -219,6 +224,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let offTurns: string[] = []; // the turns made since the cube left the scramble path, trainer letters
   let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
+  let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
   let fedCount = 0;                   // moves fed so far, for the echo
   /** The moves done (`text`) after the last of them that left the cube on `route`: the wrong turns, in order. */
   function offRoute(route: string[], text: string): string[] {
@@ -254,8 +260,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     track = tracker ? tracker.status(facelets) : null;
     // off the scramble: keep the turns since (a turn back onto it clears them) and say so once per turn
     if (track?.off && !armedNow) {
-      if (turn) offTurns.push(turn);
-      if (settings.voice !== 'off' && turn) say(`wrong. undo ${spoken(toWca(inverse(turn)))}`); // the scramble is read in WCA letters, so is its undo
+      if (turn) {
+        const before = offTurns.length;
+        offTurns = offList([...offTurns, turn]);
+        // the scramble is read in WCA letters, so is its undo; an undoing turn gets the rest to undo, not "wrong"
+        if (settings.voice !== 'off') say(`${offTurns.length < before ? 'undo' : 'wrong. undo'} ${tokens(toWca(inverse(offTurns.join(' ')))).map(spoken).join(', ')}`);
+      }
     } else if (was?.off && !track?.off) { offTurns = []; if (settings.voice !== 'off' && track && !track.matched) say('back on'); }
     else offTurns = [];
     renderScramble();
@@ -272,7 +282,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
-    scramble = null; track = null; lastRead = null; fedCount = 0; offTurns = []; armedNow = false;
+    scramble = null; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
     const gen = ++scrambleGen;
     setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
@@ -383,9 +393,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       }
       if (line.dataset.main) {
         // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
-        const bad = onRoute || cur === null ? [] : offRoute(route, text);
+        const bad = onRoute || cur === null ? [] : offList(offRoute(route, text));
         showOff(bad);
-        if (bad.length) { const words = `wrong. undo ${bad.slice().reverse().map((m) => spoken(inverse(m))).join(', ')}`; if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); } }
+        if (bad.length) {
+          const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${tokens(inverse(bad.join(' '))).map(spoken).join(', ')}`;
+          if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
+        }
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
         // the scramble; a chunk (sexy, the T core) is named at its start and its moves are not read one by one
         else if (settings.voice === 'read' && onRoute && armedNow) {
@@ -394,6 +407,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : trig ? (trig.at === done ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           if (words && words !== lastRead) { lastRead = words; say(words); }
         }
+        lastBad = bad.length;
       }
       const skip = Number(line.dataset.skip ?? 0);
       for (const mv of line.querySelectorAll<HTMLElement>('.mv')) {
