@@ -33,10 +33,16 @@ export const stages: Partial<Record<Tab, Stage>> = {};
 // to every other tab, so switching tabs mid-practice keeps the cube. A tab not yet at its stage says
 // so (the last-layer tabs: "this cube is at EO"; F2L: "EO is not solved on this state").
 let shared: string | null = null;
+let ready = false; // initShell() done: until then every tab is making its first scramble, and none of those is the cube
 /** The scramble every tab shows, trainer frame; null before the first one. */
 export function sharedScramble(): string | null { return shared; }
-/** Give `scramble` to every tab but `from` (the one that already has it; null: all of them). */
+/**
+ * Give `scramble` to every tab but `from` (the one that already has it; null: all of them). A tab that
+ * is not the one open (its first scramble at mount, the Solve tab's first one arriving later) keeps it
+ * to itself: the open tab's case is the cube, and a refresh on the PLL tab lands on a PLL case.
+ */
 export function shareScramble(scramble: string, from: Tab | null): void {
+  if (from !== null && (!ready || from !== activeTab())) return;
   shared = scramble;
   for (const t of TABS) if (t !== from) stages[t]?.load(scramble);
 }
@@ -181,6 +187,9 @@ export function initShell(): void {
   const want = new URLSearchParams(location.search).get('tab');
   if (want && want !== 'scan' && want !== 'algs') tab = want;
   showTab((TABS as readonly string[]).includes(tab) ? (tab as Tab) : 'eo');
+  ready = true;
+  const own = stages[activeTab()]?.scramble(); // the open tab's first scramble is the cube for the others
+  if (own) shareScramble(own, activeTab());
   if (want === 'scan') openScan();
   if (want === 'algs') openAlgs();
 }

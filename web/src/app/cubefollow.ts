@@ -27,7 +27,7 @@ import { ScrambleTracker, type TrackStatus } from '../timer/track';
 import { persistControls } from '../ui/settings';
 import { hold } from './context';
 import { cubeActive } from './smart';
-import { activeSource, onSourceChange, syncDriver } from './sources';
+import { activeSource, driverArmed, onSourceChange, syncDriver } from './sources';
 
 // DECISION: a pause is 15 s without a turn (user, 2026-09-21: at 2 s a think mid-PLL, with the
 // cross broken by the alg, flipped the tabs). A hand-scrambled cube takes that long to be picked
@@ -154,6 +154,9 @@ function consume(): void {
   const next = follower.turned(followReport(scr).stage);
   if (!next) return;
   if (next === 'solved') { announceSolved(src); base = { facelets: SOLVED, colourOf: src.colourOf, solution: '' }; baseCursor = cursor; return; }
+  // the open tab's drill is on this solve from its own scramble and crossed into its own stage (a PLL drill
+  // started from OCLL, say): it judges the solve when it is done, and reloading it here would cut the solve in two
+  if (next === activeTab() && driverArmed()) return;
   open(src, next, scr, `crossed into ${next}`);
 }
 

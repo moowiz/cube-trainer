@@ -57,6 +57,8 @@ export function dropSource(src: MoveSource): void {
  * to come round to that state again - it moves on with the very next turn.
  */
 export function syncDriver(): void { step(null); }
+/** The open stage's drill is on a solve from its own scramble (the turns are being fed to it). */
+export function driverArmed(): boolean { return driver.isArmed(); }
 
 function onItem(item: SourceItem): void {
   // the open stage hears the item first, then the listeners: a follow that moves the tabs on this
