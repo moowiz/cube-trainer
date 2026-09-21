@@ -17,7 +17,7 @@ import { mountF2L } from './f2l/trainer';
 import { mountLL } from './ll/trainer';
 import { initShell, stages } from './shell';
 import { mountTimer } from './timer/trainer';
-import { setAttemptSink } from './ui/drill';
+import { setAttemptReader, setAttemptSink } from './ui/drill';
 
 // the stages: PLL before OCLL (whose Continue button needs it), F2L, EO, and the timer
 stages.pll = mountLL(panel('pll-panel'), 'pll');
@@ -31,6 +31,7 @@ initShell();
 
 // the drills' finished attempts go to the store (per-case memory, M11)
 setAttemptSink((a) => { void store.then((st) => st.putAttempt(a)); solved(); });
+setAttemptReader((stage) => store.then((st) => st.listAttempts(stage)));
 
 initSyncUi();
 initSmart();

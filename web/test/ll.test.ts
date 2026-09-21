@@ -557,3 +557,24 @@ describe('heardCase(): what the speech recogniser wrote, as a PLL id', () => {
     ] as const) expect([said, heardCase(said, ids)]).toEqual([said, want]);
   });
 });
+
+describe('practice stats: what to work on', () => {
+  it('counts, times and ranks the cases; the unpractised and the misnamed come first', async () => {
+    const { caseStats, workOn } = await import('../src/ll/practice');
+    const t = PLL_CASES.find((c) => c.id === 'T')!, y = PLL_CASES.find((c) => c.id === 'Y')!, h = PLL_CASES.find((c) => c.id === 'H')!;
+    const at = (caseId: string, time: number, extra: Partial<import('../src/store/types').AttemptRecord> = {}): import('../src/store/types').AttemptRecord =>
+      ({ id: `${caseId}${time}`, puzzle: '333', stage: 'pll', when: time, scramble: '', moves: '', time, assisted: false, source: 'cube', editedAt: 0, caseId, ...extra });
+    const attempts = [
+      ...[3000, 2500, 2000, 1800].map((ms) => at(t.name, ms, { recognition: 500, execution: ms - 500, quiz: 'right' })),
+      ...[4000, 4200, 3900].map((ms) => at(y.name, ms, { quiz: 'wrong' })),
+      at(h.name, 1500),
+    ];
+    const stats = caseStats(attempts, [t, y, h]);
+    const T = stats.find((s) => s.id === 'T')!, Y = stats.find((s) => s.id === 'Y')!, H = stats.find((s) => s.id === 'H')!;
+    expect([T.n, T.best, T.recent, T.recognition, T.execution, T.quizRight, T.quizAsked]).toEqual([4, 1800, 2325, 500, 1825, 4, 4]);
+    expect([Y.n, Y.best, Y.quizRight, Y.quizAsked, Y.recognition]).toEqual([3, 3900, 0, 3, null]);
+    expect([H.n, H.recent]).toEqual([1, 1500]);
+    // H has too few attempts to judge, Y is slow and misnamed, T is fine
+    expect(workOn(stats).map((s) => s.id)).toEqual(['H', 'Y', 'T']);
+  });
+});

@@ -39,13 +39,14 @@ import { ScrambleTracker, type TrackStatus } from '../timer/track';
 import { moveHtml } from '../timer/trainer';
 import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
-import { mountDrill } from '../ui/drill';
+import { mountDrill, readAttempts } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
 import { algAngle } from './features';
 import { heardCase } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
+import { caseStats, RECENT, secs, workOn } from './practice';
 import { openLLReference } from './reference';
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
@@ -85,6 +86,16 @@ const STYLE = `
   .ll-caselist .eo-chip { padding: 4px 9px; }
   .ll-caselist .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .ll-caselist .eo-link { padding: 2px 4px; font-size: 13px; }
+  .ll-practice { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-practice summary { cursor: pointer; }
+  .ll-practice table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; width: 100%; }
+  .ll-practice th, .ll-practice td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .ll-practice th:first-child, .ll-practice td:first-child { text-align: left; }
+  .ll-practice th { font-weight: 500; }
+  .ll-practice td.name { color: var(--ink); font-weight: 600; }
+  .ll-practice tr.dim td { color: var(--ink-2); opacity: .7; }
+  .ll-practice .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  .ll-practice .note { margin-top: 6px; }
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. */
@@ -157,7 +168,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
       </div>
-      <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>`,
+      <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
+      <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div></details>`,
     left: `
       <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
@@ -240,6 +252,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
   let quizOpen = false;        // the case was asked and not yet answered: nothing is read until it is
   let quizSaid: string | null = null; // what the quiz heard, for the result
+  let quizOutcome: 'right' | 'wrong' | 'gaveUp' | 'cube' | undefined; // and for the record
   let listener: Recognizer | null = null;
   /** Ask the case's name and listen; right, wrong or given up, the alg is then read. */
   function askCase(): void {
@@ -280,9 +293,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const name = c ? spokenName(kind, c) : '';
     // the name, then how to hold it for the alg ("V perm: the bars of two at the back and on your left")
     const hold = c && kind === 'pll' ? `. ${algAngle(c)}` : '';
-    if (heard === 'giveup') { quizSaid = `gave up (${name})`; say(`${name}${hold}`); }
-    else if (c && heard === c.id) { quizSaid = `${heard}: right`; say(`right, ${name}${hold}`); }
-    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; say(`no, ${name}${hold}`); }
+    if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`); }
+    else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`); }
+    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`); }
     setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200 + (hold ? 1800 : 0)); // the first move after the name and the hold
   }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
@@ -321,7 +334,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function heard(text: string): void {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
-    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; }
+    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; }
     if (settings.voice === 'echo' && toks.length > fedCount) say(toks.slice(fedCount).map(spoken).join(', '));
     fedCount = toks.length;
   }
@@ -359,7 +372,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
     scramble = null; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
-    quizOpen = false; quizSaid = null; listener?.abort(); listener = null;
+    quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     const gen = ++scrambleGen;
     setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup); render(); });
     drill.begin();
@@ -373,6 +386,32 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
   function newCase(): void { const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
+
+  // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
+  async function renderPractice(): Promise<void> {
+    const body = drill.$('practiceBody');
+    const stats = workOn(caseStats(await readAttempts(kind), CASES[kind]));
+    const done = stats.filter((s) => s.n > 0);
+    if (!done.length) { body.innerHTML = '<p class="note">Nothing recorded yet: solve a case and it goes in the store (and the cloud, when sync is on).</p>'; return; }
+    const anyQuiz = stats.some((s) => s.quizAsked), anyFed = stats.some((s) => s.recognition !== null);
+    const ago = (t: number | null) => { if (t === null) return '–'; const d = (Date.now() - t) / 864e5; return d < 1 ? 'today' : d < 2 ? 'yesterday' : `${Math.floor(d)}d ago`; };
+    body.innerHTML = `<table><thead><tr><th>case</th><th>tries</th><th>best</th><th>recent</th>${anyFed ? '<th>recog.</th><th>exec.</th>' : ''}${anyQuiz ? '<th>named</th>' : ''}<th>last</th></tr></thead><tbody>${stats.map((s) => `
+      <tr class="${s.n < 3 ? 'dim' : ''}"><td class="name">${s.name}</td><td>${s.n}${s.assisted ? `<small> (${s.assisted} peeked)</small>` : ''}</td><td>${secs(s.best)}</td><td>${secs(s.recent)}</td>${anyFed ? `<td>${secs(s.recognition)}</td><td>${secs(s.execution)}</td>` : ''}${anyQuiz ? `<td>${s.quizAsked ? `${s.quizRight}/${s.quizAsked}` : '–'}</td>` : ''}<td>${ago(s.last)}</td></tr>`).join('')}</tbody></table>
+      <p class="note">Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}. Recent = the last ${RECENT} timed tries.</p>
+      <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpractised</button></div>`;
+  }
+  drill.$('practice').addEventListener('toggle', () => { if (drill.$('practice').hasAttribute('open')) void renderPractice(); });
+  drill.$('practiceBody').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-work]');
+    if (!b) return;
+    void (async () => {
+      const stats = workOn(caseStats(await readAttempts(kind), CASES[kind]));
+      const pick = b.dataset.work === 'new' ? stats.filter((s) => s.n < 3) : stats.slice(0, Number(b.dataset.work));
+      settings.cases = pick.length && pick.length < CASES[kind].length ? pick.map((s) => s.id) : undefined;
+      saveSettings(); renderCases();
+      drill.flash(pick.length ? `Drilling ${pick.map((s) => s.name).join(', ')}.` : 'Every case has three tries or more: drilling them all.');
+    })();
+  });
 
   // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
   const inPool = (c: LLCase) => !settings.cases || settings.cases.includes(c.id);
@@ -541,7 +580,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!recorded) {
       recorded = true;
       results.push({ t: t ?? 0, n: own, std: step ? stepMoves(step) : own });
-      drill.save({ scramble: setup, moves: toks.join(' '), optimal: step ? stepMoves(step) : undefined, caseId: step?.name ?? (sp.case === 'skip' ? 'skip' : undefined), assisted });
+      drill.save({
+        scramble: setup, moves: toks.join(' '), optimal: step ? stepMoves(step) : undefined, caseId: step?.name ?? (sp.case === 'skip' ? 'skip' : undefined), assisted,
+        start: settings.from === kind ? undefined : settings.from as 'ocll' | 'pair', quiz: quizOutcome,
+      });
+      if (drill.$('practice').hasAttribute('open')) void renderPractice();
     }
     const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';

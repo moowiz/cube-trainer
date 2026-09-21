@@ -87,7 +87,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
                      top-down picture), reference (the case list sheet: pictures, algs with triggers, chains),
                      trainer (start-from and show-right-away settings; the cube in 3D from above with the
-                     diagram under it; the scramble followed on a smart cube like the Solve tab's)
+                     diagram under it; the scramble followed on a smart cube like the Solve tab's; a voice
+                     that reads the alg or asks the case - hear.ts parses the answer), practice (per-case
+                     stats off the store's attempts, which sync to Firestore as their own collection)
     algs/            the Algs sheet (the other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
                      data (the table; every cube alg is run on cube/nxn and checked by test), pic (n×n case
                      pictures: top view with side strips, three-face view; the FTO's square), sheet (the picker

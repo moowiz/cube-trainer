@@ -18,6 +18,11 @@ import { moveWhat, openFingertricks } from './fingertricks';
 // where finished attempts go (the solve store); nothing is kept when no sink is set (tests)
 let attemptSink: ((a: AttemptRecord) => void) | null = null;
 export function setAttemptSink(fn: ((a: AttemptRecord) => void) | null): void { attemptSink = fn; }
+// and where a drill reads them back (the practice view); nothing without one
+let attemptReader: ((stage: AttemptStage) => Promise<AttemptRecord[]>) | null = null;
+export function setAttemptReader(fn: ((stage: AttemptStage) => Promise<AttemptRecord[]>) | null): void { attemptReader = fn; }
+/** The stage's attempts so far (deleted ones left out), oldest first; empty without a store. */
+export function readAttempts(stage: AttemptStage): Promise<AttemptRecord[]> { return attemptReader ? attemptReader(stage) : Promise.resolve([]); }
 
 export interface DrillSpec {
   /** element id prefix (`eo-`, `ocll-`): the ids the headless checks and the settings sheet use */
@@ -95,7 +100,7 @@ export interface Drill {
    * File the attempt just judged by attempt() with the store: the scramble it started from, the
    * moves, what the drill knew (the optimal count, the case) and whether a hint or solution was seen.
    */
-  save(extra: { scramble: string; moves: string; optimal?: number; caseId?: string; assisted: boolean }): void;
+  save(extra: { scramble: string; moves: string; optimal?: number; caseId?: string; assisted: boolean; start?: AttemptRecord['start']; quiz?: AttemptRecord['quiz'] }): void;
   /** put an alg in the moves box, copy it, say so */
   fill(alg: string, msg: string): void;
   /**
@@ -368,6 +373,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
         id: newId(), puzzle: '333', stage: spec.stage, when: Date.now(), scramble: extra.scramble, moves: extra.moves,
         time: a.t === null ? null : Math.round(a.t * 1000), recognition: a.recognition, execution: a.execution,
         caseId: extra.caseId, optimal: extra.optimal, assisted: extra.assisted, source: a.source, editedAt: Date.now(),
+        ...(extra.start && { start: extra.start }), ...(extra.quiz && { quiz: extra.quiz }),
       });
     },
     fill(alg, msg) {

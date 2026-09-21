@@ -79,6 +79,10 @@ export interface AttemptRecord {
   /** the user peeked at a hint or a solution */
   assisted: boolean;
   source: 'typed' | 'cube' | 'camera';
+  /** the drill started a step early (the corners to orient, the last pair) and the case came up after it */
+  start?: 'ocll' | 'pair';
+  /** the recognition quiz: the case was named right, wrong, given up on, or answered by turning */
+  quiz?: 'right' | 'wrong' | 'gaveUp' | 'cube';
   editedAt: number;
   deleted?: boolean;
 }
