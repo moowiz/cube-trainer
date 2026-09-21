@@ -97,6 +97,10 @@ function spoken(m: string): string {
   const name = SPOKEN[base] ?? (base === base.toLowerCase() ? `wide ${base.toUpperCase()}` : base);
   return `${name}${suf === "'" ? ' prime' : suf === '2' ? ' two' : ''}`;
 }
+/** A case name as the voice should say it: the PLL ids letter by letter ("N A", not "nah"), the OCLL names as words. */
+const spokenName = (kind: LLKind, c: { id: string; name: string }): string => (kind === 'pll' ? `${c.id.split('').join(' ')} perm` : c.name);
+/** A chunk label as words: the move letters in it said as moves ("sexy R prime in F"). */
+const spokenLabel = (label: string): string => label.split(' ').map((w) => (/^[URFDLBMESxyzurfdlb][2']?$/.test(w) ? spoken(w) : w)).join(' ');
 function say(text: string): void {
   if (typeof speechSynthesis === 'undefined') return;
   speechSynthesis.cancel(); // the latest wins: a queue would lag behind fast turning
@@ -311,8 +315,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function putAlgLines(steps: RouteStep[], before = ''): void {
     const body = drill.result.body; body.innerHTML = '';
     const line = (step: RouteStep, sofar: string): HTMLElement => {
-      const d = drill.algLine(stepShown(step), `${sofar} ${stepPlain(step)}`.trim(), sofar ? tokens(sofar).length : 0); d.classList.add('ll-alg');
+      const skip = sofar ? tokens(sofar).length : 0;
+      const d = drill.algLine(stepShown(step), `${sofar} ${stepPlain(step)}`.trim(), skip); d.classList.add('ll-alg');
       markTriggers(d, step.alg, step.pre ? 1 : 0);
+      // the chunks by route index, for the voice: it names a chunk instead of reading its moves one by one
+      d.dataset.trig = JSON.stringify(triggers(step.alg).map((g) => ({ at: skip + (step.pre ? 1 : 0) + g.at, n: g.n, label: g.label })));
       body.appendChild(d);
       return d;
     };
@@ -379,10 +386,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         const bad = onRoute || cur === null ? [] : offRoute(route, text);
         showOff(bad);
         if (bad.length) { const words = `wrong. undo ${bad.slice().reverse().map((m) => spoken(inverse(m))).join(', ')}`; if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); } }
-        // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at the scramble
+        // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
+        // the scramble; a chunk (sexy, the T core) is named at its start and its moves are not read one by one
         else if (settings.voice === 'read' && onRoute && armedNow) {
           const next = route[done];
-          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : spoken(next); // the end is announced by the check
+          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= done && done < g.at + g.n);
+          const words = next === undefined ? null : half ? `${spoken(next[0]!)} again` : trig ? (trig.at === done ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           if (words && words !== lastRead) { lastRead = words; say(words); }
         }
       }
@@ -437,7 +446,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
     drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : ''));
-    if (settings.voice !== 'off' && t !== null) say(`${step?.name ?? 'skip'}, ${t.toFixed(1)}`);
+    if (settings.voice !== 'off' && t !== null) say(`${step?.case ? spokenName(kind, step.case) : 'skip'}, ${t.toFixed(1)}`);
     if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
     queueNext();
     if (kind === 'ocll' && stages.pll) {
