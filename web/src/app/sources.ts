@@ -56,7 +56,13 @@ export function dropSource(src: MoveSource): void {
  * cube's own state loaded (follow mode), so it arms right there instead of waiting for the belief
  * to come round to that state again - it moves on with the very next turn.
  */
-export function syncDriver(): void { step(null); }
+export function syncDriver(): void {
+  // asked from inside a feed (a stage that starts its next rep the moment one is done): after the
+  // step, so the finish() of the rep just judged lands on the old scramble, not on the new arming
+  if (stepping) { resync = true; return; }
+  step(null);
+}
+let stepping = false, resync = false;
 /** The open stage's drill is on a solve from its own scramble (the turns are being fed to it). */
 export function driverArmed(): boolean { return driver.isArmed(); }
 
@@ -68,6 +74,12 @@ function onItem(item: SourceItem): void {
 }
 
 function step(item: SourceItem | null): void {
+  stepping = true;
+  try { stepOnce(item); } finally { stepping = false; }
+  if (resync) { resync = false; step(null); }
+}
+
+function stepOnce(item: SourceItem | null): void {
   const src = active;
   if (!src) return;
   const tab = activeTab();
