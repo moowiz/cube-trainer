@@ -3,9 +3,11 @@
 // `setup`, the check is `setup + the moves typed`. Case identification is
 // modulo AUF, and for OCLL modulo the permutation too.
 
-import { inverse } from '../cube/alg';
+import { inverse, moveCount, tokens } from '../cube/alg';
 import { facesAt, NORMAL, type Vec } from '../cube/geometry';
-import { SOLVED, aufToSolve, state } from '../cube/state';
+import { SOLVED, aufToSolve, settled, state } from '../cube/state';
+import { DATA } from '../f2l/data';
+import { findCase, fullAlg, SLOTS, SLOT_WORD, slotSolved, slotState } from '../f2l/model';
 import { stageOf } from '../stage';
 import { solveG1 } from './scramble';
 import { CASES, type LLCase, type LLKind } from './cases';
@@ -18,9 +20,23 @@ const AUFS = ['', 'U', "U'", 'U2'];
 /** The case stage is done: OCLL when F2L is intact and every corner is oriented; PLL when solved. */
 export function done(kind: LLKind, alg: string): boolean {
   if (kind === 'pll') return state(alg) === SOLVED;
-  const r = stageOf(state(alg));
-  return r.pairs === 4 && r.eoBad === 0 && r.ocll;
+  return reached('pll', alg);
 }
+
+/** The cube after `alg` is at the drill's stage or past it (F2L done, and for PLL the corners oriented too). */
+export function reached(kind: LLKind, alg: string): boolean {
+  const r = stageOf(state(alg));
+  return r.pairs === 4 && r.eoBad === 0 && (kind === 'ocll' || r.ocll);
+}
+
+/**
+ * Where a drill starts: at its own stage, or earlier - the corners still to orient (a PLL drill),
+ * the last F2L pair still to insert - so the case has to be recognised after solving the step
+ * before it your own way, as in a solve. The earlier steps are timed with the case.
+ */
+export type LLStart = 'pll' | 'ocll' | 'pair';
+export const STARTS: Record<LLKind, LLStart[]> = { ocll: ['ocll', 'pair'], pll: ['pll', 'ocll', 'pair'] };
+export const START_LABEL: Record<LLStart, string> = { pll: 'the PLL', ocll: 'OCLL', pair: 'the last F2L pair' };
 
 // U-layer sticker positions: the U face, then the top row of each side (Kociemba indices)
 const U_LAYER = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 18, 19, 20, 36, 37, 38, 45, 46, 47];
@@ -78,16 +94,88 @@ export function solution(kind: LLKind, alg: string): { pre: string; case: LLCase
  * applied to a real cube as written), since after F2L the permutation is random too. PLL drills
  * get a random AUF before the inverse too: the same permutation seen from any of its four sides,
  * which is what recognition has to cope with.
+ *
+ * `setup` is `g1` then `tail`: the part in Kociemba's G1 (the permutation, which scrambleFor()
+ * turns into a face-turn scramble) and what an earlier start adds after it (a PLL drill from
+ * OCLL: a random OCLL case's alg backwards; from the last pair: a random last-slot case's alg
+ * backwards too). `g1` is settled: its state and its frame are the same as the scramble's, so
+ * the tail reads the same after either. The case drawn is the drill's own; the earlier steps are
+ * whatever comes up, as in a solve, and the case that actually comes up after them depends on
+ * how they are solved (the route() through the standard algs gives one answer).
  */
-export function randomSetup(kind: LLKind, rng: () => number = Math.random): { setup: string; case: LLCase } {
-  const pick = <T,>(a: T[]): T => a[Math.floor(rng() * a.length)];
+export function randomSetup(kind: LLKind, rng: () => number = Math.random, from: LLStart = kind): { setup: string; g1: string; tail: string; case: LLCase } {
+  const pick = <T,>(a: readonly T[]): T => a[Math.floor(rng() * a.length)]!;
   const c = pick(CASES[kind]);
-  const parts: string[] = [];
-  if (kind === 'ocll' && rng() < 0.8) parts.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
-  if (kind === 'pll') parts.push(pick(AUFS));
-  parts.push(inverse(c.alg), pick(AUFS));
-  return { setup: parts.filter(Boolean).join(' '), case: c };
+  const g1: string[] = [], tail: string[] = [];
+  if (kind === 'ocll' && rng() < 0.8) g1.push(pick(CASES.pll.filter((p) => !/[xyz]/.test(p.alg))).alg);
+  if (kind === 'pll') g1.push(pick(AUFS), inverse(c.alg), pick(AUFS));
+  else tail.push(inverse(c.alg), pick(AUFS));
+  if (kind === 'pll' && from !== 'pll') tail.push(inverse(pick(CASES.ocll).alg), pick(AUFS));
+  if (from === 'pair') {
+    // a random last-slot position of a random slot: the sheet's alg for it backwards (R/U-only, no AUF bracket)
+    const slot = pick(SLOTS);
+    const cases = Object.values(DATA.slots[slot].cases).filter((f) => f.section === 'Last slot');
+    tail.push(inverse(fullAlg('', pick(cases).simple)), pick(AUFS));
+  }
+  const g = settled(g1.filter(Boolean).join(' ')), t = tail.filter(Boolean).join(' ');
+  return { setup: `${g} ${t}`.trim(), g1: g, tail: t, case: c };
 }
+
+/**
+ * The moves done, split where the drill's own stage begins: `k` moves of `toks` bring the cube
+ * from `setup` to the drill's stage (0 when it starts there), and the case found there - null
+ * when the moves never reach it, `skip` when they land on it solved (up to the AUF, for PLL).
+ */
+export function splitAt(kind: LLKind, setup: string, toks: readonly string[]): { k: number; case: LLCase | 'skip' | null } | null {
+  for (let k = 0; k <= toks.length; k++) {
+    const alg = `${setup} ${toks.slice(0, k).join(' ')}`;
+    if (!reached(kind, alg)) continue;
+    return { k, case: done(kind, alg) || (kind === 'pll' && aufToSolve(alg) !== null) ? 'skip' : identify(kind, alg) };
+  }
+  return null;
+}
+
+/** One step of the standard route from a setup to the drill's target: the AUF first, the alg, (PLL) the AUF after. */
+export interface RouteStep { stage: 'pair' | 'ocll' | 'pll'; name: string; hint: string; pre: string; alg: string; post: string }
+
+/**
+ * The route from the state after `alg` to the drill's target through the tabled algs, the last
+ * step the drill's own case: the last pair by the sheet's R/L/U alg for its position, OCLL by
+ * its alg, then the case. Null when a step has no tabled alg (a wrong stage, an unlisted case).
+ */
+export function route(kind: LLKind, alg: string): RouteStep[] | null {
+  const steps: RouteStep[] = [];
+  let cur = alg;
+  const f = state(cur);
+  const rep = stageOf(f);
+  if (rep.eoBad || rep.cross < 4 || rep.pairs < 3) return null;
+  if (rep.pairs === 3) {
+    const slot = SLOTS.find((s) => !slotSolved(f, s))!;
+    const { corner, edge } = slotState(f, slot);
+    const hit = findCase(slot, corner, edge);
+    if (!hit) return null;
+    const full = fullAlg(hit.hit.auf, hit.c.simple);
+    const toks = tokens(full);
+    const pre = toks[0]?.startsWith('U') ? toks[0] : '';
+    steps.push({ stage: 'pair', name: `${SLOT_WORD[slot]} pair`, hint: `the ${SLOT_WORD[slot]} slot is open`, pre, alg: toks.slice(pre ? 1 : 0).join(' '), post: '' });
+    cur = `${cur} ${full}`;
+  }
+  if (kind === 'pll' && !reached('pll', cur)) {
+    const sol = solution('ocll', cur);
+    if (!sol) return null;
+    steps.push({ stage: 'ocll', name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: '' });
+    cur = `${cur} ${sol.pre} ${sol.case.alg}`;
+  }
+  const sol = solution(kind, cur);
+  if (!sol) return null;
+  steps.push({ stage: kind, name: sol.case.name, hint: sol.case.hint, pre: sol.pre, alg: sol.case.alg, post: sol.post });
+  return steps;
+}
+
+/** A route step's moves as one line, [AUF]s in brackets, and plain. */
+export const stepShown = (s: RouteStep): string => [s.pre && `[${s.pre}]`, s.alg, s.post && `[${s.post}]`].filter(Boolean).join(' ');
+export const stepPlain = (s: RouteStep): string => [s.pre, s.alg, s.post].filter(Boolean).join(' ');
+export const stepMoves = (s: RouteStep): number => moveCount(stepPlain(s));
 
 /**
  * A scramble for a PLL drill's state: face turns only (no rotations, no slices, nothing that reads

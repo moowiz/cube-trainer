@@ -101,8 +101,10 @@ export interface Drill {
   /**
    * A listed line: `shown` is the text (stars, brackets, [AUF]s allowed), `alg` the plain moves. Every move
    * is a span the peek popover hangs off, and a ▶ at the end applies the line to the picture (onApply).
+   * `skip` moves of `alg` come before the ones shown (a later step of a route: the line applies the whole
+   * route so far, the text and the peek are its own step).
    */
-  algLine(shown: string, alg: string): HTMLElement;
+  algLine(shown: string, alg: string, skip?: number): HTMLElement;
   /** back to the chips' labels */
   resetHints(): void;
   /** re-ask onHint for every open chip (something it depends on changed) */
@@ -311,7 +313,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const base = h.base?.();
     if (!line || base === undefined) return;
     const toks = tokens(line.dataset.alg!);
-    const k = Number(mv.dataset.i);
+    const k = Number(line.dataset.skip ?? 0) + Number(mv.dataset.i);
     const move = toks[k];
     if (!move) return;
     const before = state(`${base} ${toks.slice(0, k).join(' ')}`), after = state(`${base} ${toks.slice(0, k + 1).join(' ')}`);
@@ -372,8 +374,9 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
       box.value = alg; flash(msg);
       if (navigator.clipboard?.writeText) navigator.clipboard.writeText(alg).catch(() => undefined);
     },
-    algLine(shown, alg) {
+    algLine(shown, alg, skip = 0) {
       const d = document.createElement('div'); d.dataset.alg = alg;
+      if (skip) d.dataset.skip = String(skip);
       let i = 0;
       for (const word of shown.split(/\s+/).filter(Boolean)) {
         if (d.childNodes.length) d.appendChild(document.createTextNode(' '));

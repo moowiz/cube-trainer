@@ -3,17 +3,26 @@
 // the top-down last-layer diagram in the trainer's colour scheme, hints
 // that reveal the case, Check on the moves typed, and the standard alg with
 // its AUFs in brackets. The drill scaffold owns timer, box, result, keys.
+//
+// Two settings, inline after the hints and kept per drill: where the drill
+// starts (its own stage, or the step before - the corners to orient, the
+// last pair to insert - so the case has to be recognised after solving that
+// your own way, as in a solve) and whether the alg shows as soon as the case
+// does (learning the alg rather than the recognition).
 
 import { moveCount, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
-import { faceColorName, onSchemeChange } from '../cube/scheme';
+import { STICKERS } from '../cube/geometry';
+import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
+import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
+import { SLOTS, slotSolved } from '../f2l/model';
 import { stageOf } from '../stage';
 import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { mountDrill } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
 import { CASES, type LLKind } from './cases';
-import { aufToSolve, done, randomSetup, scrambleFor, solution } from './model';
+import { aufToSolve, done, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown } from './model';
 import { ensurePicStyle, picSvg } from './pic';
 import { openLLReference } from './reference';
 
@@ -29,7 +38,13 @@ const STYLE = `
   .ll-trig { display: inline-block; position: relative; padding: 0 2px 13px; margin: 0 2px; border-bottom: 2px solid var(--ink-2); line-height: 1.3; }
   .ll-trig i { position: absolute; left: 0; right: 0; bottom: -1px; font-size: 11px; font-style: normal; line-height: 1; text-align: center; white-space: nowrap; color: var(--ink-2); word-spacing: normal; letter-spacing: .02em; }
   .ll-case b { font-weight: 600; }
+  .ll-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-opts label { display: inline-flex; align-items: center; gap: 6px; }
+  .ll-opts select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 8px; } .ll-step b { color: var(--ink); font-weight: 600; }
 `;
+
+interface Settings { from: LLStart; auto: boolean }
 
 export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   if (!document.getElementById('ll-style')) {
@@ -37,14 +52,25 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
+  const SETTINGS_KEY = `zz-${kind}-settings`;
+  const settings: Settings = { from: kind, auto: false };
+  try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
+  if (!STARTS[kind].includes(settings.from)) settings.from = kind;
+  const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
     hints: [{ key: 'name', label: 'Hint: case name' }, { key: 'look', label: 'Hint: what to look for' }],
     movesLabel: 'Moves you did', placeholder: kind === 'pll' ? "e.g. U R U R' U' R' F R2 U' R' U' R U R' F' U2" : "e.g. U2 R U R' U R U2 R'",
     note: 'Solve it on your cube. Space starts and stops the timer, N is a new case.',
     showLabel: 'Show the alg',
+    afterHints: `
+      <div class="ll-opts">
+        <label>Start from <select id="${id('from')}">${STARTS[kind].map((f) => `<option value="${f}">${START_LABEL[f]}</option>`).join('')}</select></label>
+        <label><input type="checkbox" id="${id('auto')}"> Show the alg right away</label>
+      </div>`,
     left: `
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
+      <div class="eo-stage" id="${id('stage')}" hidden><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg><p class="eo-hint" style="text-align:center;margin:2px 0 0">drag to rotate</p></div>
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble" id="${id('setup')}"></div>
       <p class="eo-note" id="${id('orient')}"></p>`,
@@ -55,17 +81,35 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   // state: the drill is an alg from solved; the check is that alg plus the moves typed
   let setup = '';
-  let scramble: string | null = null; // PLL: a short face-turn scramble for `setup` (the setup itself is an alg backwards)
+  let scramble: string | null = null; // a short face-turn scramble for `setup` (the setup itself is an alg backwards), plus the earlier start's tail
   let scrambleGen = 0;
-  let sol: ReturnType<typeof solution> = null;
+  // the standard route from the setup: the steps before the drill's own stage (an earlier start), then its case
+  let lead: RouteStep[] = [];
+  let sol: RouteStep | null = null;
   let shown: string | null = null; // the alg whose state the picture shows (setup + moves after a Check)
   let assisted = false, recorded = false;
+  let cameUp: string | null = null; // the case the moves checked actually reached (an earlier start decides it by how the step before was solved)
   const results: { t: number; n: number; std: number }[] = [];
 
-  function drawPic(): void { drill.$('pic').innerHTML = picSvg(state(shown ?? setup), kind); }
+  // the last pair still out (a 'pair' start): the whole cube in 3D, turned to its slot, in place of the top-down picture
+  const view: View = { ...DEFAULT_VIEW };
+  const SLOT_RY: Record<string, number> = { FR: -35, FL: 35, BR: -125, BL: 125 };
+  function drawPic(): void {
+    const f = state(shown ?? setup);
+    const open = stageOf(f).pairs < 4 ? SLOTS.find((sl) => !slotSolved(f, sl)) : undefined;
+    drill.$('stage').hidden = !open;
+    drill.$('pic').parentElement!.hidden = !!open;
+    if (open) render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
+    else drill.$('pic').innerHTML = picSvg(f, kind);
+  }
+  orbit(drill.$('cube') as unknown as SVGSVGElement, view, drawPic);
 
+  const leadNames = () => lead.map((s) => s.name).join(', then ');
+  /** ", after Sune by the standard algs" - what the case named depends on when the drill starts earlier. */
+  const afterLead = () => (lead.length ? `, after ${leadNames()} by the standard alg${lead.length > 1 ? 's' : ''}` : '');
   function caseText(): string {
-    if (sol) return `<b>${sol.case.name}</b>`;
+    if (recorded && cameUp) return `<b>${cameUp}</b>`;
+    if (sol) return `<b>${sol.name}</b>${afterLead()}`;
     const r = stageOf(state(setup));
     if (r.stage === 'solved') return kind === 'pll' ? 'Solved already: a PLL skip.' : 'Solved already.';
     if (kind === 'ocll' && r.stage === 'pll') return 'Corners already oriented: an OCLL skip.';
@@ -77,43 +121,58 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const named = root.querySelector('.eo-chip[data-hint="name"].open');
     drill.$('case').innerHTML = named || (drill.result.visible() && recorded) || !sol ? caseText() : '';
     const su = drill.$('setup');
-    const pending = kind === 'pll' && scramble === null;
-    su.innerHTML = setup ? `${kind === 'pll' ? 'Scramble' : 'Setup'}: <span></span>` : '';
-    if (setup) su.querySelector('span')!.textContent = pending ? '…' : toWca(scramble ?? setup);
-    drill.$('orient').textContent = `Apply the ${kind === 'pll' ? 'scramble' : 'setup'} to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the top layer match the picture.`;
+    su.innerHTML = setup ? 'Scramble: <span></span>' : '';
+    if (setup) su.querySelector('span')!.textContent = scramble === null ? '…' : toWca(scramble);
+    drill.$('orient').textContent = `Apply the scramble to a solved cube held ${WCA_HOLD}, then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right). Or just make the ${lead.some((s) => s.stage === 'pair') ? 'cube' : 'top layer'} match the picture.`;
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, ms = results.reduce((a, r) => a + r.std, 0) / results.length;
       drill.setStats(`This session: ${results.length} solved, mean ${mt.toFixed(2)}s, ${mn.toFixed(1)} moves (standard algs mean ${ms.toFixed(1)}).`);
     } else drill.setStats('');
   }
 
-  function load(alg: string): void {
+  /**
+   * `alg` is the state; `g1` + `tail` split it into the part in G1 (the permutation, which gets a
+   * face-turn scramble) and what an earlier start adds after it (a loaded cube is all g1: the
+   * scramble is found if it is a PLL, else the alg is shown as it is).
+   */
+  function load(alg: string, split?: { g1: string; tail: string }): void {
     setup = alg.trim();
-    sol = solution(kind, setup);
-    shown = null; assisted = false; recorded = false;
-    // the setup is an alg backwards (rotations, slices, 20 moves for an N perm): a PLL drill shows
-    // a short face-turn scramble for the same state instead. DECISION: solved on a timeout, not
+    const { g1, tail } = split ?? { g1: setup, tail: '' };
+    const steps = route(kind, setup);
+    sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? [];
+    shown = null; assisted = false; recorded = false; cameUp = null;
+    const open = SLOTS.find((sl) => !slotSolved(state(setup), sl));
+    view.rx = DEFAULT_VIEW.rx; view.ry = open ? SLOT_RY[open]! : DEFAULT_VIEW.ry;
+    // the setup is an alg backwards (rotations, slices, 20 moves for an N perm): the drill shows a
+    // short face-turn scramble for the same state instead. DECISION: solved on a timeout, not
     // here: the first solve builds the pruning tables (~200 ms), which would otherwise sit in the
     // page's mount; the setup is shown if the state is somehow not a PLL.
     scramble = null;
     const gen = ++scrambleGen;
-    if (kind === 'pll') setTimeout(() => { if (gen !== scrambleGen) return; scramble = scrambleFor(setup) ?? setup; render(); });
+    setTimeout(() => { if (gen !== scrambleGen) return; const scr = scrambleFor(g1); scramble = scr === null ? setup : `${scr} ${tail}`.trim(); render(); });
     drill.begin();
     render();
+    if (settings.auto && sol) drill.$('showSol').click();
   }
-  function newCase(): void { const s = randomSetup(kind).setup; load(s); shareScramble(s, kind); }
+  function newCase(): void { const r = randomSetup(kind, Math.random, settings.from); load(r.setup, r); shareScramble(r.setup, kind); }
 
-  /** The standard solution as a line: the alg with its AUFs in brackets, [U] R U R' ... [U']. */
-  const algPlain = () => (sol ? [sol.pre, sol.case.alg, sol.post].filter(Boolean).join(' ') : '');
-  const algShown = () => (sol ? [sol.pre && `[${sol.pre}]`, sol.case.alg, sol.post && `[${sol.post}]`].filter(Boolean).join(' ') : '');
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first, the alg is what follows${kind === 'pll' ? '; a bracket at the end lines the layer up after it' : ''}.</small>`;
-  const algLine = (): HTMLElement | null => {
-    if (!sol) return null;
-    const d = drill.algLine(algShown(), algPlain()); d.classList.add('ll-alg');
-    markTriggers(d, sol.case.alg, sol.pre ? 1 : 0);
-    if (sol.pre || sol.post) d.insertAdjacentHTML('beforeend', AUF_NOTE);
-    return d;
-  };
+  /**
+   * The steps as listed lines, [AUF]s in brackets, triggers labelled, each line applying the route
+   * so far (from `before`, moves already done from the setup) so ▶ and the peek show the right cube.
+   */
+  function putAlgLines(steps: RouteStep[], before = ''): void {
+    const body = drill.result.body; body.innerHTML = '';
+    let sofar = before;
+    for (const s of steps) {
+      if (steps.length > 1) body.insertAdjacentHTML('beforeend', `<div class="ll-step"><b>${s.name}</b> · ${stepMoves(s)} moves</div>`);
+      const d = drill.algLine(stepShown(s), `${sofar} ${stepPlain(s)}`.trim(), sofar ? tokens(sofar).length : 0); d.classList.add('ll-alg');
+      markTriggers(d, s.alg, s.pre ? 1 : 0);
+      body.appendChild(d);
+      sofar = `${sofar} ${stepPlain(s)}`.trim();
+    }
+    if (steps.some((s) => s.pre || s.post)) body.lastElementChild?.insertAdjacentHTML('beforeend', AUF_NOTE);
+  }
   /** Label the named triggers (sexy, sledge...) on a built alg line: the case's moves start at move `offset` (after a [U] AUF). */
   function markTriggers(line: HTMLElement, alg: string, offset: number): void {
     const mvs = [...line.querySelectorAll<HTMLElement>('.mv')];
@@ -126,8 +185,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       const lab = document.createElement('i'); lab.textContent = g.label; wrap.appendChild(lab);
     }
   }
-  const putAlgLine = () => { drill.result.body.innerHTML = ''; const d = algLine(); if (d) drill.result.body.appendChild(d); };
-
   function check(txt: string): void {
     let toks: string[];
     try { toks = tokens(txt); } catch (err) { drill.flash(err instanceof Error ? err.message : String(err)); return; }
@@ -143,13 +200,23 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       drill.result.show(`${TITLE[kind]} not done yet`, rep.pairs < 4 ? `F2L is broken (${rep.pairs}/4 pairs).` : rep.eoBad ? `${rep.eoBad} edge${rep.eoBad === 1 ? ' is' : 's are'} flipped.` : !rep.ocll ? 'Some corners are still not oriented.' : 'The last layer is not permuted yet.');
       render(); return;
     }
+    // the case that actually came up: where the moves reached the drill's stage (an earlier start
+    // solves the step before its own way, which decides the case), and the tabled fix from there
+    const sp = splitAt(kind, setup, toks)!;
+    const before = toks.slice(0, sp.k).join(' ');
+    const hit = sp.case && sp.case !== 'skip' ? solution(kind, `${setup} ${before}`) : null;
+    const step: RouteStep | null = hit ? { stage: kind, name: hit.case.name, hint: hit.case.hint, pre: hit.pre, alg: hit.case.alg, post: hit.post } : null;
+    const own = n - moveCount(before);
+    cameUp = step?.name ?? (sp.case === 'skip' ? `${TITLE[kind]} skip` : null);
     if (!recorded) {
       recorded = true;
-      results.push({ t: t ?? 0, n, std: sol ? moveCount(algPlain()) : n });
-      drill.save({ scramble: setup, moves: toks.join(' '), optimal: sol ? moveCount(algPlain()) : undefined, caseId: sol?.case.name, assisted });
+      results.push({ t: t ?? 0, n: own, std: step ? stepMoves(step) : own });
+      drill.save({ scramble: setup, moves: toks.join(' '), optimal: step ? stepMoves(step) : undefined, caseId: step?.name ?? (sp.case === 'skip' ? 'skip' : undefined), assisted });
     }
-    drill.result.show(`${TITLE[kind]} done in ${n} moves${ts}`, (sol ? `Case: ${sol.case.name}. The standard alg is ${moveCount(algPlain())} moves.` : '') + note + (assisted ? ' You peeked at the alg.' : ''));
-    putAlgLine();
+    const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
+    const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
+    drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : ''));
+    if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
     if (kind === 'ocll' && stages.pll) {
       const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
       btn.textContent = 'Continue to PLL with this cube';
@@ -161,8 +228,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   function hintText(key: string): string {
     const plain = caseText().replace(/<[^>]+>/g, '');
-    if (key === 'name') { setTimeout(render); return sol ? sol.case.name : plain; }
-    return sol ? sol.case.hint : plain;
+    if (key === 'name') { setTimeout(render); return sol ? `${sol.name}${afterLead()}` : plain; }
+    return sol ? `${lead.length ? `${afterLead().slice(2)}: ` : ''}${sol.hint}` : plain;
   }
 
   function onShow(open: boolean): void {
@@ -170,9 +237,17 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!open) return;
     assisted = true;
     if (!sol) { drill.result.show('No tabled alg', caseText().replace(/<[^>]+>/g, '')); drill.result.body.innerHTML = ''; return; }
-    drill.result.show(`${sol.case.name}: ${moveCount(algPlain())} moves`, sol.case.hint);
-    putAlgLine();
+    const steps = [...lead, sol];
+    const total = steps.reduce((a, s) => a + stepMoves(s), 0);
+    drill.result.show(lead.length ? `${leadNames()}, then ${sol.name}: ${total} moves` : `${sol.name}: ${stepMoves(sol)} moves`, lead.length ? `${afterLead().slice(2)}: ${sol.hint}` : sol.hint);
+    putAlgLines(steps);
   }
+
+  // the settings: where the drill starts (a new case at once), and the alg shown as soon as the case is
+  const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement;
+  fromSel.value = settings.from; autoBox.checked = settings.auto;
+  fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
+  autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
   // the case list, as a chip after the hints: tap a case there to drill it
   const refBtn = document.createElement('button'); refBtn.type = 'button'; refBtn.className = 'eo-chip'; refBtn.id = id('ref');

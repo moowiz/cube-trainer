@@ -6,8 +6,9 @@ import { CASES, OCLL_CASES, PLL_CASES } from '../src/ll/cases';
 import { features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
-  SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, scrambleFor, solution, state, tokens,
+  SOLVED, aufToSolve, chainPartner, done, identify, inverse, moveCount, pllArrows, randomSetup, reached, route, scrambleFor, solution, splitAt, state, stepPlain, tokens,
 } from '../src/ll/model';
+import { settled } from '../src/cube/state';
 import { stageOf } from '../src/stage';
 
 const AUFS = ['', 'U', "U'", 'U2'];
@@ -149,6 +150,86 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
   it('is null off G1: an OCLL drill has twisted corners', () => {
     expect(scrambleFor(inverse(OCLL_CASES[0]!.alg))).toBeNull();
     expect(scrambleFor('')).toBe('');
+  });
+});
+
+describe('an earlier start: the drill after the step before it', () => {
+  it('a PLL drill from OCLL: the corners twisted, the PLL drawn comes up after the standard OCLL from its angle', () => {
+    const rng = makeRng(5);
+    for (let i = 0; i < 30; i++) {
+      const { setup, g1, tail, case: want } = randomSetup('pll', rng, 'ocll');
+      expect(setup).toBe(`${g1} ${tail}`);
+      expect([setup, reached('pll', setup)]).toEqual([setup, false]);
+      expect([setup, reached('ocll', setup)]).toEqual([setup, true]);
+      const r = route('pll', setup)!;
+      expect([setup, r.map((s) => s.stage)]).toEqual([setup, ['ocll', 'pll']]);
+      const moves = r.map(stepPlain).join(' ');
+      expect([setup, done('pll', `${setup} ${moves}`)]).toEqual([setup, true]);
+      // the split: the OCLL step's moves reach the PLL, and the case there is the route's
+      const sp = splitAt('pll', setup, tokens(moves))!;
+      expect([setup, sp.k]).toEqual([setup, tokens(stepPlain(r[0]!)).length]);
+      expect([setup, sp.case]).toEqual([setup, identify('pll', `${setup} ${stepPlain(r[0]!)}`)]);
+      // the OCLL alg from the angle it was set up at gives back the case drawn (a symmetric OCLL may not)
+      const back = identify('pll', `${setup} ${inverse(tail.split(' ').slice(-1)[0] ?? '')}`);
+      if (['H', 'Pi'].includes(r[0]!.name.split(' ')[0]!)) continue;
+      expect([setup, (sp.case as { id: string }).id === want.id || back?.id === want.id]).toEqual([setup, true]);
+    }
+  });
+
+  it('a PLL drill from the last pair: three pairs in, the route inserts it, orients, permutes', () => {
+    const rng = makeRng(6);
+    for (let i = 0; i < 30; i++) {
+      const { setup } = randomSetup('pll', rng, 'pair');
+      const rep = stageOf(state(setup));
+      expect([setup, rep.eoBad, rep.cross, rep.pairs]).toEqual([setup, 0, 4, 3]);
+      const r = route('pll', setup)!;
+      expect([setup, r.map((s) => s.stage)]).toEqual([setup, ['pair', 'ocll', 'pll']]);
+      expect([setup, done('pll', `${setup} ${r.map(stepPlain).join(' ')}`)]).toEqual([setup, true]);
+    }
+  });
+
+  it('an OCLL drill from the last pair, and its route', () => {
+    const rng = makeRng(7);
+    for (let i = 0; i < 20; i++) {
+      const { setup } = randomSetup('ocll', rng, 'pair');
+      expect([setup, stageOf(state(setup)).pairs]).toEqual([setup, 3]);
+      const r = route('ocll', setup)!;
+      expect([setup, r.map((s) => s.stage)]).toEqual([setup, ['pair', 'ocll']]);
+      expect([setup, done('ocll', `${setup} ${r.map(stepPlain).join(' ')}`)]).toEqual([setup, true]);
+    }
+  });
+
+  it('the face-turn scramble for g1 followed by the tail is the setup state (g1 is settled, so V perm\'s y does not turn the tail)', () => {
+    const rng = makeRng(8);
+    let vs = 0;
+    for (let i = 0; i < 60; i++) {
+      const { setup, g1, tail, case: c } = randomSetup('pll', rng, i % 2 ? 'ocll' : 'pair');
+      if (c.id === 'V') vs++;
+      const scr = scrambleFor(g1, rng)!;
+      expect([setup, scr]).toEqual([setup, expect.stringMatching(/^([URFDLB][2']? ?)*$/)]);
+      expect([setup, state(`${scr} ${tail}`)]).toEqual([setup, state(setup)]);
+    }
+    expect(vs).toBeGreaterThan(0);
+  });
+
+  it('settled(): a trailing rotation cancels what the alg left turned', () => {
+    const v = PLL_CASES.find((c) => c.id === 'V')!;
+    expect(settled("R U R'")).toBe("R U R'");
+    expect(settled(inverse(v.alg))).toMatch(/ y$/);
+    expect(state(`${settled(inverse(v.alg))} R`)).toBe(state(`${scrambleFor(inverse(v.alg))} R`));
+    expect(state(`${inverse(v.alg)} R`)).not.toBe(state(`${scrambleFor(inverse(v.alg))} R`));
+  });
+
+  it('splitAt(): a skip when the moves land on the stage solved, null when they never reach it', () => {
+    const t = PLL_CASES.find((c) => c.id === 'T')!, s = OCLL_CASES.find((c) => c.id === 'S')!;
+    expect(splitAt('pll', inverse(t.alg), tokens(t.alg))).toEqual({ k: 0, case: t });
+    expect(splitAt('pll', inverse(s.alg), tokens(s.alg))).toEqual({ k: 7, case: 'skip' });
+    expect(splitAt('pll', inverse(s.alg), tokens('R U'))).toBeNull();
+  });
+
+  it('route(): one step at the drill\'s own stage, null off the tabled path (a cube at EO)', () => {
+    expect(route('ocll', "R U R' U R U2 R'")!.map((s) => [s.stage, s.name])).toEqual([['ocll', 'Anti-Sune']]);
+    expect(route('pll', 'F')).toBeNull();
   });
 });
 

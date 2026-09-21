@@ -50,6 +50,18 @@ export function state(alg: string): string {
   throw new Error('no rotation brings the centres home'); // cannot happen for a real cube
 }
 
+/**
+ * `alg` with the whole-cube rotation it leaves behind cancelled (a trailing x/y/z), so moves
+ * appended after it read in the frame it started in: state(settled(a) + b) is the state of a
+ * face-turn scramble for a followed by b, which state(a + b) is not when a ends turned (V perm's y).
+ */
+export function settled(alg: string): string {
+  const toks = tokens(alg).join(' ');
+  if (centresHome(rawFacelets(toks))) return toks;
+  for (const rot of allRotations()) if (centresHome(new Cube().move(`${toks} ${rot}`).asString())) return `${toks} ${rot}`;
+  throw new Error('no rotation brings the centres home');
+}
+
 /** '' when `alg` solves the cube, the U turn that would finish it, or null. */
 export function aufToSolve(alg: string): string | null {
   for (const auf of ['', 'U', "U'", 'U2']) if (state(`${alg} ${auf}`) === SOLVED) return auf;

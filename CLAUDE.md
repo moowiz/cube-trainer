@@ -81,9 +81,11 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
-    ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner),
-                     scramble (an optimal phase-2 solver: face-turn scrambles for PLL states), pic (the top-down
-                     picture), reference (the case list sheet: pictures, algs with triggers, chains), trainer
+    ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner;
+                     an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
+                     where the moves done reached the stage), scramble (an optimal phase-2 solver: face-turn
+                     scrambles for PLL states), pic (the top-down picture), reference (the case list sheet:
+                     pictures, algs with triggers, chains), trainer (start-from and show-right-away settings)
     algs/            the Algs sheet (the other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
                      data (the table; every cube alg is run on cube/nxn and checked by test), pic (n×n case
                      pictures: top view with side strips, three-face view; the FTO's square), sheet (the picker
