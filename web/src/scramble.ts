@@ -7,28 +7,11 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
+import { movesStr, randomMoves } from './cube/alg';
 
-const FACES = ['U', 'D', 'L', 'R', 'F', 'B'] as const;
-const AXIS: Record<string, number> = { U: 0, D: 0, L: 1, R: 1, F: 2, B: 2 };
-const SUFFIX = ['', "'", '2'] as const;
-
-/**
- * `n` random moves: never the same face twice in a row, never three moves
- * on one axis in a row (U D U is a wasted move).
- */
+/** `n` random face turns as a string (cube/alg.ts's randomMoves: no face twice, no three on one axis). */
 export function randomScramble(n = 20, rnd: () => number = Math.random): string {
-  const moves: string[] = [];
-  let prev = '';
-  let prev2 = '';
-  while (moves.length < n) {
-    const f = FACES[Math.floor(rnd() * 6)]!;
-    if (f === prev) continue;
-    if (prev && prev2 && AXIS[f] === AXIS[prev] && AXIS[f] === AXIS[prev2]) continue;
-    moves.push(f + SUFFIX[Math.floor(rnd() * 3)]);
-    prev2 = prev;
-    prev = f;
-  }
-  return moves.join(' ');
+  return movesStr(randomMoves(n, rnd));
 }
 
 /** The URFDLB facelet string a solved cube reaches after `scramble`. */

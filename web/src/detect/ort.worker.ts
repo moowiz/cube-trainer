@@ -5,20 +5,21 @@
 // a worker from the *bundled* chunk, which touches `document` and dies
 // ("no available backend found. ERR: [wasm] [object ErrorEvent]").
 //
-// Protocol (session.ts is the only client): one `init`, then `create` /
-// `run` / `dispose` per session, every request answered by `{ req, ok }`.
+// Protocol (session.ts is the only client, over workers/rpc.ts): one `init`,
+// then `create` / `run` / `dispose` per session, every request answered by
+// `{ id, ok }` with the request's id.
 // Tensor data crosses as typed arrays with their buffers transferred.
 import * as ort from 'onnxruntime-web';
 
 export interface TensorWire { data: Float32Array | Int32Array | Uint8Array; dims: readonly number[]; type: string }
 export type WorkerRequest =
-  | { t: 'init'; req: number; wasmPaths: string }
-  | { t: 'create'; req: number; id: number; model: ArrayBuffer; ep: 'wasm' }
-  | { t: 'run'; req: number; id: number; feeds: Record<string, TensorWire> }
-  | { t: 'dispose'; req: number; id: number };
+  | { t: 'init'; id: number; wasmPaths: string }
+  | { t: 'create'; id: number; session: number; model: ArrayBuffer; ep: 'wasm' }
+  | { t: 'run'; id: number; session: number; feeds: Record<string, TensorWire> }
+  | { t: 'dispose'; id: number; session: number };
 export type WorkerReply =
-  | { req: number; ok: true; threads?: number; inputNames?: string[]; outputNames?: string[]; outputs?: Record<string, TensorWire> }
-  | { req: number; ok: false; error: string };
+  | { id: number; ok: true; threads?: number; inputNames?: string[]; outputNames?: string[]; outputs?: Record<string, TensorWire> }
+  | { id: number; ok: false; error: string };
 
 const sessions = new Map<number, ort.InferenceSession>();
 
@@ -34,14 +35,14 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       // the worker inherits the page's cross-origin isolation (the COI
       // service worker's headers), and with it SharedArrayBuffer + threads
       ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
-      reply({ req: m.req, ok: true, threads: ort.env.wasm.numThreads });
+      reply({ id: m.id, ok: true, threads: ort.env.wasm.numThreads });
     } else if (m.t === 'create') {
       const s = await ort.InferenceSession.create(new Uint8Array(m.model), { executionProviders: [m.ep], graphOptimizationLevel: 'all' });
-      sessions.set(m.id, s);
-      reply({ req: m.req, ok: true, inputNames: [...s.inputNames], outputNames: [...s.outputNames] });
+      sessions.set(m.session, s);
+      reply({ id: m.id, ok: true, inputNames: [...s.inputNames], outputNames: [...s.outputNames] });
     } else if (m.t === 'run') {
-      const s = sessions.get(m.id);
-      if (!s) throw new Error(`no session ${m.id}`);
+      const s = sessions.get(m.session);
+      if (!s) throw new Error(`no session ${m.session}`);
       const feeds: Record<string, ort.Tensor> = {};
       for (const [k, v] of Object.entries(m.feeds)) feeds[k] = new ort.Tensor(v.type as 'float32', v.data as Float32Array, v.dims);
       const out = await s.run(feeds);
@@ -52,14 +53,14 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         outputs[k] = { data, dims: t.dims, type: t.type };
         if (data.buffer instanceof ArrayBuffer) transfer.push(data.buffer);
       }
-      reply({ req: m.req, ok: true, outputs }, transfer);
+      reply({ id: m.id, ok: true, outputs }, transfer);
     } else if (m.t === 'dispose') {
-      const s = sessions.get(m.id);
-      sessions.delete(m.id);
+      const s = sessions.get(m.session);
+      sessions.delete(m.session);
       if (s) await s.release();
-      reply({ req: m.req, ok: true });
+      reply({ id: m.id, ok: true });
     }
   } catch (err) {
-    reply({ req: m.req, ok: false, error: String(err instanceof Error ? err.message : err) });
+    reply({ id: m.id, ok: false, error: String(err instanceof Error ? err.message : err) });
   }
 };

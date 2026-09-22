@@ -7,43 +7,42 @@ import { FACE_MOVES, moveStr, movesStr, type Move } from '../cube/alg';
 import { CROSS_HOME, EDGE_MOVES, type EdgeState } from '../cube/pieces';
 import { applyMoves, lastEoTurn, solutionShape, type SolutionSet } from './solver';
 import { esc } from '../ui/dom';
+import { WorkerRpc } from '../workers/rpc';
 
 export type XStatus = 'off' | 'building' | 'ready' | 'failed';
 
-type Pending = { resolve: (v: unknown) => void; reject: () => void };
+type XEvent = { id?: number; type?: 'progress' | 'ready'; depth?: number };
 
 export class EOCrossClient {
   status: XStatus = 'off';
   depth = 0;
-  private worker: Worker | null = null;
-  private pending = new Map<number, Pending>();
-  private nextId = 0;
+  private rpc: WorkerRpc<Record<string, unknown>, XEvent> | null = null;
   /** called on every status change and answer, for the UI to repaint */
   onStatus: () => void = () => undefined;
 
+  /** Start the worker on first use; false when it cannot start (and every later call). */
   ensure(): boolean {
-    if (this.worker) return true;
+    if (this.rpc) return true;
     if (this.status === 'failed') return false;
-    try { this.worker = new Worker('eocross-worker.js'); } catch { this.status = 'failed'; return false; }
+    let worker: Worker;
+    try { worker = new Worker('eocross-worker.js'); } catch { this.status = 'failed'; return false; }
     this.status = 'building';
-    this.worker.onerror = () => { this.status = 'failed'; this.worker = null; for (const p of this.pending.values()) p.reject(); this.pending.clear(); this.onStatus(); };
-    this.worker.onmessage = (ev: MessageEvent) => {
-      const m = ev.data;
-      if (m.type === 'progress') { this.depth = m.depth; this.onStatus(); }
-      else if (m.type === 'ready') { this.status = 'ready'; this.onStatus(); }
-      else { const p = this.pending.get(m.id); if (!p) return; this.pending.delete(m.id); p.resolve(m); }
-    };
-    this.worker.postMessage({ type: 'init', perm: EDGE_MOVES.map((t) => t.perm), flip: EDGE_MOVES.map((t) => t.flip), home: CROSS_HOME });
+    this.rpc = new WorkerRpc<Record<string, unknown>, XEvent>(worker, {
+      name: 'eocross worker',
+      onEvent: (m) => {
+        if (m.type === 'progress') { this.depth = m.depth ?? 0; this.onStatus(); }
+        else if (m.type === 'ready') { this.status = 'ready'; this.onStatus(); }
+      },
+      onError: () => { this.status = 'failed'; this.rpc = null; this.onStatus(); },
+    });
+    // the move model comes from cube/pieces.ts: the worker holds no cube of its own
+    this.rpc.post({ type: 'init', perm: EDGE_MOVES.map((t) => t.perm), flip: EDGE_MOVES.map((t) => t.flip), home: CROSS_HOME });
     return true;
   }
 
   private ask<T>(msg: Record<string, unknown>): Promise<T> {
-    return new Promise((resolve, reject) => {
-      if (!this.ensure()) return reject();
-      const id = ++this.nextId;
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      this.worker!.postMessage({ ...msg, id });
-    });
+    if (!this.ensure()) return Promise.reject(new Error('EOCross worker unavailable'));
+    return this.rpc!.ask(msg) as Promise<T>;
   }
 
   /** Every optimal EOCross solution of a state (the list capped at 3000; `count` is exact). */

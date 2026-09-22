@@ -8,6 +8,7 @@
 
 /// <reference path="./cubejs.d.ts" />
 import Cube from 'cubejs';
+import { WorkerRpc } from './workers/rpc';
 import { labMedian } from './color';
 import { FACE_ORDER } from './types';
 import type { Lab } from './types';
@@ -302,24 +303,12 @@ interface SolveResponse {
   error?: string;
 }
 
-let worker: Worker | null = null;
-let nextId = 1;
-const pending = new Map<number, { resolve: (solution: string) => void; reject: (err: Error) => void }>();
+let rpc: WorkerRpc<Omit<SolveRequest, 'id'>, SolveResponse> | null = null;
 
-function getWorker(): Worker {
-  if (!worker) {
-    // Vite worker pattern — this URL must be written literally like this.
-    worker = new Worker(new URL('./solver.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (ev: MessageEvent) => {
-      const data = ev.data as SolveResponse;
-      const p = pending.get(data.id);
-      if (!p) return; // e.g. a warm ack with no pending caller
-      pending.delete(data.id);
-      if (data.error) p.reject(new Error(data.error));
-      else p.resolve(data.solution ?? '');
-    };
-  }
-  return worker;
+function getWorker(): WorkerRpc<Omit<SolveRequest, 'id'>, SolveResponse> {
+  // Vite worker pattern — this URL must be written literally like this.
+  rpc ??= new WorkerRpc(new Worker(new URL('./solver.worker.ts', import.meta.url), { type: 'module' }), { name: 'solver worker' });
+  return rpc;
 }
 
 let nodeSolverReady = false;
@@ -333,11 +322,9 @@ function ensureNodeSolver(): void {
 /** Kociemba solution via cubejs. Only call with a validateState-ok state. */
 export function solveState(facelets: string): Promise<string> {
   if (typeof Worker !== 'undefined') {
-    return new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, { resolve, reject });
-      const req: SolveRequest = { id, facelets };
-      getWorker().postMessage(req);
+    return getWorker().ask({ facelets }).then((r) => {
+      if (r.error) throw new Error(r.error);
+      return r.solution ?? '';
     });
   }
   // Node / vitest fallback: direct synchronous solve, lazy memoized initSolver.
@@ -353,9 +340,7 @@ export function solveState(facelets: string): Promise<string> {
 /** Pre-warm the solver (kick off initSolver in the worker) — fire and forget. */
 export function warmSolver(): void {
   if (typeof Worker !== 'undefined') {
-    const id = nextId++;
-    const req: SolveRequest = { id, warm: true };
-    getWorker().postMessage(req);
+    void getWorker().ask({ warm: true }); // the ack resolves, nobody waits on it
   } else {
     ensureNodeSolver();
   }

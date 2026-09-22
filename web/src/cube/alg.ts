@@ -71,5 +71,25 @@ export function faceMoves(alg: string): Move[] | null {
   return out;
 }
 
+const AXIS: Record<string, number> = { U: 0, D: 0, L: 1, R: 1, F: 2, B: 2 };
+
+/**
+ * `n` random face turns: never the same face twice in a row, never three in a row on one axis
+ * (U D U wastes a move). The one generator (the scan sheet, the EO trainer, the F2L generator);
+ * `rng` in [0, 1) so a test can seed it.
+ */
+export function randomMoves(n: number, rng: () => number = Math.random): Move[] {
+  const out: Move[] = [];
+  let prev = '', prev2 = '';
+  while (out.length < n) {
+    const f = 'URFDLB'[Math.floor(rng() * 6)]!;
+    if (f === prev) continue;
+    if (prev2 && AXIS[f] === AXIS[prev] && AXIS[f] === AXIS[prev2]) continue;
+    out.push({ face: f, times: [1, 3, 2][Math.floor(rng() * 3)] as 1 | 2 | 3 });
+    prev2 = prev; prev = f;
+  }
+  return out;
+}
+
 /** True for a quarter turn of F or B: the moves that flip edge orientation. */
 export const isEoFlip = (m: Move): boolean => (m.face === 'F' || m.face === 'B') && m.times !== 2;

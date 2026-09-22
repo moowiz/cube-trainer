@@ -169,18 +169,3 @@ export function solutionShape(start: EdgeState, sol: readonly Move[]): { eoLen: 
   return { eoLen: k + 1, tail: sol.slice(k + 1), before, atEO };
 }
 
-/** Random scramble with the trainer's rules: 20-24 turns, never the same face twice, never F B F on one axis. */
-export function randomScramble(rng: () => number = Math.random): Move[] {
-  const opp = OPP;
-  const seq: Move[] = [];
-  let last: string | null = null, last2: string | null = null;
-  const n = 20 + Math.floor(rng() * 5);
-  while (seq.length < n) {
-    const f = 'URFDLB'[Math.floor(rng() * 6)];
-    if (f === last) continue;
-    if (last && f === opp[last] && f === last2) continue;
-    seq.push({ face: f, times: [1, 3, 2][Math.floor(rng() * 3)] as 1 | 2 | 3 });
-    last2 = last; last = f;
-  }
-  return seq;
-}

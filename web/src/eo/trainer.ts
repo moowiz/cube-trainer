@@ -4,7 +4,7 @@
 // the drill scaffold; the cube is a facelet string, the solving is on the
 // 12-edge model.
 
-import { faceMoves, movesStr, tokens, type Move } from '../cube/alg';
+import { faceMoves, movesStr, randomMoves, tokens, type Move } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { badEdgePositions, crossSolved, edgeState, eoSolved, type EdgeState } from '../cube/pieces';
 import { DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
@@ -16,7 +16,7 @@ import { shareScramble, showTab, type Stage } from '../shell';
 import { mountDrill, type Drill } from '../ui/drill';
 import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook } from './eocross';
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
-import { applyMoves, canonical, crossTail, fbPlan, randomScramble, solveEO, type Group, type SolutionSet } from './solver';
+import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type SolutionSet } from './solver';
 import { persisted } from '../ui/settings';
 
 interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; goal: 'eo' | 'cross' }
@@ -103,7 +103,8 @@ export function mountEO(root: HTMLElement): Stage {
   }
 
   function newScramble(): void {
-    // a scramble with the wanted number of bad edges (any = at least two)
+    // a scramble with the wanted number of bad edges (any = at least two); 20-24 turns
+    const randomScramble = () => randomMoves(20 + Math.floor(Math.random() * 5));
     let scr = movesStr(randomScramble());
     for (let attempt = 0; attempt < 400; attempt++) {
       const seq = randomScramble();
