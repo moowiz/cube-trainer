@@ -16,6 +16,7 @@ import { onFavsChange, setFavourite } from './favs';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
+import { ensureStyle, esc } from '../ui/dom';
 
 const STYLE = `
   .llr-filters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 12px; }
@@ -81,7 +82,6 @@ function tagLine(f: Features): string {
 
 /** The alg as HTML with the named triggers bracketed and labelled under their moves. */
 export function algHtml(alg: string): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const toks = tokens(alg);
   const trig = triggers(alg);
   const parts: string[] = [];
@@ -113,9 +113,7 @@ export function chainSummary(kind: LLKind): { self: LLCase[]; pairs: [LLCase, LL
  * `changed` when a case's main alg is changed with the star (the drill's case may be showing the old one).
  */
 export function openLLReference(kind: LLKind, drill: (setup: string) => void, changed?: () => void): void {
-  if (!document.getElementById('llr-style')) {
-    const s = document.createElement('style'); s.id = 'llr-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('llr-style', STYLE);
   ensurePicStyle();
   const panel = document.getElementById('ref-panel');
   const head = document.querySelector<HTMLElement>('#ref-sheet .zz-sheet-head b');
@@ -125,7 +123,6 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   sub.textContent = kind === 'pll'
     ? 'Each case as it looks from the front with its alg; the arrows show where each piece goes. Tap a case to drill it; star another of its algs to make that the one the drill uses.'
     : 'Each case as it looks from the front (any permutation) with its alg. Tap a case to drill it; star another of its algs to make that the one the drill uses.';
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();

@@ -18,6 +18,7 @@ import type { Hold } from '../handoff';
 import type { SourceKind } from '../moves/source';
 import type { CubeStatus } from '../smart/belief';
 import { FACE_ORDER, type ColorName, type FaceId } from '../types';
+import { ensureStyle, scoped } from './dom';
 
 interface Belief {
   /** the cube, in the source's letters */
@@ -104,9 +105,7 @@ function beliefCells(b: Belief, hold: Hold): Cell[] {
 }
 
 export function mountCubeView(root: HTMLElement, opts: CubeViewOpts): CubeView {
-  if (!document.getElementById('cubeview-style')) {
-    const s = document.createElement('style'); s.id = 'cubeview-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('cubeview-style', STYLE);
   root.innerHTML = `
     <div class="cv">
       <div class="cv-row">
@@ -129,11 +128,7 @@ export function mountCubeView(root: HTMLElement, opts: CubeViewOpts): CubeView {
         <button class="btn" id="cv-report" type="button" title="Set the belief to what the cube itself reports">What the cube reports</button>
       </div>
     </div>`;
-  const $ = (n: string): HTMLElement => {
-    const e = root.querySelector<HTMLElement>(`#cv-${n}`);
-    if (!e) throw new Error(`cube view has no #cv-${n}`);
-    return e;
-  };
+  const $ = scoped(root, (n) => `#cv-${n}`, 'cube view');
   const svg3d = $('3d') as unknown as SVGSVGElement, svgNet = $('net') as unknown as SVGSVGElement;
   const view: View = { ...DEFAULT_VIEW };
   let belief: Belief | null = null;

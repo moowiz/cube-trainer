@@ -135,7 +135,7 @@ function pathStatus(src: MoveSource, state: string): TrackStatus | null {
 
 /** Open `stage` with the cube's state loaded (the whole tab set gets it), and arm the drill there. */
 function open(src: MoveSource, stage: Exclude<Stage, 'solved'>, scr: string, why: string): void {
-  console.log(`CUBE FOLLOW ${why}: stage=${stage} ${scr}`);
+  console.log(`CUBE FOLLOW ${why}: stage=${stage} ${scr}`); // the trace scripts/check-smart.mjs asserts on
   shareScramble(scr, null);
   showTab(stage);
   syncDriver();

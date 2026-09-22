@@ -16,7 +16,8 @@ import { ftoAnimatable } from './fto3d';
 import { nxnAnimatable } from './nxn3d';
 import { picFto, picIso, picTop } from './pic';
 import { mountPlayer } from './player';
-import type { AlgCase, Puzzle, PuzzleId } from './types';
+import type { AlgCase, AlgPuzzleId, Puzzle } from './types';
+import { ensureStyle, esc } from '../ui/dom';
 
 const KEY = 'zz-algs';
 
@@ -57,7 +58,6 @@ const STYLE = `
   .algs-player:empty { display: none; }
 `;
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 // alg.cubing.net and twizzle take an alg in the URL with spaces as _ and primes as - (their own URL form; commas and brackets are fine as they are)
 const urlAlg = (alg: string) => alg.trim().replace(/\s+/g, '_').replace(/'/g, '-');
 
@@ -134,10 +134,10 @@ function puzzleHtml(p: Puzzle): string {
 export function initAlgs(): void {
   const panel = document.getElementById('algs-panel');
   if (!panel) throw new Error('index.html is missing the algs sheet');
-  const s = document.createElement('style'); s.id = 'algs-style'; s.textContent = STYLE; document.head.appendChild(s);
+  ensureStyle('algs-style', STYLE);
   ensurePicStyle(); // the 3x3's last-layer pictures carry PLL's arrows
-  let chosen: PuzzleId = PUZZLES[0]!.id;
-  try { const v = localStorage.getItem(KEY); if (PUZZLES.some((p) => p.id === v)) chosen = v as PuzzleId; } catch { /* no storage */ }
+  let chosen: AlgPuzzleId = PUZZLES[0]!.id;
+  try { const v = localStorage.getItem(KEY); if (PUZZLES.some((p) => p.id === v)) chosen = v as AlgPuzzleId; } catch { /* no storage */ }
   let drawn = false;
   // the 3D player: one open at a time, inside the case's card; a redraw of the sheet drops it
   let player: { destroy(): void; button: HTMLElement } | null = null;
@@ -166,7 +166,7 @@ export function initAlgs(): void {
     }
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-p]');
     if (!b) return;
-    chosen = b.dataset.p as PuzzleId;
+    chosen = b.dataset.p as AlgPuzzleId;
     try { localStorage.setItem(KEY, chosen); } catch { /* no storage */ }
     render();
     panel.closest('.zz-sheet')?.scrollTo({ top: 0 });

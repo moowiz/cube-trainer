@@ -4,6 +4,13 @@
 
 import type { Vec3 } from './types';
 
+/** Plain median (the middle value, or the mean of the two middle values); NaN on an empty list. */
+export function median(xs: readonly number[]): number {
+  const s = xs.slice().sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+}
+
 /** Sorted-by-x weighted median: the x where cumulative weight first reaches half the total. */
 export function weightedMedian(xs: readonly number[], ws: readonly number[]): number {
   const total = ws.reduce((s, w) => s + w, 0);

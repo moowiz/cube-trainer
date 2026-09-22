@@ -2,8 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
 import { stageOf } from '../src/stage';
+import { SOLVED } from '../src/cube/state';
 
-const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const after = (alg: string) => new Cube().move(alg).asString();
 
 describe('stageOf', () => {

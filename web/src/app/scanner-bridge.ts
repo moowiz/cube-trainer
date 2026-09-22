@@ -70,7 +70,7 @@ function useInTrainer(scan: ScannedCube): void {
   if (scanner?.following()) {
     follower.reset(report.stage);
     dockScan(true);
-    console.log(`FOLLOW lock ${followLocks} stage=${report.stage}`);
+    console.log(`FOLLOW lock ${followLocks} stage=${report.stage}`); // the camera-follow trace, cubefollow.ts's CUBE FOLLOW for the smart cube
     // the reader as a source: the fallback behind a connected cube, the active source otherwise
     reader ??= new ReaderSource(scan);
     setFallback(reader);

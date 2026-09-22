@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { decode, coloursToFacelets, type DecodeOptions } from '../src/colour/decode';
 import { validateState } from '../src/state';
 import { FACE_ORDER } from '../src/types';
+import { SOLVED } from '../src/cube/state';
 
 // A known valid scrambled state (9 per colour, distinct centres, every
 // corner/edge a real piece, correct parity) and the solved state, both from
 // the task spec.
 const SCRAMBLED = 'LRFLUFLBUBLDLRRRRFDDRUFDUFDFDBUDFRDLBBBULFULLRBUUBBDRF';
-const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 
 const CENTER_SLOTS = [4, 13, 22, 31, 40, 49];
 

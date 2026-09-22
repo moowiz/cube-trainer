@@ -18,6 +18,12 @@ export function rawFacelets(alg: string): string {
   return new Cube().move(tokens(alg).join(' ')).asString();
 }
 
+/** Facelets after each token of `alg` applied in turn to `start`, as cubejs applies them (centres move with wide moves and rotations). */
+export function stepStates(start: string, alg: string): string[] {
+  const c = Cube.fromString(start);
+  return tokens(alg).map((t) => c.move(t).asString());
+}
+
 const centresHome = (f: string): boolean => FACES.split('').every((face) => f[CENTRE[face]] === face);
 
 // the 24 whole-cube rotations, as move strings (64 products, duplicates harmless)

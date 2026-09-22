@@ -54,6 +54,7 @@ import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
 import { caseStats, RECENT, secs, workOn } from './practice';
 import { chainSummary, openLLReference } from './reference';
+import { ensureStyle } from '../ui/dom';
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
 const BLURB: Record<LLKind, string> = {
@@ -194,9 +195,7 @@ function say(text: string, keep = false, then?: () => void, thenBy = 8000): void
 const NEXT_AFTER_MS = 1500;
 
 export function mountLL(root: HTMLElement, kind: LLKind): Stage {
-  if (!document.getElementById('ll-style')) {
-    const s = document.createElement('style'); s.id = 'll-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('ll-style', STYLE);
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;

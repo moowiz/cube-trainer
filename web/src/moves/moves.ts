@@ -78,8 +78,6 @@ export function invertMove(m: Move): Move {
   return `${m}'` as Move;
 }
 
-export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
-
 /** Opposite face index (U-D, R-L, F-B). */
 function opposite(face: number): number {
   return (face + 3) % 6;

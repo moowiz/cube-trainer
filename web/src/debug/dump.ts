@@ -16,6 +16,7 @@ import type { DetectResult, FaceDetector } from '../detect/facekp';
 import type { CenterExemplars } from '../detect/identify';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { FaceId, Lab } from '../types';
+import { downloadBlob } from '../ui/download';
 
 /** One detection tick, as the scan page keeps it for the capture's history. */
 export interface TickSummary {
@@ -34,14 +35,6 @@ export function summarizeTick(t: number, obj: number, res: DetectResult | null):
       ? [{ face: n.face, conf: +(res!.quads[i]?.conf ?? 0).toFixed(2), nameConf: +n.nameConf.toFixed(2) }] : []),
     refused: (res?.unnamed ?? []).map((u) => u.reason),
   };
-}
-
-function downloadBlob(blob: Blob, name: string): void {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 /** A frame source: the live video, or a frozen frame from the scan page's ring. */
@@ -67,7 +60,7 @@ export async function saveRawFrame(video: FrameSource, prefix: string, stamp = D
   const blob = await rawFrameBlob(video);
   if (!blob) return null;
   const name = `${prefix}-${stamp}.png`;
-  downloadBlob(blob, name);
+  downloadBlob(name, blob);
   return name;
 }
 
@@ -125,7 +118,7 @@ export async function captureDebug(res: DetectResult | null, detector: FaceDetec
     await sink(json, `${prefix}-${stamp}.json`);
     return `${prefix}-${stamp}`;
   }
-  downloadBlob(new Blob([json], { type: 'application/json' }), `${prefix}-${stamp}.json`);
+  downloadBlob(`${prefix}-${stamp}.json`, new Blob([json], { type: 'application/json' }));
   await saveRawFrame(video, prefix, stamp);
   return `${prefix}-${stamp}`;
 }

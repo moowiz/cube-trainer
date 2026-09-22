@@ -14,6 +14,7 @@ import { state } from '../cube/state';
 import { activeTab, sheetOpen, stages, trainerHold } from '../shell';
 import { newId, type AttemptRecord, type AttemptStage } from '../store/types';
 import { moveWhat, openFingertricks } from './fingertricks';
+import { ensureStyle, scoped } from './dom';
 
 // where finished attempts go (the solve store); nothing is kept when no sink is set (tests)
 let attemptSink: ((a: AttemptRecord) => void) | null = null;
@@ -199,9 +200,7 @@ const STYLE = `
 `;
 
 export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers): Drill {
-  if (!document.getElementById('drill-style')) {
-    const s = document.createElement('style'); s.id = 'drill-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('drill-style', STYLE);
   const id = (n: string) => `${spec.id}-${n}`;
   const hints = spec.hints ?? [];
   const q = spec.quiet ? ' hidden' : '';
@@ -238,11 +237,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
         <div class="eo-stats" id="${id('stats')}"></div>
       </div>
     </div>`;
-  const $ = (n: string): HTMLElement => {
-    const e = document.getElementById(id(n));
-    if (!e) throw new Error(`drill ${spec.id} has no #${id(n)}`);
-    return e;
-  };
+  const $ = scoped(root, (n) => `#${id(n)}`, `drill ${spec.id}`);
   const box = $('sol') as HTMLTextAreaElement;
   const labels = Object.fromEntries(hints.map((c) => [c.key, c.label]));
 

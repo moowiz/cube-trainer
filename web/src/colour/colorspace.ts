@@ -10,6 +10,7 @@ import { linearRgbToLab } from '../color';
 import { CHROMA_KNEE, CHROMA_SLOPE } from '../state';
 import type { Lab } from '../types';
 import type { RGB, Vec3 } from './types';
+import { median } from './robust';
 
 export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half' | 'lab-norm';
 
@@ -19,12 +20,6 @@ export interface Embedding {
   embedQuad(rgb: readonly RGB[], lab: readonly Lab[]): Vec3[];
   /** Indices of the chromatic coordinates (the ones a white-balance shift translates). */
   chroma: [number, number];
-}
-
-function median(xs: number[]): number {
-  const s = xs.slice().sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
 }
 
 function srgbToLinear(c: number): number {

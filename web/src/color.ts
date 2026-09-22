@@ -4,6 +4,7 @@
 
 import type { CellSample, Lab } from './types';
 import type { PatchStats } from './colour/types';
+import { median } from './colour/robust';
 
 // ---------- sRGB (0-255) -> CIE Lab, D65 ----------
 
@@ -428,12 +429,6 @@ export function solveAssignment(cost: readonly (readonly number[])[]): number[] 
 // and its callers below return the actual distribution — a trimmed median
 // plus clip/dark fractions and a spread — so evidence.ts can down-weight or
 // discard a contaminated reading instead of silently blending it in.
-
-function median(xs: number[]): number {
-  const s = xs.slice().sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
-}
 
 /** DECISION: trim the brightest and darkest 10% of pixels (by luminance) before the per-channel median. */
 export const PATCH_TRIM = 0.1;

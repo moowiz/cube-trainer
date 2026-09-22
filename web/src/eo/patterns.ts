@@ -8,6 +8,7 @@
 import { isEoFlip, moveStr, type Move } from '../cube/alg';
 import { EDGE_SLOTS, SLOT_INDEX, applyEdgeMove, badOnFace, edgeMoveOf, type EdgeState } from '../cube/pieces';
 import { eoDistance, type SolutionSet } from './solver';
+import { esc } from '../ui/dom';
 
 /** The four slots no F/B turn touches: a bad edge there always costs a side move. */
 const OFF_AXIS: readonly number[] = ['UR', 'UL', 'DR', 'DL'].map((n) => SLOT_INDEX[n]);
@@ -88,8 +89,6 @@ export const slotName = (slot: number): string => [...EDGE_SLOTS[slot]].map((c) 
 const faceName = (f: 'F' | 'B'): string => SIDE[f];
 const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;
 const capital = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
-const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-
 /** A plan in words: what to do with the bad edges at each F/B turn. */
 export function planWords(counts: number[]): string {
   if (!counts.length) return 'no F/B turns';

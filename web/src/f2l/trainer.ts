@@ -23,6 +23,7 @@ import {
   acnUrl, describe, explain, findCase, fullAlg, genF2L, genFull, isSlot, normalizeAlg, randomCase, slotOf, slotSolved, slotState,
   SLOT_WORD, SLOTS, trace, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
+import { ensureStyle, scoped } from '../ui/dom';
 
 const GREY = '#DDE1E7'; // the page's --grey-ll: SVG fill attributes cannot read a CSS variable
 const STORE_KEY = 'zzf2l-state';
@@ -186,16 +187,10 @@ const MARKUP = `
 const clean = (s: string): string => tokens(s.replace(/2'/g, '2')).join(' ');
 
 export function mountF2L(root: HTMLElement): Stage {
-  if (!document.getElementById('f2l-style')) {
-    const s = document.createElement('style'); s.id = 'f2l-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('f2l-style', STYLE);
   root.classList.add('f2l');
   root.innerHTML = MARKUP;
-  const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
-    const e = root.querySelector<T>(`#${id}`);
-    if (!e) throw new Error(`f2l markup is missing #${id}`);
-    return e;
-  };
+  const $ = scoped(root, (id) => `#${id}`, 'f2l markup');
   const svg = $('cube3d') as unknown as SVGSVGElement, netSvg = $('net') as unknown as SVGSVGElement;
   const scrBox = $<HTMLTextAreaElement>('scrtext'), preBox = $<HTMLTextAreaElement>('pretext');
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults

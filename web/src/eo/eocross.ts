@@ -6,6 +6,7 @@
 import { FACE_MOVES, moveStr, movesStr, type Move } from '../cube/alg';
 import { CROSS_HOME, EDGE_MOVES, type EdgeState } from '../cube/pieces';
 import { applyMoves, lastEoTurn, solutionShape, type SolutionSet } from './solver';
+import { esc } from '../ui/dom';
 
 export type XStatus = 'off' | 'building' | 'ready' | 'failed';
 
@@ -75,7 +76,6 @@ export async function eoOutlook(client: EOCrossClient, start: EdgeState, eo: Sol
   return { best, good: totals.filter((t) => t === xLength).length, n: eo.solutions.length, example: eo.solutions[totals.indexOf(best)] };
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const count = <T,>(arr: T[]): [T, number][] => {
   const h = new Map<T, number>();

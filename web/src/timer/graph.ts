@@ -7,6 +7,7 @@
 // view. No chart library: the page has no framework either.
 
 import { averageOf, formatTime, type Time } from './stats';
+import { ensureStyle, esc } from '../ui/dom';
 
 export interface Window { key: string; n: number; colour: string }
 // DECISION: the four averages every timer shows, in a fixed colour order (blue, orange, aqua,
@@ -154,8 +155,6 @@ export function layoutGraph(times: readonly Time[], opts: GraphOpts): Graph {
   return { width, height, x0, x1, y0, y1, lo, hi, points, lines, endLabels, yTicks, xTicks, best, series, xOf };
 }
 
-const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-
 /** The SVG for a layout. Marks carry the colour; every word is in ink. */
 export function graphSvg(g: Graph): string {
   const grid = g.yTicks.map((t) => `<line class="gr-grid" x1="${g.x0}" x2="${g.x1}" y1="${t.y.toFixed(1)}" y2="${t.y.toFixed(1)}"/>`).join('');
@@ -233,9 +232,7 @@ const TABLE_ROWS = 300;
 
 /** Draw the graph, its legend and its table into `root`; returns the redraw for new data. */
 export function mountGraph(root: HTMLElement): (data: GraphData) => void {
-  if (!document.getElementById('graph-style')) {
-    const s = document.createElement('style'); s.id = 'graph-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('graph-style', STYLE);
   let shown = new Set<string>(WINDOWS.map((w) => w.key));
   try { const saved = JSON.parse(localStorage.getItem(SHOWN_KEY) || 'null'); if (Array.isArray(saved)) shown = new Set(saved.filter((k) => WINDOWS.some((w) => w.key === k))); } catch { /* no storage */ }
   root.innerHTML = '<div class="gr-legend"></div><div class="gr"><div class="gr-plot"></div><div class="gr-tip" hidden></div></div><details class="gr-table"><summary>Table</summary><div class="gr-rows"></div></details>';

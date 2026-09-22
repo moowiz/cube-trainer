@@ -12,6 +12,7 @@
 
 import { tokens } from '../cube/alg';
 import { openSheet } from '../shell';
+import { ensureStyle, esc } from './dom';
 
 export interface TrickRow {
   /** the tokens this row covers, in order */
@@ -237,16 +238,13 @@ export interface TricksOptions {
 
 /** Open the fingertricks sheet on `alg`. Returns false (and toasts nothing) when the alg cannot be read. */
 export function openFingertricks(alg: string, opts: TricksOptions): boolean {
-  if (!document.getElementById('ft-style')) {
-    const s = document.createElement('style'); s.id = 'ft-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('ft-style', STYLE);
   let rows: TrickRow[];
   try { rows = annotate(alg); } catch { return false; }
   const panel = document.getElementById('tricks-panel');
   const sub = document.querySelector<HTMLElement>('#tricks-sheet .zz-sheet-head .sub');
   if (!panel || !sub) throw new Error('index.html is missing the tricks sheet');
   sub.textContent = opts.title;
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   let n = 0;
   panel.innerHTML = `
     <p class="ft-alg">${esc(rows.map((r) => r.moves.join(' ')).join('  '))}</p>

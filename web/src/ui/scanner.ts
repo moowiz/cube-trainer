@@ -66,6 +66,7 @@ import type { RecordingSession } from '../rig/session';
 import { persistControls } from './settings';
 import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
+import { scoped } from './dom';
 
 export interface ScannerOptions {
   /**
@@ -263,11 +264,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   root.innerHTML = TEMPLATE;
 
   /** An element of this mount by its `sc-<name>` class. */
-  const $ = <T extends HTMLElement = HTMLElement>(name: string): T => {
-    const el = root.querySelector<T>(`.sc-${name}`);
-    if (!el) throw new Error(`scanner template has no .sc-${name}`);
-    return el;
-  };
+  const $ = scoped(root, (name) => `.sc-${name}`, 'scanner template');
 
   // A fresh scramble per session (and per Reset): scanned from a solved cube
   // it gives every capture a known truth.
@@ -1365,6 +1362,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
             if (recording) recording.stoppedAt = Date.now();
             const sol = locked ?? solution;
             msgEl.textContent = `clip ended - ${locked ? 'LOCKED' : (sol?.reason ?? 'no solution')}`;
+            // the line tools/solve/replay_clips.py reads off the headless console
             console.log(`CLIP ENDED locked=${!!locked} reason="${sol?.reason ?? ''}" facelets=${sol?.facelets ?? ''} frames=${log.frames} quads=${log.quads.length}`);
             if (params.get('autocapture')) setTimeout(() => captureBtn.click(), 1500);
           });

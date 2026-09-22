@@ -1,7 +1,8 @@
 // The facelet permutations behind the move reader, checked against cubejs.
 import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
-import { applyMove, applySeq, canonicalSeqs, invertMove, MOVES, parseAlg, SOLVED } from '../src/moves/moves';
+import { applyMove, applySeq, canonicalSeqs, invertMove, MOVES, parseAlg } from '../src/moves/moves';
+import { SOLVED } from '../src/cube/state';
 
 describe('moves', () => {
   it('every face turn agrees with cubejs on random states', () => {

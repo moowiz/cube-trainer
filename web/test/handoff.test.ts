@@ -5,8 +5,8 @@ import { randomScramble, scrambleState } from '../src/scramble';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../src/types';
 import type { ColorName, FaceId } from '../src/types';
 import { makeLcg } from './helpers';
+import { SOLVED } from '../src/cube/state';
 
-const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const mapLetters = (s: string, map: Record<FaceId, FaceId>) => [...s].map((c) => map[c as FaceId]).join('');
 
 /** The whole-cube rotation (as cubejs x/y/z moves) that realises a letter map: solved, rotated, relabelled is solved again. */

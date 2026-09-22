@@ -21,6 +21,7 @@
 
 import type { Vec } from '../cube/fto';
 import { orbit, renderPolys, type Poly, type View } from '../cube/render';
+import { ensureStyle } from '../ui/dom';
 
 /**
  * One move of an alg, geometric enough to animate: an axis/angle turn and the sticker positions it carries.
@@ -65,13 +66,9 @@ const STYLE = `
   .p3d-alg .tok.done { color: var(--ink-2); opacity: .55; }
   .p3d-alg .tok.now { background: var(--ink); color: var(--bg); }
 `;
-function ensureStyle(): void {
-  if (document.getElementById('p3d-style')) return;
-  const el = document.createElement('style'); el.id = 'p3d-style'; el.textContent = STYLE; document.head.appendChild(el);
-}
 
 export function mountPlayer<S>(host: HTMLElement, a: Animatable<S>): { destroy(): void } {
-  ensureStyle();
+  ensureStyle('p3d-style', STYLE);
   const ops = a.ops;
   const scene: { state: S; rots: { axis: Vec; angle: number }[]; anim?: { op: AnimOp; k: number } } = { state: a.start, rots: [] };
   let i = 0; // ops committed so far

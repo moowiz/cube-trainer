@@ -6,6 +6,7 @@ import { type Vec } from '../cube/geometry';
 import { faceHex } from '../cube/scheme';
 import { type LLKind } from './cases';
 import { pllArrows } from './model';
+import { ensureStyle } from '../ui/dom';
 
 // top-view layout: the U face reads U1..U9 back-left to front-right; the side strips read left to right
 // (back: B3 B2 B1, front: F1 F2 F3) or back to front (left: L1 L2 L3, right: R3 R2 R1) in Kociemba indices
@@ -19,8 +20,7 @@ const STYLE = `
   .ll-pic rect { stroke: #2b3340; stroke-width: 1.2; }
 `;
 export function ensurePicStyle(): void {
-  if (document.getElementById('ll-pic-style')) return;
-  const s = document.createElement('style'); s.id = 'll-pic-style'; s.textContent = STYLE; document.head.appendChild(s);
+  ensureStyle('ll-pic-style', STYLE);
 }
 
 /** The inner SVG (viewBox 0 0 200 200) for the facelet string `f`: the picture, and for PLL the arrows. */

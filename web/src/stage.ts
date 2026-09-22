@@ -2,6 +2,7 @@
 // string, with the piece tables of cube/pieces.ts.
 
 import { CORNER_POS, EDGE_POS, cubieSolved, eoCoord } from './cube/pieces';
+import { SOLVED } from './cube/state';
 //
 // `facelets` must already be in the TRAINER's frame: white is D, the EO
 // axis is F/B. Centres are in place, so a letter is a colour.
@@ -21,7 +22,6 @@ export interface StageReport {
 }
 
 
-const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 // the white edges' slots (DF DR DB DL) and, per F2L slot, the middle-layer edge and the white corner under it
 const CROSS = [4, 5, 6, 7];
 const SLOTS: { edge: number; corner: number }[] = [

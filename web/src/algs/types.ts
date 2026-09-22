@@ -4,7 +4,8 @@
 // the claim each case makes about what it touches, so a typo in an alg
 // cannot ship as a "parity" that scrambles the cube.
 
-export type PuzzleId = '333' | '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
+// not store/types.ts's PuzzleId (WCA / csTimer codes: 'pyram', 'minx'): these name the sheet's sections
+export type AlgPuzzleId = '333' | '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
 
 /** What an NxN or FTO alg is allowed to change on a solved puzzle (checked by test). */
 export interface Check {
@@ -49,7 +50,7 @@ interface AlgSection {
 }
 
 export interface Puzzle {
-  id: PuzzleId;
+  id: AlgPuzzleId;
   /** the tab label */
   name: string;
   /** cubes: the layer count; the pictures and the checks exist only for these */

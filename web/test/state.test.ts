@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Cube from 'cubejs';
 import { solveState, validateState } from '../src/state';
+import { SOLVED } from '../src/cube/state';
 
 // scrambledFacelets() below calls Cube.scramble(), which (per cubejs) solves
 // internally to build a scramble — it needs the solver tables just like
@@ -9,7 +10,6 @@ Cube.initSolver();
 
 // ---------- helpers ----------
 
-const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 
 function scrambledFacelets(): string {
   const cube = new Cube();

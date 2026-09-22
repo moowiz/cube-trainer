@@ -10,11 +10,10 @@
 // are the ones the tracker keeps between algs.
 
 /// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
 import { FACE_MOVES, inverse, mergeMoves, movesStr, tokens, type Move } from '../cube/alg';
 import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';
-import { SOLVED, state } from '../cube/state';
+import { SOLVED, state, stepStates } from '../cube/state';
 import { randomScramble } from '../scramble';
 import { stageOf } from '../stage';
 import { DATA, type CornerOrient, type F2LCase, type LookupHit, type SlotName } from './data';
@@ -177,13 +176,6 @@ export function genF2L(rnd: () => number = Math.random): string {
 
 // ---- following an alg move by move (absolute space) -------------------------------------------
 
-/** Facelets after each token of `toks` applied in turn to `start`, centres moving with wide moves. */
-// TODO(shared): belongs in cube/state.ts as applying an alg to a facelet string
-function stepStates(start: string, toks: readonly string[]): string[] {
-  const c = Cube.fromString(start);
-  return toks.map((t) => c.move(t).asString());
-}
-
 const CROSS_POS: readonly Vec[] = [[0, -1, 1], [1, -1, 0], [0, -1, -1], [-1, -1, 0]];
 const cornerPos = (f: string, slot: SlotName) => findCorner(f, `D${slot}`, 'D').pos;
 const edgePos = (f: string, slot: SlotName) => EDGE_POS[findEdge(f, slot)];
@@ -207,7 +199,7 @@ const POP: Record<SlotName, string> = { FR: "R U' R' / R U R'", FL: "L' U L / L'
  */
 export function borrowedSlots(slot: SlotName, alg: string, occ: ReadonlySet<string>): SlotName[] {
   const seen = new Set<SlotName>();
-  for (const f of stepStates(SOLVED, algTokens(alg))) {
+  for (const f of stepStates(SOLVED, normalizeAlg(alg))) {
     for (const s of SLOTS) if (s !== slot && !occ.has(s) && liftedU(f, s)) seen.add(s);
   }
   const end = state(normalizeAlg(alg));
@@ -300,7 +292,7 @@ export function trace(slot: SlotName, full: string): Trace {
   const { edge: ePos, corner: cPos } = slotPositions(slot);
   const cId = ['D', ...slot].sort().join(''), eId = [...slot].sort().join('');
   const start = state(invert(full));
-  const states = [start, ...stepStates(start, toks)];
+  const states = [start, ...stepStates(start, toks.join(' '))];
   const snaps = states.map(pieceMap);
   const snap = (f: string) => {
     const c = findCorner(f, `D${slot}`, 'D');

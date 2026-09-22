@@ -25,6 +25,7 @@ import { mountGraph, type GraphData } from './graph';
 import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
+import { ensureStyle, scoped } from '../ui/dom';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
@@ -104,9 +105,7 @@ export function moveHtml(m: string): string {
 }
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
-  if (!document.getElementById('timer-style')) {
-    const s = document.createElement('style'); s.id = 'timer-style'; s.textContent = STYLE; document.head.appendChild(s);
-  }
+  ensureStyle('timer-style', STYLE);
   const settings: Settings = { autonext: 'on', beep: 'on' };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
@@ -134,11 +133,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       <ol class="tm-list" id="tm-list"></ol>
       <div class="tm-more" id="tm-more" hidden><button class="btn eo-link" type="button" id="tm-moreBtn">Show all</button></div>
     </div>`;
-  const $ = (n: string): HTMLElement => {
-    const e = document.getElementById(`tm-${n}`);
-    if (!e) throw new Error(`timer has no #tm-${n}`);
-    return e;
-  };
+  const $ = scoped(root, (n) => `#tm-${n}`, 'timer');
 
   // ---- the scramble ----
   let scramble = '';                        // WCA notation
