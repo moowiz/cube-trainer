@@ -22,14 +22,16 @@ function stickers(n: number, state: string): { face: Face; x: number; y: number;
   return out;
 }
 
+/** The top view's cell pitch: the picture is 200 wide with a 4 pad and `rows` strips of 14 (12 when deeper) plus a 4 gap on each side. */
+export const TOP_CELL = (n: number, rows: number): number => (200 - 2 * (4 + rows * (rows === 1 ? 14 : 12) + 4)) / n;
+
 /**
  * The top view: the top face n×n in the middle, and `rows` rows of each side around it (row 0 nearest the top
  * face). The front is at the bottom of the picture, so the left strip is the left face and the back strip
  * reads left to right as the cube's left to right.
  */
 export function picTop(n: number, state: string, rows = 1): string {
-  const pad = 4, t = rows === 1 ? 14 : 12, gap = 4;
-  const strip = rows * t + gap, size = 200 - 2 * (pad + strip), cell = size / n, o = pad + strip;
+  const cell = TOP_CELL(n, rows), o = (200 - n * cell) / 2, size = n * cell, t = rows === 1 ? 14 : 12, gap = 4;
   let out = '';
   for (const s of stickers(n, state)) {
     const row = n - 1 - s.y; // 0 = the top layer, for the side strips
