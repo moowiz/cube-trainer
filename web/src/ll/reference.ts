@@ -35,8 +35,9 @@ const STYLE = `
   .llr-chains { font-size: 13px; color: var(--ink-2); margin: 0 0 12px; }
   .llr-chains b { color: var(--ink); font-weight: 600; }
   .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; }
-  .llr-case { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
-  .llr-case:hover { background: #fff; }
+  .llr-case { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-align: left; font: inherit; color: inherit; }
+  .llr-drill { font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); cursor: pointer; }
+  .llr-drill:hover { border-color: var(--ink); }
   .llr-head { display: flex; align-items: center; gap: 10px; }
   .llr-head .ll-pic { width: 64px; flex: none; }
   .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
@@ -133,8 +134,8 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   if (!panel || !head || !sub) throw new Error('index.html is missing the reference sheet');
   head.textContent = `${TITLE[kind]}: the ${CASES[kind].length} cases`;
   sub.textContent = kind === 'pll'
-    ? 'The arrows show where each piece goes. Tap a case to drill it, star an alg to make it the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.'
-    : 'Each case as it looks from the front, any permutation. Tap a case to drill it, star an alg to make it the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.';
+    ? 'The arrows show where each piece goes. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.'
+    : 'Each case as it looks from the front, any permutation. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.';
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();
@@ -168,7 +169,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
         const star = (alg: string, on: boolean) => `<button type="button" class="llr-fav${on ? ' on' : ''}" data-fav="${esc(alg)}" title="${on ? 'This is the alg the drill uses (tap for the standard one)' : 'Make this the alg the drill uses'}">${on ? '★' : '☆'}</button>`;
         const chain = !p ? '' : `<span class="llr-chain" title="${p.id === c.id ? 'The alg again solves it' : 'After the alg, that is the case on the cube'}">${p.id === c.id ? '↻ itself' : `↔ ${esc(p.name)}`}</span>`;
         const alts = c.alts ?? [];
-        return `<div class="llr-case" data-id="${esc(c.id)}" role="button" tabindex="0">
+        return `<div class="llr-case" data-id="${esc(c.id)}">
           <div class="llr-head">
             <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
             <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small>${isFavourite(kind, c.id) ? '<small>your pick</small>' : ''}</div>
@@ -177,7 +178,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
           <div class="llr-alg">${algHtml(c.alg)}${alts.length ? star(c.alg, true) : ''}</div>
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
           ${alts.length ? `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}</details>` : ''}
-          <div class="llr-foot"><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
+          <div class="llr-foot"><button type="button" class="llr-drill" data-drill="${esc(c.id)}">Drill this case</button><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
           <div class="llr-player"></div>
         </div>`;
       }).join('')}</div>`;
@@ -220,15 +221,14 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
       if (setFavourite(kind, id, fav.classList.contains('on') ? null : fav.dataset.fav!)) { feat = feats(); draw(); changed?.(); }
       return;
     }
-    if (t.closest('.llr-player')) return; // the player's own controls
-    const b = t.closest<HTMLElement>('.llr-case');
-    if (!b) return;
-    const c = CASES[kind].find((x) => x.id === b.dataset.id);
+    // Drill this case: everything else in the card (a star, the other-algs fold, the player) is its own control
+    const go = t.closest<HTMLElement>('[data-drill]');
+    if (!go) return;
+    const c = CASES[kind].find((x) => x.id === go.dataset.drill);
     if (!c) return;
     closeSheet('ref-sheet');
     drill(inverse(c.alg));
   };
-  panel.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && (e.target as HTMLElement).classList.contains('llr-case')) { e.preventDefault(); (e.target as HTMLElement).click(); } };
   if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) draw(); }); }
   // a favourite from another device while the sheet is up: redrawn (the case list is whatever the table says)
   if (!favsHooked) { favsHooked = true; onFavsChange(() => { if (!document.getElementById('ref-sheet')!.hidden) { feat = feats(); draw(); } }); }
