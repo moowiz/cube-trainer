@@ -1,14 +1,11 @@
 // Debug drawing for the anonymous-quad detector (M4 center-v1 head).
 //
 // CLAUDE.md: "Debug views are first-class. When adding a processing step, add
-// a way to see its output in the debug panel." The center head adds three
-// things worth seeing — the face-center heatmap the peaks come from, the raw
-// quads before anything named them, and the color exemplars the naming
-// compares against — so each gets a drawing here, shared by the scan page
-// and the self-test rather than copy-pasted around.
+// a way to see its output in the debug panel." The center head adds two
+// things worth seeing — the face-center heatmap the peaks come from, and the
+// raw quads as the model produced them — so each gets a drawing here, shared
+// by the scan page and the self-test rather than copy-pasted around.
 import type { HeatMap } from '../detect/facekp';
-import type { CenterExemplars } from '../detect/identify';
-import { FACE_ORDER } from '../types';
 
 /**
  * Stage 1's box (solid, with its objectness) and the padded ROI stage 2 was
@@ -95,21 +92,4 @@ export function drawQuad(
     ctx.fillText(label, corners[0]![0] + 6, corners[0]![1] + 16);
   }
   ctx.restore();
-}
-
-/**
- * Six swatches showing the center color the namer currently believes in.
- * A dashed, faded swatch is still the DEFAULT_SCHEME_HEX prior; a solid one
- * has been measured off a real center, which is the state the scheme is
- * supposed to reach within a few seconds of scanning.
- */
-export function exemplarSwatches(host: HTMLElement, exemplars: CenterExemplars): void {
-  const sw = exemplars.swatches();
-  const sig = FACE_ORDER.map((f) => `${f}${sw[f].css}${sw[f].measured ? '1' : '0'}`).join('|');
-  if (host.dataset.sig === sig) return;   // DOM churn every frame is not free
-  host.dataset.sig = sig;
-  host.innerHTML = FACE_ORDER
-    .map((f) => `<span class="sc-sw${sw[f].measured ? '' : ' sc-seed'}" style="background:${sw[f].css}"
-                  title="${sw[f].measured ? 'measured center' : 'default-scheme prior'}">${f}</span>`)
-    .join('');
 }

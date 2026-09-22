@@ -48,13 +48,13 @@ import { DEFAULT_PARAMS } from '../colour/solve';
 import type { EvidenceLog, Solution } from '../colour/types';
 import { ensureCrossOriginIsolated } from '../detect/coi';
 import type { Ep } from '../detect/facekp';
-import { drawHeatmap, drawQuad, drawStage1, exemplarSwatches } from '../debug/detect-overlay';
-import { captureDebug, renderCellReadout, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
+import { drawHeatmap, drawQuad, drawStage1 } from '../debug/detect-overlay';
+import { captureDebug, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
 import { installDetectSelfTest } from '../debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/models';
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
 import { QuadTracker, type QuadDetection, type TrackedQuad } from '../detect/tracker';
-import { OBSCURED_REASON, TOO_SMALL_REASON } from '../detect/identify';
+import { TOO_SMALL_REASON } from '../detect/quality';
 import { HintState, hintFor } from './hint';
 import { matchSharedEdge } from '../detect/orient';
 import { mapUV, squareToQuad } from '../rectify';
@@ -177,7 +177,7 @@ const LIVE_POS_ALPHA = 0.55;
 // Which controls survive a refresh (values only; 'change' is dispatched at
 // the end of mount, once every listener is attached). The exposure select
 // is not among them: its options are per camera.
-const PERSISTED = ['pauseOnLock', 'followChk', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 'refusedChk', 'heat', 'stage2off', 'cellsChk', 'exChk', 'samplesChk', 'debug'] as const;
+const PERSISTED = ['pauseOnLock', 'followChk', 'ep', 'every', 'sync', 'stage1', 'labelsChk', 'refusedChk', 'heat', 'stage2off', 'exChk', 'samplesChk', 'debug'] as const;
 
 const TEMPLATE = `
   <div class="sc-wrap">
@@ -241,15 +241,12 @@ const TEMPLATE = `
             <label class="sc-heatLbl" hidden><input type="checkbox" class="sc-heat"> heatmap</label>
             <label><input type="checkbox" class="sc-stage2off"> stage 2 off (localizer only)</label>
             <select class="sc-exposure" title="Exposure: the app steers the camera toward well-exposed stickers (peak/clip in the stats line), or hold a setting by hand"><option value="loop">exposure: app-controlled</option><option value="auto">exposure: camera auto</option></select>
-            <label class="sc-cellsLbl" hidden><input type="checkbox" class="sc-cellsChk"> per-sticker readout</label>
             <label><input type="checkbox" class="sc-exChk"> solver</label>
             <label><input type="checkbox" class="sc-samplesChk"> sample patches</label>
             <button class="sc-capture" disabled title="Download the evidence log (every reading and pairing of this session), the solution, and the last ${TICK_HISTORY} ticks as JSON, plus the raw frame">Capture debug</button>
           </div>
           <div class="sc-msg"></div>
-          <div class="sc-swatches" hidden></div>
-          <div class="sc-exemplars" hidden></div>
-          <div class="sc-cells sc-grids"></div>
+          <div class="sc-solverOut" hidden></div>
           <pre class="sc-movesTrace" title="The move reader's last frames: faces anchored (letter, g = face from geometry, . , ? = rotation from pairing / fit / free, digit = reliability in ninths), total reading weight, pre-vetoed cells, fit (mean cost per unit weight of the leader; over 2.5 = unexplained), cost margin to the runner-up state, burst depth tried, candidates scored, ms, the frame's chroma shift and inlier share, and the turns the leader took to reach this frame"></pre>
         </details>
       </aside>
@@ -341,8 +338,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   }
   const hintEl = $('hint');
   const msgEl = $('msg');
-  const swatchEl = $('swatches');
-  const cellsEl = $('cells');
   const startBtn = $<HTMLButtonElement>('start');
   const saveBtn = $<HTMLButtonElement>('save');
   const captureBtn = $<HTMLButtonElement>('capture');
@@ -353,14 +348,13 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   const heatChk = $<HTMLInputElement>('heat');
   const stage2Off = $<HTMLInputElement>('stage2off');
   const exposureSel = $<HTMLSelectElement>('exposure');
-  const cellsChk = $<HTMLInputElement>('cellsChk');
   const exChk = $<HTMLInputElement>('exChk');
   const samplesChk = $<HTMLInputElement>('samplesChk');
   const labelsChk = $<HTMLInputElement>('labelsChk');
   const refusedChk = $<HTMLInputElement>('refusedChk');
   const pauseBtn = $<HTMLButtonElement>('pause');
   const attemptEl = $('attempt');
-  const exEl = $('exemplars');
+  const solverEl = $('solverOut');
   const pauseOnLockChk = $<HTMLInputElement>('pauseOnLock');
   const followChk = $<HTMLInputElement>('followChk');
 
@@ -495,8 +489,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     statusEl.textContent = `model ready: ${describeModels(models)}`;
     const anon = models.detector.anonymous;
     $('heatLbl').hidden = !anon;
-    $('cellsLbl').hidden = !anon;
-    swatchEl.hidden = !anon;
     return outcome;
   }
 
@@ -696,8 +688,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     if (lastTick?.result?.heat && heatChk.checked) drawHeatmap(ctx, lastTick.result.heat);
     if (lastTick && stageChk.checked) drawStage1(ctx, lastTick.box?.box ?? null, lastTick.roi, lastTick.obj);
     if (lastTick?.result && refusedChk.checked) {
-      for (const u of lastTick.result.unnamed) {
-        if (!isQualityRefusal(u.reason)) continue;
+      for (const u of lastTick.result.refused) {
         const tooSmall = u.reason.startsWith(TOO_SMALL_REASON);
         drawQuad(ctx, u.quad.corners, tooSmall ? '#d98a1f' : '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5, tooSmall);
       }
@@ -716,21 +707,16 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     }
   }
 
-  /** A refusal about the sample itself (not about naming): the quad is tracked but must not vote this tick. */
-  function isQualityRefusal(reason: string): boolean {
-    return reason.startsWith(TOO_SMALL_REASON) || reason === 'too dark' || reason.startsWith('glare') || reason.startsWith(OBSCURED_REASON);
-  }
-
   /** Live solver table: the palette, the face groups, and the certificates. */
   function renderSolver(): void {
     const sol = locked ?? solution;
-    if (!sol) { exEl.textContent = 'no solution yet'; return; }
+    if (!sol) { solverEl.textContent = 'no solution yet'; return; }
     const pal = sol.palette.lab.map((l, c) => `colour ${c} ${(sol.colourLetter[c] ? DEFAULT_SCHEME_NAMES[sol.colourLetter[c]!] : '?').padEnd(7)} `
       + (l ? `L ${l.L.toFixed(0).padStart(3)} a ${l.a.toFixed(0).padStart(4)} b ${l.b.toFixed(0).padStart(4)}` : 'empty') + `  sigma ${sol.palette.sigma[c]!.toFixed(1)}`);
     const groups = sol.groups.map((g) => `group ${g.id} ${(g.letter ?? '-').padEnd(2)} evidence ${g.nEff.toFixed(0).padStart(4)}  rot ${g.absRotation ?? '?'}  tracks ${g.tracks.map((t) => `#${t}${g.rotation.get(t) ? `+${g.rotation.get(t)}` : ''}`).join(' ')}`);
     const naming = sol.naming ? `names ${sol.naming.names.map((n, c) => `${c}:${n ?? '-'}`).join(' ')}${sol.naming.hinted ? ' (from decoded centres)' : ''}\n`
       + `letter maps ${sol.naming.top.map((t) => `${t.letters} pen ${t.penalty} mis ${t.mismatches}`).join(' | ')}` : '';
-    exEl.textContent = [...pal, '', ...groups, '', naming, '', `${sol.reason} - ${sol.embedding} - solve ${sol.ms.toFixed(0)} ms - frames ${log.frames} quads ${log.quads.length} pairings ${log.pairings.length}`].join('\n');
+    solverEl.textContent = [...pal, '', ...groups, '', naming, '', `${sol.reason} - ${sol.embedding} - solve ${sol.ms.toFixed(0)} ms - frames ${log.frames} quads ${log.quads.length} pairings ${log.pairings.length}`].join('\n');
   }
 
   let renderedSolution: Solution | null = null;
@@ -956,7 +942,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
             arrivals.push({ frame: head.index, ts: head.ts, tick: t, dets: (t.result?.quads ?? []).map((q) => ({ corners: q.corners, conf: q.conf })) });
             tickHistory.push(summarizeTick(Date.now(), t.obj, t.result));
             if (tickHistory.length > TICK_HISTORY) tickHistory.shift();
-            if (cellsChk.checked) renderCellReadout(cellsEl, t.result, m.detector.exemplars);
           } catch { /* transient failure: try again next cadence */ }
           inferBusy = false;
         })();
@@ -1100,7 +1085,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       drawOverlay(tracks);
       if (samplesChk.checked) drawSamplePatches();
       // Banner for refusals the user can fix (too far, too dark, glare).
-      const reasons = lastTick?.result?.unnamed.map((u) => u.reason).filter(isQualityRefusal) ?? [];
+      const reasons = lastTick?.result?.refused.map((u) => u.reason) ?? [];
       const dark = confident.length > 0 && !locked && peakEma < DARK_PEAK;
       const hint = hintState.update(hintFor(reasons, confident.length > 0, cubeTooSmall, noCube, dark), ts);
       // Cube-metered exposure: the camera's own metering weighs the whole
@@ -1124,7 +1109,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       fps.tick();
       if (ts - lastUiTs >= UI_EVERY_MS) {
         lastUiTs = ts;
-        if (m?.detector.anonymous) exemplarSwatches(swatchEl, m.detector.exemplars);
         if (exChk.checked) renderSolver();
         updateFillUI();
         const sol = locked ?? solution;
@@ -1414,7 +1398,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     solvedVersion = -1;
     solver.reset();
     pendingPairings.clear();
-    models?.detector.exemplars.reset();
     solved = false;
     lastTick = null;
     setPaused(false);
@@ -1486,8 +1469,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); })
       .finally(() => { captureOwed = false; }); // the log is written out: trimming may resume
   });
-  cellsChk.addEventListener('change', () => { if (!cellsChk.checked) cellsEl.textContent = ''; });
-  exChk.addEventListener('change', () => { exEl.hidden = !exChk.checked; });
+  exChk.addEventListener('change', () => { solverEl.hidden = !exChk.checked; });
 
   // Restored settings take effect through the same listeners a click would
   // use; the EP was already honoured by the initial load() above.

@@ -32,10 +32,12 @@ async function suggest(img: HTMLImageElement | HTMLCanvasElement): Promise<Label
   // Fresh exemplars per photo: each labeling photo is its own scene, the
   // scheme prior is the right starting point every time.
   models.detector.exemplars.reset();
-  const tick = await detectTwoStage(models.localizer, models.detector, c);
+  // the one caller that wants face identity out of the detector: a still photo, one shot, a
+  // human verifying every suggestion. The scan page never names on the detection tick.
+  const tick = await detectTwoStage(models.localizer, models.detector, c, { name: true });
   return {
     faces: (tick.result?.faces ?? []).map((f) => ({ face: f.face, conf: f.conf, corners: f.corners.map((p) => [p[0], p[1]]) })),
-    unnamed: tick.result?.unnamed.length ?? 0,
+    unnamed: tick.result?.refused.length ?? 0,
     obj: tick.obj,
   };
 }

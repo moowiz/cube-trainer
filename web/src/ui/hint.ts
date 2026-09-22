@@ -1,9 +1,9 @@
-// User-facing hint for a frame where the detector sees a cube but the namer
-// refuses every face. The refusal reasons already exist for the debug
-// overlay (identify.ts); this turns the dominant one into something a person
-// can act on. Pure so it can be tested without a camera.
+// User-facing hint for a frame where the detector sees a cube but every quad
+// is refused as unreadable. The reasons come from the quality checks the
+// detection tick runs (detect/quality.ts); this turns the dominant one into
+// something a person can act on. Pure so it can be tested without a camera.
 
-import { TOO_SMALL_REASON } from '../detect/identify';
+import { TOO_SMALL_REASON } from '../detect/quality';
 
 export interface Hint {
   key: 'closer' | 'light' | 'glare' | 'nocube';
@@ -19,7 +19,7 @@ const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: strin
 ];
 
 /**
- * Pick a hint from the refusal reasons of this frame's unnamed quads (or, with
+ * Pick a hint from the refusal reasons of this frame's refused quads (or, with
  * no quads, from the localizer: its box being too small, or it finding no
  * cube at all), or null when nothing actionable is happening. Majority reason
  * wins so a lone glare quad next to two too-small ones says "move closer".
@@ -30,9 +30,9 @@ const HINTS: { key: Hint['key']; match: (reason: string) => boolean; text: strin
  *
  * `evidenceDark` comes from the readings themselves (scan-main's running
  * median of the brightest channel of what is being sampled) and wins over
- * everything: the namer happily names a face read at RGB (40, 27, 14), and
- * the solver then spends a minute failing to find a legal cube in noise
- * (scan-debug-1789348371807) with no banner at all.
+ * everything: the per-face darkness test happily passes a face read at
+ * RGB (40, 27, 14), and the solver then spends a minute failing to find a
+ * legal cube in noise (scan-debug-1789348371807) with no banner at all.
  */
 export function hintFor(reasons: readonly string[], anyFaceNamed: boolean, cubeTooSmall = false,
                         noCube = false, evidenceDark = false): Hint | null {

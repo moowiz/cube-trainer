@@ -44,6 +44,8 @@ export async function detectTwoStage(
   localizer: CubeLocalizer,
   detector: FaceDetector,
   video: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
+  /** `name: true` also names the quads from their centres (the labeler only; see FaceDetector.detect). */
+  opts?: { name?: boolean },
 ): Promise<TwoStageResult> {
   const w = video instanceof HTMLVideoElement ? video.videoWidth : video.width;
   const h = video instanceof HTMLVideoElement ? video.videoHeight : video.height;
@@ -53,6 +55,6 @@ export async function detectTwoStage(
   const obj = localizer.lastObj;
   if (!box) return { result: null, box: null, roi: null, obj, locateMs };
   const roi = padBox(box.box, CROP_PAD, w, h);
-  const result = await detector.detect(video, roi);
+  const result = await detector.detect(video, roi, opts);
   return { result, box, roi, obj, locateMs };
 }

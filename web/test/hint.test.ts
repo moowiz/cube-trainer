@@ -1,6 +1,6 @@
 // Actionable hints from namer refusals (web/src/ui/hint.ts).
 import { describe, expect, it } from 'vitest';
-import { TOO_SMALL_REASON } from '../src/detect/identify';
+import { TOO_SMALL_REASON } from '../src/detect/quality';
 import { HintState, hintFor } from '../src/ui/hint';
 
 const small = `${TOO_SMALL_REASON} (24px edge, need 32)`;

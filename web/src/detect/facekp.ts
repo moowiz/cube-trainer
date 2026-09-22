@@ -32,6 +32,7 @@ import { FACE_ORDER } from '../types';
 import type { ImageDataLike } from '../rectify';
 import { letterbox, type Box } from './geometry';
 import { CenterExemplars, nameQuads, type NamedQuad } from './identify';
+import { quadsQuality } from './quality';
 
 interface DetectedFace {
   face: FaceId;
@@ -60,19 +61,22 @@ export interface HeatMap {
 }
 
 export interface DetectResult {
+  /** Named faces. Empty unless the caller asked for naming (`{ name: true }`): the app does not
+   *  name per tick - the colour solver decides identity off the detection path. */
   faces: DetectedFace[];
-  /** Anonymous quads as the model produced them, before naming (debug view). */
+  /** Anonymous quads as the model produced them (what the app tracks). */
   quads: DetectedQuad[];
   /** center-v1 only. */
   heat?: HeatMap;
-  /** Quads that were dropped by naming, with the reason (debug view). */
-  unnamed: { quad: DetectedQuad; reason: string }[];
-  /** center-v1 only: the naming result per quad, parallel to `quads`, with the
-   *  sampled cells and the exemplar ranking it decided from. Debug/capture. */
+  /** Quads that must not be read this tick, with the reason: a quality refusal (detect/quality.ts),
+   *  or a naming one when naming was asked for. The hint and the debug overlay read it. */
+  refused: { quad: DetectedQuad; reason: string }[];
+  /** Only when naming was asked for: the result per quad, parallel to `quads`, with the sampled
+   *  cells and the exemplar ranking it decided from (the labeler's debug view). */
   named?: NamedQuad[];
   /** Pure session.run time, ms. */
   inferMs: number;
-  /** Preprocess + run + decode (+ naming), ms. */
+  /** Preprocess + run + decode + the quality checks (+ naming when asked), ms. */
   totalMs: number;
 }
 
@@ -129,7 +133,7 @@ export class FaceDetector {
   readonly modelId: string;
   /** True when the deployed model was trained on crop-normalized views. */
   readonly cropTrained: boolean;
-  /** True for center-v1: the model emits unnamed quads, identify.ts names them. */
+  /** True for center-v1: the model emits anonymous quads; nothing on the detection tick names them. */
   readonly anonymous: boolean;
   /** wasm threads of the runtime hosting the session (1 without cross-origin isolation). */
   get threads(): number { return this.session.threads; }
@@ -220,10 +224,14 @@ export class FaceDetector {
   /**
    * Run one frame. Corner coords come back in the source's own pixel space.
    *
-   * For center-v1 the quads are decoded anonymously and then named from their
-   * center sticker color; quads that cannot be named (glare, too dark, two
-   * quads claiming one face, an impossible opposite pair) are dropped from
-   * `faces` but stay in `quads`/`unnamed` for the debug overlay.
+   * The quads are anonymous: every tick checks each one's QUALITY (too small, too dark, blown out,
+   * an obscured centre - detect/quality.ts) and says so in `refused`, which is what the user's hint
+   * and the debug overlay are made of. Identity is not decided here; the colour solver decides it
+   * from the evidence log, off this path.
+   *
+   * `opts.name` additionally runs the centre-sticker namer (identify.ts) and fills `faces` and
+   * `named`. Only the labeler's Suggest button asks for it (label-main.ts): naming a still photo
+   * from its centres is a different job from solving a cube's colours over many frames.
    */
   async detect(
     source: HTMLVideoElement | HTMLCanvasElement | ImageBitmap,
@@ -232,32 +240,35 @@ export class FaceDetector {
      *  mapped back to full-source coordinates. Only use with a crop-trained
      *  model (meta.cropTrained) - the fp32 base model degrades on crops. */
     roi?: [number, number, number, number],
+    opts?: { name?: boolean },
   ): Promise<DetectResult> {
     const run = await this.run(source, roi);
     if (!this.anonymous) return run.result;
 
-    // Name the quads from the letterboxed frame the model itself saw. It is
-    // already in hand (no second getImageData, no full-res read on the
-    // detector's cadence) and a center sticker is ~10-25 px across there -
-    // ample for one averaged patch. Full-resolution sampling still happens
-    // downstream, where per-sticker color actually has to be right.
-    // The size gate and sampling plan are decided in SOURCE px: the crop
-    // zooms every cube to about the same size in the letterboxed frame.
+    // Judged on the letterboxed frame the model itself saw: it is already in hand (no second
+    // getImageData, no full-res read on the detector's cadence) and a centre sticker is ~10-25 px
+    // across there. Full-resolution sampling still happens downstream, where per-sticker colour
+    // actually has to be right. The size gate and the sampling plan are decided in SOURCE px: the
+    // crop zooms every cube to about the same size in the letterboxed frame.
+    const geom = { srcPerPx: 1 / run.scale, sourceH: run.fullH };
+    if (!opts?.name) {
+      const refused: { quad: DetectedQuad; reason: string }[] = [];
+      quadsQuality(run.lbFrame, run.lbQuads, geom).forEach((q, i) => {
+        if (q.reason) refused.push({ quad: run.result.quads[i]!, reason: q.reason });
+      });
+      return { ...run.result, refused, totalMs: performance.now() - run.t0 };
+    }
     const named = nameQuads(run.lbFrame, run.lbQuads, this.exemplars,
-                            run.result.quads.map((q) => q.conf),
-                            { srcPerPx: 1 / run.scale, sourceH: run.fullH });
+                            run.result.quads.map((q) => q.conf), geom);
     const faces: DetectedFace[] = [];
-    const unnamed: { quad: DetectedQuad; reason: string }[] = [];
+    const refused: { quad: DetectedQuad; reason: string }[] = [];
     named.forEach((n: NamedQuad, i: number) => {
       const quad = run.result.quads[i]!;
       if (n.face) faces.push({ face: n.face, conf: quad.conf, corners: quad.corners, nameConf: n.nameConf });
-      else unnamed.push({ quad, reason: n.reason });
+      else refused.push({ quad, reason: n.reason });
     });
-    // `named` is parallel to `quads` and carries the evidence each naming
-    // decision was made from. Passing it straight through costs nothing (it is
-    // already built) and is the only way a debug view can show the numbers the
-    // app used rather than numbers something else recomputed.
-    return { ...run.result, faces, unnamed, named, totalMs: performance.now() - run.t0 };
+    // `named` is parallel to `quads` and carries the evidence each naming decision was made from.
+    return { ...run.result, faces, refused, named, totalMs: performance.now() - run.t0 };
   }
 
   /** Anonymous quads only - no color sampling, no naming. center-v1 only. */
@@ -338,7 +349,7 @@ export class FaceDetector {
         t0, scale, fullH,
         lbFrame: lbFrame as unknown as ImageDataLike,
         lbQuads: [] as [number, number][][],
-        result: { faces, quads, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
+        result: { faces, quads, refused: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
       };
     }
 
@@ -361,7 +372,7 @@ export class FaceDetector {
       t0, scale, fullH,
       lbFrame: lbFrame as unknown as ImageDataLike,
       lbQuads,
-      result: { faces: [], quads, heat, unnamed: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
+      result: { faces: [], quads, heat, refused: [], inferMs: t2 - t1, totalMs: performance.now() - t0 },
     };
   }
 

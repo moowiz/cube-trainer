@@ -50,12 +50,12 @@ export function installDetectSelfTest(host: SelfTestHost): void {
       return {
         ok: true, ep: m.detector.ep, offThread: m.detector.proxied, threads: m.detector.threads, avgMs: ms, fps: 1000 / ms,
         stage1: { obj: +last!.obj.toFixed(3), box: last!.box?.box.map((v) => Math.round(v)) ?? null },
-        faces: r?.faces.length ?? 0, quads: r?.quads.length ?? 0,
+        quads: r?.quads.length ?? 0, refused: r?.refused.length ?? 0,
         anonymous: m.detector.anonymous, model: `${m.localizer.modelId} -> ${m.detector.modelId}`,
         // enough to tell "this EP decoded nothing" from "this EP decoded
         // something different" without eyeballing an overlay
         scores: r?.quads.map((q) => +q.conf.toFixed(3)) ?? [],
-        names: r?.faces.map((f) => f.face) ?? [],
+        reasons: r?.refused.map((u) => u.reason) ?? [],
         corner0: r?.quads[0]?.corners.map((c) => c.map((v) => Math.round(v))),
       };
     };
