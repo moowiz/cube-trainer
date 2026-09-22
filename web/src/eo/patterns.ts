@@ -10,12 +10,12 @@ import { EDGE_SLOTS, SLOT_INDEX, applyEdgeMove, badOnFace, edgeMoveOf, type Edge
 import { eoDistance, type SolutionSet } from './solver';
 
 /** The four slots no F/B turn touches: a bad edge there always costs a side move. */
-export const OFF_AXIS: readonly number[] = ['UR', 'UL', 'DR', 'DL'].map((n) => SLOT_INDEX[n]);
+const OFF_AXIS: readonly number[] = ['UR', 'UL', 'DR', 'DL'].map((n) => SLOT_INDEX[n]);
 /** A front edge and the back edge straight behind it on the same side face: moving one onto a face kicks the other off. */
-export const ACROSS: readonly [number, number][] = [['UF', 'UB'], ['DF', 'DB'], ['FR', 'BR'], ['FL', 'BL']].map(([a, b]) => [SLOT_INDEX[a], SLOT_INDEX[b]]);
+const ACROSS: readonly [number, number][] = [['UF', 'UB'], ['DF', 'DB'], ['FR', 'BR'], ['FL', 'BL']].map(([a, b]) => [SLOT_INDEX[a], SLOT_INDEX[b]]);
 
-export interface Plan { key: string; counts: number[]; n: number }
-export interface FaceCheck { face: 'F' | 'B'; bad: number; extra: number }
+interface Plan { key: string; counts: number[]; n: number }
+interface FaceCheck { face: 'F' | 'B'; bad: number; extra: number }
 
 export interface EoReading {
   bad: number;
@@ -39,7 +39,7 @@ const popcount = (v: number): number => { let n = 0; for (let x = v; x; x &= x -
 const badAt = (st: EdgeState, slot: number): boolean => ((st.eo >> slot) & 1) === 1;
 
 /** Bad edges on the face at each F/B quarter turn of a solution. */
-export function planCounts(start: EdgeState, sol: readonly Move[]): number[] {
+function planCounts(start: EdgeState, sol: readonly Move[]): number[] {
   const counts: number[] = [];
   let st = start;
   for (const m of sol) {

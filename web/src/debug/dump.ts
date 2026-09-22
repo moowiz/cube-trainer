@@ -36,7 +36,7 @@ export function summarizeTick(t: number, obj: number, res: DetectResult | null):
   };
 }
 
-export function downloadBlob(blob: Blob, name: string): void {
+function downloadBlob(blob: Blob, name: string): void {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -47,12 +47,12 @@ export function downloadBlob(blob: Blob, name: string): void {
 /** A frame source: the live video, or a frozen frame from the scan page's ring. */
 export type FrameSource = HTMLVideoElement | HTMLCanvasElement;
 
-export function frameDims(src: FrameSource): { w: number; h: number } {
+function frameDims(src: FrameSource): { w: number; h: number } {
   return src instanceof HTMLVideoElement ? { w: src.videoWidth, h: src.videoHeight } : { w: src.width, h: src.height };
 }
 
 /** The frame as a clean PNG (no overlay). */
-export function rawFrameBlob(video: FrameSource): Promise<Blob | null> {
+function rawFrameBlob(video: FrameSource): Promise<Blob | null> {
   const c = document.createElement('canvas');
   const { w, h } = frameDims(video);
   c.width = w;
@@ -71,7 +71,7 @@ export async function saveRawFrame(video: FrameSource, prefix: string, stamp = D
   return name;
 }
 
-export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; d: number; second: number } {
+function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; d: number; second: number } {
   const ranked = FACE_ORDER
     .map((f) => ({ f, d: exemplars.distance(lab, f) }))
     .sort((a, b) => a.d - b.d);
@@ -79,7 +79,7 @@ export function cellPick(lab: Lab, exemplars: CenterExemplars): { face: FaceId; 
 }
 
 /** Everything the naming layer saw for this detection, as a plain object. */
-export function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
+function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
                               history: readonly TickSummary[] = [], extra: Record<string, unknown> = {}): unknown {
   const ex = detector.exemplars;
   return {

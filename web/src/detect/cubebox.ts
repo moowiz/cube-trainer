@@ -113,5 +113,3 @@ export function decodeBox(y: ArrayLike<number>, iw: number, ih: number, lb: Lett
   const [x1, y1] = lb.toSource(cx + w / 2, cy + h / 2);
   return { obj, box: [x0, y0, x1, y1] };
 }
-
-export { padBox } from './geometry';

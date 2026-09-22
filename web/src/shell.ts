@@ -5,7 +5,7 @@
 import { FRONT_OPTIONS, faceColorName, frontIndex, setFrontIndex } from './cube/scheme';
 import type { ColorName, FaceId } from './types';
 
-export const TABS = ['solve', 'eo', 'f2l', 'ocll', 'pll'] as const;
+const TABS = ['solve', 'eo', 'f2l', 'ocll', 'pll'] as const;
 export type Tab = (typeof TABS)[number];
 
 /** What every stage offers the shell. Scrambles are in the trainer frame (white down, chosen colour front). */
@@ -35,7 +35,7 @@ export const stages: Partial<Record<Tab, Stage>> = {};
 let shared: string | null = null;
 let ready = false; // initShell() done: until then every tab is making its first scramble, and none of those is the cube
 /** The scramble every tab shows, trainer frame; null before the first one. */
-export function sharedScramble(): string | null { return shared; }
+function sharedScramble(): string | null { return shared; }
 /**
  * Give `scramble` to every tab but `from` (the one that already has it; null: all of them). A tab that
  * is not the one open (its first scramble at mount, the Solve tab's first one arriving later) keeps it
@@ -110,12 +110,12 @@ export function closeScan(): void {
   closeSheet('scan-sheet');
   scanHooks.onClose();
 }
-export function resumeScan(): void { openScan({ keep: true }); }
+function resumeScan(): void { openScan({ keep: true }); }
 
 /** The algs sheet fills this in: draw the chosen puzzle's algs when the sheet opens. */
 export const algsHooks: { onOpen(): void } = { onOpen: () => undefined };
 /** Open the algs sheet (the other puzzles' cheat sheet). */
-export function openAlgs(): void {
+function openAlgs(): void {
   openSheet('algs-sheet');
   algsHooks.onOpen();
 }
@@ -128,7 +128,7 @@ export function dockScan(on: boolean): void {
   document.body.style.overflow = sheetOpen() ? 'hidden' : '';
   scanHooks.onDock(on);
 }
-export function scanDocked(): boolean { return !el('scan-sheet').hidden && el('scan-sheet').classList.contains('docked'); }
+function scanDocked(): boolean { return !el('scan-sheet').hidden && el('scan-sheet').classList.contains('docked'); }
 /** Show the Resume button once there is a scan to come back to. */
 export function scanStarted(): void { el('scan-resume').hidden = false; }
 

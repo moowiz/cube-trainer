@@ -76,7 +76,7 @@ interface Track {
   stateAgeMs: number;      // since the last measurement's FRAME (= sinceDetectMs + its lag)
 }
 
-export function centroid(pts: ReadonlyArray<readonly [number, number]>): [number, number] {
+function centroid(pts: ReadonlyArray<readonly [number, number]>): [number, number] {
   let x = 0;
   let y = 0;
   for (const [px, py] of pts) {
@@ -87,7 +87,7 @@ export function centroid(pts: ReadonlyArray<readonly [number, number]>): [number
 }
 
 // Shoelace formula, unsigned area of the (assumed simple) quad.
-export function quadArea(pts: ReadonlyArray<readonly [number, number]>): number {
+function quadArea(pts: ReadonlyArray<readonly [number, number]>): number {
   let sum = 0;
   for (let i = 0; i < pts.length; i++) {
     const [x1, y1] = pts[i]!;

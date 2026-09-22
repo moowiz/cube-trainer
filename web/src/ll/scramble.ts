@@ -217,7 +217,7 @@ function searchG1(st: { cp: number; ep: number; sl: number }, maxDepth: number, 
  * state is not in G1. Equal-length solutions are tried in a random order, so the same case does
  * not always draw the same one.
  */
-export function solveG1(facelets: string, rng: () => number = Math.random): string | null {
+function solveG1(facelets: string, rng: () => number = Math.random): string | null {
   const p = piecesOf(Cube.fromString(facelets));
   if (!inG1(p)) return null;
   const path = searchG1(coords2(p), 18, -1, shuffled(MOVES.length, rng));
@@ -274,6 +274,3 @@ export function solveAny(facelets: string, rng: () => number = Math.random): str
   }
   return found.best!.join(' '); // phase 1 finds a solution by depth 12 for any state, far inside the budget
 }
-
-/** Build the pruning tables ahead of the first solve (~100 ms for phase 2, a few hundred more for phase 1). */
-export function warmG1(): void { tables ??= buildTables(); tables1 ??= buildTables1(); }

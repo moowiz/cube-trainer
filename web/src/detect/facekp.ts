@@ -33,7 +33,7 @@ import type { ImageDataLike } from '../rectify';
 import { letterbox, type Box } from './geometry';
 import { CenterExemplars, nameQuads, type NamedQuad } from './identify';
 
-export interface DetectedFace {
+interface DetectedFace {
   face: FaceId;
   conf: number;
   /** TL,TR,BR,BL in the face's cubejs sticker orientation, source-image px. */
@@ -43,7 +43,7 @@ export interface DetectedFace {
 }
 
 /** A detection before it has a name. center-v1 produces these directly. */
-export interface DetectedQuad {
+interface DetectedQuad {
   conf: number;
   /** 4 corners, source-image px. Cyclic order, consistent winding, arbitrary start. */
   corners: [number, number][];

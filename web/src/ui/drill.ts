@@ -71,7 +71,7 @@ export interface DrillHandlers {
   onApply?(alg: string): void;
 }
 
-export interface Timer {
+interface Timer {
   running(): boolean;
   elapsed(): number | null;
   toggle(): void;
@@ -132,7 +132,7 @@ export interface Drill {
   attempt(text: string): { n: number; t: number | null; ts: string; source: 'typed' | 'cube' | 'camera'; recognition?: number; execution?: number };
 }
 
-export const STYLE = `
+const STYLE = `
   .drill { max-width: 560px; margin: 0 auto; }
   @media (min-width: 820px) {
     .drill { max-width: 1140px; display: grid; grid-template-columns: 340px 1fr; gap: 0 40px; align-items: start; }

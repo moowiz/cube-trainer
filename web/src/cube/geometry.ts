@@ -50,8 +50,3 @@ export function pieceType(p: Vec): 'corner' | 'edge' | 'center' {
 export function facesAt(p: Vec): number[] {
   return STICKERS.filter((s) => key(s.pos) === key(p)).map((s) => s.idx);
 }
-
-/** The face letter whose normal is `n`. */
-export function faceOfNormal(n: Vec): string {
-  return Object.keys(NORMAL).find((f) => key(NORMAL[f]) === key(n))!;
-}

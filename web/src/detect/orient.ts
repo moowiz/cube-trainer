@@ -183,7 +183,7 @@ export function identifyNeighbour(
 }
 
 /** Row-major cell indices along sticker-layout edge e (from layout corner e to e+1), in traversal order. */
-export const EDGE_CELLS: readonly (readonly number[])[] = [[0, 1, 2], [2, 5, 8], [8, 7, 6], [6, 3, 0]];
+const EDGE_CELLS: readonly (readonly number[])[] = [[0, 1, 2], [2, 5, 8], [8, 7, 6], [6, 3, 0]];
 
 const OPPOSITE: Record<FaceId, FaceId> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
 

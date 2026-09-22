@@ -30,7 +30,7 @@ export interface CornerState { pos: string; o: CornerOrient }
 export interface SlotState { corner: CornerState; edge: string }
 
 /** The slot's edge position and the corner position under it. */
-export function slotPositions(slot: SlotName): { edge: Vec; corner: Vec } {
+function slotPositions(slot: SlotName): { edge: Vec; corner: Vec } {
   const edge: Vec = [slot[1] === 'R' ? 1 : -1, 0, slot[0] === 'F' ? 1 : -1];
   return { edge, corner: [edge[0], -1, edge[2]] };
 }
@@ -55,7 +55,7 @@ export function normalizeAlg(alg: string): string {
     .map((t) => { const m = /^([A-Za-z])(w?)([2']*)$/.exec(t)!; const base = m[2] ? m[1].toLowerCase() : m[1]; return base + (m[3].includes('2') ? '2' : m[3]); })
     .join(' ');
 }
-export const algTokens = (alg: string): string[] => tokens(normalizeAlg(alg));
+const algTokens = (alg: string): string[] => tokens(normalizeAlg(alg));
 export const invert = (alg: string): string => inverse(normalizeAlg(alg));
 
 export function uCount(tok: string): number {
@@ -94,11 +94,6 @@ export function slotState(f: string, slot: SlotName): SlotState {
 export function slotSolved(f: string, slot: SlotName): boolean {
   const { edge, corner } = slotPositions(slot);
   return cubieSolved(f, edge) && cubieSolved(f, corner);
-}
-
-export function eoAndCrossDone(f: string): boolean {
-  const r = stageOf(f);
-  return r.eoBad === 0 && r.cross === 4;
 }
 
 export const lookupKey = (corner: CornerState, edge: string): string => `${corner.pos}-${corner.o}|${edge}`;
@@ -150,7 +145,7 @@ function crossTable(): Map<string, number> {
 }
 
 /** Moves in G that put the white edges back (greedy descent on the table). */
-export function crossFix(f: string): Move[] {
+function crossFix(f: string): Move[] {
   const dist = crossTable();
   let cur = edgeState(f);
   let d = dist.get(slotsKey(cur))!;
@@ -197,7 +192,7 @@ const liftedU = (f: string, slot: SlotName) => cornerPos(f, slot)[1] === 1 || ed
 const crossUp = (f: string) => ['DF', 'DR', 'DB', 'DL'].some((e) => EDGE_POS[findEdge(f, e)][1] === 1);
 const crossHome = (f: string) => CROSS_POS.every((p) => cubieSolved(f, p));
 
-export const INSERTS: Record<SlotName, [string, string][]> = {
+const INSERTS: Record<SlotName, [string, string][]> = {
   FR: [["R U R'", 'white on the right, edge at the back'], ["R U' R'", 'white on the front, edge on the right']],
   FL: [["L' U' L", 'white on the left, edge at the back'], ["L' U L", 'white on the front, edge on the left']],
   BR: [["R' U' R", 'white on the right, edge at the front'], ["R' U R", 'white on the back, edge on the right']],

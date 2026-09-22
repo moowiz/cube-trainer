@@ -12,7 +12,7 @@
 import type { Vec } from './fto';
 
 export type Face = 'U' | 'R' | 'F' | 'D' | 'L' | 'B';
-export const FACES: readonly Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
+const FACES: readonly Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 
 /** Solved n×n: each face's n·n letters in U R F D L B order. */
 export function solvedNxN(n: number): string {

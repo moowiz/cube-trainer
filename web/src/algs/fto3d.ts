@@ -6,8 +6,8 @@
 // in-progress move) to the polygons render.ts paints, so the composition
 // can be checked without a DOM. The play/step UI and animation loop live in
 // player.ts, generalised for the n×n cubes too (nxn3d.ts); ftoAnimatable
-// is this puzzle's adapter to that contract, and mountFtoPlayer is kept as
-// a one-line wrapper so any caller that only knows the FTO keeps working.
+// is this puzzle's adapter to that contract (mount it with player.ts's
+// mountPlayer, as the algs sheet does).
 //
 // The animation trick: a sticker's screen position is always its fixed
 // slot's geometry (STICKER_GEOM), rotated by the whole-puzzle turns done so
@@ -24,7 +24,7 @@
 
 import { applyOp, FTO_FACES, FTO_HEX, FTO_NORMAL, FTO_STICKERS, ftoOps, ftoPoint, inverseOp, rotate, type FtoFrame, type FtoOp, type FtoState, type Vec } from '../cube/fto';
 import type { Poly } from '../cube/render';
-import { mountPlayer, type Animatable, type AnimOp } from './player';
+import type { Animatable, AnimOp } from './player';
 
 export interface FtoScene {
   /** stickers in the START frame */
@@ -97,7 +97,3 @@ export function ftoAnimatable(alg: string, frame: FtoFrame, start: FtoState): An
   };
 }
 
-/** Mount a play/step viewer for `alg` (in `frame`'s notation) starting from `start`; returns a handle to tear it down. */
-export function mountFtoPlayer(host: HTMLElement, opts: { alg: string; frame: FtoFrame; start: FtoState }): { destroy(): void } {
-  return mountPlayer(host, ftoAnimatable(opts.alg, opts.frame, opts.start));
-}

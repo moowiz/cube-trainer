@@ -74,7 +74,7 @@ const FILTERS: Filter[] = [
 ];
 
 /** The tag line under a case: its cycle types and what its sides show, with counts. */
-export function tagLine(f: Features): string {
+function tagLine(f: Features): string {
   const sides = [f.sides.bar3 && `bar of three ×${f.sides.bar3}`, f.sides.headlights && `headlights ×${f.sides.headlights}`, f.sides.bar2 && `bar of two ×${f.sides.bar2}`, f.sides.none && `nothing ×${f.sides.none}`].filter(Boolean).join(', ');
   return `corners ${f.corners} · edges ${f.edges} · ${sides}`;
 }

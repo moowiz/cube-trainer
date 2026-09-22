@@ -396,7 +396,7 @@ export function solve(log: EvidenceLog, opts: SolveOptions = {}): Solution {
 // lock 8 of the 12 evidence fixtures, lab-crushed 5, lab-half 6; the union
 // of the first three covers every fixture any space locks, lab-half adds
 // none. Every fixture where two spaces lock has them agree on the cube.
-export const ENSEMBLE: Embedding[] = [LAB_NORM, LOGCHROMA, LAB_CRUSHED];
+const ENSEMBLE: Embedding[] = [LAB_NORM, LOGCHROMA, LAB_CRUSHED];
 
 export function solveBest(log: EvidenceLog, embeddings: readonly Embedding[] = ENSEMBLE, opts: Omit<SolveOptions, 'embedding'> = {}): Solution {
   const t0 = performance.now();

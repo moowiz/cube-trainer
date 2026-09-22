@@ -39,7 +39,7 @@ export interface AlgCase {
   source?: string;
 }
 
-export interface AlgSection {
+interface AlgSection {
   title: string;
   /** one or two sentences: when this section applies, what to know */
   blurb?: string;

@@ -36,7 +36,7 @@ export interface ReaderParams {
   marginMin: number;
 }
 
-export const DEFAULT_READER: ReaderParams = {
+const DEFAULT_READER: ReaderParams = {
   // DECISION: starting points; calibrated on test/moves-synthetic.test.ts
   // and the recorded solves. A true turn changes ~8 visible stickers at a
   // few nats each per frame, so 6 nats is under one frame of evidence;
@@ -385,7 +385,7 @@ export interface ReadOptions {
 }
 
 /** The log from `fromT` on as per-frame batches, in frame order. */
-export function frameBatches(log: EvidenceLog, fromT = -Infinity, toT = Infinity): { frame: number; t: number; quads: QuadObs[]; pairings: Pairing[] }[] {
+function frameBatches(log: EvidenceLog, fromT = -Infinity, toT = Infinity): { frame: number; t: number; quads: QuadObs[]; pairings: Pairing[] }[] {
   const byFrame = new Map<number, { frame: number; t: number; quads: QuadObs[]; pairings: Pairing[] }>();
   for (const q of log.quads) {
     if (q.t < fromT || q.t > toT) continue;

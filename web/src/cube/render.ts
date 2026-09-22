@@ -6,7 +6,7 @@
 // that the cube feeds its facelet quads and the FTO its triangles; orbit()
 // drags either.
 
-import { STICKERS, key, type Vec } from './geometry';
+import { STICKERS, type Vec } from './geometry';
 
 export interface View { rx: number; ry: number }
 export const DEFAULT_VIEW: View = { rx: 28, ry: -35 };
@@ -146,5 +146,3 @@ export function orbit(svg: SVGSVGElement, view: View, onChange: () => void, enab
   svg.addEventListener('pointercancel', end);
   return { lastDrag: () => last };
 }
-
-export { key as posKey };

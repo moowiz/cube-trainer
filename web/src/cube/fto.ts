@@ -132,7 +132,7 @@ function permutation(op: Op): number[] {
 }
 
 /** lowcubes' edge-in-front letters as Ben's: an edge faces you, U above it, F below, L and R beside F, D opposite U. */
-export const EIF_TO_BEN: Record<string, FtoFace> = { U: 'B', F: 'U', L: 'L', R: 'R', D: 'F', B: 'D', Bl: 'BL', Br: 'BR' };
+const EIF_TO_BEN: Record<string, FtoFace> = { U: 'B', F: 'U', L: 'L', R: 'R', D: 'F', B: 'D', Bl: 'BL', Br: 'BR' };
 // lowcubes' vertex rotations, each by the four faces at its corner and one face it carries onto the next (in EIF letters)
 const EIF_VERTEX: Record<string, { faces: string[]; from: string; to: string }> = {
   R: { faces: ['U', 'F', 'R', 'Br'], from: 'F', to: 'U' }, L: { faces: ['U', 'F', 'L', 'Bl'], from: 'U', to: 'F' }, F: { faces: ['F', 'L', 'D', 'R'], from: 'F', to: 'R' },

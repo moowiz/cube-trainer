@@ -92,7 +92,7 @@ interface TrackPairing {
 }
 
 /** Pairings between tracks of two different groups, aggregated by (track, edge) pair. */
-export function trackPairings(groups: readonly FaceGroup[], pairings: readonly Pairing[]): TrackPairing[] {
+function trackPairings(groups: readonly FaceGroup[], pairings: readonly Pairing[]): TrackPairing[] {
   const groupOf = new Map<number, number>();
   for (const g of groups) for (const t of g.tracks) groupOf.set(t, g.id);
   const acc = new Map<string, TrackPairing>();

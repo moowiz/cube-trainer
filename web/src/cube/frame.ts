@@ -10,7 +10,7 @@ import { faceColorName } from './scheme';
 import { tokens } from './alg';
 
 export type FaceId = 'U' | 'R' | 'F' | 'D' | 'L' | 'B';
-export const FACE_IDS: readonly FaceId[] = ['U', 'R', 'F', 'D', 'L', 'B'];
+const FACE_IDS: readonly FaceId[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 type Vec = readonly [number, number, number];
 const NORMAL: Record<FaceId, Vec> = { U: [0, 1, 0], D: [0, -1, 0], F: [0, 0, 1], B: [0, 0, -1], R: [1, 0, 0], L: [-1, 0, 0] };
 
@@ -22,7 +22,7 @@ function letterOf(n: Vec): FaceId {
   if (!f) throw new Error(`no face has normal ${n.join(',')}`);
   return f;
 }
-export function opposite(f: FaceId): FaceId {
+function opposite(f: FaceId): FaceId {
   return letterOf(NORMAL[f].map((v) => -v) as unknown as Vec);
 }
 
@@ -67,7 +67,7 @@ export function relabel(alg: string, map: FrameMap): string {
 const WCA_COLOUR: Record<FaceId, string> = { U: 'white', D: 'yellow', F: 'green', B: 'blue', R: 'red', L: 'orange' };
 
 /** trainer letter -> WCA letter for the current colour scheme. */
-export function trainerToWca(): FrameMap {
+function trainerToWca(): FrameMap {
   const out = {} as FrameMap;
   for (const t of FACE_IDS) {
     const colour = faceColorName(t);

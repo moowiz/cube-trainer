@@ -47,9 +47,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 
 from dataset import FACE_ORDER, NORM_MEAN, NORM_STD, CubeKeypointDataset
-from PIL import Image
 from model import MATCH_CENTROID_FRAC, build_model, decode_maps, f1_from_counts
 from shapes import KP_WH, MIN_FACE_EDGE_FRAC, PAD_VAL, min_face_edge_px
 from targets import GRID_N, cyclic_perms, quad_centers, quad_grid_points

@@ -19,7 +19,7 @@ import type { SourceKind } from '../moves/source';
 import type { CubeStatus } from '../smart/belief';
 import { FACE_ORDER, type ColorName, type FaceId } from '../types';
 
-export interface Belief {
+interface Belief {
   /** the cube, in the source's letters */
   facelets: string;
   colourOf: Record<FaceId, ColorName>;
@@ -80,7 +80,7 @@ const rotCache = new Map<string, string>();
  * The whole-cube rotation that shows a cube whose letters are coloured `colourOf` in the hold: white
  * (hold.down) underneath, hold.front in front. '' when it already is; null when the hold is impossible.
  */
-export function rotationToHold(colourOf: Record<FaceId, ColorName>, hold: Hold): string | null {
+function rotationToHold(colourOf: Record<FaceId, ColorName>, hold: Hold): string | null {
   const key = `${hold.down}/${hold.front}/${FACE_ORDER.map((f) => colourOf[f]).join(',')}`;
   const hit = rotCache.get(key);
   if (hit !== undefined) return hit || null;
@@ -93,7 +93,7 @@ export function rotationToHold(colourOf: Record<FaceId, ColorName>, hold: Hold):
 }
 
 /** The belief's stickers as the trainer draws colours, turned into the hold. */
-export function beliefCells(b: Belief, hold: Hold): Cell[] {
+function beliefCells(b: Belief, hold: Hold): Cell[] {
   const rot = rotationToHold(b.colourOf, hold);
   const shown = rot ? Cube.fromString(b.facelets).move(rot).asString() : b.facelets;
   const hex = (c: ColorName | undefined): string => {

@@ -33,7 +33,7 @@ function dot(a: readonly number[], b: readonly number[]): number {
 }
 
 /** Agreement of signature b rotated by k with signature a (weighted mean membership dot product). */
-export function matchAt(
+function matchAt(
   a: readonly (number[] | null)[], na: readonly number[],
   b: readonly (number[] | null)[], nb: readonly number[],
   k: number,
@@ -63,7 +63,7 @@ export function matchAt(
 }
 
 /** Best-rotation agreement of two signatures: k such that rotateCells(b, k) matches a. */
-export function signatureMatch(
+function signatureMatch(
   a: readonly (number[] | null)[], na: readonly number[],
   b: readonly (number[] | null)[], nb: readonly number[],
   forceK?: number,

@@ -7,7 +7,7 @@
 import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type FavRecord, type SessionRecord, type SolveRecord } from './types';
 
 export type Coll = 'solves' | 'sessions' | 'attempts' | 'favs';
-export type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : C extends 'attempts' ? AttemptRecord : FavRecord;
+type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : C extends 'attempts' ? AttemptRecord : FavRecord;
 type AnyRecord = SolveRecord | SessionRecord | AttemptRecord | FavRecord;
 
 export interface Store {

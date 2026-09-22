@@ -43,7 +43,7 @@ export function mapUV(m: SquareToQuad, u: number, v: number): [number, number] {
 }
 
 /** Bilinear sample; clamps to the image border. Returns [r,g,b]. */
-export function sampleBilinear(img: ImageDataLike, x: number, y: number): [number, number, number] {
+function sampleBilinear(img: ImageDataLike, x: number, y: number): [number, number, number] {
   const cx = Math.min(Math.max(x, 0), img.width - 1.001);
   const cy = Math.min(Math.max(y, 0), img.height - 1.001);
   const x0 = Math.floor(cx), y0 = Math.floor(cy);

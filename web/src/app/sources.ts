@@ -56,7 +56,6 @@ export function useSource(src: MoveSource | null): void {
  * once unpinned it starts over like any other tab the next time it is opened.
  */
 export function pinStage(tab: Tab | null): void { pinned = tab; }
-export function pinnedStage(): Tab | null { return pinned; }
 
 /** The source to fall back to when the active one is dropped (the camera reader, behind the cube). */
 export function setFallback(src: MoveSource | null): void { fallback = src; }

@@ -116,7 +116,7 @@ export interface AnchorParams {
   reliabilityEma: number;
 }
 
-export const DEFAULT_ANCHOR: AnchorParams = {
+const DEFAULT_ANCHOR: AnchorParams = {
   // DECISION: starting points; calibrated on the synthetic solve and the
   // recorded solves (test/moves-replay.test.ts), see the trace they print
   nu: 3,
@@ -184,7 +184,7 @@ export interface FrameObs {
 }
 
 /** LAYOUT_OF_RAW[k][raw] = layout cell of raw cell `raw` when layout = rotateCells(raw, k). */
-export const LAYOUT_OF_RAW: readonly (readonly number[])[] = [0, 1, 2, 3].map((k) => {
+const LAYOUT_OF_RAW: readonly (readonly number[])[] = [0, 1, 2, 3].map((k) => {
   const rawOfLayout = rotateCells([0, 1, 2, 3, 4, 5, 6, 7, 8], k);
   const out = new Array<number>(9);
   rawOfLayout.forEach((raw, layout) => { out[raw] = layout; });
@@ -479,7 +479,7 @@ function classify(x: Vec3, M: AnchorModel): Float64Array {
  * view is ambiguous between colours (white shifted vs yellow shifted): the
  * prior and the pooling window settle it.
  */
-export function fitShift(pts: readonly { x: Vec3; w: number }[], centres: readonly (Vec3 | null)[], sigma: readonly number[], chroma: [number, number], P: Pick<AnchorParams, 'shiftMax' | 'shiftPrior'>, from: [number, number] = [0, 0], full = true): { s: [number, number]; inliers: number } {
+function fitShift(pts: readonly { x: Vec3; w: number }[], centres: readonly (Vec3 | null)[], sigma: readonly number[], chroma: [number, number], P: Pick<AnchorParams, 'shiftMax' | 'shiftPrior'>, from: [number, number] = [0, 0], full = true): { s: [number, number]; inliers: number } {
   const [c0, c1] = chroma;
   const total = pts.reduce((a, p) => a + p.w, 0);
   if (P.shiftMax <= 0 || total <= 0) return { s: [0, 0], inliers: 0 };
@@ -539,7 +539,7 @@ export function fitShift(pts: readonly { x: Vec3; w: number }[], centres: readon
   return { s: best, inliers: inliers / total };
 }
 
-export interface PatternFit {
+interface PatternFit {
   s: number;
   t: [number, number];
   cost: number;
@@ -556,7 +556,7 @@ export interface PatternFit {
  * cost of the hypothesised colour against the transformed palette,
  * capped, weighted, plus the prior cost of the fit itself.
  */
-export function fitPattern(q: QuadAnchor, colours: readonly number[], M: AnchorModel): PatternFit {
+function fitPattern(q: QuadAnchor, colours: readonly number[], M: AnchorModel): PatternFit {
   const P = M.P;
   const [c0, c1] = M.chroma;
   let s = 1;
@@ -646,22 +646,16 @@ export function fitPattern(q: QuadAnchor, colours: readonly number[], M: AnchorM
 }
 
 /**
- * Cost of one anchored quad under the nine colours a hypothesis puts on
- * it (letter index per RAW cell), against the palette under the TRACK's
- * illumination map: per cell the softmax cost of the hypothesised colour
- * over the six colours and the outlier class, capped, weighted. The veto:
- * when the outlier class wins (a finger, a smear) the cell costs at most
+ * The per-cell cost table of a quad: costRow[cell * 6 + colour], weights
+ * folded in. A hypothesis's cost for the quad is the sum over its nine RAW
+ * cells of the entry for the colour it puts there, against the palette
+ * under the TRACK's illumination map: the softmax cost of that colour over
+ * the six colours and the outlier class, capped, weighted. The veto: when
+ * the outlier class wins (a finger, a smear) the cell costs at most
  * outlierCost whatever colour is claimed - flat across hypotheses, so a
  * finger votes for nothing.
  */
-export function patternCost(q: QuadAnchor, colours: readonly number[]): number {
-  let cost = 0;
-  for (let cell = 0; cell < 9; cell++) cost += q.costRow[cell * 6 + colours[cell]!]!;
-  return cost;
-}
-
-/** The per-cell cost table of a quad (see patternCost): costRow[cell * 6 + colour], weights folded in. */
-export function costTable(q: Pick<QuadAnchor, 'x' | 'w' | 'palette'>, M: AnchorModel): Float32Array {
+function costTable(q: Pick<QuadAnchor, 'x' | 'w' | 'palette'>, M: AnchorModel): Float32Array {
   const P = M.P;
   const row = new Float32Array(54);
   const ll = new Float64Array(7);
@@ -686,7 +680,7 @@ export function costTable(q: Pick<QuadAnchor, 'x' | 'w' | 'palette'>, M: AnchorM
 }
 
 /** The nine colours (letter index per RAW cell) a state puts on a quad at rotation k. */
-export function patternOf(state: Uint8Array, q: QuadAnchor, k: number): number[] {
+function patternOf(state: Uint8Array, q: QuadAnchor, k: number): number[] {
   const lay = LAYOUT_OF_RAW[k]!;
   const base = q.face * 9;
   const out = new Array<number>(9);
@@ -695,7 +689,7 @@ export function patternOf(state: Uint8Array, q: QuadAnchor, k: number): number[]
 }
 
 /** Cost of a state (letter indices per slot) under one anchored quad at rotation k. */
-export function hypothesisCost(state: Uint8Array, q: QuadAnchor, k: number): number {
+function hypothesisCost(state: Uint8Array, q: QuadAnchor, k: number): number {
   const lay = LAYOUT_OF_RAW[k]!;
   const base = q.face * 9;
   let cost = 0;

@@ -102,7 +102,7 @@ export function forEachLegalNeighbour(cost: Cost, colours: readonly number[], vi
 }
 
 /** Cheapest elementary legal neighbour (delta may be negative: a better legal cube exists next door). */
-export function cheapestNeighbour(cost: Cost, colours: readonly number[], legal?: (c: readonly number[]) => boolean): Neighbour | null {
+function cheapestNeighbour(cost: Cost, colours: readonly number[], legal?: (c: readonly number[]) => boolean): Neighbour | null {
   let best: Neighbour | null = null;
   forEachLegalNeighbour(cost, colours, (n) => { if (!best || n.delta < best.delta) best = n; }, legal);
   return best;

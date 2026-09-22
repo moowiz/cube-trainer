@@ -6,7 +6,6 @@
 // to. If a change here can flip a decision on its own it belongs elsewhere.
 
 import { minFaceEdgePx } from '../color';
-import { rotateCells } from '../state';
 import type { Lab } from '../types';
 import type { Embedding } from './colorspace';
 import { robustCentre, weightedMedian } from './robust';
@@ -68,8 +67,8 @@ export function patchWeight(p: PatchStats): number {
 }
 
 /** Brightest channel (sRGB 0-255) at and above which a reading has full signal-to-noise weight. */
-export const BRIGHT_FULL = 80;
-export const BRIGHT_MIN = 0.02;
+const BRIGHT_FULL = 80;
+const BRIGHT_MIN = 0.02;
 
 export function makeReading(cell: number, p: PatchStats, quadW: number): Reading {
   return {
@@ -94,7 +93,7 @@ export function emptyLog(): EvidenceLog {
 // (and the pairings/events of frames that no longer have quads) drop
 // first. (Sampling every detection frame at 30/s filled it in 20 s, which
 // is how a desktop session forgot the faces it started with.)
-export const LOG_MAX_QUADS = 1500;
+const LOG_MAX_QUADS = 1500;
 
 export function trimLog(log: EvidenceLog): { quads: number; pairings: number; events: number } {
   if (log.quads.length <= LOG_MAX_QUADS) return { quads: 0, pairings: 0, events: 0 };
@@ -106,17 +105,6 @@ export function trimLog(log: EvidenceLog): { quads: number; pairings: number; ev
   log.pairings = log.pairings.filter((p) => p.frame >= oldest);
   log.events = log.events.filter((e) => e.frame >= oldest);
   return { quads: drop, pairings: np - log.pairings.length, events: ne - log.events.length };
-}
-
-/** Frames each track appears in, and which tracks share a frame. */
-export function trackFrames(log: EvidenceLog): Map<number, number[]> {
-  const out = new Map<number, number[]>();
-  for (const q of log.quads) {
-    let f = out.get(q.track);
-    if (!f) out.set(q.track, (f = []));
-    if (f[f.length - 1] !== q.frame) f.push(q.frame);
-  }
-  return out;
 }
 
 function quadCentroid(c: readonly (readonly [number, number])[]): [number, number] {
@@ -160,7 +148,7 @@ export function coVisible(log: EvidenceLog): Set<string> {
   return out;
 }
 
-export function pairKey(a: number, b: number): string {
+function pairKey(a: number, b: number): string {
   return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
@@ -231,9 +219,4 @@ export function aggregateTracks(
     out.push({ track, cells, frames, nEff: total });
   }
   return out;
-}
-
-/** A signature's cells re-ordered by k quarter turns (rotateCells semantics). */
-export function rotateAggregates(cells: readonly Aggregate[], k: number): Aggregate[] {
-  return rotateCells(cells, k);
 }

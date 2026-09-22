@@ -3,8 +3,6 @@
 // blue - red - green - orange going round, so the front colour fixes the
 // other three. One place, persisted, with listeners for repaints.
 
-export type Letter = 'U' | 'R' | 'F' | 'D' | 'L' | 'B';
-
 const SIDES: readonly [string, string][] = [['blue', '#2E6CE0'], ['red', '#E2433C'], ['green', '#33B15D'], ['orange', '#F58F2A']];
 const UD: Record<string, [string, string]> = { U: ['yellow', '#F5D63D'], D: ['white', '#FBFBF9'] };
 const SIDE_ORDER = ['F', 'R', 'B', 'L'];

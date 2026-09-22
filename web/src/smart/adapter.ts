@@ -49,7 +49,7 @@ function rememberMac(name: string, mac: string): void {
  * watchAdvertisements path the library takes, but with every step reported (console + status).
  * Returns the MAC when the probe itself found it, else null and a one-line verdict.
  */
-export async function probeAdvertisement(device: BluetoothDevice, log: (msg: string) => void, timeoutMs = 5000): Promise<{ mac: string | null; verdict: string }> {
+async function probeAdvertisement(device: BluetoothDevice, log: (msg: string) => void, timeoutMs = 5000): Promise<{ mac: string | null; verdict: string }> {
   const d = device as BluetoothDevice & { watchAdvertisements?: (o?: { signal?: AbortSignal }) => Promise<void>; watchingAdvertisements?: boolean };
   if (typeof d.watchAdvertisements !== 'function') {
     const verdict = 'this Chrome has no watchAdvertisements API: the experimental-web-platform-features flag is off, or not applied (relaunch Chrome after enabling)';

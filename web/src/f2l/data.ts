@@ -35,7 +35,7 @@ export interface LookupHit {
   auf: string;
 }
 
-export interface SlotData {
+interface SlotData {
   cases: Record<string, F2LCase>;
   lookup: Record<string, LookupHit>;
   /** 'UFR-fb' -> face the sticker is on -> the colour it shows (as a face letter) */

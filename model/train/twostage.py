@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import torch
+from PIL import Image
+
 from dataset import NORM_MEAN, NORM_STD, crop_letterbox, crop_window, letterbox_image, letterbox_params
 from model import build_model, decode_maps, decode_to_list, has_twist
-from PIL import Image
 from shapes import BOX_WH, KP_WH, PAD_VAL
 
 

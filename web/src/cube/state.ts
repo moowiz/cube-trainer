@@ -9,7 +9,7 @@ import Cube from 'cubejs';
 import { faceMoves, mergeMoves, movesStr, tokens } from './alg';
 
 export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
-export const FACES = 'URFDLB';
+const FACES = 'URFDLB';
 /** Facelet index of each face's centre. */
 export const CENTRE: Record<string, number> = { U: 4, R: 13, F: 22, D: 31, L: 40, B: 49 };
 

@@ -331,7 +331,7 @@ function med(xs: number[]): number {
 // A reading further than this from EVERY measured exemplar is not one of the
 // colours seen so far (same colour under drift stays within MAX_OBS_DRIFT; a
 // different colour is 40-60 away).
-export const FAR_FROM_MEASURED = 35;
+const FAR_FROM_MEASURED = 35;
 
 /**
  * Which face a centre reading names, with the margin it names it by.

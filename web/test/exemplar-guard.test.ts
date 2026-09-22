@@ -72,7 +72,7 @@ describe('CenterExemplars guards (fixtures scan-debug-1789290592829 / -604959)',
     expect(ex.isMeasured('B')).toBe(false);
   });
 
-  it('refuses to teach F the blue reading (drift and nearest-face guards)', () => {
+  it('refuses to teach the green face the blue reading (drift and nearest-face guards)', () => {
     const ex = healthyExemplars();
     const before = ex.get('F');
     for (let i = 0; i < 20; i++) expect(ex.observe('F', cellsWithCentre(BLUE))).toBe(false);

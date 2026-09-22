@@ -7,7 +7,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const two = (n: number): string => String(n).padStart(2, '0');
 
 /** "14:32" */
-export function clockOf(when: number): string {
+function clockOf(when: number): string {
   const d = new Date(when);
   return `${two(d.getHours())}:${two(d.getMinutes())}`;
 }
@@ -19,7 +19,7 @@ export function dayOf(when: number, now = Date.now()): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]}${year}`;
 }
 
-export function sameDay(a: number, b: number): boolean {
+function sameDay(a: number, b: number): boolean {
   const p = new Date(a), q = new Date(b);
   return p.getFullYear() === q.getFullYear() && p.getMonth() === q.getMonth() && p.getDate() === q.getDate();
 }

@@ -8,7 +8,7 @@ import { STICKERS, facesAt, key, posName, type Vec } from './geometry';
 
 /** The 12 edge slots, and for each the facelet on its U/D face (F/B face for the middle layer) then the other. */
 export const EDGE_SLOTS = ['UF', 'UR', 'UB', 'UL', 'DF', 'DR', 'DB', 'DL', 'FR', 'FL', 'BR', 'BL'] as const;
-export const EDGE_FACELETS: readonly [number, number][] = [[7, 19], [5, 10], [1, 46], [3, 37], [28, 25], [32, 16], [34, 52], [30, 43], [23, 12], [21, 41], [48, 14], [50, 39]];
+const EDGE_FACELETS: readonly [number, number][] = [[7, 19], [5, 10], [1, 46], [3, 37], [28, 25], [32, 16], [34, 52], [30, 43], [23, 12], [21, 41], [48, 14], [50, 39]];
 /** Cubie position of each edge slot. */
 export const EDGE_POS: readonly Vec[] = EDGE_FACELETS.map(([a]) => STICKERS[a].pos);
 /** Slot index by name. */
@@ -22,7 +22,7 @@ const isUD = (c: string) => c === 'U' || c === 'D';
  * An edge is oriented (to the F/B axis) iff its primary sticker - the one showing U/D if either does,
  * else the one showing F/B - sits on the U/D face (U/D-layer slot) or the F/B face (middle slot).
  */
-export function edgeOriented(f: string, slot: number): boolean {
+function edgeOriented(f: string, slot: number): boolean {
   const [h, o] = EDGE_FACELETS[slot];
   const a = f[h], b = f[o];
   if (isUD(a) || isUD(b)) return isUD(a);
@@ -45,7 +45,7 @@ export function findEdge(f: string, letters: string): number {
 }
 
 /** Where the four white edges are, in the order DF DR DB DL. */
-export function crossSlots(f: string): number[] {
+function crossSlots(f: string): number[] {
   return ['DF', 'DR', 'DB', 'DL'].map((e) => findEdge(f, e));
 }
 
@@ -122,7 +122,7 @@ export const crossSolved = (st: EdgeState): boolean => st.slots.every((s, i) => 
 export const crossCount = (st: EdgeState): number => st.slots.filter((s, i) => s === CROSS_HOME[i]).length;
 
 /** The four edge slots on a face. */
-export function faceSlots(face: string): number[] {
+function faceSlots(face: string): number[] {
   return CYCLE[face].map((n) => SLOT_INDEX[n]);
 }
 

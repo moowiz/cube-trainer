@@ -10,9 +10,9 @@ import { aufToSolve, state } from '../cube/state';
 import type { LLCase } from './cases';
 import { pllArrows } from './model';
 
-export type CornerPerm = 'solved' | '3-cycle' | 'adjacent swap' | 'diagonal swap' | 'two swaps';
-export type EdgePerm = 'solved' | '3-cycle' | 'adjacent swap' | 'opposite swap' | 'two swaps';
-export interface Sides { bar3: number; headlights: number; bar2: number; none: number }
+type CornerPerm = 'solved' | '3-cycle' | 'adjacent swap' | 'diagonal swap' | 'two swaps';
+type EdgePerm = 'solved' | '3-cycle' | 'adjacent swap' | 'opposite swap' | 'two swaps';
+interface Sides { bar3: number; headlights: number; bar2: number; none: number }
 export interface Features { corners: CornerPerm; edges: EdgePerm; sides: Sides }
 
 // the four side strips of the top layer, left to right as seen from that side (Kociemba indices)

@@ -5,6 +5,7 @@
 // return the sequence (up to commuting order) with every turn certified,
 // and it must not invent turns on a fingered cube that never moves.
 import { describe, expect, it } from 'vitest';
+import { BENCH } from './helpers';
 import Cube from 'cubejs';
 import { solve } from '../src/colour/solve';
 import { commitmentsFrom, type Commitments } from '../src/moves/anchor';
@@ -122,7 +123,7 @@ describe('synthetic solve', () => {
       expect(it.t0).toBeGreaterThanOrEqual(scene.turns[i]!.t0 - 1);
       expect(it.t1).toBeLessThanOrEqual(scene.turns[i]!.t1 + 1);
     });
-    expect(reader.ms / reader.frames.length).toBeLessThan(5);
+    if (BENCH) expect(reader.ms / reader.frames.length).toBeLessThan(5); // throughput budget: npm run bench
   });
 
   it('two faces are nearly enough: a 12-turn sequence read through two adjacent faces', () => {

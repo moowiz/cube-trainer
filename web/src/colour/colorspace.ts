@@ -70,7 +70,7 @@ function compress(a: number, b: number): [number, number] {
 }
 
 /** Candidate B: face-relative L at full weight, ab compressed past the knee (what helped session-0913). */
-export const LAB_REL: Embedding = {
+const LAB_REL: Embedding = {
   name: 'lab-rel',
   chroma: [1, 2],
   embedQuad(_rgb, lab) {
@@ -83,7 +83,7 @@ export const LAB_REL: Embedding = {
 };
 
 /** Face-relative L at weight `w`, plain ab. w = 0.15 is the old clustering space. */
-export function labWeighted(name: EmbeddingName, w: number): Embedding {
+function labWeighted(name: EmbeddingName, w: number): Embedding {
   return {
     name,
     chroma: [1, 2],
@@ -96,7 +96,7 @@ export function labWeighted(name: EmbeddingName, w: number): Embedding {
 
 /** Candidate C: the old clustering space (crushed relative L, plain ab), the baseline. */
 export const LAB_CRUSHED: Embedding = labWeighted('lab-crushed', 0.15);
-export const LAB_HALF: Embedding = labWeighted('lab-half', 0.5);
+const LAB_HALF: Embedding = labWeighted('lab-half', 0.5);
 
 // Lab of the reading scaled to a fixed luminance in LINEAR light, with the
 // raw face-relative lightness crushed as in lab-crushed. Why: Lab chroma is

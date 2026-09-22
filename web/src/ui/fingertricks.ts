@@ -11,7 +11,7 @@
 // on the front, fingers on the back; the left hand mirrored.
 
 import { tokens } from '../cube/alg';
-import { closeSheet, openSheet } from '../shell';
+import { openSheet } from '../shell';
 
 export interface TrickRow {
   /** the tokens this row covers, in order */
@@ -262,5 +262,3 @@ export function openFingertricks(alg: string, opts: TricksOptions): boolean {
   openSheet('tricks-sheet');
   return true;
 }
-
-export function closeFingertricks(): void { closeSheet('tricks-sheet'); }

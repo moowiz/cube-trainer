@@ -140,17 +140,17 @@ export interface CellPlan {
  * Diagonal placement is what makes this affordable — a corner at ±0.30 sits
  * 0.42 from the cell center but only 0.30 from the seam on either axis.
  */
-export const LOGO_CLEAR_OFF = 0.3;
+const LOGO_CLEAR_OFF = 0.3;
 
 /** Patch half-width on the center cell: small, because reach matters more. */
-export const CENTRE_PATCH_HALF = 0.07;
+const CENTRE_PATCH_HALF = 0.07;
 
 /**
  * Lab gap between the middle of the center cell and its ring above which the
  * center sticker is taken to be obscured — by a logo, a fingertip, or glare.
  * The ring is then the only honest reading of the sticker.
  */
-export const CENTRE_OBSCURED_LAB = 12;
+const CENTRE_OBSCURED_LAB = 12;
 
 /**
  * When the center is obscured, the two ring patches the reading is built from
@@ -167,7 +167,7 @@ export const RING_INCOHERENT_LAB = 25;
  * nearest cubes, where stickers are 60+ px and it does not matter. A flat
  * 3 source px is the conservative end of that.
  */
-export const CORNER_ERR_PX = 3.0;
+const CORNER_ERR_PX = 3.0;
 
 /**
  * The scanning-range floor: a face whose longest edge is below this fraction
@@ -330,8 +330,8 @@ export function labMean(samples: readonly Lab[]): Lab {
 // that actually work. The chroma-dead case comes from fixture
 // cube-scan-1789100642010.json, whose R face read near-black (median L 6,
 // median chroma 7) with a noise-green tint. Tune against fixtures.
-export const MIN_FACE_LIGHTNESS = 22;
-export const MIN_FACE_CHROMA = 9;
+const MIN_FACE_LIGHTNESS = 22;
+const MIN_FACE_CHROMA = 9;
 
 /** True when a face reading is too dark AND too colorless to classify. */
 export function isFaceTooDark(cells: readonly Lab[]): boolean {
@@ -346,7 +346,7 @@ export function isFaceTooDark(cells: readonly Lab[]): boolean {
 // would refuse every U face in bright light, which is a sixth of all faces.
 // A whole face that reads that way carries no information either way, and
 // that is what a highlight blowing out a face actually looks like.
-export const MAX_FACE_LIGHTNESS = 96;
+const MAX_FACE_LIGHTNESS = 96;
 
 /** True when a face reading is so blown out that nothing can be read from it. */
 export function isFaceBlownOut(cells: readonly Lab[]): boolean {
@@ -444,8 +444,8 @@ export const PATCH_TRIM = 0.1;
 // away (18 stickers "unseen" on faces that had been shown for 100 frames).
 // A saturated channel is a censored value, reported per channel in
 // `censored`; it is not missing pigment.
-export const CLIP_LEVEL = 235; // min(r, g, b) at or above this counts as glare
-export const DARK_LEVEL = 0.08 * 255; // luminance below this counts as dark
+const CLIP_LEVEL = 235; // min(r, g, b) at or above this counts as glare
+const DARK_LEVEL = 0.08 * 255; // luminance below this counts as dark
 
 /**
  * Statistics of an axis-aligned square patch (side `size` px) centered at
@@ -500,7 +500,7 @@ export function samplePatchStats(img: ImageData, cx: number, cy: number, size = 
 }
 
 /** One of the eight OUTER cells, robust version: mirrors sampleCellRobust's geometry. */
-export function sampleCellStats(
+function sampleCellStats(
   img: ImageData,
   cx: number,
   cy: number,
@@ -523,7 +523,7 @@ export function sampleCellStats(
  * a logo or fingertip that reaches part of the ring shows up here as
  * uncertainty in the returned stats rather than silently winning a vote.
  */
-export function sampleCentreStats(
+function sampleCentreStats(
   img: ImageData,
   cx: number,
   cy: number,

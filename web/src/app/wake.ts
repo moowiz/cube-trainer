@@ -17,7 +17,7 @@ async function acquire(): Promise<void> {
   } catch { lock = null; }
 }
 
-export function setKeepAwake(on: boolean): void {
+function setKeepAwake(on: boolean): void {
   wanted = on;
   if (on) void acquire();
   else { void lock?.release().catch(() => undefined); lock = null; }

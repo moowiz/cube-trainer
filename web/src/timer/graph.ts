@@ -58,8 +58,8 @@ export interface GraphOpts {
   days?: readonly string[];
 }
 
-export interface GraphPoint { i: number; x: number; y: number; t: number; /** above the top of the scale: drawn pinned there */ clipped: boolean }
-export interface GraphLine { key: string; colour: string; d: string; /** the last drawn point, for the end label */ end: { x: number; y: number } | null }
+interface GraphPoint { i: number; x: number; y: number; t: number; /** above the top of the scale: drawn pinned there */ clipped: boolean }
+interface GraphLine { key: string; colour: string; d: string; /** the last drawn point, for the end label */ end: { x: number; y: number } | null }
 
 export interface Graph {
   width: number; height: number;
@@ -81,7 +81,7 @@ export interface Graph {
   xOf(i: number): number;
 }
 
-export const MARGIN = { left: 40, right: 48, top: 14, bottom: 24 };
+const MARGIN = { left: 40, right: 48, top: 14, bottom: 24 };
 
 export function layoutGraph(times: readonly Time[], opts: GraphOpts): Graph {
   const { width, height } = opts;

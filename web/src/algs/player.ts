@@ -22,8 +22,6 @@
 import type { Vec } from '../cube/fto';
 import { orbit, renderPolys, type Poly, type View } from '../cube/render';
 
-export type { Vec };
-
 /**
  * One move of an alg, geometric enough to animate: an axis/angle turn and the sticker positions it carries.
  * `moving` is empty only for a no-op token (should not happen for a real alg).

@@ -24,6 +24,7 @@
 //   neighbour fits instead.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { BENCH } from './helpers';
 import type { EvidenceLog } from '../src/colour/types';
 import { quadCost, type Commitments } from '../src/moves/anchor';
 import { applyMoveIdx, applySeq, commute, faceOf, MOVES, parseAlg, type Move } from '../src/moves/moves';
@@ -93,29 +94,33 @@ describe('recorded solves', () => {
       lines.push(formatTrace(r.trace, { from: d.fromT }), formatItems(pinned.record, d.fromT));
       lines.push(`anchor ${pinned.anchorMs.toFixed(0)} ms, decode ${r.ms.toFixed(0)} ms (${(r.ms / Math.max(1, frames)).toFixed(2)} ms/frame)`);
       if (truth) {
-        const fa = forcedAlignment(r.frames, d.start, truth);
-        let wins = 0, ties = 0, losses = 0;
-        const rows: string[] = [];
-        let prev = 0;
-        r.frames.forEach((f, i) => {
-          const k = fa.at[i]!;
-          const st = fa.states[k]!;
-          let tc = 0;
-          for (const q of f.quads) tc += quadCost(st, q).cost;
-          let alt = Infinity;
-          let altM = '';
-          for (const m of MOVES) {
-            let c = 0;
-            const s2 = applyMoveIdx(st, m);
-            for (const q of f.quads) c += quadCost(s2, q).cost;
-            if (c < alt) { alt = c; altM = m; }
-          }
-          if (alt - tc > 0.5) wins++; else if (tc - alt > 0.5) losses++; else ties++;
-          const parts = f.quads.map((q) => { const c = quadCost(st, q); return `${FACE_ORDER[q.face]}${c.k} c${c.cost.toFixed(1)}`; });
-          rows.push(`${((f.t - d.fromT) / 1000).toFixed(2).padStart(7)} s${String(k).padStart(2)}${k !== prev ? ` ** ${truth.slice(prev, k).join(' ')}` : '   '} ${(alt - tc).toFixed(1).padStart(6)} ${altM.padEnd(3)} ${parts.join(' | ')}`);
-          prev = k;
-        });
-        lines.push(`forced alignment of the truth: cost ${fa.cost.toFixed(1)}; per frame the truth beats every single-move neighbour ${wins}x, ties ${ties}x, loses ${losses}x`, '      t  state  truth-vs-best-neighbour  faces', ...rows);
+        // the forced alignment of the truth against every single-move
+        // neighbour is a diagnostic (npm run bench): printed, never asserted
+        if (BENCH) {
+          const fa = forcedAlignment(r.frames, d.start, truth);
+          let wins = 0, ties = 0, losses = 0;
+          const rows: string[] = [];
+          let prev = 0;
+          r.frames.forEach((f, i) => {
+            const k = fa.at[i]!;
+            const st = fa.states[k]!;
+            let tc = 0;
+            for (const q of f.quads) tc += quadCost(st, q).cost;
+            let alt = Infinity;
+            let altM = '';
+            for (const m of MOVES) {
+              let c = 0;
+              const s2 = applyMoveIdx(st, m);
+              for (const q of f.quads) c += quadCost(s2, q).cost;
+              if (c < alt) { alt = c; altM = m; }
+            }
+            if (alt - tc > 0.5) wins++; else if (tc - alt > 0.5) losses++; else ties++;
+            const parts = f.quads.map((q) => { const c = quadCost(st, q); return `${FACE_ORDER[q.face]}${c.k} c${c.cost.toFixed(1)}`; });
+            rows.push(`${((f.t - d.fromT) / 1000).toFixed(2).padStart(7)} s${String(k).padStart(2)}${k !== prev ? ` ** ${truth.slice(prev, k).join(' ')}` : '   '} ${(alt - tc).toFixed(1).padStart(6)} ${altM.padEnd(3)} ${parts.join(' | ')}`);
+            prev = k;
+          });
+          lines.push(`forced alignment of the truth: cost ${fa.cost.toFixed(1)}; per frame the truth beats every single-move neighbour ${wins}x, ties ${ties}x, loses ${losses}x`, '      t  state  truth-vs-best-neighbour  faces', ...rows);
+        }
         const got = canonicalMoves(recordMoves(pinned.record));
         const want = canonicalMoves(truth);
         const agree = got.filter((m, i) => m === want[i]).length;
@@ -129,7 +134,8 @@ describe('recorded solves', () => {
         console.log(lines.join('\n'));
       }
       expect(frames).toBeGreaterThan(0);
-      expect(r.ms / Math.max(1, frames)).toBeLessThan(10);
+      // a throughput budget, not a correctness check: only under npm run bench
+      if (BENCH) expect(r.ms / Math.max(1, frames)).toBeLessThan(10);
     });
   }
 });

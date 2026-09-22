@@ -7,6 +7,7 @@
 // every embedding; the assertions hold the default one to the truths.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { BENCH } from './helpers';
 import Cube from 'cubejs';
 import { labToSrgb } from '../src/color';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
@@ -54,7 +55,7 @@ interface Case { name: string; faces: Face[]; truth: string; /** what the old pi
 const CASES: Case[] = [
   { name: 'session 986281 (shadowed blue, bright reds)', faces: sessionFaces('scan-debug-1789312986281.json'), truth: SESSION_TRUTH, before: 54 },
   { name: 'session 082369 (R appears 8)', faces: sessionFaces('scan-debug-1789313082369.json'), truth: SESSION_TRUTH, before: 54 },
-  { name: 'session 817862 (one junk cell on B)', faces: sessionFaces('scan-debug-1789312817862.json'), truth: SESSION_TRUTH, before: 53 },
+  { name: 'session 817862 (one junk cell on the blue face)', faces: sessionFaces('scan-debug-1789312817862.json'), truth: SESSION_TRUTH, before: 53 },
   // 2026-09-11, day one, desktop webcam, cube lit by a monitor alone: the
   // white centre reads (70, 105, 131) and yellow (115, 142, 37), so white/
   // blue and yellow/green do not exist as separate colours in the data. A
@@ -76,10 +77,12 @@ function matches(a: string | null, b: string): number {
 describe('colour solver replay', () => {
   const table: string[] = [];
   const results = new Map<string, Map<EmbeddingName, ReturnType<typeof solve>>>();
+  // the bake-off over every embedding is a benchmark; the assertions only need the default one
+  const names = BENCH ? (Object.keys(EMBEDDINGS) as EmbeddingName[]) : [DEFAULT_EMBEDDING.name];
   for (const c of CASES) {
     const log = logFromFaces(c.faces);
     const per = new Map<EmbeddingName, ReturnType<typeof solve>>();
-    for (const name of Object.keys(EMBEDDINGS) as EmbeddingName[]) {
+    for (const name of names) {
       const s = solve(log, { embedding: EMBEDDINGS[name] });
       per.set(name, s);
       const d = s.decode;
@@ -89,7 +92,7 @@ describe('colour solver replay', () => {
   }
   it('prints the bake-off table', () => {
     console.log('\n' + table.join('\n'));
-    expect(table.length).toBe(CASES.length * Object.keys(EMBEDDINGS).length);
+    expect(table.length).toBe(CASES.length * names.length);
   });
 
   for (const c of CASES) {
@@ -134,11 +137,14 @@ describe('evidence-log captures', () => {
       const log = d.evidenceLog;
       // JSON has no Map; groups' rotation maps are rebuilt by the solver anyway
       const rows: string[] = [];
-      for (const name of Object.keys(EMBEDDINGS) as EmbeddingName[]) {
-        const s = solve(log, { embedding: EMBEDDINGS[name] });
-        rows.push(`${name.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} faces ${s.centresSeen}/6 legal ${s.decode?.legal ? 'y' : 'n'} changed ${s.decode?.changed ?? '-'} delta ${s.decode ? (s.decode.delta === Infinity ? 'inf' : s.decode.delta.toFixed(1)) : '-'} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
+      // per-embedding rows are the bake-off (npm run bench); the assertion is on the ensemble
+      if (BENCH) {
+        for (const name of Object.keys(EMBEDDINGS) as EmbeddingName[]) {
+          const s = solve(log, { embedding: EMBEDDINGS[name] });
+          rows.push(`${name.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} faces ${s.centresSeen}/6 legal ${s.decode?.legal ? 'y' : 'n'} changed ${s.decode?.changed ?? '-'} delta ${s.decode ? (s.decode.delta === Infinity ? 'inf' : s.decode.delta.toFixed(1)) : '-'} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
+        }
+        console.log('\n' + rows.join('\n'));
       }
-      console.log('\n' + rows.join('\n'));
       const s = solveBest(log);
       rows.push(`${'ensemble'.padEnd(12)} ${file.padEnd(36)} ${truth ? `${matches(s.facelets, truth)}/54` : '     '} -> ${s.embedding} ${s.lockable ? 'LOCK' : s.reason} ${s.ms.toFixed(0)}ms`);
       console.log(rows[rows.length - 1]);

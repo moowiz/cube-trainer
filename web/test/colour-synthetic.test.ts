@@ -5,6 +5,7 @@
 // recover the scramble, group the twelve tracks into six faces, letter them
 // from geometry alone, and lock.
 import { describe, expect, it } from 'vitest';
+import { BENCH } from './helpers';
 import Cube from 'cubejs';
 import { emptyLog } from '../src/colour/evidence';
 import { solve, solveBest } from '../src/colour/solve';
@@ -24,7 +25,7 @@ describe('synthetic session', () => {
     const lettered = s.groups.filter((g) => g.letter);
     expect(lettered.length).toBe(6);
     for (const g of lettered) expect(g.absRotation).not.toBeNull();
-    expect(s.ms).toBeLessThan(1500);
+    if (BENCH) expect(s.ms).toBeLessThan(1500); // throughput budget: npm run bench
   });
 
   it('letters come from geometry: a non-standard scheme (red opposite white) still decodes to its own letters', () => {

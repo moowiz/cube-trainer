@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { describe, it } from 'vitest';
+import { BENCH } from './helpers';
 import { refineQuad } from '../src/detect/gridfit';
 import type { ImageDataLike, Quad } from '../src/rectify';
 
@@ -32,7 +33,7 @@ const stats = (xs: number[]): string => {
   return `mean ${mean.toFixed(2)}  median ${s[Math.floor(s.length / 2)]!.toFixed(2)}  p90 ${s[Math.floor(s.length * 0.9)]!.toFixed(2)}`;
 };
 
-describe.skipIf(!present)('seam refinement on real-photo detections', () => {
+describe.skipIf(!present || !BENCH)('seam refinement on real-photo detections', () => {
   // k = 1: the model input itself; k = 2: the same window cut from the native
   // photo at twice the size (--dump-scale 2), roughly the phone frame's scale.
   // Errors are reported in model px at every k so the columns compare.

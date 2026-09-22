@@ -49,8 +49,10 @@ web/
     color.ts         Lab conversion, patch statistics, sampling geometry, Hungarian
     colour/          the colour solver: types, evidence log + weights, colorspace
                      (pluggable embedding), robust stats, palette, illum, faces
-                     (track grouping), naming, decode (exact decoder), solve,
-                     solve.worker + client
+                     (track grouping), naming, decode (exact decoder), complete
+                     (the sixth face from five), neighbours (one-move neighbours
+                     of a state), solve, solve.worker + client, sampler +
+                     sample.worker (patch statistics off the main thread)
     state.ts         validateState (legality oracle), rotation helpers, cubejs solve
     cube/            THE cube code every trainer shares: alg (one parser for turns/slices/wide/rotations),
                      state (facelets from an alg, rotations undone), geometry (facelet -> 3D), pieces
@@ -65,16 +67,18 @@ web/
                      camera, overlay, evidence, lock, live scramble check), cubeview.ts (the Cube sheet:
                      what the app believes the cube looks like, the smart cube's controls and resyncs),
                      fingertricks.ts (the tricks sheet: a move sequence finger by finger, triggers as one
-                     step), hint, settings
-    moves/           the camera move reader (reader, anchor, record) AND the MoveSource contract every
-                     consumer of turns reads (source.ts: cube / camera / typed / replay) and the drill
-                     driver (drive.ts: arms at the scramble state, feeds the turns after it)
+                     step), hint, settings, download (the one downloadBlob)
+    moves/           the camera move reader (reader, anchor, record; moves.ts is its 54-slot permutation
+                     table, checked against cubejs) AND the MoveSource contract every consumer of turns
+                     reads (source.ts: cube / camera / typed / replay; readersource.ts wraps the reader),
+                     and the drill driver (drive.ts: arms at the scramble state, feeds the turns after it)
     smart/           the smart cube (docs/smart-cube-design.md): adapter.ts (the only file that imports
                      smartcube-web-bluetooth), clock (two-clock fit), belief (the belief reducer), capture
                      (JSONL + replay), source (CubeSource). Fixtures in test/fixtures/smart/; the headless
                      check `node scripts/check-smart.mjs` replays one through the built page
     timer/           the Solve tab (the timer that replaces csTimer): trainer (the tab), stats (averages,
-                     csTimer's 5% trim), cstimer (its export file both ways), track (scramble following)
+                     csTimer's 5% trim), cstimer (its export file both ways), track (scramble following),
+                     graph (the history graph), when (day boundaries for the stats)
     store/           the solve store: types (records in WCA notation; solves, sessions, drill attempts, favourite
                      algs), local (IndexedDB, always), sync
                      (optional Firestore layer, Google sign-in), firebase (the only SDK import, lazy)
@@ -84,7 +88,7 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner;
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
-                     where the moves done reached the stage), scramble (Kociemba two-phase, best total under a
+                     where the moves done reached the stage; features.ts is its piece-permutation reader), scramble (Kociemba two-phase, best total under a
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
                      top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main; favs.ts keeps that in the store's favs collection, synced),
                      trainer (start-from and show-right-away settings; the cube in 3D from above with the
@@ -105,11 +109,18 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     main.ts          mounts every stage into index.html, wires the shell, starts the app modules
     app/             the page's wiring (docs/housekeeping-plan.md 3): context (hold, store, last scan),
                      sources (the active MoveSource + the drill driver over it), smart (the cube, the
-                     Cube sheet's live view, ZZ.smart), scanner-bridge (locks, follow mode, the reader
-                     as a source, Record -> rig), sync-ui (the settings row), rig (the recording session)
+                     Cube sheet's live view, ZZ.smart), cubefollow (the cube drags the tabs through the
+                     stages), scanner-bridge (locks, follow mode, the reader as a source, Record -> rig),
+                     record (the header Record button), sync-ui (the settings row), rig (the recording
+                     session), wake (the screen wake lock)
     rig/             the recording rig's client: stream (ordered POSTs to the dev server's sink),
                      session (one folder per sitting: video chunks, cube events, solves, evidence)
-    debug/           HSV/Lab views, frame dump, fps counter
+    debug/           HSV/Lab views, frame dump, fps counter, selftest (the hook check-detect.mjs drives)
+    scramble.ts      random move scrambles (the scan sheet's and the F2L generator's)
+    solver.worker.ts cubejs's Kociemba solve off the main thread (state.ts's client)
+    types.ts         the scanner half's shared types (FaceId, Lab, Quad, ...)
+    label-main.ts    the labeler page's model-suggestion button (label.html); signin.ts the popup-free
+                     sign-in page (signin.html) - both are extra Vite entry points, not dead files
   public/models/     facekp.onnx + facekp.json (committed so Pages serves them; built by model/)
   test/              fixtures = real frames as PNG + expected outputs
 model/

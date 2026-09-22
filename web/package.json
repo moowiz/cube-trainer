@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "bench": "vitest run --mode bench",
     "lint": "eslint src test scripts"
   },
   "dependencies": {

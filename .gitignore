@@ -7,41 +7,46 @@ web/public/models/*.onnx
 !web/public/models/facekp.onnx
 !web/public/models/cubebox.onnx
 web/public/ort/
-model/data/
-model/data_v3/
-model/data_v4*/
-model/preview_v2/
+model/data
+model/data_v3
+model/data_v4*
+model/preview_v2
 # hand-labeled real photos: personal photos, kept out of the public repo
 # (back them up separately - the labels are hours of hand work)
-model/data_real/
-model/data_real_val/
-stephens_photos/
+model/data_real
+model/data_real_val
+stephens_photos
 # stray labeler downloads land in the root before being archived
 labels-all*.json
 model/.venv/
-model/backgrounds/
-model/negatives/
+model/backgrounds
+model/negatives
 model/val2017.zip
-model/train/runs/
+model/train/runs
 # downloaded third-party models (tools/solve/hands_survey.py: mediapipe hand_landmarker.task)
-model/runs/
-model/export/out/
+model/runs
+model/export/out
 __pycache__/
 *.local
 .DS_Store
-model/roboflow/
-model/preview_v*/
+model/roboflow
+model/preview_v*
 
 # Rendered failure cases - these draw REAL photos (see data_real rule above)
 model/train/failures/
 
 # rendered portrait set (PORTRAIT-DESIGN.md) and render logs
-model/data_v5/
-model/data_v5_part*/
-model/gen/logs/
+model/data_v5
+model/data_v5_part*
+model/gen/logs
 # the recording rig's sessions (video + cube events; gigabytes, personal): local only
-recordings/
+recordings
+# Ignore rules for the data dirs carry NO trailing slash on purpose: in the
+# WSL checkout they are symlinks onto /mnt/cube-data, and `dir/` only matches
+# a real directory (commit 89c501e learned this on test/bank).
 # agent worktrees (Claude Code)
 .claude/worktrees/
-model/preview_twist/
-model/data_v6*/
+model/preview_twist
+model/data_v6*
+# the scan sheet's clip replays (phone videos; docs in web/test/fixtures/README.md)
+web/clips
