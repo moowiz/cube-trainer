@@ -18,7 +18,8 @@ reader and training data for a video move model, plus the timer that
 replaces csTimer so that every desk solve records itself. The plan is
 M9-M13 below; decisions and design in `docs/smart-cube-design.md`, the
 landscape and the full feature catalogue in
-`docs/smart-cube-trainer-survey.md`. **Current milestone: M9.**
+`docs/smart-cube-trainer-survey.md`. **Current milestone: M9** (superseded
+by the 2026-09-22 update below).
 
 **Update (2026-09-19):** the cube arrived; it connects and records
 (M9 all but its written-down numbers), the timer is in daily use with
@@ -28,6 +29,18 @@ calibration and reader numbers, then M11. **M13's synthetic half was
 pulled forward on 2026-09-19** (the reader cannot be calibrated until
 the detector sees layers rather than hands); the work list and handoff
 are in `docs/twist-head-plan.md`.
+
+**Update (2026-09-22):** M9 and M10's timer/rig half are done; M10's
+calibration (twenty cube-labelled recordings, the reader's numbers) is
+still open, and M11/M12 have not started — M11's `web/src/analysis/`
+does not exist yet. In between, the last-layer trainer grew into its own
+milestone off the plan (M10b below, shipped 2026-09-21), and M13's twist
+head cleared its accuracy bars on `data_v6` (2026-09-20) but is not wired
+into the app yet. A repo-wide maintenance pass
+(`docs/maintenance-plan.md`) landed 2026-09-22: dead code and duplicated
+helpers stripped, the deploy shrank 115 MB -> 35 MB, and CI now runs the
+headless checks and ruff. **Current milestone: M10's calibration,
+alongside M13's next step.**
 
 ---
 
@@ -450,6 +463,24 @@ tooling and prune the dead ones.
 
 ---
 
+## M10b — Last-layer reference and voice trainer ✅ (2026-09-21, off the plan)
+
+Not in M9-M13; built once the last-layer drills existed to hang it on.
+`web/src/ll/`: a case reference sheet (pictures, algs with their triggers,
+the chain from one case to its partner) with a star that makes any of a
+case's algs the drill's main one (`favs.ts`, in the store, synced); a
+voice (`hear.ts` parses the spoken answer: it reads the alg, or asks the
+case and listens) that says an alg by its named chunks - a trigger, a
+commutator, a conjugate - or move by move per chunk, as the settings say;
+a repeat mode (the algs over and over from wherever the cube is, no
+scramble); and per-case practice stats off the store's attempts. The
+drill follows a smart cube's scramble the way the Solve tab does.
+
+**Done when:** a case can be practised start to finish by voice with no
+screen taps, and starred algs and per-case stats persist and sync.
+
+---
+
 ## M11 — ZZ analysis and coaching (design doc 6.1)
 
 `web/src/analysis/`, pure functions over a solve record, tested on
@@ -512,6 +543,12 @@ is rendered (21k, 2026-09-20). **Handoff and work list:
 the app-side channel or the video-window model. Not yet: the run,
 `facekp.ts` decoding the twist, the reader's twist channel, real mid-turn
 labels (in progress, user).
+
+**2026-09-20, later: the run.** `tw1`, trained from scratch on `data_v6`,
+clears both bars (class F1 0.90, mean angle error 3.0°). Still not yet:
+`facekp.ts` decoding the twist channel and the reader reading it, real
+mid-turn labels for a fine-tune, and the app-side-channel vs
+video-window-model call `docs/twist-head-plan.md` leaves open.
 
 ---
 
