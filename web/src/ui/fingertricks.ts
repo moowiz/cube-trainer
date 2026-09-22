@@ -152,6 +152,17 @@ const CHUNKS: { moves: string; label: string }[] = [
 ];
 const CHUNK_TOKENS = CHUNKS.map((c) => ({ ...c, toks: tokens(c.moves) }));
 
+/** Every block the voice can name: the shared chunks and the labelled triggers, with their moves (the drill's per-chunk setting lists these). */
+export function chunkList(): { label: string; moves: string }[] {
+  const seen = new Set<string>();
+  const out: { label: string; moves: string }[] = [];
+  for (const c of [...CHUNKS, ...TRIGGERS.filter((t) => t.label).map((t) => ({ label: t.label!, moves: t.moves }))]) {
+    if (seen.has(c.label)) continue;
+    seen.add(c.label); out.push({ label: c.label, moves: c.moves });
+  }
+  return out;
+}
+
 /**
  * The named blocks in `alg` by token position: where each starts, how many moves, its short label.
  * The shared chunks first (a T core, a commutator), then the finger-level triggers (sexy, sledge)

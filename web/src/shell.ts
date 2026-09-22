@@ -44,8 +44,11 @@ export function sharedScramble(): string | null { return shared; }
 export function shareScramble(scramble: string, from: Tab | null): void {
   if (from !== null && (!ready || from !== activeTab())) return;
   shared = scramble;
-  for (const t of TABS) if (t !== from) stages[t]?.load(scramble);
+  for (const t of TABS) if (t !== from && t !== kept) stages[t]?.load(scramble);
 }
+let kept: Tab | null = null;
+/** A tab no share may load (null: none): the Solve tab while its timer runs a solve the cube's follow is carrying through the stages. */
+export function keepScramble(tab: Tab | null): void { kept = tab; }
 
 const el = (id: string): HTMLElement => {
   const e = document.getElementById(id);

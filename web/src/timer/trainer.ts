@@ -64,6 +64,9 @@ const STYLE = `
   .tm-sol .moves { display: block; font-size: 20px; font-weight: 600; line-height: 1.5; word-spacing: .4em; color: var(--ink); padding: 2px 4px; }
   .tm-sol .moves .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .tm-sol .btn { padding: 2px 6px; font-size: 13px; }
+  /* the smart cube's follow from this tab (app/cubefollow.ts owns it; shown with a cube) */
+  .tm-follow { display: flex; justify-content: center; align-items: center; gap: 10px; font-size: 13px; color: var(--ink-2); margin: 4px 0 2px; }
+  .tm-follow .eo-seg button { padding: 4px 8px; font-size: 13px; }
   /* the tap pad: most of the screen on a phone; press and release starts, a tap stops */
   .tm-pad { min-height: 36vh; display: flex; flex-direction: column; justify-content: center; margin: 6px 0; border-radius: 14px;
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; cursor: pointer; transition: background .12s; }
@@ -117,6 +120,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       <div class="tm-scr" id="tm-scr"></div>
       <div class="tm-track" id="tm-track"></div>
       <div class="tm-sol" id="tm-sol"><button class="btn eo-link" type="button" id="tm-solBtn">Show a solution</button><span id="tm-solText"></span></div>
+      <div class="tm-follow" id="tm-follow" hidden title="With the smart cube: stay on this tab for the whole solve, or have the stage tabs open as the cube crosses into EO, F2L, OCLL and PLL - the timer keeps running underneath and this tab comes back when the cube is solved"><span>As I solve</span><div class="eo-seg" id="tm-cubefollow"><button type="button" data-v="stay">Stay here</button><button type="button" data-v="follow">Follow into the stages</button></div></div>
       <div class="tm-pad" id="tm-pad" role="button" aria-label="Timer: press and release to start, tap to stop">
         <div class="tm-time" id="tm-time">0.00</div>
         <div class="tm-state" id="tm-state"></div>

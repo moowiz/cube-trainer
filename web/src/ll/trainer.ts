@@ -15,7 +15,7 @@
 // scramble along the underline, solve), a voice (speech synthesis) that
 // either says each move as the cube makes it or reads the next move of the
 // alg on show - eyes on the cube, not the screen, while an alg is learnt -
-// (a named chunk by its name or move by move, a checkbox),
+// (each named chunk by its name or move by move, a list of ticks),
 // and which cases New case draws from (the ones being learnt; with an
 // earlier start the case that comes up is still whatever the step before
 // leaves).
@@ -44,7 +44,7 @@ import { moveHtml } from '../timer/trainer';
 import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
-import { triggers } from '../ui/fingertricks';
+import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
@@ -86,6 +86,13 @@ const STYLE = `
   .ll-alts .ll-step { margin-top: 8px; }
   .eo-result .ll-alg .mv.done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .eo-result .ll-alg .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
+  .ll-chunks { margin: -4px 2px 10px; font-size: 13px; color: var(--ink-2); }
+  .ll-chunks summary { cursor: pointer; }
+  .ll-chunks p { margin: 6px 0 4px; }
+  .ll-chunks label { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; }
+  .ll-chunks label b { color: var(--ink); font-weight: 600; white-space: nowrap; }
+  .ll-chunks label span { word-spacing: .2em; }
+  .ll-chunks .row { display: flex; gap: 10px; margin-top: 6px; }
   .ll-say { margin: -4px 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-say summary { cursor: pointer; }
   .ll-say div { margin-top: 6px; line-height: 1.5; } .ll-say p { margin: 4px 0; }
@@ -117,7 +124,8 @@ const STYLE = `
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
-interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; chunks: boolean; alts: boolean; repeat: boolean; cases?: string[] }
+/** `spell`: the chunk labels the voice reads move by move instead of naming (the rest are named). */
+interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; spell: string[]; alts: boolean; repeat: boolean; cases?: string[] }
 type Voice = 'off' | 'echo' | 'read' | 'quiz';
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
@@ -191,11 +199,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', chunks: true, alts: false, repeat: false };
+  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', spell: [], alts: false, repeat: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
   if (!(settings.voice in VOICE_LABEL)) settings.voice = 'off';
+  if (!Array.isArray(settings.spell)) settings.spell = [];
   const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
@@ -207,8 +216,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label title="The algs of the cases in the drill, one after another, from wherever the cube is: no scramble, the alg on show, wrong turns called"><input type="checkbox" id="${id('repeat')}"> Repeat the algs (no scramble)</label>
         <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
-        <label title="A named chunk (sexy, T core, a commutator) said by its name at its start, or its moves read one by one"><input type="checkbox" id="${id('chunks')}"> Say chunks by name (sexy, T core)</label>
       </div>
+      <details class="ll-chunks" id="${id('chunks')}"><summary>Chunks the voice names: <span id="${id('chunksN')}"></span></summary><div id="${id('chunklist')}"></div></details>
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
       <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div></details>`,
@@ -736,7 +745,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
           const next = route[d];
           // the setting: a chunk by its name, or every move of it read like any other
-          const trig = settings.chunks ? (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n) : undefined;
+          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n && !settings.spell.includes(g.label));
           // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
           const move = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           const words = move === null ? null : [...rots.map(spoken), move].join(', '); // the rotation with it: the move's letter assumes it
@@ -831,9 +840,28 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   repeatBox.addEventListener('change', () => { settings.repeat = repeatBox.checked; saveSettings(); repN = 0; lastRep = null; if (settings.repeat) startRep(false); else newCase(); });
   const voiceSel = drill.$('voice') as HTMLSelectElement;
   voiceSel.value = settings.voice;
-  const chunksBox = drill.$('chunks') as HTMLInputElement;
-  chunksBox.checked = settings.chunks;
-  chunksBox.addEventListener('change', () => { settings.chunks = chunksBox.checked; saveSettings(); });
+  // which chunks the voice names (a tick) and which it reads move by move; per chunk, kept with the settings
+  function renderChunks(): void {
+    const all = chunkList(), named = all.filter((c) => !settings.spell.includes(c.label)).length;
+    drill.$('chunksN').textContent = named === all.length ? `all ${all.length}` : named ? `${named} of ${all.length}` : 'none, every move read';
+    drill.$('chunklist').innerHTML = `<p>Ticked: said by its name when the alg reaches it. Unticked: its moves read one by one.</p>`
+      + all.map((c) => `<label><input type="checkbox" data-chunk="${c.label.replace(/"/g, '&quot;')}"${settings.spell.includes(c.label) ? '' : ' checked'}> <b>${c.label}</b> <span>${c.moves}</span></label>`).join('')
+      + '<div class="row"><button type="button" class="eo-link" data-chunks="all">name all</button><button type="button" class="eo-link" data-chunks="none">read all</button></div>';
+  }
+  drill.$('chunklist').addEventListener('change', (e) => {
+    const box = e.target as HTMLInputElement;
+    if (!box.dataset.chunk) return;
+    const off = new Set(settings.spell);
+    if (box.checked) off.delete(box.dataset.chunk); else off.add(box.dataset.chunk);
+    settings.spell = [...off]; saveSettings(); renderChunks();
+  });
+  drill.$('chunklist').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-chunks]');
+    if (!b) return;
+    settings.spell = b.dataset.chunks === 'all' ? [] : chunkList().map((c) => c.label);
+    saveSettings(); renderChunks();
+  });
+  renderChunks();
   const sayBox = drill.$('say');
   const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
   showSay();

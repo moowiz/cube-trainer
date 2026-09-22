@@ -2,7 +2,12 @@
 // smart cube", on by default): as the cube crosses into a further ZZ stage
 // that stage's tab opens with the cube loaded, the way the camera's follow
 // mode does after a lock (scanner-bridge.ts), only with no lock and no
-// camera. The Solve tab is left alone: the timer owns the cube there.
+// camera. On the Solve tab it is the tab's own choice (a segment under the
+// scramble, "As I solve": stay here / follow into the stages): with
+// follow, a timed solve moves the tabs too, and the timer keeps timing
+// underneath - its stage stays PINNED in sources.ts so it hears every
+// turn, and no tab may load a scramble into it (shell.keepScramble) until
+// the cube is solved, when the Solve tab comes back with the time.
 //
 // The cube's turns are sure and whole, so the follow is by the solve's
 // furthest stage (follow.ts SolveFollower): an alg dipping through earlier
@@ -20,14 +25,14 @@ import { SOLVED } from '../cube/state';
 import { describeStage, followReport, followScramble, SolveFollower } from '../follow';
 import { toSourceLetters, type ScannedCube } from '../handoff';
 import { movesOf, type MoveSource } from '../moves/source';
-import { activeTab, onTabChange, shareScramble, showTab, stages, toast, type Tab } from '../shell';
+import { activeTab, keepScramble, onTabChange, shareScramble, showTab, stages, toast, type Tab } from '../shell';
 import { type Stage } from '../stage';
 import { solveState, warmSolver } from '../state';
 import { ScrambleTracker, type TrackStatus } from '../timer/track';
 import { persistControls } from '../ui/settings';
 import { hold } from './context';
 import { cubeActive } from './smart';
-import { activeSource, driverArmed, onSourceChange, syncDriver } from './sources';
+import { activeSource, driverArmed, onSourceChange, pinStage, syncDriver } from './sources';
 
 // DECISION: a pause is 15 s without a turn (user, 2026-09-21: at 2 s a think mid-PLL, with the
 // cross broken by the alg, flipped the tabs). A hand-scrambled cube takes that long to be picked
@@ -37,7 +42,11 @@ const PAUSE_MS = 15_000;
 const REBASE_AFTER = 40;
 
 let box: HTMLInputElement | null = null;
+let solveSeg: HTMLElement | null = null;   // the Solve tab's own choice
+let solveMode: 'stay' | 'follow' = 'follow';
+const SOLVE_KEY = 'zz-solve-follow';
 let engaged = false;
+let timing = false;          // the Solve tab's timer is on a solve this follow carries through the stages
 const follower = new SolveFollower();
 let cursor = 0;              // items of the source consumed
 let startIndex = 0;          // the item index this solve started at (for the solved toast)
@@ -50,8 +59,23 @@ let failed: string | null = null;   // the state cubejs refused (a garbage repor
 /** The smart cube's follow is running: the tabs are its to move. */
 export function cubeFollowing(): boolean { return engaged; }
 
+// DECISION: the Solve tab follows by default, like the drills; a timer-only sitting is one tap
+// away and remembered. The setting under Cube is the master: off, nothing follows anywhere.
 const DRILLS: readonly Tab[] = ['eo', 'f2l', 'ocll', 'pll'];
-const wanted = (): boolean => (box?.checked ?? false) && cubeActive() && DRILLS.includes(activeTab());
+const master = (): boolean => (box?.checked ?? false) && cubeActive();
+const wanted = (): boolean => {
+  if (!master()) return false;
+  const tab = activeTab();
+  return tab === 'solve' ? solveMode === 'follow' : DRILLS.includes(tab);
+};
+
+/** The timer's solve is being carried through the stages: its tab keeps hearing the turns and keeps its scramble. */
+function setTiming(on: boolean): void {
+  if (on === timing) return;
+  timing = on;
+  pinStage(on ? 'solve' : null);
+  keepScramble(on ? 'solve' : null);
+}
 
 /** The cube's state as the trainer-frame scramble, from the base and the turns since; null without a base. */
 function scramble(src: MoveSource): string | null {
@@ -140,7 +164,7 @@ function consume(): void {
   for (; cursor < items.length; cursor++) {
     const it = items[cursor]!;
     if (it.kind === 'move') { lastMoveT = it.t; moved = true; }
-    else if (it.kind === 'resync') { base = null; solving = null; failed = null; follower.restart(null); }
+    else if (it.kind === 'resync') { base = null; solving = null; failed = null; follower.restart(null); setTiming(false); }
   }
   if (!base) { rebase(src); return; }
   if (!moved) return;
@@ -149,11 +173,22 @@ function consume(): void {
   if (state === null || scr === null) return;
   // on the open tab's scramble: being applied (not a solve), or reached - a solve starts from here (the drill arms on this same item)
   const path = pathStatus(src, state);
-  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; return; }
+  if (path?.matched) {
+    follower.restart(followReport(scr).stage); startIndex = cursor;
+    // the Solve tab's scramble reached: the timer armed on this item, and its solve is the one followed
+    if (activeTab() === 'solve') setTiming(true);
+    return;
+  }
   if (path && !path.off) return;
   const next = follower.turned(followReport(scr).stage);
   if (!next) return;
-  if (next === 'solved') { announceSolved(src); base = { facelets: SOLVED, colourOf: src.colourOf, solution: '' }; baseCursor = cursor; return; }
+  if (next === 'solved') {
+    base = { facelets: SOLVED, colourOf: src.colourOf, solution: '' }; baseCursor = cursor;
+    // the timer stopped on this same turn (its stage heard it first): back to it for the time and the next scramble
+    if (timing) { setTiming(false); console.log('CUBE FOLLOW solved: back to the Solve tab'); if (activeTab() !== 'solve') { showTab('solve'); window.scrollTo({ top: 0 }); } }
+    else announceSolved(src);
+    return;
+  }
   // the open tab's drill is on this solve from its own scramble and crossed into its own stage (a PLL drill
   // started from OCLL, say): it judges the solve when it is done, and reloading it here would cut the solve in two
   if (next === activeTab() && driverArmed()) return;
@@ -173,8 +208,10 @@ function poll(): void {
   const scr = scramble(src);
   if (scr === null) return;
   const path = pathStatus(src, state);
-  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; return; }
+  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; if (activeTab() === 'solve') setTiming(true); return; }
   if (path && !path.off) return;
+  // the Solve tab between solves: a cube off its scramble is a mis-scramble to undo, not a solve to pick up
+  if (activeTab() === 'solve' && !timing) return;
   const restart = follower.paused(followReport(scr).stage);
   if (!restart) return;
   startIndex = cursor;
@@ -185,11 +222,13 @@ function poll(): void {
 let followed: MoveSource | null = null;
 /** The follow engages when the setting is on, the cube is the active source and a drill tab is open; it starts over each time, and with each source. */
 function refresh(): void {
+  if (solveSeg) solveSeg.parentElement!.hidden = !master();
   const on = wanted();
   const src = on ? activeSource() : null;
   if (on === engaged && src === followed) return;
   engaged = on;
   followed = src;
+  setTiming(false);
   if (!src) return;
   cursor = src.items().length;
   startIndex = cursor;
@@ -205,6 +244,19 @@ export function initCubeFollow(): void {
   if (box) {
     persistControls({ cubefollow: box });
     box.addEventListener('change', refresh);
+  }
+  solveSeg = document.getElementById('tm-cubefollow');
+  if (solveSeg) {
+    try { if (localStorage.getItem(SOLVE_KEY) === 'stay') solveMode = 'stay'; } catch { /* no storage */ }
+    const paint = () => solveSeg!.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === solveMode));
+    paint();
+    solveSeg.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
+      if (!b) return;
+      solveMode = b.dataset.v === 'stay' ? 'stay' : 'follow';
+      try { localStorage.setItem(SOLVE_KEY, solveMode); } catch { /* no storage */ }
+      paint(); refresh();
+    });
   }
   onTabChange(refresh);
   onSourceChange(() => { refresh(); consume(); });
