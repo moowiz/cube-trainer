@@ -17,6 +17,7 @@ import { mountDrill, type Drill } from '../ui/drill';
 import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook } from './eocross';
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, randomScramble, solveEO, type Group, type SolutionSet } from './solver';
+import { persisted } from '../ui/settings';
 
 interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; goal: 'eo' | 'cross' }
 const SETTINGS_KEY = 'zz-eo-settings';
@@ -28,9 +29,7 @@ const GOALS = {
 };
 
 export function mountEO(root: HTMLElement): Stage {
-  const settings: Settings = { count: 'off', mark: 'off', view: '3d', target: 'any', goal: 'eo' };
-  try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
-  const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { count: 'off', mark: 'off', view: '3d', target: 'any', goal: 'eo' });
   const goal = () => GOALS[settings.goal] ?? GOALS.eo;
 
   const drill: Drill = mountDrill(root, {

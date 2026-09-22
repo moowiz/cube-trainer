@@ -33,6 +33,7 @@ import { persistControls } from '../ui/settings';
 import { hold } from './context';
 import { cubeActive } from './smart';
 import { activeSource, driverArmed, onSourceChange, pinStage, syncDriver } from './sources';
+import { readStored, writeStored } from '../ui/settings';
 
 // DECISION: a pause is 15 s without a turn (user, 2026-09-21: at 2 s a think mid-PLL, with the
 // cross broken by the alg, flipped the tabs). A hand-scrambled cube takes that long to be picked
@@ -254,14 +255,14 @@ export function initCubeFollow(): void {
   }
   solveSeg = document.getElementById('tm-cubefollow');
   if (solveSeg) {
-    try { if (localStorage.getItem(SOLVE_KEY) === 'stay') solveMode = 'stay'; } catch { /* no storage */ }
+    if (readStored(SOLVE_KEY) === 'stay') solveMode = 'stay';
     const paint = () => solveSeg!.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === solveMode));
     paint();
     solveSeg.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
       if (!b) return;
       solveMode = b.dataset.v === 'stay' ? 'stay' : 'follow';
-      try { localStorage.setItem(SOLVE_KEY, solveMode); } catch { /* no storage */ }
+      writeStored(SOLVE_KEY, solveMode);
       paint(); refresh();
     });
   }

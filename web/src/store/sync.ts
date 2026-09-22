@@ -7,6 +7,7 @@
 
 import type { Coll, Store } from './local';
 import type { AttemptRecord, FavRecord, SessionRecord, SolveRecord } from './types';
+import { readStored, writeStored } from '../ui/settings';
 
 export interface SyncState {
   status: 'off' | 'loading' | 'signed-out' | 'syncing' | 'synced' | 'error';
@@ -47,8 +48,8 @@ type FB = typeof import('./firebase');
 const COLLS: Coll[] = ['solves', 'sessions', 'attempts', 'favs'];
 const ON_KEY = 'cube.sync.on';
 
-export function syncWanted(): boolean { try { return localStorage.getItem(ON_KEY) === '1'; } catch { return false; } }
-function setWanted(on: boolean): void { try { if (on) localStorage.setItem(ON_KEY, '1'); else localStorage.removeItem(ON_KEY); } catch { /* no storage */ } }
+export function syncWanted(): boolean { return readStored(ON_KEY) === '1'; }
+function setWanted(on: boolean): void { writeStored(ON_KEY, on ? '1' : null); }
 
 /** How to fetch one record by id, per collection (sessions has no get-by-id on Store). */
 const getters: Record<Coll, (store: Store, id: string) => Promise<SolveRecord | SessionRecord | AttemptRecord | FavRecord | undefined>> = {

@@ -18,6 +18,7 @@ import { picFto, picIso, picTop } from './pic';
 import { mountPlayer } from './player';
 import type { AlgCase, AlgPuzzleId, Puzzle } from './types';
 import { ensureStyle, esc } from '../ui/dom';
+import { readStored, writeStored } from '../ui/settings';
 
 const KEY = 'zz-algs';
 
@@ -137,7 +138,8 @@ export function initAlgs(): void {
   ensureStyle('algs-style', STYLE);
   ensurePicStyle(); // the 3x3's last-layer pictures carry PLL's arrows
   let chosen: AlgPuzzleId = PUZZLES[0]!.id;
-  try { const v = localStorage.getItem(KEY); if (PUZZLES.some((p) => p.id === v)) chosen = v as AlgPuzzleId; } catch { /* no storage */ }
+  const stored = readStored(KEY);
+  if (PUZZLES.some((p) => p.id === stored)) chosen = stored as AlgPuzzleId;
   let drawn = false;
   // the 3D player: one open at a time, inside the case's card; a redraw of the sheet drops it
   let player: { destroy(): void; button: HTMLElement } | null = null;
@@ -167,7 +169,7 @@ export function initAlgs(): void {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-p]');
     if (!b) return;
     chosen = b.dataset.p as AlgPuzzleId;
-    try { localStorage.setItem(KEY, chosen); } catch { /* no storage */ }
+    writeStored(KEY, chosen);
     render();
     panel.closest('.zz-sheet')?.scrollTo({ top: 0 });
   });

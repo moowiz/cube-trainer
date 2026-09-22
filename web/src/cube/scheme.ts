@@ -1,3 +1,4 @@
+import { readStored, writeStored } from '../ui/settings';
 // The colour scheme the trainers draw and talk in: white is always down
 // (D), yellow up, and the setting is which colour faces you. Standard cube:
 // blue - red - green - orange going round, so the front colour fixes the
@@ -9,7 +10,7 @@ const SIDE_ORDER = ['F', 'R', 'B', 'L'];
 const KEY = 'zz-scheme';
 
 let front = 0; // index into SIDES of the colour in front
-try { const v = Number(localStorage.getItem(KEY)); if (v >= 0 && v < 4) front = v; } catch { /* no storage */ }
+{ const v = Number(readStored(KEY)); if (v >= 0 && v < 4) front = v; }
 
 const listeners = new Set<() => void>();
 
@@ -20,7 +21,7 @@ export function setFrontIndex(i: number): void {
   const v = ((Math.round(i) % 4) + 4) % 4;
   if (v === front) return;
   front = v;
-  try { localStorage.setItem(KEY, String(v)); } catch { /* no storage */ }
+  writeStored(KEY, String(v));
   for (const l of listeners) l();
 }
 

@@ -55,6 +55,7 @@ import { solveAny } from './scramble';
 import { caseStats, RECENT, secs, workOn } from './practice';
 import { chainSummary, openLLReference } from './reference';
 import { ensureStyle } from '../ui/dom';
+import { persisted } from '../ui/settings';
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
 const BLURB: Record<LLKind, string> = {
@@ -199,13 +200,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', spell: [], alts: false, repeat: false };
-  try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
-  if (!STARTS[kind].includes(settings.from)) settings.from = kind;
-  if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
-  if (!(settings.voice in VOICE_LABEL)) settings.voice = 'off';
-  if (!Array.isArray(settings.spell)) settings.spell = [];
-  const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, voice: 'off', spell: [], alts: false, repeat: false }, (st) => {
+    if (!STARTS[kind].includes(st.from)) st.from = kind;
+    if (st.cases && !Array.isArray(st.cases)) st.cases = undefined;
+    if (!(st.voice in VOICE_LABEL)) st.voice = 'off';
+    if (!Array.isArray(st.spell)) st.spell = [];
+  });
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
     quiet: true, showLabel: 'Show the alg',
@@ -536,7 +536,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       if (freeAuf && t.auf) {
         setup = faceTurns(`${setup} ${inverse(t.auf)}`);
         derive(); shareScramble(setup, kind);
-        if (drill.showOpen() && sol) onShow(true); // the alg on show is for the setup as it was
+        // the alg on show is for the setup as it was; one held for the first turn stays hidden
+        if (drill.showOpen() && sol) { onShow(true); if (held) { drill.result.hide(); drill.setShowLabel('Show the alg'); } }
       }
       scramble = freeAuf ? t.scramble : `${t.scramble} ${t.auf}`.trim();
       render();

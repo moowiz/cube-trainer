@@ -26,6 +26,7 @@ import { formatTime, sessionStats, type Time } from './stats';
 import { ScrambleTracker, type TrackStatus } from './track';
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
+import { persisted } from '../ui/settings';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
@@ -106,9 +107,7 @@ export function moveHtml(m: string): string {
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   ensureStyle('timer-style', STYLE);
-  const settings: Settings = { autonext: 'on', beep: 'on' };
-  try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
-  const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ } };
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on' });
 
   root.innerHTML = `
     <div class="tm">

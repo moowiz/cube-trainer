@@ -24,6 +24,7 @@ import {
   SLOT_WORD, SLOTS, trace, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
 import { ensureStyle, scoped } from '../ui/dom';
+import { readStored, writeStored } from '../ui/settings';
 
 const GREY = '#DDE1E7'; // the page's --grey-ll: SVG fill attributes cannot read a CSS variable
 const STORE_KEY = 'zzf2l-state';
@@ -292,12 +293,12 @@ export function mountF2L(root: HTMLElement): Stage {
     const s = q.toString();
     try { history.replaceState(null, '', `#${s}`); }
     catch { try { if (location.hash.slice(1) !== s) location.hash = s; } catch { /* no history */ } }
-    try { localStorage.setItem(STORE_KEY, s); } catch { /* no storage */ }
+    writeStored(STORE_KEY, s);
   }
   function loadUrl(): void {
     let raw = '';
     try { raw = location.hash.slice(1); } catch { /* no location */ }
-    if (!raw) { try { raw = localStorage.getItem(STORE_KEY) || ''; } catch { /* no storage */ } }
+    if (!raw) raw = readStored(STORE_KEY) || '';
     const q = new URLSearchParams(raw);
     if (![...q.keys()].length) return;
     restoring = true;

@@ -8,6 +8,7 @@
 
 import { averageOf, formatTime, type Time } from './stats';
 import { ensureStyle, esc } from '../ui/dom';
+import { readStoredJson, writeStored } from '../ui/settings';
 
 export interface Window { key: string; n: number; colour: string }
 // DECISION: the four averages every timer shows, in a fixed colour order (blue, orange, aqua,
@@ -234,7 +235,7 @@ const TABLE_ROWS = 300;
 export function mountGraph(root: HTMLElement): (data: GraphData) => void {
   ensureStyle('graph-style', STYLE);
   let shown = new Set<string>(WINDOWS.map((w) => w.key));
-  try { const saved = JSON.parse(localStorage.getItem(SHOWN_KEY) || 'null'); if (Array.isArray(saved)) shown = new Set(saved.filter((k) => WINDOWS.some((w) => w.key === k))); } catch { /* no storage */ }
+  { const saved = readStoredJson(SHOWN_KEY); if (Array.isArray(saved)) shown = new Set(saved.filter((k) => WINDOWS.some((w) => w.key === k))); }
   root.innerHTML = '<div class="gr-legend"></div><div class="gr"><div class="gr-plot"></div><div class="gr-tip" hidden></div></div><details class="gr-table"><summary>Table</summary><div class="gr-rows"></div></details>';
   const legend = root.querySelector<HTMLElement>('.gr-legend')!, plot = root.querySelector<HTMLElement>('.gr-plot')!;
   const tip = root.querySelector<HTMLElement>('.gr-tip')!, rows = root.querySelector<HTMLElement>('.gr-rows')!, table = root.querySelector<HTMLDetailsElement>('.gr-table')!;
@@ -250,7 +251,7 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     if (!b) return;
     const k = b.dataset.key!;
     if (shown.has(k)) shown.delete(k); else shown.add(k);
-    try { localStorage.setItem(SHOWN_KEY, JSON.stringify([...shown])); } catch { /* no storage */ }
+    writeStored(SHOWN_KEY, JSON.stringify([...shown]));
     drawLegend(); draw();
   });
 

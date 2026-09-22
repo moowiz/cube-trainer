@@ -4,6 +4,7 @@
 
 import { FRONT_OPTIONS, faceColorName, frontIndex, setFrontIndex } from './cube/scheme';
 import type { ColorName, FaceId } from './types';
+import { readStored, writeStored } from './ui/settings';
 
 const TABS = ['solve', 'eo', 'f2l', 'ocll', 'pll'] as const;
 export type Tab = (typeof TABS)[number];
@@ -72,7 +73,7 @@ export function showTab(t: Tab): void {
     el(`${k}-panel`).hidden = k !== t;
     document.querySelector(`.tabs button[data-t="${k}"]`)?.classList.toggle('on', k === t);
   }
-  try { localStorage.setItem('zz-tab', t); } catch { /* no storage */ }
+  writeStored('zz-tab', t);
   for (const cb of tabListeners) cb(t);
 }
 
@@ -185,8 +186,7 @@ export function initShell(): void {
   sel.addEventListener('change', () => setFrontIndex(Number(sel.value)));
   // which tab: ?tab=... wins, then the remembered one; ?tab=scan opens the scanner over it (the replay tooling's URL),
   // ?tab=algs the algs sheet (the manifest's home-screen shortcut)
-  let tab: string = 'solve';
-  try { tab = localStorage.getItem('zz-tab') || 'solve'; } catch { /* no storage */ }
+  let tab: string = readStored('zz-tab') || 'solve';
   const want = new URLSearchParams(location.search).get('tab');
   if (want && want !== 'scan' && want !== 'algs') tab = want;
   showTab((TABS as readonly string[]).includes(tab) ? (tab as Tab) : 'eo');
