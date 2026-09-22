@@ -52,7 +52,7 @@ import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
 import { caseStats, RECENT, secs, workOn } from './practice';
-import { openLLReference } from './reference';
+import { chainSummary, openLLReference } from './reference';
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
 const BLURB: Record<LLKind, string> = {
@@ -98,6 +98,11 @@ const STYLE = `
   .ll-caselist .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .ll-caselist .eo-link { padding: 2px 4px; font-size: 13px; }
   .ll-fams { flex-basis: 100%; margin-top: 2px; } .ll-fams .eo-link { padding: 2px 5px; }
+  .ll-pairs, .ll-solo { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .ll-pairs { flex-basis: 100%; }
+  .ll-pair { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px dashed var(--line); border-radius: 999px; }
+  .ll-pair i { font-style: normal; font-size: 12px; color: var(--ink-2); }
+  .ll-caselist .eo-chip.mate { border-color: #C8930A; color: #7A4B00; background: #FFF6DE; }
   .ll-practice { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-practice summary { cursor: pointer; }
   .ll-practice table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; width: 100%; }
@@ -606,7 +611,14 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     drill.$('casesN').textContent = n === all ? `all ${all}` : n ? `${n} of ${all}` : `none picked, so all ${all}`;
     // a family link (G for Ga-Gd) puts just that family in; a second tap adds the next one
     const fams = families(kind).filter((f) => CASES[kind].filter((c) => c.id[0] === f).length > 1);
-    drill.$('caselist').innerHTML = CASES[kind].map((c) => `<button type="button" class="eo-chip${inPool(c) ? ' on' : ''}" data-case="${c.id}">${c.name}</button>`).join('')
+    // the chain pairs first (a case and the one its alg sets up, drilled back to back), the rest after; a
+    // picked case's partner is tinted (user, 2026-09-21: what to add for the pair)
+    const { pairs } = chainSummary(kind);
+    const chip = (c: LLCase, mate?: LLCase) => `<button type="button" class="eo-chip${inPool(c) ? ' on' : mate && inPool(mate) && settings.cases ? ' mate' : ''}" data-case="${c.id}">${c.name}</button>`;
+    const paired = new Set(pairs.flat().map((c) => c.id));
+    const rest = CASES[kind].filter((c) => !paired.has(c.id));
+    drill.$('caselist').innerHTML = `<span class="ll-pairs">${pairs.map(([a, b]) => `<span class="ll-pair">${chip(a, b)}<i>↔</i>${chip(b, a)}</span>`).join('')}</span>`
+      + `<span class="ll-solo">${rest.map((c) => chip(c)).join('')}</span>`
       + '<button type="button" class="eo-link" data-cases="all">all</button><button type="button" class="eo-link" data-cases="none">none</button>'
       + (fams.length ? `<span class="ll-fams">Family: ${fams.map((f) => `<button type="button" class="eo-link" data-family="${f}">${f}</button>`).join('')}</span>` : '');
   }
