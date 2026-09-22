@@ -19,35 +19,47 @@ import { ensurePicStyle, picSvg } from './pic';
 import { ensureStyle, esc } from '../ui/dom';
 
 const STYLE = `
+  /* a phone: the head's blurb under the title and the Close button, not squeezed into a column beside them */
+  @media (max-width: 700px) {
+    #ref-sheet .zz-sheet-head { flex-wrap: wrap; }
+    #ref-sheet .zz-sheet-head .sub { flex-basis: 100%; order: 3; font-size: 12px; }
+  }
   .llr-filters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 12px; }
   .llr-filters .lbl { font-size: 13px; color: var(--ink-2); margin-right: 2px; }
   .llr-filters .gap { flex-basis: 100%; height: 0; }
   .llr-filters .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .llr-filters .eo-chip small { opacity: .7; margin-left: 3px; }
-  .llr-name { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); width: 9em; }
+  .llr-search { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); width: 9em; }
   .llr-count { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
   .llr-tags { font-size: 12px; color: var(--ink-2); }
-  .llr-chains { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
+  .llr-chains { font-size: 13px; color: var(--ink-2); margin: 0 0 12px; }
   .llr-chains b { color: var(--ink); font-weight: 600; }
-  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
-  .llr-case { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; align-content: start; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; }
+  .llr-case { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
   .llr-case:hover { background: #fff; }
+  .llr-head { display: flex; align-items: center; gap: 10px; }
+  .llr-head .ll-pic { width: 64px; flex: none; }
   .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
   .llr-play.on { color: var(--ink); font-weight: 600; }
   .llr-player { grid-column: 1 / -1; cursor: auto; }
   .llr-player:empty { display: none; }
   .llr-case .ll-pic { max-width: none; margin: 0; }
-  .llr-body { display: grid; gap: 4px; align-content: start; min-width: 0; }
-  .llr-name { font-weight: 600; font-size: 16px; }
-  .llr-name small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
-  .llr-alg { font-size: 15px; word-spacing: .25em; line-height: 1.5; }
-  .llr-alg .ll-trig { padding-bottom: 12px; }
-  .llr-alt { border-left: 2px solid var(--line); padding-left: 8px; margin: 2px 0; }
+  .llr-name { font-weight: 600; font-size: 17px; }
+  .llr-name small { font-weight: 400; font-size: 13px; color: var(--ink-2); margin-left: 6px; }
+  .llr-alg { font-size: 17px; word-spacing: .35em; line-height: 1.9; margin: 8px 0 2px; }
+  .llr-alg .ll-trig { padding-bottom: 13px; }
+  .llr-more { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+  .llr-more summary { cursor: pointer; }
+  .llr-alt { margin: 6px 0 0; }
+  .llr-alt .llr-alg { font-size: 15px; line-height: 1.8; margin: 0; }
   .llr-alt small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
   .llr-fav { font: inherit; font-size: 15px; line-height: 1; padding: 2px 5px; border: 0; background: none; color: var(--ink-2); cursor: pointer; vertical-align: middle; word-spacing: normal; }
   .llr-fav.on { color: #C8930A; }
   .llr-fav:hover { color: var(--ink); }
-  .llr-hint, .llr-chain { font-size: 13px; color: var(--ink-2); }
+  .llr-hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+  .llr-chain { font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .llr-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 8px; }
+  .llr-foot .llr-tags { flex: 1 1 100%; }
   .llr-hint b, .llr-chain b { color: var(--ink); font-weight: 600; }
 `;
 
@@ -121,15 +133,15 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   if (!panel || !head || !sub) throw new Error('index.html is missing the reference sheet');
   head.textContent = `${TITLE[kind]}: the ${CASES[kind].length} cases`;
   sub.textContent = kind === 'pll'
-    ? 'Each case as it looks from the front with its alg; the arrows show where each piece goes. Tap a case to drill it; star another of its algs to make that the one the drill uses.'
-    : 'Each case as it looks from the front (any permutation) with its alg. Tap a case to drill it; star another of its algs to make that the one the drill uses.';
+    ? 'The arrows show where each piece goes. Tap a case to drill it, star an alg to make it the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.'
+    : 'Each case as it looks from the front, any permutation. Tap a case to drill it, star an alg to make it the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.';
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();
   let namePat = ''; // the name box: "G", "R*", "Ja Jb"
   const shown = (c: LLCase) => { const f = feat.get(c.id); return matchesName(c, namePat) && (!f || FILTERS.every((x) => !active.has(x.key) || x.test(f))); };
   const filterBar = () => {
-    const nameBox = `<span class="lbl">Name</span><input class="llr-name" id="llr-name" type="search" placeholder="G, R*, Ja Jb" value="${esc(namePat).replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" spellcheck="false">`;
+    const nameBox = `<span class="lbl">Name</span><input class="llr-search" id="llr-name" type="search" placeholder="G, R*, Ja Jb" value="${esc(namePat).replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" spellcheck="false">`;
     if (kind !== 'pll') return `<div class="llr-filters">${nameBox}</div>`;
     const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && matchesName(c, namePat) && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
     let group = '', out = `<div class="llr-filters">${nameBox}<span class="gap"></span>`;
@@ -144,27 +156,28 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
     const { self, pairs, oneWay } = chainSummary(kind);
     const names = (cs: LLCase[]) => cs.map((c) => `<b>${esc(c.name)}</b>`).join(', ');
     panel.innerHTML = `
-      <p class="llr-chains">Chains: doing an alg on a solved cube sets up the case whose alg undoes it, so these can be drilled back to back with no scramble.
-        ${pairs.length ? `Pairs: ${pairs.map(([a, b]) => `<b>${esc(a.name)}</b> ↔ <b>${esc(b.name)}</b>`).join(', ')}.` : ''}
-        ${self.length ? `Their own inverse (the alg twice is solved): ${names(self)}.` : ''}
-        ${oneWay.length ? `One way: ${oneWay.map(([a, b]) => `<b>${esc(a.name)}</b> → <b>${esc(b.name)}</b>`).join(', ')}.` : ''}</p>
+      <p class="llr-chains">${[
+        pairs.length ? `Chains: ${pairs.map(([a, b]) => `<b>${esc(a.name)}</b> ↔ <b>${esc(b.name)}</b>`).join(', ')}` : '',
+        self.length ? `their own inverse: ${names(self)}` : '',
+        oneWay.length ? `one way: ${oneWay.map(([a, b]) => `<b>${esc(a.name)}</b> → <b>${esc(b.name)}</b>`).join(', ')}` : '',
+      ].filter(Boolean).join(' · ')}.</p>
       ${filterBar()}
       <div class="llr-grid">${CASES[kind].filter(shown).map((c) => {
         const p = chainPartner(kind, c);
         const f = feat.get(c.id);
         const star = (alg: string, on: boolean) => `<button type="button" class="llr-fav${on ? ' on' : ''}" data-fav="${esc(alg)}" title="${on ? 'This is the alg the drill uses (tap for the standard one)' : 'Make this the alg the drill uses'}">${on ? '★' : '☆'}</button>`;
-        const chain = !p ? '' : p.id === c.id ? 'Chains to itself: the alg again solves it.' : `Chains to <b>${esc(p.name)}</b>: after the alg, that is the case on the cube${chainPartner(kind, p)?.id === c.id ? ', and its alg brings this one back' : ''}.`;
+        const chain = !p ? '' : `<span class="llr-chain" title="${p.id === c.id ? 'The alg again solves it' : 'After the alg, that is the case on the cube'}">${p.id === c.id ? '↻ itself' : `↔ ${esc(p.name)}`}</span>`;
+        const alts = c.alts ?? [];
         return `<div class="llr-case" data-id="${esc(c.id)}" role="button" tabindex="0">
-          <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
-          <div class="llr-body">
-          <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
-          <div class="llr-alg">${algHtml(c.alg)}${(c.alts ?? []).length ? star(c.alg, true) : ''}${isFavourite(kind, c.id) ? '<small class="llr-tags"> your pick</small>' : ''}</div>
-          ${(c.alts ?? []).map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}
-          <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
-          ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
-          <div class="llr-chain">${chain}</div>
-          <button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>
+          <div class="llr-head">
+            <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
+            <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small>${isFavourite(kind, c.id) ? '<small>your pick</small>' : ''}</div>
+            ${chain}
           </div>
+          <div class="llr-alg">${algHtml(c.alg)}${alts.length ? star(c.alg, true) : ''}</div>
+          <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
+          ${alts.length ? `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}</details>` : ''}
+          <div class="llr-foot"><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
           <div class="llr-player"></div>
         </div>`;
       }).join('')}</div>`;
