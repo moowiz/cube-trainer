@@ -8,23 +8,16 @@
 //       --data data_real_val --split all --dump data_real_val/refine-dump
 //   cd web && npx vitest run test/refine-bench.test.ts
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { PNG } from 'pngjs';
+import { join } from 'node:path';
 import { describe, it } from 'vitest';
-import { BENCH } from './helpers';
+import { BENCH, loadPng, TEST_DIR } from './helpers';
 import { refineQuad } from '../src/detect/gridfit';
 import type { ImageDataLike, Quad } from '../src/rectify';
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'model', 'data_real_val', 'refine-dump');
+const dir = join(TEST_DIR, '..', '..', 'model', 'data_real_val', 'refine-dump');
 const present = existsSync(join(dir, 'dump.json'));
 
 interface Face { image: string; range: string; far: boolean; src: number; err: number; pred: [number, number][]; gt: [number, number][] }
-
-function loadPng(file: string): ImageDataLike {
-  const png = PNG.sync.read(readFileSync(file));
-  return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data) };
-}
 
 const meanErr = (a: Quad, b: Quad): number => a.reduce((s, p, i) => s + Math.hypot(p[0] - b[i]![0], p[1] - b[i]![1]), 0) / 4;
 const stats = (xs: number[]): string => {

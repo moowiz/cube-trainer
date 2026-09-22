@@ -5,9 +5,9 @@
 // letters come from the ordinal names and rotations from legality, exactly
 // the dead-on-only path. The bake-off table (design 3.3) is printed for
 // every embedding; the assertions hold the default one to the truths.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BENCH } from './helpers';
+import { BENCH, fixture, fixtureJson } from './helpers';
 import Cube from 'cubejs';
 import { labToSrgb } from '../src/color';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
@@ -18,8 +18,7 @@ import { reweight } from './evidence';
 import type { FaceId, Lab } from '../src/types';
 import { FACE_ORDER } from '../src/types';
 
-const fixtures = new URL('./fixtures/', import.meta.url);
-const read = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), 'utf8'));
+const read = (name: string) => fixtureJson<any>(name);
 
 interface Face { face: FaceId; cells: Lab[]; rgb?: RGB[] }
 
@@ -123,9 +122,9 @@ describe('colour solver replay', () => {
 // under fixtures/evidence/ is solved; `truth` (54 facelets) is asserted when
 // present, and a lock is only ever the truth.
 describe('evidence-log captures', () => {
-  const dir = new URL('./fixtures/evidence/', import.meta.url);
+  const dir = fixture('evidence');
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')) : [];
-  it('lists the captures', () => { console.log(`evidence captures: ${files.length ? files.join(', ') : 'none yet'}`); });
+  it('has captures to replay (fixtures/README.md: drop a phone capture with a truth field here)', () => { expect(files.length).toBeGreaterThan(0); });
   for (const file of files) {
     it(file, { timeout: 30000 }, () => {
       const d = read(`evidence/${file}`) as { version?: number; evidenceLog: EvidenceLog; truth?: string; scrambleTruth?: string | null; note?: string };

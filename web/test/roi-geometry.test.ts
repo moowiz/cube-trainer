@@ -11,11 +11,10 @@
 // half-cell or a scale slip would otherwise hide until it showed up as a
 // phone overlay sitting slightly off the cube.
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { decodeMaps } from '../src/detect/facekp';
 import { hull, letterbox, padBox, type Box } from '../src/detect/geometry';
 import { CROP_PAD } from '../src/detect/twostage';
+import { fixtureJson } from './helpers';
 
 interface Label {
   width: number;
@@ -23,7 +22,7 @@ interface Label {
   faces: Record<string, { visible: boolean; corners: [number, number][] | null }>;
 }
 
-const label = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'roi-label-480x640.json'), 'utf8')) as Label;
+const label = fixtureJson<Label>('roi-label-480x640.json');
 const IW = 256;
 const IH = 256;
 const STRIDE = 16;

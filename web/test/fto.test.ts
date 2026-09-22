@@ -4,12 +4,12 @@
 // scripts/fto-oracle.mjs as piece maps keyed by touch sets. A base move's
 // layer, its direction, the slices, wide moves, whole-puzzle and corner
 // rotations, and every alg on the sheet are all pinned by it.
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { FTO_FACES, FTO_STICKERS, applyFto, diffFto, ftoTokens, invertFto, layerFto, pieceTypeFto, solvedFto, twizzleFto, type FtoFrame, type FtoState } from '../src/cube/fto';
+import { fixtureJson } from './helpers';
 
 interface Oracle { ben: { alg: string; ran: string; pieces: Record<string, string> }[]; eif: { alg: string; ran: string; pieces: Record<string, string> }[] }
-const oracle = JSON.parse(readFileSync(new URL('./fixtures/fto-oracle.json', import.meta.url), 'utf8')) as Oracle;
+const oracle = fixtureJson<Oracle>('fto-oracle.json');
 
 /** Each position's touch set: the faces whose turn moves it, joined the way the fixture names pieces. */
 const touch = FTO_STICKERS.map(() => new Set<string>());

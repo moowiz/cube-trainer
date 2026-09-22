@@ -23,9 +23,8 @@
 //   cd model/train && python dump_decode_fixture.py --synthetic \
 //       --out ../../web/test/fixtures/facekp-maps-synthetic.json
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { decodeMaps } from '../src/detect/facekp';
+import { fixtureJson } from './helpers';
 
 interface Fixture {
   source: string;
@@ -37,8 +36,7 @@ interface Fixture {
   expected: { score: number; quad: [number, number][] }[];
 }
 
-const load = (name: string) =>
-  JSON.parse(readFileSync(join(__dirname, 'fixtures', name), 'utf8')) as Fixture;
+const load = (name: string) => fixtureJson<Fixture>(name);
 
 const fixtures: [string, Fixture][] = [
   ['trained checkpoint', load('facekp-maps-square.json')],

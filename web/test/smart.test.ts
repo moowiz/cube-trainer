@@ -11,8 +11,9 @@ import { CubeSource } from '../src/smart/source';
 import { EMPTY_STATUS, reduce, REPORT_SETTLE_MS, statusAfter } from '../src/smart/belief';
 import { DEFAULT_SCHEME_NAMES } from '../src/types';
 import { SOLVED } from '../src/cube/state';
+import { fixture as fixturePath } from './helpers';
 
-const FIXTURE = new URL('./fixtures/smart/synthetic-session.jsonl', import.meta.url);
+const FIXTURE = fixturePath('smart', 'synthetic-session.jsonl');
 const fixture = () => Capture.parse(readFileSync(FIXTURE, 'utf8'));
 
 describe('ClockFit', () => {
@@ -162,8 +163,8 @@ describe('CubeSource', () => {
 // tab. What a healthy session looks like, so a regression in the adapter,
 // the reducer or the clock fit shows up against real events.
 describe('the first real capture', () => {
-  const REAL = new URL('./fixtures/smart/icarrye-first.jsonl', import.meta.url);
-  const SOLVES = new URL('./fixtures/smart/icarrye-first.solves.jsonl', import.meta.url);
+  const REAL = fixturePath('smart', 'icarrye-first.jsonl');
+  const SOLVES = fixturePath('smart', 'icarrye-first.solves.jsonl');
   const real = () => Capture.parse(readFileSync(REAL, 'utf8'));
   interface Solve { id: string; t0: number; t1: number; scramble: string; moves: { m: string; t: number }[] }
   const solves = (): Solve[] => readFileSync(SOLVES, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Solve);
@@ -209,7 +210,7 @@ describe('the first real capture', () => {
 // three to a BLE packet. Nothing missed: the reports agree all the way and the cube ends where
 // it began (every block is an identity).
 describe('the fast-turn capture', () => {
-  const FAST = new URL('./fixtures/smart/icarrye-fast.jsonl', import.meta.url);
+  const FAST = fixturePath('smart', 'icarrye-fast.jsonl');
 
   it('loses no turn at speed: every report agrees and the cube is back at its start', () => {
     const cap = Capture.parse(readFileSync(FAST, 'utf8'));

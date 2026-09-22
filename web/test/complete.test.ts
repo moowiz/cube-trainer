@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import Cube from 'cubejs';
 import { completeFacelets } from '../src/colour/complete';
+import { TRUTH } from './helpers';
 
-const TRUTH = new Cube().move("F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D").asString();
 const hide = (s: string, faces: number[]) => s.split('').map((c, i) => (faces.includes(Math.floor(i / 9)) ? '?' : c)).join('');
 
 describe('completeFacelets', () => {

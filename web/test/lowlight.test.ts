@@ -4,16 +4,13 @@
 //
 // Ground truth was hand-read from the photos; the cube face bounds are
 // per-photo because the cube wasn't always centered in the scan grid.
-import { readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { PNG } from 'pngjs';
 import { sampleCellRobust, labDistance, labMean } from '../src/color';
 import { normalizeFaceCells } from '../src/state';
 import type { Lab } from '../src/types';
+import { fixtureJson } from './helpers';
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 // truth is row-major; W=white Y=yellow R=red O=orange G=green B=blue.
 const FRAMES: Array<{ file: string; box: [number, number, number, number]; truth: string }> = [
@@ -25,7 +22,7 @@ const FRAMES: Array<{ file: string; box: [number, number, number, number]; truth
 ];
 
 function decodeFrame(file: string): ImageData {
-  const fx = JSON.parse(readFileSync(join(dir, file), 'utf8')) as { imagePng: string };
+  const fx = fixtureJson<{ imagePng: string }>(file);
   const b64 = fx.imagePng.replace(/^data:image\/png;base64,/, '');
   const png = PNG.sync.read(Buffer.from(b64, 'base64'));
   return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data) } as unknown as ImageData;
@@ -69,7 +66,7 @@ const SOLVED_FRAMES: Array<{ file: string; label: string }> = [
 describe('solved-cube uniform faces (low light)', () => {
   const samples: Labeled[] = [];
   for (const { file, label } of SOLVED_FRAMES) {
-    const fx = JSON.parse(readFileSync(join(dir, file), 'utf8')) as { cells: Array<{ lab: Lab }> };
+    const fx = fixtureJson<{ cells: Array<{ lab: Lab }> }>(file);
     const norm = normalizeFaceCells(fx.cells.map((c) => c.lab));
     for (const n of norm) samples.push({ label, norm: n });
   }

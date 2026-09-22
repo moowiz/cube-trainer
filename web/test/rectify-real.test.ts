@@ -2,18 +2,15 @@
 // hand-labeled quad (labels from model/data_real, arbitrary cyclic rotation)
 // and check the sampled center cell's color family. The center cell is
 // rotation-invariant, so the order-free labels are fine here.
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 import { sampleGridCells } from '../src/color';
 import { warpQuad } from '../src/rectify';
+import { fixtureJson } from './helpers';
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
 function loadFrame(file: string): ImageData {
-  const fx = JSON.parse(readFileSync(join(dir, file), 'utf8')) as { imagePng: string };
+  const fx = fixtureJson<{ imagePng: string }>(file);
   const b64 = fx.imagePng.replace(/^data:image\/png;base64,/, '');
   const png = PNG.sync.read(Buffer.from(b64, 'base64'));
   return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data) } as unknown as ImageData;

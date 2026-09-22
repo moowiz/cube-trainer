@@ -5,14 +5,13 @@
 // recover the scramble, group the twelve tracks into six faces, letter them
 // from geometry alone, and lock.
 import { describe, expect, it } from 'vitest';
-import { BENCH } from './helpers';
+import { BENCH, TRUTH } from './helpers';
 import Cube from 'cubejs';
 import { emptyLog } from '../src/colour/evidence';
 import { solve, solveBest } from '../src/colour/solve';
 import type { FaceId } from '../src/types';
 import { COLOUR, simulate } from './synth';
 
-const TRUTH = new Cube().move("F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D").asString();
 
 describe('synthetic session', () => {
   it('recovers the scramble from noisy, shaded, cast, glared, fingered, re-acquired evidence and locks', () => {

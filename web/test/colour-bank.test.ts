@@ -23,17 +23,16 @@
 // The pooled row is every batch together with no per-session palette: what
 // a fixed palette across lighting would face.
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { PNG } from 'pngjs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { facePlan, minFaceEdgePx, sampleGridStats } from '../src/color';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
 import { patchWeight } from '../src/colour/evidence';
 import type { Vec3 } from '../src/colour/types';
-import { warpQuad, type ImageDataLike } from '../src/rectify';
+import { warpQuad } from '../src/rectify';
+import { loadPng, TEST_DIR } from './helpers';
 
-const BANK = join(dirname(fileURLToPath(import.meta.url)), 'bank', 'colour');
+const BANK = join(TEST_DIR, 'bank', 'colour');
 const INDEX = join(BANK, 'index.json');
 
 type Colour = 'white' | 'red' | 'green' | 'yellow' | 'orange' | 'blue';
@@ -44,11 +43,6 @@ interface BankFrame { png: string; root: string; source: string; batch: string; 
 
 /** One centre reading with truth, in every embedding at once. */
 interface Centre { batch: string; frame: number; colour: Colour; w: number; x: Record<EmbeddingName, Vec3> }
-
-function loadPng(file: string): ImageDataLike {
-  const png = PNG.sync.read(readFileSync(join(BANK, file)));
-  return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data) };
-}
 
 /** A thumb or a blown-out/blurred centre carries no truth (the checker's verdict, read on the native photo). */
 function usable(f: BankFace): boolean {
@@ -64,7 +58,7 @@ function readBank(): Centre[] {
   frames.forEach((fr, fi) => {
     const faces = Object.values(fr.faces).filter(usable);
     if (!faces.length) return;
-    const img = loadPng(fr.png);
+    const img = loadPng(join(BANK, fr.png));
     for (const f of faces) {
       // the app's own path (sample.worker.ts): plan from the quad's mean edge in source px, floor from the frame height
       let perim = 0;

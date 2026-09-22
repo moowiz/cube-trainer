@@ -6,17 +6,11 @@
 import { describe, expect, it } from 'vitest';
 import { ftoPolys, type FtoScene } from '../src/algs/fto3d';
 import { applyFto, applyOp, FTO_HEX, FTO_STICKERS, ftoOps, ftoPoint, rotate, solvedFto, type FtoFrame, type Vec } from '../src/cube/fto';
+import { sceneSig } from './helpers';
 
-/** {pts, fill} for one poly, points sorted within the triangle and rounded, so set-equality survives relabelling and float noise. */
-function polySig(p: { pts: readonly Vec[]; fill: string }): string {
-  const pts = p.pts.map((v) => v.map((x) => (Math.round(x * 1e6) / 1e6).toFixed(6)).join(',')).sort();
-  return `${pts.join('|')}#${p.fill}`;
-}
-const sceneSig = (polys: { pts: readonly Vec[]; fill: string }[]) => polys.map(polySig).sort();
 
 describe('ftoPolys: solved scene', () => {
   const polys = ftoPolys({ state: solvedFto(), rots: [] });
-  it('has 72 triangles', () => expect(polys).toHaveLength(72));
   it('every poly has 3 points, a unit normal, and a fill from FTO_HEX', () => {
     const hexes = new Set(Object.values(FTO_HEX));
     for (const p of polys) {

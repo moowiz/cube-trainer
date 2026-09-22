@@ -22,9 +22,9 @@
 //   frames do not support the truth as read - the anchoring, the truth,
 //   or the timing is wrong there; the rows show which face and what
 //   neighbour fits instead.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BENCH } from './helpers';
+import { BENCH, fixture, fixtureJson } from './helpers';
 import type { EvidenceLog } from '../src/colour/types';
 import { quadCost, type Commitments } from '../src/moves/anchor';
 import { applyMoveIdx, applySeq, commute, faceOf, MOVES, parseAlg, type Move } from '../src/moves/moves';
@@ -69,12 +69,12 @@ export function canonicalMoves(moves: readonly Move[]): Move[] {
 }
 
 describe('recorded solves', () => {
-  const dir = new URL('./fixtures/solves/', import.meta.url);
+  const dir = fixture('solves');
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : [];
-  it('lists the fixtures', () => { console.log(`solve fixtures: ${files.length ? files.join(', ') : 'none yet'}`); });
+  it('has recorded solves to replay (scripts/cube-fixture.ts makes one from a clip)', () => { expect(files.length).toBeGreaterThan(0); });
   for (const file of files) {
     it(file, { timeout: 120000 }, () => {
-      const d = JSON.parse(readFileSync(new URL(file, dir), 'utf8')) as SolveFixture;
+      const d = fixtureJson<SolveFixture>('solves', file);
       reweight(d.evidenceLog, d.version);
       const truth = d.truth ? parseAlg(d.truth) : null;
       const end = d.end ?? (truth ? applySeq(d.start, truth) : undefined);

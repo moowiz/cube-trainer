@@ -12,19 +12,18 @@
 // for unmeasured faces are fitted to the room from the measured ones (nominal
 // blue was 55 from the real blue, further than the poisoned green); and a
 // name needs a margin (MIN_NAME_CONF).
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { labDistance } from '../src/color';
 import { AMBIGUOUS_REASON, CenterExemplars, MAX_OBS_DRIFT, MIN_NAME_CONF, nameQuads, pickFace } from '../src/detect/identify';
 import type { ImageDataLike } from '../src/rectify';
 import { FACE_ORDER } from '../src/types';
 import type { FaceId, Lab } from '../src/types';
+import { fixtureJson } from './helpers';
 
-const dir = new URL('./fixtures/', import.meta.url);
-const load = (name: string) => JSON.parse(readFileSync(new URL(name, dir), 'utf8')) as {
+const load = (name: string) => fixtureJson<{
   exemplars: { face: FaceId; measured: boolean; lab: Lab }[];
   quads: { named: { face: FaceId | null; centreNorm: Lab; cells: { lab: Lab }[] } }[];
-};
+}>(name);
 const healthy = load('scan-debug-1789290592829.json');
 const poisoned = load('scan-debug-1789290604959.json');
 

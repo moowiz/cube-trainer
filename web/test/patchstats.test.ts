@@ -7,20 +7,7 @@ import {
   quadEdgePx,
   PATCH_TRIM,
 } from '../src/color';
-
-// ---------- helpers for ImageData-like fixtures (node has no ImageData); mirrors test/color.test.ts ----------
-
-function makeImage(width: number, height: number): ImageData {
-  return { width, height, data: new Uint8ClampedArray(width * height * 4) } as unknown as ImageData;
-}
-
-function setPixel(img: ImageData, x: number, y: number, rgb: readonly [number, number, number], alpha = 255): void {
-  const i = (y * img.width + x) * 4;
-  img.data[i] = rgb[0];
-  img.data[i + 1] = rgb[1];
-  img.data[i + 2] = rgb[2];
-  img.data[i + 3] = alpha;
-}
+import { makeImage, setPixel } from './helpers';
 
 function fill(img: ImageData, rgb: readonly [number, number, number]): void {
   for (let y = 0; y < img.height; y++) {

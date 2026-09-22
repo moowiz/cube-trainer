@@ -5,15 +5,9 @@
 // here (mountPlayer is untested, same as fto3d.ts's mountFtoPlayer).
 import { describe, expect, it } from 'vitest';
 import { nxnAnimatable } from '../src/algs/nxn3d';
-import type { Vec } from '../src/cube/fto';
 import { nxnOps, rawNxN, solvedNxN } from '../src/cube/nxn';
+import { sceneSig } from './helpers';
 
-/** {pts, fill} for one poly, points sorted within the quad and rounded, so set-equality survives relabelling and float noise. */
-function polySig(p: { pts: readonly Vec[]; fill: string }): string {
-  const pts = p.pts.map((v) => v.map((x) => (Math.round(x * 1e6) / 1e6).toFixed(6)).join(',')).sort();
-  return `${pts.join('|')}#${p.fill}`;
-}
-const sceneSig = (polys: { pts: readonly Vec[]; fill: string }[]) => polys.map(polySig).sort();
 
 // scrambled so fills are not all equal per face
 const SETUP = "R U F' L2";

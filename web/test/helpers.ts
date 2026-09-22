@@ -1,7 +1,57 @@
-// Shared test helpers. Deterministic randomness, quad arithmetic and a
-// synthetic orthographic cube projection (mirror of scene.mjs FACE_DATA /
-// orient.ts) with known ground truth, used by the orientation suites.
+// Shared test helpers. Deterministic randomness, fixture paths, ImageData
+// and PNG stand-ins, quad arithmetic and a synthetic orthographic cube
+// projection (mirror of scene.mjs FACE_DATA / orient.ts) with known ground
+// truth, used by the orientation suites.
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Cube from 'cubejs';
+import { PNG } from 'pngjs';
+import type { ImageDataLike } from '../src/rectify';
 import type { FaceId } from '../src/types';
+
+// ---- fixtures ---------------------------------------------------------------------------------
+
+/** The test folder as a path (`import.meta.url` is a file: URL in vitest). */
+export const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+/** An absolute path under test/fixtures/. */
+export const fixture = (...parts: string[]): string => join(TEST_DIR, 'fixtures', ...parts);
+/** A JSON fixture, parsed (the type is the caller's claim). */
+export function fixtureJson<T>(...parts: string[]): T {
+  return JSON.parse(readFileSync(fixture(...parts), 'utf8')) as T;
+}
+
+/** A PNG on disk as ImageData-like pixels (an absolute path, or one under test/fixtures/ via `fixture`). */
+export function loadPng(path: string): ImageDataLike {
+  const png = PNG.sync.read(readFileSync(path));
+  return { width: png.width, height: png.height, data: new Uint8ClampedArray(png.data) };
+}
+
+/** A blank RGBA image of the given size, typed as ImageData for the samplers. */
+export function makeImage(width: number, height: number): ImageData {
+  return { width, height, data: new Uint8ClampedArray(width * height * 4) } as unknown as ImageData;
+}
+
+export function setPixel(img: ImageData, x: number, y: number, rgb: readonly [number, number, number], alpha = 255): void {
+  const i = (y * img.width + x) * 4;
+  img.data[i] = rgb[0];
+  img.data[i + 1] = rgb[1];
+  img.data[i + 2] = rgb[2];
+  img.data[i + 3] = alpha;
+}
+
+/** The one scrambled cube the colour-solver suites share as their truth (a random state, every colour on every face). */
+export const TRUTH_SCRAMBLE = "F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D";
+export const TRUTH: string = new Cube().move(TRUTH_SCRAMBLE).asString();
+
+// ---- 3D scenes ---------------------------------------------------------------------------------
+
+/** {pts, fill} for one poly, points sorted within the poly and rounded, so set-equality survives relabelling and float noise. */
+export function polySig(p: { pts: readonly (readonly number[])[]; fill: string }): string {
+  const pts = p.pts.map((v) => v.map((x) => (Math.round(x * 1e6) / 1e6).toFixed(6)).join(',')).sort();
+  return `${pts.join('|')}#${p.fill}`;
+}
+export const sceneSig = (polys: { pts: readonly (readonly number[])[]; fill: string }[]): string[] => polys.map(polySig).sort();
 
 /**
  * Benchmark mode: `npm run bench` (vitest --mode bench) or BENCH=1. The
