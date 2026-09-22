@@ -16,7 +16,7 @@
 // enumeration is a legal hill-climb: a negative delta means the search
 // stopped short of the cheapest legal cube.
 
-import { CENTER_INDICES, CORNER_FACELETS, EDGE_FACELETS } from '../state';
+import { CENTER_INDICES, CORNER_FACELETS, EDGE_FACELETS } from '../cube/pieces';
 
 type Cost = readonly (readonly number[])[];
 

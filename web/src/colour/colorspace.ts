@@ -7,10 +7,22 @@
 // the old crushed-L space threw away.
 
 import { linearRgbToLab } from '../color';
-import { CHROMA_KNEE, CHROMA_SLOPE } from '../state';
 import type { Lab } from '../types';
 import type { RGB, Vec3 } from './types';
 import { median } from './robust';
+
+/**
+ * Chroma above this is compressed by CHROMA_SLOPE before stickers are
+ * classified. MEASURED 2026-09-13 on the phone sessions: a sticker's chroma
+ * swings with illumination far more than its hue - the same blue read
+ * (16, -61) lit and (6, -28) in shadow, and in plain ab the shadowed one
+ * sat nearer white (27) than blue (34); a pale yellow (-10, 40) was a coin
+ * flip between yellow and white. Halving chromatic differences beyond the
+ * knee keeps neutrals linear (white vs a dim blue still separates by
+ * chroma) while a colour seen dim stays with its hue.
+ */
+export const CHROMA_KNEE = 20;
+export const CHROMA_SLOPE = 0.5;
 
 export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half' | 'lab-norm';
 

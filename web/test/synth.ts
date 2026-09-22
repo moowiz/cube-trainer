@@ -9,7 +9,7 @@ import { srgbToLab } from '../src/color';
 import { emptyLog, patchWeight } from '../src/colour/evidence';
 import type { EvidenceLog, PatchStats, RGB } from '../src/colour/types';
 import { sharedEdge } from '../src/detect/orient';
-import { rotateCells } from '../src/state';
+import { rotateCells } from '../src/colour/cells';
 import type { FaceId } from '../src/types';
 import { FACE_ORDER } from '../src/types';
 

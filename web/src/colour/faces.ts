@@ -11,7 +11,7 @@
 // so a union-find with a rotation label per edge carries every member's
 // offset to the group's reference order.
 
-import { rotateCells } from '../state';
+import { rotateCells } from './cells';
 import type { Aggregate, FaceGroup, TrackSignature, Vec3 } from './types';
 
 export interface GroupingInput {

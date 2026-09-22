@@ -27,7 +27,7 @@ import { embedQuadObs } from '../colour/evidence';
 import { studentLogLik } from '../colour/palette';
 import { dist3, weightedMedian } from '../colour/robust';
 import type { Pairing, QuadObs, Solution, Vec3 } from '../colour/types';
-import { rotateCells } from '../state';
+import { rotateCells } from '../colour/cells';
 import type { FaceId } from '../types';
 import { FACE_ORDER } from '../types';
 

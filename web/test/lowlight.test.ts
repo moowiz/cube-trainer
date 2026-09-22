@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { PNG } from 'pngjs';
 import { sampleCellRobust, labDistance, labMean } from '../src/color';
-import { normalizeFaceCells } from '../src/state';
+import { normalizeFaceCells } from '../src/detect/identify';
 import type { Lab } from '../src/types';
 import { fixtureJson } from './helpers';
 

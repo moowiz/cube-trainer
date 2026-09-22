@@ -10,7 +10,7 @@ import { facePlan, labDistance, minFaceEdgePx, sampleCentreCell } from '../src/c
 // The range floor on the 240-tall frames these cases were captured at: ~32 px.
 const MIN_FACE_EDGE_PX = minFaceEdgePx(240);
 import { CenterExemplars } from '../src/detect/identify';
-import { CLUSTER_L_WEIGHT, NAME_L_WEIGHT, normalizeFaceCells } from '../src/state';
+import { CLUSTER_L_WEIGHT, NAME_L_WEIGHT, normalizeFaceCells } from '../src/detect/identify';
 import { FACE_ORDER } from '../src/types';
 import type { FaceId, Lab } from '../src/types';
 

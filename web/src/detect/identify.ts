@@ -27,9 +27,57 @@ import { warpQuad, type ImageDataLike } from '../rectify';
 // SAME face have near-identical relative-L profiles, so their distance is
 // still chroma-dominated (~6 on the calibration fixtures), while two genuinely
 // different faces only move FURTHER apart once lightness counts fully.
-import { CENTER_MIN_DIST, CLUSTER_L_WEIGHT, NAME_L_WEIGHT, normalizeFaceCells } from '../state';
 import type { ColorName, FaceId, Lab } from '../types';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
+
+// ---------- the namer's colour space ----------
+
+// DECISION: cluster in an exposure-normalized space — subtract each face's
+// median L (cancels the camera's auto-exposure drift between captures) and
+// weight the residual L by 0.15 (color identity lives mostly in a/b; after
+// per-face centering, L residual depends on what else shares the face — it is
+// more noise dimension than signal, and keeping it heavy lets k-means split
+// clusters along it or drown a small a/b separation). On the backlit-kitchen
+// frame fixtures normalization fixes a red→orange miss that plain Lab makes,
+// and accuracy holds at 44/45 for any L weight from 1 down to 0.15 (see
+// test/lowlight.test.ts); well-lit colors stay separated because they differ
+// strongly in a/b anyway.
+export const CLUSTER_L_WEIGHT = 0.15;
+
+/**
+ * Lightness weight for naming a face against fixed exemplars.
+ *
+ * MEASURED: CLUSTER_L_WEIGHT is right for its own job — clustering all 54
+ * stickers RELATIVE to each other, where crushing L cancels auto-exposure
+ * drift between captures and lets chroma do the separating. Reusing it to
+ * match against an absolute exemplar throws away the one dimension that
+ * separates white from a dark color: white sits at a*~0 b*~0, so any weakly
+ * chromatic sample lands nearest it. On a phone capture a blue center at
+ * L* 18 a* +2 b* -28 (face median L 18) ranked white 29.4 / blue 41.8 at
+ * weight 0.15, and white 43.3 / blue 45.7 at weight 1.0 — the crush, not the
+ * color, is what named it white. Naming keeps the median-L subtraction (still
+ * exposure-invariant) but pays full price for lightness.
+ */
+export const NAME_L_WEIGHT = 1.0;
+
+/**
+ * Map one face's 9 cells into a normalized space: subtract the face's own
+ * median lightness (this is what cancels exposure drift) and scale what is
+ * left. Default weight is the clustering one assembleState uses; naming
+ * passes NAME_L_WEIGHT.
+ */
+export function normalizeFaceCells(cells: readonly Lab[], lWeight = CLUSTER_L_WEIGHT): Lab[] {
+  const medL = labMedian(cells).L;
+  return cells.map((c) => ({ L: (c.L - medL) * lWeight, a: c.a, b: c.b }));
+}
+
+// DECISION: two centres closer than this in the normalized space are
+// treated as the same physical face seen twice (the namer's duplicate
+// guard). Calibrated on fixtures: genuinely duplicated or unusable centre
+// pairs sit at ~6 (cube-scan-1789101879130), while the hardest legitimate
+// pair seen — white under a blue monitor cast vs a real blue centre
+// (cube-scan-1789102942492) — sits at 12.8 and must stay apart.
+export const CENTER_MIN_DIST = 10;
 
 /** The colour word a face id means under the (possibly measured) scheme. */
 function colorOf(face: FaceId): ColorName {

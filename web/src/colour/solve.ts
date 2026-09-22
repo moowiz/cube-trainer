@@ -9,7 +9,8 @@
 // in which red has swallowed orange cannot satisfy nine of each and is
 // rejected by the constraint that used to be the fallback.
 
-import { validateState, rotateCells } from '../state';
+import { validateState } from '../state';
+import { rotateCells } from './cells';
 import type { FaceId, Lab } from '../types';
 import { FACE_ORDER } from '../types';
 import { DEFAULT_EMBEDDING, LAB_CRUSHED, LAB_NORM, LOGCHROMA, type Embedding } from './colorspace';

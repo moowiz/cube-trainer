@@ -6,7 +6,8 @@
 // unseen part is NOT forced (two unseen faces usually leave pieces that
 // could swap), which is a refusal, not a guess.
 
-import { CENTER_INDICES, CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS, validateState } from '../state';
+import { CENTER_INDICES, CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../cube/pieces';
+import { validateState } from '../state';
 import { FACE_ORDER } from '../types';
 
 export interface Completion {

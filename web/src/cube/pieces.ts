@@ -6,11 +6,80 @@
 import { FACE_MOVES, type Move } from './alg';
 import { STICKERS, facesAt, key, posName, type Vec } from './geometry';
 
-/** The 12 edge slots, and for each the facelet on its U/D face (F/B face for the middle layer) then the other. */
+// ---- the piece tables, in cubejs's order ----
+//
+// Verified against the installed cubejs (1.3.2) source (lib/cube.js):
+// facelet index = faceOffset + (positionOnFace - 1), with faceOffset
+// U=0 R=9 F=18 D=27 L=36 B=45, and center facelets at [4,13,22,31,40,49].
+// The corner/edge facelet tables are transcribed straight from cubejs's own
+// cornerFacelet/edgeFacelet tables (see cube.js), not re-derived, so
+// validateState's orientation/permutation math (state.ts) agrees with what
+// Cube.fromString does. The move model below uses its own slot order
+// (EDGE_SLOTS), derived from these by name so there is one table.
+
+export const CENTER_INDICES: readonly number[] = [4, 13, 22, 31, 40, 49];
+
+// Each triple starts with the slot's U/D facelet, listed clockwise.
+export const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
+  [8, 9, 20], // URF
+  [6, 18, 38], // UFL
+  [0, 36, 47], // ULB
+  [2, 45, 11], // UBR
+  [29, 26, 15], // DFR
+  [27, 44, 24], // DLF
+  [33, 53, 42], // DBL
+  [35, 17, 51], // DRB
+];
+
+export const CORNER_COLORS: readonly (readonly [string, string, string])[] = [
+  ['U', 'R', 'F'], // URF
+  ['U', 'F', 'L'], // UFL
+  ['U', 'L', 'B'], // ULB
+  ['U', 'B', 'R'], // UBR
+  ['D', 'F', 'R'], // DFR
+  ['D', 'L', 'F'], // DLF
+  ['D', 'B', 'L'], // DBL
+  ['D', 'R', 'B'], // DRB
+];
+
+// Each pair is [primary, secondary]: primary = U/D facelet for U/D edges,
+// F/B facelet for equator edges (FR, FL, BL, BR).
+export const EDGE_FACELETS: readonly (readonly [number, number])[] = [
+  [5, 10], // UR
+  [7, 19], // UF
+  [3, 37], // UL
+  [1, 46], // UB
+  [32, 16], // DR
+  [28, 25], // DF
+  [30, 43], // DL
+  [34, 52], // DB
+  [23, 12], // FR
+  [21, 41], // FL
+  [50, 39], // BL
+  [48, 14], // BR
+];
+
+export const EDGE_COLORS: readonly (readonly [string, string])[] = [
+  ['U', 'R'],
+  ['U', 'F'],
+  ['U', 'L'],
+  ['U', 'B'],
+  ['D', 'R'],
+  ['D', 'F'],
+  ['D', 'L'],
+  ['D', 'B'],
+  ['F', 'R'],
+  ['F', 'L'],
+  ['B', 'L'],
+  ['B', 'R'],
+];
+
+/** The 12 edge slots in the move model's order: U layer, D layer, middle layer. */
 export const EDGE_SLOTS = ['UF', 'UR', 'UB', 'UL', 'DF', 'DR', 'DB', 'DL', 'FR', 'FL', 'BR', 'BL'] as const;
-const EDGE_FACELETS: readonly [number, number][] = [[7, 19], [5, 10], [1, 46], [3, 37], [28, 25], [32, 16], [34, 52], [30, 43], [23, 12], [21, 41], [48, 14], [50, 39]];
+/** For each slot the facelet on its U/D face (F/B face for the middle layer) then the other: cubejs's pair for that name. */
+const SLOT_FACELETS: readonly (readonly [number, number])[] = EDGE_SLOTS.map((name) => EDGE_FACELETS[EDGE_COLORS.findIndex((c) => c.join('') === name)]!);
 /** Cubie position of each edge slot. */
-export const EDGE_POS: readonly Vec[] = EDGE_FACELETS.map(([a]) => STICKERS[a].pos);
+export const EDGE_POS: readonly Vec[] = SLOT_FACELETS.map(([a]) => STICKERS[a].pos);
 /** Slot index by name. */
 export const SLOT_INDEX: Record<string, number> = Object.fromEntries(EDGE_SLOTS.map((n, i) => [n, i]));
 /** Home slots of the white edges, in the order DF DR DB DL (the cross coordinate's edge order). */
@@ -23,7 +92,7 @@ const isUD = (c: string) => c === 'U' || c === 'D';
  * else the one showing F/B - sits on the U/D face (U/D-layer slot) or the F/B face (middle slot).
  */
 function edgeOriented(f: string, slot: number): boolean {
-  const [h, o] = EDGE_FACELETS[slot];
+  const [h, o] = SLOT_FACELETS[slot]!;
   const a = f[h], b = f[o];
   if (isUD(a) || isUD(b)) return isUD(a);
   return a === 'F' || a === 'B';
@@ -39,7 +108,7 @@ export function eoCoord(f: string): number {
 /** The slot holding the edge with these two letters (any order). */
 export function findEdge(f: string, letters: string): number {
   const want = [...letters].sort().join('');
-  const i = EDGE_FACELETS.findIndex(([a, b]) => [f[a], f[b]].sort().join('') === want);
+  const i = SLOT_FACELETS.findIndex(([a, b]) => [f[a], f[b]].sort().join('') === want);
   if (i < 0) throw new Error(`no ${letters} edge`);
   return i;
 }

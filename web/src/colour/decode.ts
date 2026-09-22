@@ -13,7 +13,7 @@ import type { DecodeResult } from './types';
 import { FACE_ORDER } from '../types';
 import type { FaceId } from '../types';
 import { solveAssignment } from '../color';
-import { CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../state';
+import { CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../cube/pieces';
 import { completeFacelets } from './complete';
 import { refineLegal } from './neighbours';
 
