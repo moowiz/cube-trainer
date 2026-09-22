@@ -34,11 +34,11 @@ import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceHex, onSchemeChange } from '../cube/scheme';
 import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
 import { hold } from '../app/context';
-import { syncDriver } from '../app/sources';
+import { activeSource, onSourceChange, syncDriver } from '../app/sources';
 import { SLOTS, slotSolved } from '../f2l/model';
 import { toSourceLetters, trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
-import { shareScramble, showTab, type Stage, stages } from '../shell';
+import { onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
 import { ScrambleTracker, type TrackStatus } from '../timer/track';
 import { moveHtml } from '../timer/trainer';
 import type { ColorName } from '../types';
@@ -137,7 +137,8 @@ function sayNote(kind: LLKind): string {
   return `<p>Say the letter, then a/b/c/d if it has one: “G alpha”, “J bravo”, “N a”, “T perm”. The letter as itself, or any of these:</p>
     <table><tbody>${letters.map(row).join('')}</tbody></table>
     <p>The variant:</p><table><tbody>${['A', 'B', 'C', 'D'].map(row).join('')}</tbody></table>
-    <p>Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.</p>`;
+    <p>Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.</p>
+    <p>Without a smart cube: scramble by hand, say “ready” to be asked, and “next” for the next case.</p>`;
 }
 const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move', quiz: 'asks me the case, then reads' };
 
@@ -347,13 +348,64 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the first move is read once the name and the hold have been said - the utterance's own end, not a
     // timer (a phone's voice is slower than a desktop's and was being cut off mid-sentence), and queued
     // behind it in case a read comes sooner
-    const then = () => { lastRead = null; keepNext = true; followAlg(drill.moves()); };
+    const then = handsFree ? readWhole : () => { lastRead = null; keepNext = true; followAlg(drill.moves()); };
     if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`, false, then); }
     else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`, false, then); }
     else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`, false, then); }
     keepNext = true; // a turn meanwhile: its read waits its turn too
     reveal();
   }
+  // ---- hands-free (user, 2026-09-22): no cube feeding the drill, so nothing arms by itself. With the quiz
+  // voice on, the mic stays open for "ready" (the case is scrambled by hand and looked at): the case is
+  // asked, and after the answer the whole alg is read in one go - nothing to follow move by move - and
+  // "next" brings the next case. Only the open tab listens; a cube or camera taking over ends it.
+  let standbyRec: Recognizer | null = null;
+  let standbyOn = false;
+  let handsFree = false; // this quiz came from "ready": the alg is read whole, the attempt recorded untimed
+  const READY = /\b(ready|go|okay|ok|start|ask)\b/, NEXT = /\b(next|new case|another|done)\b/;
+  function standby(): void {
+    const Ctor = recognizerCtor();
+    const want = settings.voice === 'quiz' && !activeSource() && !quizOpen && !root.hidden;
+    if (!want || !Ctor) { stopStandby(); return; }
+    if (standbyOn) return;
+    standbyOn = true;
+    const listen = () => {
+      if (!standbyOn) return;
+      const r = new Ctor(); standbyRec = r;
+      r.lang = 'en-US'; r.continuous = true; r.maxAlternatives = 3; r.interimResults = false;
+      r.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = Array.from(e.results[i] ?? [], (x) => x.transcript).join(' ').toLowerCase();
+          if (NEXT.test(t)) { newCase(); return; }
+          if (READY.test(t)) { stopStandby(); handsFree = true; askCase(); return; }
+        }
+      };
+      r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'audio-capture') stopStandby(); }; // a no-speech end just restarts
+      r.onend = () => { if (standbyRec === r) { standbyRec = null; if (standbyOn) setTimeout(listen, 100); } };
+      try { r.start(); } catch { stopStandby(); }
+    };
+    listen();
+  }
+  function stopStandby(): void { standbyOn = false; standbyRec?.abort(); standbyRec = null; }
+  /** The alg on show read in one go (hands-free: no turns to read it by), chunks by name, then the mic is back on standby. */
+  function readWhole(): void {
+    handsFree = false;
+    if (!sol) { standby(); return; }
+    const toks = tokens(stepPlain(sol));
+    const offset = sol.pre ? 1 : 0;
+    const chunks = triggers(sol.alg).filter((g) => !settings.spell.includes(g.label)).map((g) => ({ ...g, at: g.at + offset }));
+    const words: string[] = [];
+    for (let i = 0; i < toks.length;) {
+      const g = chunks.find((c) => c.at === i);
+      if (g) { words.push(spokenLabel(g.label)); i += g.n; }
+      else { words.push(spoken(toks[i]!)); i++; }
+    }
+    say(words.join(', '), true, standby, 30_000);
+    // the attempt: the case named (or not), no time
+    if (!recorded) { recorded = true; drill.attempt(''); drill.save({ scramble: setup, moves: '', optimal: stepMoves(sol), caseId: sol.name, assisted, start: settings.from === kind ? undefined : settings.from as 'ocll' | 'pair', quiz: quizOutcome }); }
+  }
+  onSourceChange(standby);
+  onTabChange(standby);
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let keepNext = false;               // the next move read is queued after what is being said (a name, the hold), not over it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
@@ -584,7 +636,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { drill.$('next').textContent = 'New case'; const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); }
+  function newCase(): void { drill.$('next').textContent = 'New case'; const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); standby(); }
 
   // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
   async function renderPractice(): Promise<void> {
@@ -865,7 +917,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const sayBox = drill.$('say');
   const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
   showSay();
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? 'I will ask the case' : 'I will read the alg'); });
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? `I will ask the case${activeSource() ? '' : '. say ready when the cube is scrambled'}` : 'I will read the alg'); standby(); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
