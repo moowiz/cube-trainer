@@ -242,6 +242,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let shown: string | null = null; // the alg whose state the picture shows (setup + moves after a Check)
   let assisted = false, recorded = false;
   let held = false; // the alg is ready (its lines in the panel, for the voice) but the panel hidden until the solve starts
+  let asked = false; // the quiz voice: the case has been answered (or given up on): the pictures may show again
   let cameUp: string | null = null; // the case the moves checked actually reached (an earlier start decides it by how the step before was solved)
   const results: { t: number; n: number; std: number }[] = [];
 
@@ -251,6 +252,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const view: View = { ...TOP_VIEW };
   const SLOT_RY: Record<string, number> = { FR: -35, FL: 35, BR: -125, BL: 125 };
   function drawPic(): void {
+    // the quiz: the pictures give the case away (user, 2026-09-22), so they stay hidden until it has been answered
+    const quiz = settings.voice === 'quiz' && !settings.repeat && !asked && !recorded;
+    drill.$('stage').hidden = quiz;
+    drill.$('pic').parentElement!.hidden = quiz;
+    if (quiz) return;
     const f = state(shown ?? setup);
     const r = stageOf(f);
     render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
@@ -340,6 +346,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function answer(heard: string): void {
     if (!quizOpen) return;
     quizOpen = false; listener?.abort(); listener = null;
+    asked = true; drawPic();
     const c = sol?.case;
     const name = c ? spokenName(kind, c) : '';
     // the name, then how to hold it for the alg ("V perm: the bars of two at the back and on your left")
@@ -481,7 +488,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function heard(text: string): void {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
-    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; }
+    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; asked = true; drawPic(); }
     if (armedNow && toks.length) reveal();
     if (settings.voice === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
@@ -521,7 +528,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     setup = faceTurns(alg);
     const derive = () => { const steps = route(kind, setup); sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? []; };
     derive();
-    shown = null; assisted = false; recorded = false; cameUp = null; held = false;
+    shown = null; assisted = false; recorded = false; cameUp = null; held = false; asked = false;
     const open = SLOTS.find((sl) => !slotSolved(state(setup), sl));
     view.rx = TOP_VIEW.rx; view.ry = open ? SLOT_RY[open]! : TOP_VIEW.ry;
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
@@ -917,7 +924,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const sayBox = drill.$('say');
   const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
   showSay();
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? `I will ask the case${activeSource() ? '' : '. say ready when the cube is scrambled'}` : 'I will read the alg'); standby(); });
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); drawPic(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? `I will ask the case${activeSource() ? '' : '. say ready when the cube is scrambled'}` : 'I will read the alg'); standby(); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
