@@ -15,6 +15,7 @@
 // scramble along the underline, solve), a voice (speech synthesis) that
 // either says each move as the cube makes it or reads the next move of the
 // alg on show - eyes on the cube, not the screen, while an alg is learnt -
+// (a named chunk by its name or move by move, a checkbox),
 // and which cases New case draws from (the ones being learnt; with an
 // earlier start the case that comes up is still whatever the step before
 // leaves).
@@ -116,7 +117,7 @@ const STYLE = `
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
-interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; alts: boolean; repeat: boolean; cases?: string[] }
+interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; chunks: boolean; alts: boolean; repeat: boolean; cases?: string[] }
 type Voice = 'off' | 'echo' | 'read' | 'quiz';
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
@@ -190,7 +191,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', alts: false, repeat: false };
+  const settings: Settings = { from: kind, auto: false, next: false, voice: 'off', chunks: true, alts: false, repeat: false };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch { /* no storage */ }
   if (!STARTS[kind].includes(settings.from)) settings.from = kind;
   if (settings.cases && !Array.isArray(settings.cases)) settings.cases = undefined;
@@ -206,6 +207,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label title="The algs of the cases in the drill, one after another, from wherever the cube is: no scramble, the alg on show, wrong turns called"><input type="checkbox" id="${id('repeat')}"> Repeat the algs (no scramble)</label>
         <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
+        <label title="A named chunk (sexy, T core, a commutator) said by its name at its start, or its moves read one by one"><input type="checkbox" id="${id('chunks')}"> Say chunks by name (sexy, T core)</label>
       </div>
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
@@ -733,7 +735,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           const rots: string[] = [];
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
           const next = route[d];
-          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n);
+          // the setting: a chunk by its name, or every move of it read like any other
+          const trig = settings.chunks ? (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n) : undefined;
           // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
           const move = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           const words = move === null ? null : [...rots.map(spoken), move].join(', '); // the rotation with it: the move's letter assumes it
@@ -828,6 +831,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   repeatBox.addEventListener('change', () => { settings.repeat = repeatBox.checked; saveSettings(); repN = 0; lastRep = null; if (settings.repeat) startRep(false); else newCase(); });
   const voiceSel = drill.$('voice') as HTMLSelectElement;
   voiceSel.value = settings.voice;
+  const chunksBox = drill.$('chunks') as HTMLInputElement;
+  chunksBox.checked = settings.chunks;
+  chunksBox.addEventListener('change', () => { settings.chunks = chunksBox.checked; saveSettings(); });
   const sayBox = drill.$('say');
   const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
   showSay();
