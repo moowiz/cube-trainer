@@ -148,14 +148,14 @@ const handOpened = await page.evaluate(async (text) => {
 console.log(JSON.stringify(handOpened));
 check(handOpened.tab === 'eo', `the pause after a hand scramble opens the EO tab (${handOpened.tab})`);
 check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scrambled cube: ${handOpened.eo}`);
-// the same on the Solve tab does nothing: the timer owns the cube there
+// the same on the Solve tab does nothing: a cube off its scramble there is a mis-scramble, not a solve to pick up
 await page.click('.tabs button[data-t="solve"]');
 const solveTabStill = await page.evaluate(async (text) => {
   await window.ZZ.smart.replay(text);
   await new Promise((r) => setTimeout(r, 17_000));
   return window.ZZ.activeTab();
 }, capHand.text);
-check(solveTabStill === 'solve', `the Solve tab is left alone by the follow (${solveTabStill})`);
+check(solveTabStill === 'solve', `a hand scramble on the Solve tab is left alone by the follow (${solveTabStill})`);
 
 // ---- the Solve tab: the timer arms at its own scramble, times the solve from the cube's stamps, saves it ----
 await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
@@ -188,6 +188,44 @@ check(!!scrs.solve && window_all_equal(Object.fromEntries(Object.entries(scrs).m
 function window_all_equal(o) { const v = Object.values(o); return v.every((x) => x === v[0]); }
 // the next scramble came by itself (usually before we even looked: it was prefetched)
 await page.waitForFunction((old) => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating') && s !== old; }, { timeout: 90_000 }, solve.rows[0]?.s ?? '').then(() => check(true, 'the next scramble appeared by itself'), () => check(false, 'the next scramble appeared by itself'));
+
+// ---- the Solve tab's own choice: follow into the stages (the timer runs underneath, the tab comes back at solved), or stay ----
+// the follow's console lines (the tab switches happen inside one task, so nothing in the page sees them in order)
+const followLog = [];
+page.on('console', (m) => { if (m.text().startsWith('CUBE FOLLOW')) followLog.push(m.text()); });
+const solveWith = (text, rows) => page.evaluate(async (text, rows) => {
+  await window.ZZ.smart.replay(text);
+  const t0 = performance.now();
+  while (document.querySelectorAll('#tm-list li').length < rows && performance.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 20));
+  return { tab: window.ZZ.activeTab(), rows: document.querySelectorAll('#tm-list li').length, top: document.querySelector('#tm-list li .t')?.textContent, state: document.getElementById('tm-state').textContent };
+}, text, rows);
+const solveFollowSeg = await page.evaluate(() => ({ shown: !document.getElementById('tm-follow').hidden, on: document.querySelector('#tm-cubefollow button.on')?.dataset.v }));
+check(solveFollowSeg.shown && solveFollowSeg.on === 'follow', `the Solve tab shows its choice with a cube, on follow by default (${JSON.stringify(solveFollowSeg)})`);
+await page.evaluate((s) => window.ZZ.solve.load(s), SCR2); // the stage-crossing solve's scramble on the Solve tab (this tab only)
+const rowsBefore = await page.evaluate(() => document.querySelectorAll('#tm-list li').length);
+followLog.length = 0;
+const fol = await solveWith(capFollow.text, rowsBefore + 1);
+console.log(JSON.stringify({ ...fol, log: followLog }));
+const wantTime = ((solveTurns2 - 1) * 180 / 1000).toFixed(2);
+const opened = followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+) (.*)$/)).filter(Boolean);
+check(opened.map((m) => m[1]).join(' ') === 'f2l ocll' && followLog.some((l) => /back to the Solve tab/.test(l)), `the tabs followed the solve (F2L, then OCLL) and the Solve tab came back: ${followLog.join(' | ') || '(nothing)'}`);
+check(fol.tab === 'solve', `the Solve tab is open at solved (${fol.tab})`);
+check(opened[1] && stateOf(opened[1][2]) === stateOf("R U R' U R U2 R'"), `the OCLL tab was opened with the cube as it stood when F2L was done (${opened[1]?.[2]})`);
+check(fol.rows === rowsBefore + 1 && fol.top === wantTime, `the timer kept timing under the other tabs and saved the solve: ${fol.top} s (want ${wantTime})`);
+check(new RegExp(`^${wantTime} · ${solveTurns2} turns`).test(fol.state), `the result line has every turn of the solve: "${fol.state}"`);
+// stay: the tabs never move, the timer times as before
+await page.click('#tm-cubefollow [data-v="stay"]');
+await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
+await page.evaluate((s) => window.ZZ.solve.load(s), SCR2);
+followLog.length = 0;
+const stay = await solveWith(capFollow.text, rowsBefore + 2);
+console.log(JSON.stringify({ ...stay, log: followLog }));
+check(followLog.length === 0 && stay.tab === 'solve', `with Stay here the tabs never move: ${followLog.join(' | ') || '(none)'}`);
+check(stay.rows === rowsBefore + 2 && stay.top === wantTime, `the timer saved that solve too: ${stay.top} s`);
+check((await page.evaluate(() => localStorage.getItem('zz-solve-follow'))) === 'stay', 'the choice is remembered');
+await page.click('#tm-cubefollow [data-v="follow"]');
+// the next scramble (the pad needs one)
+await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
 
 // ---- the tap pad: press arms, release starts, a tap stops; the solve is saved ----
 const padBefore = await page.evaluate(() => document.querySelectorAll('#tm-list li').length);

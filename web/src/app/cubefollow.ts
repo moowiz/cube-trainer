@@ -47,6 +47,7 @@ let solveMode: 'stay' | 'follow' = 'follow';
 const SOLVE_KEY = 'zz-solve-follow';
 let engaged = false;
 let timing = false;          // the Solve tab's timer is on a solve this follow carries through the stages
+let timingScr: string | null = null; // the Solve tab's scramble that solve is from: a new one (the timer stopped by a tap, New scramble) ends the carry
 const follower = new SolveFollower();
 let cursor = 0;              // items of the source consumed
 let startIndex = 0;          // the item index this solve started at (for the solved toast)
@@ -73,9 +74,12 @@ const wanted = (): boolean => {
 function setTiming(on: boolean): void {
   if (on === timing) return;
   timing = on;
+  timingScr = on ? stages.solve?.scramble() ?? null : null;
   pinStage(on ? 'solve' : null);
   keepScramble(on ? 'solve' : null);
 }
+/** The timer moved on from the solve being carried (stopped by a tap, a new scramble): let its tab go. */
+function checkTiming(): void { if (timing && (stages.solve?.scramble() ?? null) !== timingScr) setTiming(false); }
 
 /** The cube's state as the trainer-frame scramble, from the base and the turns since; null without a base. */
 function scramble(src: MoveSource): string | null {
@@ -166,6 +170,8 @@ function consume(): void {
     if (it.kind === 'move') { lastMoveT = it.t; moved = true; }
     else if (it.kind === 'resync') { base = null; solving = null; failed = null; follower.restart(null); setTiming(false); }
   }
+  // (a solved cube: the timer's stop on this very turn made the new scramble; the solved branch below lets the tab go)
+  if (src.state() !== SOLVED) checkTiming();
   if (!base) { rebase(src); return; }
   if (!moved) return;
   const state = src.state();
@@ -200,6 +206,7 @@ function poll(): void {
   const src = activeSource();
   if (!src || !engaged) return;
   const idle = performance.now() - lastMoveT >= PAUSE_MS;
+  checkTiming();
   if (!base) { rebase(src); return; }
   const state = src.state();
   if (state === null || !idle) return;

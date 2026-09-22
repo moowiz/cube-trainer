@@ -187,8 +187,15 @@ both stored with the attempt (M12 uses them).
 **Following the solve on the cube (2026-09-21, `app/cubefollow.ts`, the
 setting "Follow my solve on the smart cube", on by default):** the
 camera's follow mode - the stages advancing as the cube crosses them -
-without a lock. It runs on the drill tabs only (the Solve tab's timer
-owns the cube). The cube's turns are sure and whole, so no debounce: a
+without a lock. On the drill tabs always; on the Solve tab by its own
+choice, a segment under the scramble ("As I solve": stay here / follow
+into the stages, follow by default, remembered): with follow, a timed
+solve moves the tabs too and the timer keeps timing underneath - its
+stage is *pinned* in `app/sources.ts` (every stage has its own driver;
+the pinned one hears every turn while another tab is open) and no tab
+may load a scramble into it (`shell.keepScramble`) until the cube is
+solved, when the Solve tab comes back with the time and its next
+scramble. The cube's turns are sure and whole, so no debounce: a
 solve is followed by its furthest stage so far (`follow.ts
 SolveFollower`), and a tab opens only on a crossing beyond it - an alg
 dips through earlier stages (a Sune breaks the cross on its first move)
