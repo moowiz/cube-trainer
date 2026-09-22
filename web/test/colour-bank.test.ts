@@ -164,7 +164,8 @@ function frameMarginP10(cs: readonly Centre[], n: EmbeddingName): number | null 
 const fmt = (v: number | null, w = 5, d = 1) => (v === null ? '-'.padStart(w) : v.toFixed(d).padStart(w));
 
 describe.skipIf(!existsSync(INDEX))('colour bank: centre separability with perfect corners', () => {
-  const centres = readBank();
+  // the describe body still runs at collect time when skipped (a clean clone, CI has no bank)
+  const centres = existsSync(INDEX) ? readBank() : [];
   const batches = [...new Set(centres.map((c) => c.batch))].sort((a, b) => Number(a.replace(/\D/g, '')) - Number(b.replace(/\D/g, '')));
   const names = Object.keys(EMBEDDINGS) as EmbeddingName[];
   const groups: [string, Centre[]][] = [...batches.map((b) => [b, centres.filter((c) => c.batch === b)] as [string, Centre[]]), ['pooled', centres]];
