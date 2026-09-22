@@ -46,6 +46,7 @@ async function doLoad(ep: Ep | 'auto', previous: TwoStageModels | null): Promise
   }
   if (!d.cropTrained) {
     d.dispose();
+    if (l !== previous?.localizer) l.dispose(); // a localizer loaded just for this pair leaks otherwise
     return { models: null, reason: `model ${d.modelId} is not crop-trained — the app only runs stage 2 on crops; re-export` };
   }
   return { models: { detector: d, localizer: l }, reason: null };
