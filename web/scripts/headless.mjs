@@ -8,6 +8,9 @@
 // puppeteer is a web devDependency (it was borrowed from model/gen, so the
 // checks failed on a clean clone). PUPPETEER_SHELL=1 launches the headless
 // shell, which is what runs inside the WSL sandbox (docs/wsl-sandbox.md).
+// On CI (GitHub's Ubuntu 24.04 runners) Chrome's own sandbox cannot start
+// (unprivileged user namespaces are off), so the launch adds --no-sandbox
+// there: the runner is disposable and the page is our own build.
 import { execSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -18,9 +21,10 @@ import puppeteer from 'puppeteer';
 
 export const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Headless Chrome; `args` are added to the launch. */
+/** Headless Chrome; `opts.args` are added to the launch. */
 export function launchBrowser(opts = {}) {
-  return puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true, ...opts });
+  const args = [...(process.env.CI ? ['--no-sandbox', '--disable-setuid-sandbox'] : []), ...(opts.args ?? [])];
+  return puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true, ...opts, args });
 }
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
