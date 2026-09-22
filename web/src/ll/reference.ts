@@ -11,7 +11,7 @@ import { onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { closeSheet, openSheet } from '../shell';
 import { triggers } from '../ui/fingertricks';
-import { CASES, isFavourite, type LLCase, type LLKind } from './cases';
+import { CASES, isFavourite, type LLCase, type LLKind, matchesName } from './cases';
 import { onFavsChange, setFavourite } from './favs';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
@@ -23,18 +23,20 @@ const STYLE = `
   .llr-filters .gap { flex-basis: 100%; height: 0; }
   .llr-filters .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .llr-filters .eo-chip small { opacity: .7; margin-left: 3px; }
+  .llr-name { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); width: 9em; }
   .llr-count { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
   .llr-tags { font-size: 12px; color: var(--ink-2); }
   .llr-chains { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
   .llr-chains b { color: var(--ink); font-weight: 600; }
-  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
   .llr-case { display: grid; grid-template-columns: 96px 1fr; gap: 4px 12px; align-content: start; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); cursor: pointer; text-align: left; font: inherit; color: inherit; }
   .llr-case:hover { background: #fff; }
   .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
   .llr-play.on { color: var(--ink); font-weight: 600; }
   .llr-player { grid-column: 1 / -1; cursor: auto; }
   .llr-player:empty { display: none; }
-  .llr-case .ll-pic { grid-row: span 5; max-width: none; margin: 0; }
+  .llr-case .ll-pic { max-width: none; margin: 0; }
+  .llr-body { display: grid; gap: 4px; align-content: start; min-width: 0; }
   .llr-name { font-weight: 600; font-size: 16px; }
   .llr-name small { font-weight: 400; color: var(--ink-2); margin-left: 6px; }
   .llr-alg { font-size: 15px; word-spacing: .25em; line-height: 1.5; }
@@ -127,17 +129,19 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();
-  const shown = (c: LLCase) => { const f = feat.get(c.id); return !f || FILTERS.every((x) => !active.has(x.key) || x.test(f)); };
+  let namePat = ''; // the name box: "G", "R*", "Ja Jb"
+  const shown = (c: LLCase) => { const f = feat.get(c.id); return matchesName(c, namePat) && (!f || FILTERS.every((x) => !active.has(x.key) || x.test(f))); };
   const filterBar = () => {
-    if (kind !== 'pll') return '';
-    const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
-    let group = '', out = '<div class="llr-filters">';
+    const nameBox = `<span class="lbl">Name</span><input class="llr-name" id="llr-name" type="search" placeholder="G, R*, Ja Jb" value="${esc(namePat).replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" spellcheck="false">`;
+    if (kind !== 'pll') return `<div class="llr-filters">${nameBox}</div>`;
+    const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && matchesName(c, namePat) && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
+    let group = '', out = `<div class="llr-filters">${nameBox}<span class="gap"></span>`;
     for (const x of FILTERS) {
       if (x.group !== group) { out += `${group ? '<span class="gap"></span>' : ''}<span class="lbl">${x.group}</span>`; group = x.group; }
       out += `<button type="button" class="eo-chip${active.has(x.key) ? ' on' : ''}" data-filter="${x.key}">${esc(x.label)}<small>${count(x)}</small></button>`;
     }
     const n = CASES[kind].filter(shown).length;
-    return `${out}</div><p class="llr-count">${active.size ? `${n} of ${CASES[kind].length} cases match${n ? '' : ': nothing has all of that'}.` : 'Tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>`;
+    return `${out}</div><p class="llr-count">${active.size || namePat ? `${n} of ${CASES[kind].length} cases match${n ? '' : ': nothing has all of that'}.` : 'Type a name (G, R*, Ja Jb) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>`;
   };
   const render = () => {
     const { self, pairs, oneWay } = chainSummary(kind);
@@ -155,6 +159,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
         const chain = !p ? '' : p.id === c.id ? 'Chains to itself: the alg again solves it.' : `Chains to <b>${esc(p.name)}</b>: after the alg, that is the case on the cube${chainPartner(kind, p)?.id === c.id ? ', and its alg brings this one back' : ''}.`;
         return `<div class="llr-case" data-id="${esc(c.id)}" role="button" tabindex="0">
           <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
+          <div class="llr-body">
           <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small></div>
           <div class="llr-alg">${algHtml(c.alg)}${(c.alts ?? []).length ? star(c.alg, true) : ''}${isFavourite(kind, c.id) ? '<small class="llr-tags"> your pick</small>' : ''}</div>
           ${(c.alts ?? []).map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}
@@ -162,6 +167,7 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
           ${f ? `<div class="llr-tags">${esc(tagLine(f))}</div>` : ''}
           <div class="llr-chain">${chain}</div>
           <button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>
+          </div>
           <div class="llr-player"></div>
         </div>`;
       }).join('')}</div>`;
@@ -171,6 +177,16 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
   const draw = () => { closePlayer(); render(); };
   draw();
+  // the name box: typed into, the list follows; the redraw replaces the box, so the caret goes back where it was
+  panel.addEventListener('input', (e) => {
+    const box = e.target as HTMLInputElement;
+    if (box.id !== 'llr-name') return;
+    namePat = box.value;
+    const at = box.selectionStart ?? namePat.length;
+    draw();
+    const again = panel.querySelector<HTMLInputElement>('#llr-name');
+    if (again) { again.focus(); again.setSelectionRange(at, at); }
+  });
   panel.onclick = (e) => {
     const t = e.target as HTMLElement;
     const chip = t.closest<HTMLElement>('[data-filter]');

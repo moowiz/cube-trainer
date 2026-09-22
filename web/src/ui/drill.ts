@@ -135,7 +135,7 @@ export interface Drill {
 export const STYLE = `
   .drill { max-width: 560px; margin: 0 auto; }
   @media (min-width: 820px) {
-    .drill { max-width: 900px; display: grid; grid-template-columns: 360px 1fr; gap: 0 32px; align-items: start; }
+    .drill { max-width: 1140px; display: grid; grid-template-columns: 340px 1fr; gap: 0 40px; align-items: start; }
     .drill .eo-head { grid-column: 1 / -1; }
     .drill .eo-left { position: sticky; top: 16px; }
     .drill .eo-right .eo-hints { margin-top: 2px; }
@@ -194,6 +194,7 @@ export const STYLE = `
   .zz-peek .cap { font-size: 13px; color: var(--ink-2); margin-top: 4px; line-height: 1.35; word-spacing: normal; }
   .zz-peek .cap b { color: var(--ink); font-size: 15px; margin-right: 6px; }
   .ll-alg { font-size: 16px; word-spacing: .3em; margin: 6px 0; }
+  @media (min-width: 820px) { .ll-alg { font-size: 18px; } }
   .ll-alg small { display: block; font-size: 13px; color: var(--ink-2); word-spacing: normal; margin-top: 2px; }
 `;
 

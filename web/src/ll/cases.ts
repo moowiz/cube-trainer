@@ -91,5 +91,18 @@ export function setMainAlg(kind: LLKind, id: string, alg: string | null): boolea
   version++;
   return true;
 }
+/**
+ * Does a case match a name pattern? The pattern is words (spaces or commas between): each is a prefix of
+ * the case's id or name, case-insensitive, a `*` allowed at the end for looks ("G", "R*", "Ja Jb", "sune");
+ * a case matches when any word does. An empty pattern matches every case.
+ */
+export function matchesName(c: Pick<LLCase, 'id' | 'name'>, pattern: string): boolean {
+  const words = pattern.toLowerCase().split(/[\s,]+/).map((w) => w.replace(/\*+$/, '')).filter(Boolean);
+  if (!words.length) return true;
+  const id = c.id.toLowerCase(), name = c.name.toLowerCase();
+  return words.some((w) => id.startsWith(w) || name.startsWith(w));
+}
+/** The families a kind's cases fall in: the first letter of the id (G for Ga-Gd), in table order. */
+export function families(kind: LLKind): string[] { return [...new Set(CASES[kind].map((c) => c.id[0]!))]; }
 /** Is the case's main alg a favourite (not the standard one)? */
 export function isFavourite(kind: LLKind, id: string): boolean { return CASES[kind].find((x) => x.id === id)?.alg !== standardAlg(kind, id); }

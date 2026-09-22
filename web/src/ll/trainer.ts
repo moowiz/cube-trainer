@@ -44,7 +44,7 @@ import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { triggers } from '../ui/fingertricks';
-import { CASES, type LLCase, type LLKind } from './cases';
+import { CASES, families, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
@@ -87,13 +87,17 @@ const STYLE = `
   .eo-result .ll-alg .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
   .ll-say { margin: -4px 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-say summary { cursor: pointer; }
-  .ll-say div { margin-top: 6px; line-height: 1.5; } .ll-say b { color: var(--ink); font-weight: 600; }
+  .ll-say div { margin-top: 6px; line-height: 1.5; } .ll-say p { margin: 4px 0; }
+  .ll-say table { border-collapse: collapse; margin: 4px 0 8px; }
+  .ll-say th { text-align: left; color: var(--ink); font-weight: 600; padding: 1px 12px 1px 2px; vertical-align: top; }
+  .ll-say td { padding: 1px 2px; }
   .ll-cases { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-cases summary { cursor: pointer; }
   .ll-caselist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
   .ll-caselist .eo-chip { padding: 4px 9px; }
   .ll-caselist .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .ll-caselist .eo-link { padding: 2px 4px; font-size: 13px; }
+  .ll-fams { flex-basis: 100%; margin-top: 2px; } .ll-fams .eo-link { padding: 2px 5px; }
   .ll-practice { margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-practice summary { cursor: pointer; }
   .ll-practice table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; width: 100%; }
@@ -115,8 +119,11 @@ type Voice = 'off' | 'echo' | 'read' | 'quiz';
  */
 function sayNote(kind: LLKind): string {
   const letters = [...new Set(CASES[kind].map((c) => c.id[0]!))].sort();
-  const row = (l: string) => `<b>${l}</b> ${wordsFor(l).join(', ')}`;
-  return `Say the letter, then a/b/c/d if it has one: “G alpha”, “J bravo”, “N a”, “T perm”. The letter as itself, or any of these: ${letters.map(row).join(' · ')}. The variant: ${['A', 'B', 'C', 'D'].map(row).join(' · ')}. Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.`;
+  const row = (l: string) => `<tr><th>${l}</th><td>${wordsFor(l).join(', ')}</td></tr>`;
+  return `<p>Say the letter, then a/b/c/d if it has one: “G alpha”, “J bravo”, “N a”, “T perm”. The letter as itself, or any of these:</p>
+    <table><tbody>${letters.map(row).join('')}</tbody></table>
+    <p>The variant:</p><table><tbody>${['A', 'B', 'C', 'D'].map(row).join('')}</tbody></table>
+    <p>Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.</p>`;
 }
 const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move', quiz: 'asks me the case, then reads' };
 
@@ -154,11 +161,18 @@ function spokenLabel(label: string): string {
   }
   return `${before ? `${moves(before)}, then ` : ''}${moves(inner)}${after ? `, then ${moves(after)}` : ''}`;
 }
-function say(text: string, keep = false): void {
-  if (typeof speechSynthesis === 'undefined') return;
+/** Speak; `keep` queues it after what is being said instead of cutting that off; `then` runs once it has been said (or after `thenBy` ms if the browser never says so). */
+function say(text: string, keep = false, then?: () => void, thenBy = 8000): void {
+  if (typeof speechSynthesis === 'undefined') { then?.(); return; }
   if (!keep) speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.2; u.lang = 'en-US';
+  if (then) {
+    let fired = false;
+    const once = () => { if (fired) return; fired = true; then(); };
+    u.onend = once; u.onerror = once;
+    setTimeout(once, thenBy);
+  }
   speechSynthesis.speak(u);
 }
 // DECISION: the result stays up this long before the next case replaces it (the time and the case's name)
@@ -314,13 +328,18 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const name = c ? spokenName(kind, c) : '';
     // the name, then how to hold it for the alg ("V perm: the bars of two at the back and on your left")
     const hold = c && kind === 'pll' ? `. ${algAngle(c)}` : '';
-    if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`); }
-    else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`); }
-    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`); }
+    // the first move is read once the name and the hold have been said - the utterance's own end, not a
+    // timer (a phone's voice is slower than a desktop's and was being cut off mid-sentence), and queued
+    // behind it in case a read comes sooner
+    const then = () => { lastRead = null; keepNext = true; followAlg(drill.moves()); };
+    if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`, false, then); }
+    else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`, false, then); }
+    else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`, false, then); }
+    keepNext = true; // a turn meanwhile: its read waits its turn too
     reveal();
-    setTimeout(() => { lastRead = null; followAlg(drill.moves()); }, 1200 + (hold ? 1800 : 0)); // the first move after the name and the hold
   }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
+  let keepNext = false;               // the next move read is queued after what is being said (a name, the hold), not over it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
   let fedCount = 0;                   // moves fed so far, for the echo
   /**
@@ -477,7 +496,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let repAt = 0;   // the cycle's next case
   let repN = 0;    // reps done since the mode came on
   let lastRep: { name: string; t: number | null } | null = null;
-  let keepNext = false; // the next move read is queued after the name, not over it
   // DECISION: the setup (the record's scramble, the state per turn) is re-solved to a short alg past this many moves
   const REBASE_AT = 60;
   /** The rep's alg is done: the cube is at the end of the case's alg (or one of its other algs) from the setup. */
@@ -584,13 +602,22 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function renderCases(): void {
     const n = pool().length, all = CASES[kind].length;
     drill.$('casesN').textContent = n === all ? `all ${all}` : n ? `${n} of ${all}` : `none picked, so all ${all}`;
+    // a family link (G for Ga-Gd) puts just that family in; a second tap adds the next one
+    const fams = families(kind).filter((f) => CASES[kind].filter((c) => c.id[0] === f).length > 1);
     drill.$('caselist').innerHTML = CASES[kind].map((c) => `<button type="button" class="eo-chip${inPool(c) ? ' on' : ''}" data-case="${c.id}">${c.name}</button>`).join('')
-      + '<button type="button" class="eo-link" data-cases="all">all</button><button type="button" class="eo-link" data-cases="none">none</button>';
+      + '<button type="button" class="eo-link" data-cases="all">all</button><button type="button" class="eo-link" data-cases="none">none</button>'
+      + (fams.length ? `<span class="ll-fams">Family: ${fams.map((f) => `<button type="button" class="eo-link" data-family="${f}">${f}</button>`).join('')}</span>` : '');
   }
   drill.$('caselist').addEventListener('click', (e) => {
-    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-case], [data-cases]');
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-case], [data-cases], [data-family]');
     if (!t) return;
-    if (t.dataset.cases) settings.cases = t.dataset.cases === 'all' ? undefined : [];
+    if (t.dataset.family) {
+      // the family's cases: on their own when the pool is everything, added to a picked pool otherwise
+      const fam = CASES[kind].filter((c) => c.id[0] === t.dataset.family).map((c) => c.id);
+      const on = settings.cases ? new Set(settings.cases) : new Set<string>();
+      for (const id of fam) on.add(id);
+      settings.cases = on.size === CASES[kind].length ? undefined : [...on];
+    } else if (t.dataset.cases) settings.cases = t.dataset.cases === 'all' ? undefined : [];
     else { const on = new Set(pool().map((c) => c.id)); if (on.has(t.dataset.case!)) on.delete(t.dataset.case!); else on.add(t.dataset.case!); settings.cases = on.size === CASES[kind].length ? undefined : [...on]; }
     saveSettings(); renderCases();
   });
