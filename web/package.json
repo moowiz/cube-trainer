@@ -17,13 +17,14 @@
   "dependencies": {
     "cubejs": "^1.3.2",
     "firebase": "^12.19.0",
-    "onnxruntime-web": "^1.29.0",
-    "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth"
+    "onnxruntime-web": "^1.30.0",
+    "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth#44f1f091c6e980d9cc31e6d2863c4437eca3ab3c"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.2",
     "@types/pngjs": "^6.0.5",
+    "@types/web-bluetooth": "^0.0.20",
     "@vitejs/plugin-basic-ssl": "^2.1.0",
     "eslint": "^10.10.0",
     "fake-indexeddb": "^6.2.5",
@@ -33,5 +34,10 @@
     "typescript-eslint": "^8.70.0",
     "vite": "^6.0.0",
     "vitest": "^3.0.0"
+  },
+  "overrides": {
+    "cubejs": {
+      "npm": "npm:empty-npm-package@1.0.0"
+    }
   }
 }
