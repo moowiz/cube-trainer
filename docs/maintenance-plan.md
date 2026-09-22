@@ -19,6 +19,35 @@ Baseline before the audit: 374 commits, 51 test files / 1000 tests green in
 19.6 s, typecheck and lint clean, deploy green. `web/src` is ~21.7k lines in
 ~120 files; `web/test` ~7k lines.
 
+## Status 2026-09-22 (the second pass, commits `941ada1`..`c7cbc67`)
+
+Done, each its own commit, `npm test` / typecheck / lint and the headless
+checks green after each: **2.1** (deploy 115 -> 35 MB), **2.2** (cubejs's
+npm stubbed by `overrides`: lockfile 751 -> 294, audit 44 -> 2), **2.3**
+(smartcube ref pinned, `@types/web-bluetooth` declared, ORT 1.30, eslint
+patches; the majors are still open), **2.5** (the Algs sheet lazy; only
+38 kB moved, the rest of `main` is the trainers), **3.3** (`state.ts`
+split; one piece table in `cube/pieces.ts`), **3.4** (`persisted()`),
+**3.5** (`timer/track-ui.ts`), **3.6** (`ll/pic.ts` on `picTop`), **3.7**
+(`ui/dom.ts`, one `median`, one `downloadBlob`, one `SOLVED`), **3.8**
+(`cube/alg.ts randomMoves`), **3.9** (`workers/rpc.ts`), **3.11** (all but
+`label.html`, which waits for the labeler decision in 3.1; the
+`console.log` traces stay - `check-smart.mjs` and `replay_clips.py` parse
+them, so each says so), **4.1**, **4.2**, **4.3** (a leak found: a stage 2
+without the crop stamp did not dispose the localizer loaded for it),
+**4.5**, **4.6** (`scripts/headless.mjs`, `check-rig` folded into
+`check-record --rig`, `npm run check:*`, puppeteer a `web` devDependency,
+`check:smart` and ruff in CI; `check-record`'s two assertions were stale
+since the one-recorder change of 2026-09-19), **5** and **6** (all but
+`MILESTONES.md`'s header, the user's call). Suite: 61 files / 1064 tests
+in ~11 s.
+
+Open, each waiting on a decision (section 7's items 12-15): **3.1 + 3.2**
+(the naming layer off the tick - needs the labeler decision), **3.10 +
+4.4** (after 3.1), **2.4** (the model file: LFS or a release asset),
+**2.3's majors** (vite 8, vitest 5 - which also clears the last two audit
+findings -, typescript 7), and `MILESTONES.md`'s header (6).
+
 ---
 
 ## 1. Done in this pass (commit `b381970`)
