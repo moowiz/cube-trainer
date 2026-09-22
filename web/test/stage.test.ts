@@ -1,4 +1,3 @@
-/// <reference path="../src/cubejs.d.ts" />
 import { describe, expect, it } from 'vitest';
 import Cube from 'cubejs';
 import { stageOf } from '../src/stage';

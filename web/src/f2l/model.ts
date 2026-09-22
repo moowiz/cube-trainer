@@ -9,7 +9,6 @@
 // was - which is what the sheet's algs assume; the only normalised states
 // are the ones the tracker keeps between algs.
 
-/// <reference path="../cubejs.d.ts" />
 import { FACE_MOVES, inverse, mergeMoves, movesStr, tokens, type Move } from '../cube/alg';
 import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';

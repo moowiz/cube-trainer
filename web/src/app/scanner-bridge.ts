@@ -5,8 +5,7 @@
 // MoveSource, feed the open stage whenever no smart cube is connected;
 // Record streams to the recording rig when the dev server's sink exists.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from '../vendor/cubejs';
 import { toWca } from '../cube/frame';
 import { describeStage, followReport, followScramble, StageFollower } from '../follow';
 import { diffFacelets, expectedFacelets, trainerScramble, type ScannedCube } from '../handoff';

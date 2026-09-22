@@ -1,3 +1,7 @@
+// Types for the npm `cubejs` package, which ships none. The APP does not use
+// the package any more - it uses the vendored copy in src/vendor/cubejs (which
+// has its own types). This declaration is for the TESTS, which keep the real
+// package as an independent oracle to check our cube code against.
 declare module 'cubejs' {
   export default class Cube {
     constructor(state?: unknown);

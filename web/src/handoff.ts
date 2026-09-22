@@ -7,8 +7,7 @@
 // the names of the faces differ, by a whole-cube rotation - so the scanned
 // state's scramble is relabelled move by move, never re-solved.
 
-/// <reference path="./cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from './vendor/cubejs';
 import type { Move } from './moves/moves';
 import type { ColorName, FaceId } from './types';
 import { FACE_ORDER } from './types';

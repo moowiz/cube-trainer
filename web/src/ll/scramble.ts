@@ -28,8 +28,7 @@
 // corner slot's cubie came from, ep likewise for edges) so the facelet
 // letters and move names agree with the rest of the trainer.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from '../vendor/cubejs';
 
 const MOVES = ['U', 'U2', "U'", 'D', 'D2', "D'", 'R2', 'L2', 'F2', 'B2'] as const;
 const FACE_OF = [0, 0, 0, 1, 1, 1, 2, 3, 4, 5]; // U D R L F B

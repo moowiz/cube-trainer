@@ -6,8 +6,7 @@
 // ScannedCube) and, a few times a second, the reader's moves in the
 // solver's letters; this turns them into what the stages consume.
 
-/// <reference path="./cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from './vendor/cubejs';
 import { relabelTurns, trainerScramble, type Hold, type ScannedCube } from './handoff';
 import type { Move } from './moves/moves';
 import { stageOf, type Stage, type StageReport } from './stage';

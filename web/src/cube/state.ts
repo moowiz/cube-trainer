@@ -4,8 +4,7 @@
 // a sticker is home on, which in the trainers' frame (white down, chosen
 // colour in front) is also its colour.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from '../vendor/cubejs';
 import { faceMoves, mergeMoves, movesStr, tokens } from './alg';
 
 export const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';

@@ -4,7 +4,9 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'public/**', 'node_modules/**'] },
+  // src/vendor/** is third-party code kept byte for byte (src/vendor/cubejs/README.md):
+  // linting it would only ever ask us to edit what must not be edited.
+  { ignores: ['dist/**', 'public/**', 'node_modules/**', 'src/vendor/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -16,8 +18,6 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off',
       // `while (true)` loops with a break are used in the frame pump
       'no-constant-condition': ['error', { checkLoops: false }],
-      // cubejs has no types; cubejs.d.ts is an ambient declaration pulled in by reference
-      '@typescript-eslint/triple-slash-reference': 'off',
     },
   },
 );

@@ -20,7 +20,6 @@
     "check:rig": "node scripts/check-record.mjs --rig"
   },
   "dependencies": {
-    "cubejs": "^1.3.2",
     "firebase": "^12.19.0",
     "onnxruntime-web": "^1.30.0",
     "smartcube-web-bluetooth": "github:poliva/smartcube-web-bluetooth#44f1f091c6e980d9cc31e6d2863c4437eca3ab3c"
@@ -30,6 +29,7 @@
     "@types/node": "^22.20.2",
     "@types/pngjs": "^6.0.5",
     "@types/web-bluetooth": "^0.0.20",
+    "cubejs": "^1.3.2",
     "@vitejs/plugin-basic-ssl": "^2.3.0",
     "eslint": "^10.10.0",
     "fake-indexeddb": "^6.2.5",

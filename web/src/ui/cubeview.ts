@@ -8,8 +8,7 @@
 //
 // Pure presentation: the host hands it beliefs and statuses.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from '../vendor/cubejs';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
 import { faceColorName, faceHex } from '../cube/scheme';

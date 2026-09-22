@@ -6,8 +6,7 @@
 // cubie-level checks here are implemented from the facelet string directly,
 // cross-checked in tests against real cubejs states.
 
-/// <reference path="./cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from './vendor/cubejs';
 import { WorkerRpc } from './workers/rpc';
 import { CENTER_INDICES, CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from './cube/pieces';
 import { FACE_ORDER } from './types';

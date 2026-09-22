@@ -4,8 +4,7 @@
 // No "webworker" lib in tsconfig, so worker globals are typed loosely via
 // `self as any` rather than fighting the DOM `Window` types tsc infers here.
 
-/// <reference path="./cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from './vendor/cubejs';
 
 let solverReady = false;
 function ensureSolver(): void {

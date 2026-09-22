@@ -5,8 +5,7 @@
 // solver must find. That is what turns a phone capture into a regression
 // fixture without any hand labelling.
 
-/// <reference path="./cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from './vendor/cubejs';
 import { movesStr, randomMoves } from './cube/alg';
 
 /** `n` random face turns as a string (cube/alg.ts's randomMoves: no face twice, no three on one axis). */

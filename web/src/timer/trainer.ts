@@ -7,8 +7,7 @@
 // does in every timer. Solves go to the store (local, synced when on)
 // with their full move stream; sessions, averages and PBs read from it.
 
-/// <reference path="../cubejs.d.ts" />
-import Cube from 'cubejs';
+import Cube from '../vendor/cubejs';
 import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
