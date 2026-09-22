@@ -46,14 +46,17 @@ web/
     framering.ts     recent frames frozen on arrival; the synced (latency-delayed) view
     detect/          ORT session, pre/post-processing, Kalman tracker
     rectify.ts       homography + warp
-    color.ts         Lab conversion, patch statistics, sampling geometry, Hungarian
-    colour/          the colour solver: types, evidence log + weights, colorspace
+    colour/          the colour half (detect/quality.ts is its gate on the detection tick: too
+                     small / too dark / blown out / obscured centre, the four tests the user's
+                     hint is made of): lab (Lab conversion), patch (sampling geometry, the robust
+                     patch statistics and the mean-only sampler the quality checks use), assign
+                     (Hungarian), and the solver - types, evidence log + weights, colorspace
                      (pluggable embedding), robust stats, palette, illum, faces
                      (track grouping), naming, decode (exact decoder), complete
                      (the sixth face from five), neighbours (one-move neighbours
                      of a state), solve, solve.worker + client, sampler +
                      sample.worker (patch statistics off the main thread)
-    state.ts         validateState (legality oracle), rotation helpers, cubejs solve
+    state.ts         validateState (legality oracle), cubejs solve
     cube/            THE cube code every trainer shares: alg (one parser for turns/slices/wide/rotations),
                      state (facelets from an alg, rotations undone), geometry (facelet -> 3D), pieces
                      (edge/corner tables, EO bits, the 12-edge move model the solvers and the EOCross

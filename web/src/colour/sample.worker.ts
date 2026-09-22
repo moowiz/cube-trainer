@@ -6,7 +6,7 @@
 // worker returns the QuadObs for the log and the refined quads for the
 // overlay.
 
-import { blurScore, facePlan, minFaceEdgePx, quadEdgePx, quadViewCos, sampleGridStats } from '../color';
+import { blurScore, facePlan, minFaceEdgePx, quadEdgePx, quadViewCos, sampleGridStats } from './patch';
 import { refineQuad } from '../detect/gridfit';
 import { warpQuad, type ImageDataLike } from '../rectify';
 import { makeReading, quadWeight } from './evidence';

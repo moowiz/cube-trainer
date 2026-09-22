@@ -5,7 +5,7 @@
 // off by 2x changes how fast a sticker converges, never what it converges
 // to. If a change here can flip a decision on its own it belongs elsewhere.
 
-import { minFaceEdgePx } from '../color';
+import { minFaceEdgePx } from './patch';
 import type { Lab } from '../types';
 import type { Embedding } from './colorspace';
 import { robustCentre, weightedMedian } from './robust';

@@ -20,7 +20,7 @@ signature of a wrong decomposition, not of missing tuning.
 
 | Step | Where | What it does |
 |---|---|---|
-| Sample | `web/src/color.ts` (`sampleGridCells`, `sampleCentreCell`, `facePlan`) | Warp quad to 90x90, average a patch per cell; the centre cell reads a diagonal ring to dodge the logo; sRGB -> Lab. |
+| Sample | `web/src/colour/patch.ts` (`sampleGridCells`, `sampleCentreCell`, `facePlan`; was `color.ts`) | Warp quad to 90x90, average a patch per cell; the centre cell reads a diagonal ring to dodge the logo; sRGB -> Lab. |
 | Normalise | `web/src/state.ts` `normalizeFaceCells` | Subtract the face's median L; clustering weights L by 0.15 ("crushed L"), naming by 1.0. |
 | Cluster | `web/src/detect/colorid.ts` `ColorClusters.observe` | Each face's *centre* reading joins the nearest cluster within `BIRTH_DIST` 20 (else a new one), reservoir of 40, centroid = median; clusters within `MERGE_DIST` 10 merge; `MAX_CLUSTERS` 10, evicting the thinnest. |
 | Name | `colorid.ts` `nameClusters` | Ordinal rules: white = least chromatic & chroma<20 & b>-8; blue = min b (<-8); green = min a (<-12) & hue>125; yellow = hue 78-120, a<25, chroma>30; red/orange = warm clusters (hue<78, chroma>30) split by weighted 1-D 2-means on hue, min gap 8 deg. Leftovers alias to the nearest named cluster they `couldBe` within 40. Adjacency evidence (a face next to an oriented known face) can bind a name after 6 votes with a lead of 2. |

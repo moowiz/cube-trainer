@@ -6,7 +6,7 @@
 // the "white is the brightest sticker on any face that has one" information
 // the old crushed-L space threw away.
 
-import { linearRgbToLab } from '../color';
+import { linearRgbToLab } from './lab';
 import type { Lab } from '../types';
 import type { RGB, Vec3 } from './types';
 import { median } from './robust';

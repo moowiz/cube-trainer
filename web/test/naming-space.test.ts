@@ -5,7 +5,8 @@
 // The cell Labs below are verbatim from those captures, so this is a real
 // frame's numbers without needing the frame.
 import { describe, expect, it } from 'vitest';
-import { facePlan, labDistance, minFaceEdgePx, sampleCentreCell } from '../src/color';
+import { labDistance } from '../src/colour/lab';
+import { facePlan, minFaceEdgePx, sampleCentreCell } from '../src/colour/patch';
 
 // The range floor on the 240-tall frames these cases were captured at: ~32 px.
 const MIN_FACE_EDGE_PX = minFaceEdgePx(240);

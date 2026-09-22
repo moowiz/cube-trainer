@@ -1,15 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  srgbToLab,
-  labToSrgb,
-  labDistance,
-  labMedian,
-  samplePatch,
-  sampleGridCells,
-  gridCellCenters,
-  labMean,
-  type Rect,
-} from '../src/color';
+import { srgbToLab, labToSrgb, labDistance, labMedian, labMean } from '../src/colour/lab';
+import { samplePatch, sampleGridCells, gridCellCenters, type Rect } from '../src/colour/patch';
 import type { Lab } from '../src/types';
 import { makeImage, setPixel } from './helpers';
 

@@ -4,7 +4,7 @@
 // rotation-invariant, so the order-free labels are fine here.
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
-import { sampleGridCells } from '../src/color';
+import { sampleGridCells } from '../src/colour/patch';
 import { warpQuad } from '../src/rectify';
 import { fixtureJson } from './helpers';
 

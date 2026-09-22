@@ -1,7 +1,7 @@
 // The Hungarian solver behind the palette naming and the exact decoder
 // (color-notes.md item 3).
 import { describe, expect, it } from 'vitest';
-import { solveAssignment } from '../src/color';
+import { solveAssignment } from '../src/colour/assign';
 
 describe('solveAssignment', () => {
   it('finds the minimum-cost perfect matching', () => {

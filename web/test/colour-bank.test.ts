@@ -25,7 +25,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { facePlan, minFaceEdgePx, sampleGridStats } from '../src/color';
+import { facePlan, minFaceEdgePx, sampleGridStats } from '../src/colour/patch';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
 import { patchWeight } from '../src/colour/evidence';
 import type { Vec3 } from '../src/colour/types';

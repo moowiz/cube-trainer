@@ -6,7 +6,8 @@
 // per-photo because the cube wasn't always centered in the scan grid.
 import { describe, it, expect } from 'vitest';
 import { PNG } from 'pngjs';
-import { sampleCellRobust, labDistance, labMean } from '../src/color';
+import { labDistance, labMean } from '../src/colour/lab';
+import { sampleCellRobust } from '../src/colour/patch';
 import { normalizeFaceCells } from '../src/detect/identify';
 import type { Lab } from '../src/types';
 import { fixtureJson } from './helpers';

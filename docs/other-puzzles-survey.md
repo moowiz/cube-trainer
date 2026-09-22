@@ -57,7 +57,7 @@ Megaminx's colour test.
 | `web/label.html`, `src/label-main.ts` | four clicks per face |
 | `detect/tracker.ts` | quads (4 corners); size-agnostic otherwise |
 | `rectify.ts` | homography from 4 points to a 90x90 face, 3x3 cells |
-| `colour/sampler.ts`, `color.ts` | 9 cell centres, the centre cell's logo ring |
+| `colour/sampler.ts`, `colour/patch.ts` | 9 cell centres, the centre cell's logo ring |
 | `colour/` evidence log, faces, naming | cells 0-8, shared edges of 3, six colours named by hue rank, faces from centres |
 | `colour/decode.ts` | 54 slots, 6 colours, 9 each, six centre slots, corner and edge tables from `state.ts`, legality via `validateState` (3x3) |
 | `state.ts`, `cube/*` | cubejs facelet order, 3x3 pieces, 18 face turns, ZZ tables |

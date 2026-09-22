@@ -5,7 +5,7 @@
 // colour-synthetic.test.ts; `simulateFrames` takes a state per frame so a
 // solve (moves-synthetic.test.ts) is the same generator with the cube
 // changing under it.
-import { srgbToLab } from '../src/color';
+import { srgbToLab } from '../src/colour/lab';
 import { emptyLog, patchWeight } from '../src/colour/evidence';
 import type { EvidenceLog, PatchStats, RGB } from '../src/colour/types';
 import { sharedEdge } from '../src/detect/orient';

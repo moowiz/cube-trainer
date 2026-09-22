@@ -17,10 +17,8 @@
 // Out of scope: non-standard color schemes (e.g. white opposite blue). The
 // default prior assumes the standard arrangement — the same assumption the
 // trained model has always made.
-import {
-  facePlan, isFaceBlownOut, isFaceTooDark, labDistance, labMedian, minFaceEdgePx,
-  RING_INCOHERENT_LAB, sampleGridCells, srgbToLab,
-} from '../color';
+import { labDistance, labMedian, srgbToLab } from '../colour/lab';
+import { facePlan, isFaceBlownOut, isFaceTooDark, minFaceEdgePx, RING_INCOHERENT_LAB, sampleGridCells } from '../colour/patch';
 import { warpQuad, type ImageDataLike } from '../rectify';
 // CENTER_MIN_DIST was calibrated in the clustering space, but it survives the
 // move to NAME_L_WEIGHT unchanged in the safe direction: two readings of the
@@ -165,7 +163,7 @@ export interface NamedQuad {
  * How the frame naming samples from relates to the camera frame. Stage 2
  * looks at a letterboxed CROP, so a quad's size in that frame says nothing
  * about how far away the cube is; the size gate and the sampling plan are
- * decided in source px (color.ts MIN_FACE_EDGE_FRAC, facePlan).
+ * decided in source px (colour/patch.ts MIN_FACE_EDGE_FRAC, facePlan).
  */
 export interface FrameGeom {
   /** Source px per frame px (the inverse of the letterbox scale). */
@@ -465,7 +463,7 @@ export function nameQuads(
     // the sampling from the quad in SOURCE px, and refuse outright when the
     // face is under the range floor - a fraction of the source frame height -
     // where the detector's corner error would be a large fraction of a
-    // sticker (see color.ts facePlan).
+    // sticker (see colour/patch.ts facePlan).
     let minEdge = Infinity;
     for (let k = 0; k < 4; k++) {
       const [ax, ay] = quad[k]!;

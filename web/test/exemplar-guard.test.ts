@@ -13,7 +13,7 @@
 // blue was 55 from the real blue, further than the poisoned green); and a
 // name needs a margin (MIN_NAME_CONF).
 import { describe, expect, it } from 'vitest';
-import { labDistance } from '../src/color';
+import { labDistance } from '../src/colour/lab';
 import { AMBIGUOUS_REASON, CenterExemplars, MAX_OBS_DRIFT, MIN_NAME_CONF, nameQuads, pickFace } from '../src/detect/identify';
 import type { ImageDataLike } from '../src/rectify';
 import { FACE_ORDER } from '../src/types';

@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  samplePatchStats,
-  sampleGridStats,
-  blurScore,
-  quadViewCos,
-  quadEdgePx,
-  PATCH_TRIM,
-} from '../src/color';
+import { samplePatchStats, sampleGridStats, blurScore, quadViewCos, quadEdgePx, PATCH_TRIM } from '../src/colour/patch';
 import { makeImage, setPixel } from './helpers';
 
 function fill(img: ImageData, rgb: readonly [number, number, number]): void {

@@ -13,7 +13,7 @@
 //      ties geometry leaves (all of them, on a dead-on-only scan). A cube
 //      with a non-standard scheme gets the letters its geometry dictates.
 
-import { solveAssignment } from '../color';
+import { solveAssignment } from './assign';
 import { sharedEdge } from '../detect/orient';
 import type { ColorName, FaceId, Lab } from '../types';
 import { COLOR_NAMES as NAMES, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';

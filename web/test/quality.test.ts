@@ -2,7 +2,7 @@
 // (too small, too dark, blown out, an obscured centre whose ring disagrees).
 // Synthetic frames, so each rule can be triggered on its own.
 import { describe, expect, it } from 'vitest';
-import { MIN_FACE_EDGE_FRAC, minFaceEdgePx } from '../src/color';
+import { MIN_FACE_EDGE_FRAC, minFaceEdgePx } from '../src/colour/patch';
 import { quadQuality, quadsQuality, TOO_SMALL_REASON } from '../src/detect/quality';
 import type { ImageDataLike } from '../src/rectify';
 

@@ -13,7 +13,7 @@
 // the first half of identify.ts's nameQuads, so the app ran the whole
 // exemplar namer every tick to get them.
 
-import { facePlan, isFaceBlownOut, isFaceTooDark, minFaceEdgePx, RING_INCOHERENT_LAB, sampleGridCells } from '../color';
+import { facePlan, isFaceBlownOut, isFaceTooDark, minFaceEdgePx, RING_INCOHERENT_LAB, sampleGridCells } from '../colour/patch';
 import { warpQuad, type ImageDataLike } from '../rectify';
 
 /** Prefix of the refusal reason for a face too small to sample. A hint reads it. */
@@ -59,7 +59,7 @@ export function quadQuality(
   // Rule 0: the rectified canvas is always 90x90, so it says nothing about how many real pixels
   // the face covered, and neither does the letterboxed crop. Size the sampling from the quad in
   // SOURCE px, and refuse outright below the range floor - a fraction of the source frame height -
-  // where the detector's corner error would be a large fraction of a sticker (color.ts facePlan).
+  // where the detector's corner error would be a large fraction of a sticker (colour/patch.ts facePlan).
   const minEdgePx = minEdgeOf(quad) * geom.srcPerPx;
   const floor = minFaceEdgePx(geom.sourceH);
   const plan = facePlan(minEdgePx / 3, floor);

@@ -9,7 +9,7 @@ import type { FaceId, Lab } from '../types';
 export type Vec3 = [number, number, number];
 export type RGB = [number, number, number];
 
-/** Robust statistics of one sampled patch (color.ts samplePatchStats). */
+/** Robust statistics of one sampled patch (colour/patch.ts samplePatchStats). */
 export interface PatchStats {
   /** Per-channel median after trimming the brightest and darkest deciles, 0..255. */
   rgb: RGB;

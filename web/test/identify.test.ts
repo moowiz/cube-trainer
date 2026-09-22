@@ -9,7 +9,8 @@ import { CenterExemplars, nameQuads } from '../src/detect/identify';
 import type { ImageDataLike } from '../src/rectify';
 import { DEFAULT_SCHEME_HEX, FACE_ORDER } from '../src/types';
 import type { FaceId } from '../src/types';
-import { MIN_FACE_EDGE_FRAC, minFaceEdgePx, srgbToLab } from '../src/color';
+import { srgbToLab } from '../src/colour/lab';
+import { MIN_FACE_EDGE_FRAC, minFaceEdgePx } from '../src/colour/patch';
 
 const W = 320;
 const H = 240;

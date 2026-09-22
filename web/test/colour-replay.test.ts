@@ -9,7 +9,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { BENCH, fixture, fixtureJson } from './helpers';
 import Cube from 'cubejs';
-import { labToSrgb } from '../src/color';
+import { labToSrgb } from '../src/colour/lab';
 import { DEFAULT_EMBEDDING, EMBEDDINGS, type EmbeddingName } from '../src/colour/colorspace';
 import { emptyLog } from '../src/colour/evidence';
 import { solve, solveBest } from '../src/colour/solve';
