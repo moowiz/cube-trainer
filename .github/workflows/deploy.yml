@@ -15,8 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  # One job, not build + deploy: the deploy job spent 5-10 s booting a second runner just to
+  # hand the artifact to Pages. deploy-pages can run right after upload-pages-artifact.
+  deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,9 +32,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
+      # Cache the installed node_modules itself, keyed on the lockfile, and skip npm ci on a
+      # hit. setup-node's `cache: npm` only keeps the tarballs, so npm ci still spent ~20 s
+      # extracting and linking them on every run; restoring the folder takes a few seconds.
+      - id: modules
+        uses: actions/cache@v4
+        with:
+          path: web/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('web/package-lock.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
         working-directory: web
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true' # the headless checks' browser; the build needs none
@@ -41,13 +53,5 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
