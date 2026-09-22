@@ -42,6 +42,41 @@ since the one-recorder change of 2026-09-19), **5** and **6** (all but
 `MILESTONES.md`'s header, the user's call). Suite: 61 files / 1064 tests
 in ~11 s.
 
+## Status 2026-09-22, the third pass (`cc88592`..`a237831`)
+
+**3.1 is done in the shape the app needed, not the shape the plan guessed.**
+The quality half is `detect/quality.ts` and the tick calls it; naming is
+opt-in (`detect(source, roi, { name: true })`) and only the labeler asks.
+`DetectResult.unnamed` is `refused`. The namer's two debug views and the
+capture JSON's `named` / `exemplars` fields went with it.
+
+But **`identify.ts` stays, and the deletion the plan costed at ~600 lines
+did not happen**, because its premise does not hold: `colour/solve.ts`
+cannot name the 1-3 faces of a single still. It needs six faces to fit a
+palette and the exact decoder needs all 54 stickers - a photo of two faces
+has neither. The labeler's Suggest button wants a face letter per quad from
+one shot, which is exactly what the centre-exemplar namer does and the
+colour solver structurally cannot. So `identify.ts` is now what its header
+should say it is: the labeler's namer, off the app's path. If the ~600
+lines are still wanted, the real options are (a) Suggest fills corners only
+and the human picks the slot, or (b) a much smaller centre-namer against
+the default-scheme prior with no exemplar learning - both are labeler-UX
+calls, not cleanups.
+
+Also honest about the payoff: the per-tick saving is the identity
+arithmetic only. The warp and the nine-cell sample stay, because the
+quality tests need them.
+
+**3.2** landed as `colour/lab.ts` + `colour/patch.ts` + `colour/assign.ts`;
+`color.ts` is gone. The mean-only sampler (`samplePatch`, `sampleGridCells`)
+did NOT become dead - `detect/quality.ts` reads it on the tick - so it sits
+in `patch.ts` beside the robust statistics rather than being deleted.
+
+Still open: **3.10 + 4.4** (`ui/scanner.ts` extraction, then its tests),
+**2.4** (the model file in git), **vite 8** and **typescript 7** below.
+
+---
+
 **typescript 7 is deferred too (2026-09-22).** `tsc --noEmit` is clean and
 takes 0.35 s instead of 2.4 (the Go port), but `npm run lint` dies:
 "typescript-eslint does not support TS 7.0" (their issue #10940 tracks
