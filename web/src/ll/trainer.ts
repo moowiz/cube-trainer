@@ -272,7 +272,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // ---- the scramble, and following it on a smart cube (as the Solve tab does) ----
   function renderScramble(): void {
     const su = drill.$('setup'), tr = drill.$('track');
-    if (settings.repeat) { const cs = pool(); su.innerHTML = `Repeating ${cs.map((c) => c.name).join(', ')} from wherever the cube is: no scramble.`; tr.textContent = ''; tr.className = 'll-track'; return; }
+    if (settings.repeat) { const cs = repCases(); su.innerHTML = `Repeating ${cs.length === CASES[kind].length ? `all ${cs.length} cases` : cs.map((c) => c.name).join(', ')} from wherever the cube is: no scramble.`; tr.textContent = ''; tr.className = 'll-track'; return; }
     if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
     if (scramble === null) { su.innerHTML = 'Scramble WCA style: <span>…</span>'; tr.textContent = ''; return; }
     const toks = toWca(scramble).split(' ').filter(Boolean);
@@ -511,7 +511,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
    * anywhere) - unless `placed` says the setup was just loaded with the cube's state.
    */
   function startRep(advance: boolean, placed = false, lined = false): void {
-    const cs = pool();
+    const cs = repCases();
     if (advance) repAt++;
     const c = cs[repAt % cs.length]!;
     if (!placed) {
@@ -599,6 +599,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // ---- which cases New case draws from: a chip per case, tap to toggle; none on counts as all ----
   const inPool = (c: LLCase) => !settings.cases || settings.cases.includes(c.id);
   const pool = (): LLCase[] => CASES[kind].filter(inPool);
+  /** The cases a rep cycles through: the pool, or every case when none is picked (as New case draws) */
+  const repCases = (): LLCase[] => (pool().length ? pool() : CASES[kind]);
   function renderCases(): void {
     const n = pool().length, all = CASES[kind].length;
     drill.$('casesN').textContent = n === all ? `all ${all}` : n ? `${n} of ${all}` : `none picked, so all ${all}`;
