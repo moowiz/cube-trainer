@@ -249,7 +249,7 @@ AUF), the camera's belief on the sheet while following. The report poll
 runs every 4 s once the cube has been idle 2 s. Tests:
 `test/smart.test.ts`, `test/drive.test.ts`, fixture
 `fixtures/smart/synthetic-session.jsonl`; end to end without a cube:
-`node scripts/check-smart.mjs` replays a scramble-then-undo capture
+`npm run check:smart` replays a scramble-then-undo capture
 through the built page via `window.ZZ.smart.replay` and checks that the
 EO drill armed at the scramble, boxed the undo in the trainer's letters,
 timed it from the cube's stamps (0.90 s for six turns 180 ms apart) and
@@ -339,7 +339,7 @@ succeeds and streams each one-second chunk as it arrives, the smart cube's
 capture header and every event go to `cube.jsonl` (`app/smart.ts`), the
 timer files each solve's host-clock window to `solves.jsonl`, and the
 capture that Stop triggers becomes `evidence.json` and closes the session.
-`node scripts/check-rig.mjs` exercises it headless with a fake camera.
+`npm run check:rig` (scripts/check-record.mjs --rig) exercises it headless with a fake camera.
 
 **2026-09-18, the header Record button** (`app/record.ts`): the scan sheet
 is the wrong place to start a sitting from (reopening it after a lock
@@ -351,7 +351,7 @@ view in the corner so the cube stays in frame; the cube's events and the
 timer's solves reach the session as before. No scanner runs and no
 `evidence.json` is written: the raw video and the cube's turns are the
 material, and the pipeline can be re-run on the video offline.
-`node scripts/check-record.mjs` is its headless check.
+`npm run check:record` is its headless check.
 
 **2026-09-19, one Record.** The header button records THROUGH the
 scanner: it opens the scan sheet docked (kept, not reset, so the

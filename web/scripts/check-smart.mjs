@@ -6,35 +6,11 @@
 // box with the undo in the trainer's letters, time it from the cube's
 // stamps, and check itself; the Cube sheet must show the belief.
 //
-//   node scripts/check-smart.mjs        (run `npm run build` first)
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { join, dirname, extname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+//   npm run check:smart        (run `npm run build` first)
 import Cube from 'cubejs';
+import { launchBrowser, serveDist } from './headless.mjs';
 
-const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(webDir, 'dist');
-if (!existsSync(join(dist, 'index.html'))) {
-  console.error('web/dist/index.html missing - run `npm run build` first');
-  process.exit(1);
-}
-const puppeteerPkg = resolve(webDir, '..', 'model', 'gen', 'node_modules', 'puppeteer');
-const { default: puppeteer } = await import(pathToFileURL(join(puppeteerPkg, 'lib', 'esm', 'puppeteer', 'puppeteer.js')).href);
-
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const server = createServer(async (req, res) => {
-  const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = join(dist, url === '/' ? 'index.html' : url.replaceAll('..', ''));
-  try {
-    const body = await readFile(file);
-    res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
-    res.end(body);
-  } catch { res.writeHead(404); res.end(); }
-});
-await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-const port = server.address().port;
+const server = await serveDist();
 
 const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const inverse = (alg) => alg.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m.slice(0, -1) : m.endsWith('2') ? m : m + "'")).join(' ');
@@ -53,11 +29,11 @@ function capture(scrambleAlg, solveAlg) {
 let failed = 0;
 const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++; };
 
-const browser = await puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true });
+const browser = await launchBrowser();
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 if (process.env.DEBUG) page.on('console', (m) => console.log('[page]', m.text()));
-await page.goto(`http://127.0.0.1:${port}/?tab=eo`, { waitUntil: 'networkidle0' });
+await page.goto(`${server.origin}/?tab=eo`, { waitUntil: 'networkidle0' });
 
 // the EO tab's goal: EOCross, so the drill is done only when the undo is complete (with the goal EO
 // alone it would check itself the moment EO is solved, part way through the undo - also right)

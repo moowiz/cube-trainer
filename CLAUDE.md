@@ -75,7 +75,7 @@ web/
     smart/           the smart cube (docs/smart-cube-design.md): adapter.ts (the only file that imports
                      smartcube-web-bluetooth), clock (two-clock fit), belief (the belief reducer), capture
                      (JSONL + replay), source (CubeSource). Fixtures in test/fixtures/smart/; the headless
-                     check `node scripts/check-smart.mjs` replays one through the built page
+                     check `npm run check:smart` replays one through the built page
     timer/           the Solve tab (the timer that replaces csTimer): trainer (the tab), stats (averages,
                      csTimer's 5% trim), cstimer (its export file both ways), track (scramble following),
                      graph (the history graph), when (day boundaries for the stats)

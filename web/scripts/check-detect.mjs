@@ -1,48 +1,19 @@
 // Headless verification that the built app loads facekp.onnx in
 // onnxruntime-web and runs inference (the browser half of the M4 export
 // sanity check). Serves web/dist over loopback, opens the scan tab in
-// headless Chrome (puppeteer borrowed from model/gen), and calls the page's
-// __detectSelfTest hook.
+// headless Chrome, and calls the page's __detectSelfTest hook.
 //
-//   node scripts/check-detect.mjs        (run `npm run build` first)
-import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { join, dirname, extname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+//   npm run check:detect        (run `npm run build` first)
+import { launchBrowser, serveDist } from './headless.mjs';
 
-const webDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const dist = join(webDir, 'dist');
-if (!existsSync(join(dist, 'index.html'))) {
-  console.error('web/dist/index.html missing - run `npm run build` first');
-  process.exit(1);
-}
-const puppeteerPkg = resolve(webDir, '..', 'model', 'gen', 'node_modules', 'puppeteer');
-const { default: puppeteer } = await import(pathToFileURL(join(puppeteerPkg, 'lib', 'esm', 'puppeteer', 'puppeteer.js')).href);
-
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const server = createServer(async (req, res) => {
-  const url = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = join(dist, url === '/' ? 'index.html' : url.replaceAll('..', ''));
-  try {
-    const body = await readFile(file);
-    res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream' });
-    res.end(body);
-  } catch {
-    res.writeHead(404);
-    res.end();
-  }
-});
-await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-const port = server.address().port;
-
-const browser = await puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true, args: ['--enable-unsafe-swiftshader'] });
+const server = await serveDist();
+const browser = await launchBrowser({ args: ['--enable-unsafe-swiftshader'] });
 const page = await browser.newPage();
 // every wasm the page fetches, so a runtime that is not in ort/ (or is fetched twice) shows up
 const wasmFetches = [];
 page.on('response', (r) => { if (r.url().endsWith('.wasm')) wasmFetches.push(`${r.status()} ${new URL(r.url()).pathname}`); });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
-await page.goto(`http://127.0.0.1:${port}/?tab=scan`);
+await page.goto(`${server.origin}/?tab=scan`);
 for (const ep of ['webgpu', 'wasm']) {
   try {
     const img = process.env.CHECK_FRAME || '';
