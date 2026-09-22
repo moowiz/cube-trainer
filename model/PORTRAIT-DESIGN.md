@@ -2,7 +2,7 @@
 
 Status: DESIGN v3 - all open questions settled by the user 2026-09-12,
 implementation and overnight training start from here. v1 answered
-`PORTRAIT-BRIEF.md` as written (full-frame stage 2); v2 added the
+`docs/archive/PORTRAIT-BRIEF.md` as written (full-frame stage 2); v2 added the
 two-stage requirement; v3 records the decisions and the plan being run.
 
 ## Decisions (user, 2026-09-12)
@@ -72,7 +72,7 @@ happens) and letterboxes to 256; worst-case upscale 1.6x, like the floor's
 existing `_zoom_crop` on the frame cache: it cuts a far cube's 60 px window
 out of a 320x240 thumbnail and blows it up 5x, while the app cuts 215 px out
 of the source and shrinks it - the same train/inference mismatch that capped
-cubebox (BBOX-HANDOFF §1c).
+cubebox (docs/archive/BBOX-HANDOFF.md §1c).
 
 Negatives in the crop cache: 7% of renders are cube-less; their "crop" is a
 random square window (a stage-1 false positive on a hand or a mug), all

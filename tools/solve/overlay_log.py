@@ -4,11 +4,15 @@ usage: model/.venv/Scripts/python tools/solve/overlay_log.py <replay.json> <clip
 (needs PIL, so run it with the model venv). Alignment uses the capture's
 `recording.startedAt`; logs captured before that stamp existed fall back to
 first-quad time minus 0.1 s, which is where t0_offset_s helps."""
-import json, subprocess, sys, os, math
-from collections import defaultdict
-from PIL import Image, ImageDraw, ImageFont
+import json
+import math
+import os
+import subprocess
+import sys
 
 import imageio_ffmpeg
+from PIL import Image, ImageDraw, ImageFont
+
 FF = imageio_ffmpeg.get_ffmpeg_exe()
 rep, clip, ts, te, fps, out = sys.argv[1:7]
 ts, te, fps = float(ts), float(te), float(fps)

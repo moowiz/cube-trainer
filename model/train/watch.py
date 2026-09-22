@@ -35,7 +35,8 @@ KEYS = {"train_loss", "val_loss", "val_px", "val_conf_acc", "real_px", "val_iou"
 def parse_line(m):
     row = {"epoch": int(m[1])}
     for k, v in PAIR.findall(m[2]):
-        if k in KEYS: row["conf_acc" if k == "val_conf_acc" else k] = float(v)
+        if k in KEYS:
+            row["conf_acc" if k == "val_conf_acc" else k] = float(v)
     sec = SECS.search(m[2])
     row["sec"] = int(sec[1]) if sec else 0
     return row if "train_loss" in row else None

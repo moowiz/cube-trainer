@@ -20,8 +20,12 @@ so the numbers can be re-cut without re-running the model) and prints:
   - finger-motion bursts: fingertip speed relative to the cube, a proxy for
     turn count until a recording has typed moves
 """
-import argparse, json, math, os, sys, time
-from collections import Counter, defaultdict
+import argparse
+import json
+import os
+import sys
+import time
+from collections import Counter
 
 import cv2
 import numpy as np
@@ -145,7 +149,7 @@ def summarize(hd):
     prev = None
     for f in F:
         cur = [(h['hand'], np.array(h['lm'], float)) for h in f['hands']]
-        for lab, px in cur:
+        for _lab, px in cur:
             palms.append(palm_width(px))
         scores += [h['score'] for h in f['hands']]
         if prev:

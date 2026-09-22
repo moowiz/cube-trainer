@@ -464,7 +464,7 @@ and is free.
 
 ### 8.1 Hand pose: measured (2026-09-15)
 
-Summary and the moves-from-clips question: `docs/hand-pose-experiment.md`.
+Summary and the moves-from-clips question: `docs/archive/hand-pose-experiment.md`.
 Item 4 was an assumption; `tools/solve/hands_survey.py` tested it. MediaPipe
 HandLandmarker (1.0.1, `hand_landmarker.task`, two hands, VIDEO mode, CPU)
 over the eight webcam solve recordings, landmarks aligned with each replay

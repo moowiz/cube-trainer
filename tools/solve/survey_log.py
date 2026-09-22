@@ -2,8 +2,11 @@
 Survey an evidence log from a solve recording: what did the detector/tracker
 see over time, how many faces at once, did tracks survive turns (in-track
 colour jumps) or die and come back (birth/death bursts)?"""
-import json, sys, math
+import json
+import math
+import sys
 from collections import defaultdict
+
 
 def lab_d(a, b): return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 def median(xs):
@@ -24,7 +27,6 @@ def analyze(path, t0=None, bin_s=2.0, jump_thr=18.0, win=3):
     by_frame = defaultdict(list)
     for q in quads: by_frame[q['frame']].append(q)
     frames = sorted(by_frame)
-    first_f, last_f = frames[0], frames[-1]
     # frame -> t (from any quad); frames with no quads have no t, interpolate by neighbours
     ft = {f: by_frame[f][0]['t'] for f in frames}
 
@@ -85,7 +87,7 @@ def analyze(path, t0=None, bin_s=2.0, jump_thr=18.0, win=3):
 
     # ---- death/birth bursts: transitions where the tracker dropped faces
     ev = sorted(events, key=lambda e: e['t'])
-    print(f"\n  birth/death bursts (>= 2 events within 0.4 s):")
+    print("\n  birth/death bursts (>= 2 events within 0.4 s):")
     i = 0; bursts = 0
     while i < len(ev):
         j = i

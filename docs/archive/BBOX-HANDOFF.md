@@ -1,3 +1,5 @@
+> Archived 2026-09-22: the investigation this hands off was done (model/README.md "Stage-1 cube localizer"); `model/PORTRAIT-DESIGN.md` is the current design. Kept for the measurements it quotes.
+
 # Stage-1 cube localizer (`cubebox`) — handoff, 2026-09-12
 
 Written at the end of a session that investigated the report *"the bounding box

@@ -12,8 +12,12 @@ a linear scaled-orthographic fit (24 equations, 8 unknowns for three
 quads) and the best few are refined with a perspective Gauss-Newton (rotation,
 translation; focal length fixed per camera - see --f). Residuals are RMS px over the quads' corners.
 """
-import json, sys, math, itertools
+import itertools
+import json
+import math
+import sys
 from collections import defaultdict
+
 import numpy as np
 
 # corners CCW seen from outside, starting at the UFR vertex where it is on the

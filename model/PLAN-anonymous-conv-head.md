@@ -1,8 +1,9 @@
 # Plan: anonymous-quad convolutional head for the face detector
 
-Status: approved by the user 2026-09-12, not started. Hand this file to the
-implementing agent. Read `CLAUDE.md`, `MILESTONES.md`, and `model/README.md`
-first; everything below assumes that context.
+Status: DONE. Approved 2026-09-12, implemented and measured the same day
+(`model/README.md` "Center vs legacy head, measured"); the deployed detector
+is this head. Kept as the design record. Read `CLAUDE.md`, `MILESTONES.md`,
+and `model/README.md` first; everything below assumes that context.
 
 ## 0. Why (one paragraph)
 

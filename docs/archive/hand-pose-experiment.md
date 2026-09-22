@@ -1,3 +1,5 @@
+> Archived 2026-09-22: measured and shelved (docs/solve-tracking-design.md points here for the moves-from-clips question).
+
 # Hand pose for move reading: measured and shelved (2026-09-15)
 
 The question: could a hand landmarker (MediaPipe Hands) read the turns of a

@@ -1,3 +1,5 @@
+> Superseded 2026-09-21: the cube arrived and `docs/smart-cube-design.md` holds the decisions and the implementation; this is the landscape survey it was written from.
+
 # Smart cube trainer: survey and feature catalogue (2026-09-16)
 
 **Status: a survey, not a design.** A Bluetooth cube is on order (model

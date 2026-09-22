@@ -5,7 +5,13 @@ which writes web/test/fixtures/evidence/replay-<stem>.json; move it next to
 the clip afterwards (a solve log is not a colour-solver fixture).
 usage: python tools/solve/replay_clips.py [--port 5173] <stem-or-file>...
 Needs `npm run dev` running (predev copies the ORT runtime)."""
-import subprocess, sys, time, os, re, tempfile, shutil
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
 
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 args = sys.argv[1:]

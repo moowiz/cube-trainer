@@ -66,7 +66,7 @@ stage-1 false positive on a hand or a mug). Why not crop the old 320x240
 thumbnail: the app cuts ~215 px out of the source at the range floor and
 shrinks it; cutting 60 px out of a thumbnail and blowing it up 5x was the
 train/inference mismatch that capped the previous two-stage attempt
-(`BBOX-HANDOFF.md` 1c). `_zoom_crop`, `_portrait_sim` and `_pillarbox` are
+(`docs/archive/BBOX-HANDOFF.md` 1c). `_zoom_crop`, `_portrait_sim` and `_pillarbox` are
 gone; stage 1 gets top/bottom `_bars` at p 0.15 (the desktop webcam case)
 and COCO negatives a random 3:4 crop at p 0.6 (empty phone frames).
 
@@ -558,13 +558,13 @@ The trim is small, because the generator was already nearly right: 2.4% of
 
 `train_bbox.py` trains the tiny bbox+objectness net that `web/src/detect/cubebox.ts`
 runs at 160x120 to find the cube before stage 2 looks at the crop. Full
-investigation write-up: `BBOX-HANDOFF.md`. The short version:
+investigation write-up: `docs/archive/BBOX-HANDOFF.md`. The short version:
 
 **"The box is too small" was variance, not bias.** Against `data_real_val`
 (truth = axis-aligned hull of all visible faces' corners = the silhouette),
 the original `box3` had median w/true 0.997, h/true 0.985, per-edge inset
 within ±0.02 — but per-edge **sd 0.14–0.20** of the box, so mean IoU 0.790
-vs median 0.888. Four measured causes, each in `BBOX-HANDOFF.md` §1:
+vs median 0.888. Four measured causes, each in `docs/archive/BBOX-HANDOFF.md` §1:
 
 1. **GAP head** (5 convs → global-average-pool → MLP): throws away *where*.
    Ceiling on clean synthetic val with no occluder: IoU 0.833, 12.9% < 0.7.

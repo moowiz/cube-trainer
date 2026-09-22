@@ -225,6 +225,7 @@ def main():
     args = ap.parse_args()
 
     from PIL import Image
+
     from twostage import TwoStage
 
     sess = args.session.rstrip("/\\")

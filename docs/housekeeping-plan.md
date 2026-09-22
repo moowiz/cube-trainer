@@ -1,5 +1,9 @@
 # Housekeeping plan before M11 (2026-09-17)
 
+**Status 2026-09-22:** closed. Items 1-5 are done (below); M11's phase
+splitting (section 6) is the only open item, and it belongs to M11. The
+repo-wide follow-up is `docs/maintenance-plan.md`.
+
 **Status 2026-09-17, evening: items 1-5 done** (three by sonnet agents in
 worktrees, merged; the wiring and the split in the main thread), plus the
 recording sink, its client and session layer, and Record streaming to it;

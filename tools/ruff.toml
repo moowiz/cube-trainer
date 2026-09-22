@@ -1,0 +1,8 @@
+# python lint for tools/ (the one-liner measurement scripts under solve/):
+# model/ruff.toml's rules, minus the line-length and one-statement-per-line
+# ones that would raise ~230 findings against a style these scripts chose.
+#   model/.venv/bin/ruff check tools      (CI runs `ruff check model tools`)
+extend = "../model/ruff.toml"
+
+[lint.per-file-ignores]
+"solve/*.py" = ["E501", "E701", "E702", "E703"]

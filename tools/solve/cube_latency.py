@@ -10,7 +10,14 @@ against the event's BLE arrival and against the fitted cube clock. Writes
 latency.json, summary.md, overview.png and strips/turn-NNN.png (the frames
 around each turn, the settle frame outlined) to --out, default
 <session>/latency/. Decoded frames are cached under $TMPDIR."""
-import argparse, json, os, subprocess, sys, hashlib, math
+import argparse
+import hashlib
+import json
+import math
+import os
+import subprocess
+import sys
+
 import numpy as np
 
 FFMPEG = '/usr/bin/ffmpeg'; FFPROBE = '/usr/bin/ffprobe'
@@ -279,7 +286,9 @@ def host_to_pts(t, host, pts):
     return t - (host[0] - pts[0])
 
 def write_overview(path, host, energy, moves, solves, results, turns):
-    import matplotlib; matplotlib.use('Agg'); import matplotlib.pyplot as plt
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
     t0 = host[0]; x = (host - t0) / 1000
     fig, ax = plt.subplots(figsize=(max(16, x[-1] / 6), 4.5))
     for s in solves: ax.axvspan((s['t0'] - t0) / 1000, (s['t1'] - t0) / 1000, color='#ffd54f', alpha=0.3, lw=0)

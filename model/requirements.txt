@@ -1,4 +1,9 @@
 # python -m venv .venv  (Python 3.13; torch has no 3.14 wheels yet)
+# This is the TRAINING environment (Windows, CUDA torch, the pinned older torch
+# CLAUDE.md's "deferred upgrade" note is about). The WSL checkout's model/.venv
+# is a separate uv-built Linux venv (docs/wsl-sandbox.md) whose newer torch is
+# NOT the deployed stack - do not read its versions as the training ones.
+# Unpinned by design; no lockfile exists anywhere.
 # .venv\Scripts\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 # .venv\Scripts\python -m pip install -r requirements.txt
 torch

@@ -1,3 +1,5 @@
+> Archived 2026-09-22: superseded by `model/PORTRAIT-DESIGN.md`, which is current and cited. Kept for the measurements.
+
 # Brief: make the detectors' input match the phone's portrait frame
 
 Design task. Read `CLAUDE.md`, `MILESTONES.md`, and `model/README.md`
@@ -28,7 +30,7 @@ cubebox equivalent of that floor and another 50% within 32-45 px** — even
 though the cube looked a reasonable size on screen. A cube filling 25% of the
 phone's frame height is *at* the floor today; it would be comfortably inside
 it with a portrait input. The far-cube frames are the localizer's worst
-failures (`BBOX-HANDOFF.md` §1, size bins).
+failures (`BBOX-HANDOFF.md` (beside this file) §1, size bins).
 
 The current mitigation is augmentation that teaches the models to tolerate
 the bars (`augment.py _portrait_sim`, `bbox_data._pillarbox`). It does not
@@ -102,7 +104,7 @@ recover the pixels.
 
 Anything about colour, the tracker, orientation resolution, or the M8
 fallback. Don't touch `data_real_val` labels. Don't add a scale-up fudge to
-boxes (see `BBOX-HANDOFF.md` §4.6).
+boxes (see `BBOX-HANDOFF.md` (beside this file) §4.6).
 
 ## Pointers
 

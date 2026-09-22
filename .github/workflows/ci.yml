@@ -1,7 +1,7 @@
 name: CI
 
-# Lint, typecheck and the unit suite on every push and pull request, and the
-# smart-cube path replayed through the built page in headless Chrome
+# Lint, typecheck and the unit suite on every push and pull request, ruff over
+# the Python half and the tools, and the smart-cube path replayed through the built page in headless Chrome
 # (check:smart needs no model, camera or Bluetooth; check:detect needs the
 # models and WebGPU, check:record a fake camera - those stay manual). The
 # deploy workflow only builds; this is the gate the 1000 tests were missing
@@ -30,6 +30,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install ruff
+      - run: ruff check model tools # model/ruff.toml and tools/ruff.toml
 
   headless:
     runs-on: ubuntu-latest
