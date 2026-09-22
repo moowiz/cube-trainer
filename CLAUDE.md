@@ -121,6 +121,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     debug/           HSV/Lab views, frame dump, fps counter, selftest (the hook check-detect.mjs drives)
     scramble.ts      random move scrambles (the scan sheet's and the F2L generator's)
     solver.worker.ts cubejs's Kociemba solve off the main thread (state.ts's client)
+    vendor/cubejs/   cubejs 1.3.2 as ESM, byte for byte but for the module wrapper (its README
+                     says why). The npm package stays a devDependency: it is the tests' oracle,
+                     and test/vendor-cubejs.test.ts holds the copy to it
     types.ts         the scanner half's shared types (FaceId, Lab, Quad, ...)
     label-main.ts    the labeler page's model-suggestion button (label.html); signin.ts the popup-free
                      sign-in page (signin.html) - both are extra Vite entry points, not dead files

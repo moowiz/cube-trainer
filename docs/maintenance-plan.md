@@ -84,16 +84,19 @@ takes 0.35 s instead of 2.4 (the Go port), but `npm run lint` dies:
 TypeScript is on **6.0.3**, the last JS-based major, which lints and
 typechecks clean. Re-try 7 when typescript-eslint ships support.
 
-**vite 8 is deferred, and why (2026-09-22).** The build works and is four
-times faster (rolldown), but the built page throws
-`Cannot read properties of undefined (reading 'Cube')`: cubejs's 2019 UMD
-wrapper ends `}).call(this)` and falls back to `this.Cube = Cube` when it
-does not see a `module`, and `this` is undefined in the strict ESM
-rolldown emits. `check-smart.mjs` catches it; the unit suite does not (it
-loads cubejs through node). So vite is on **7.3.6**, which is green on all
-four headless checks. The fix is 2.2's option 2 - vendor cubejs's two
-files into `web/src/vendor/` as real ESM - and then vite 8 should go
-through; do them together.
+**2.2 and vite 8, done together (2026-09-22).** cubejs is vendored as ESM in
+`web/src/vendor/cubejs` (option 2, with its own README): two files of
+dependency-free arithmetic whose 2019 UMD preamble - `}).call(this)` falling
+back to `this.Cube` - was the one thing still costing us, because rolldown's
+strict ESM makes `this` undefined and killed the page. With that gone **vite
+is on 8.3.0**: the build is 475 ms instead of 2.4 s, the deploy is still
+35 MB with one ORT wasm, and all four headless checks pass.
+
+The npm package stays a **devDependency on purpose**: thirteen test files use
+it as an independent oracle for our own cube code, and pointing them at the
+vendored copy would have our code checked against itself.
+`test/vendor-cubejs.test.ts` runs the two side by side and requires identical
+answers, so the copy cannot drift.
 
 Open, each waiting on a decision (section 7's items 12-15): **3.1 + 3.2**
 (the naming layer off the tick - needs the labeler decision), **3.10 +
