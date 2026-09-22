@@ -23,12 +23,13 @@
 
 import { SOLVED } from '../cube/state';
 import { describeStage, followReport, followScramble, SolveFollower } from '../follow';
-import { toSourceLetters, type ScannedCube } from '../handoff';
+import { type ScannedCube } from '../handoff';
 import { movesOf, type MoveSource } from '../moves/source';
 import { activeTab, keepScramble, onTabChange, shareScramble, showTab, stages, toast, type Tab } from '../shell';
 import { type Stage } from '../stage';
 import { solveState, warmSolver } from '../state';
-import { ScrambleTracker, type TrackStatus } from '../timer/track';
+import type { TrackStatus } from '../timer/track';
+import { makeTrackWatcher } from '../timer/track-ui';
 import { persistControls } from '../ui/settings';
 import { hold } from './context';
 import { cubeActive } from './smart';
@@ -108,7 +109,7 @@ function rebase(src: MoveSource): void {
   }, () => { solving = null; failed = state; });
 }
 
-let tracker: { key: string; t: ScrambleTracker | null } | null = null;
+const watcher = makeTrackWatcher();
 let matchedKey: string | null = null; // the tab's scramble the cube has reached: from there the turns are the solve
 /**
  * Where the cube is on the open tab's scramble while it is being applied (a prefix of it, halfway
@@ -121,15 +122,10 @@ function pathStatus(src: MoveSource, state: string): TrackStatus | null {
   const scr = stages[tab]?.scramble() ?? null;
   if (scr === null) return null;
   const key = `${tab}:${scr}`;
-  if (tracker?.key !== key) {
-    let t: ScrambleTracker | null;
-    try { t = new ScrambleTracker(toSourceLetters(src.colourOf, scr, hold())); } catch { t = null; }
-    tracker = { key, t };
-  }
-  if (key === matchedKey || !tracker.t) return null;
-  const status = tracker.t.status(state);
+  const status = watcher.status(scr, state, src.colourOf, hold());
+  if (key === matchedKey || !status) return null;
   // a followed scramble (base + turns) can hold cancelling turns, so its end is also an earlier prefix: the target is matched all the same
-  if (state === tracker.t.target()) status.matched = true;
+  if (state === watcher.tracker()!.target()) status.matched = true;
   if (status.matched) matchedKey = key;
   return status;
 }

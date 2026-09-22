@@ -12,7 +12,7 @@ import Cube from 'cubejs';
 import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
-import { relabelTurns, toSourceLetters, type Hold } from '../handoff';
+import { relabelTurns, type Hold } from '../handoff';
 import { openSheet, shareScramble, sheetOpen, toast, type Stage } from '../shell';
 import { solveState, validateState, warmSolver } from '../state';
 import type { Store } from '../store/local';
@@ -23,7 +23,8 @@ import { exportCsTimer, importCsTimer } from './cstimer';
 import { applySeq, type Move } from '../moves/moves';
 import { mountGraph, type GraphData } from './graph';
 import { formatTime, sessionStats, type Time } from './stats';
-import { ScrambleTracker, type TrackStatus } from './track';
+import type { TrackStatus } from './track';
+import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from './track-ui';
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
 import { persisted } from '../ui/settings';
@@ -99,12 +100,6 @@ const STYLE = `
   .tm-more { text-align: center; padding: 8px; }
 `;
 
-/** One move as markup: the face letter, then the prime (a real ′) or the 2 marked so they read from a distance. */
-export function moveHtml(m: string): string {
-  const mod = m.endsWith("'") ? '<span class="p">′</span>' : m.endsWith('2') ? '<span class="d">2</span>' : '';
-  return `<span class="mv">${mod ? m.slice(0, -1) : m}${mod}</span>`;
-}
-
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   ensureStyle('timer-style', STYLE);
   const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on' });
@@ -143,7 +138,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   /** Show `s` (WCA); `share` hands it to every other tab (false when it came from another tab). */
   function setScramble(s: string, share = true): void {
     scramble = s.trim();
-    tracker = null; trackKey = '';
+    watcher.reset();
     resetAttempt();
     render();
     nextScramble = genScramble().catch(() => genScramble());
@@ -159,21 +154,15 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   }
 
   // ---- following the scramble on a smart cube ----
-  let tracker: ScrambleTracker | null = null;
-  let trackKey = '';
+  const watcher = makeTrackWatcher();
   let track: TrackStatus | null = null;
   let cubeFacelets: string | null = null;                       // the source's belief, its own letters
   let cubeColours: Record<FaceId, ColorName> | null = null;     // the colour of each of those letters
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
     cubeFacelets = facelets; cubeColours = colourOf;
     if (solutionOpen) void showSolution();
-    if (!scramble) { track = null; return; }
-    const key = `${scramble}|${Object.values(colourOf).join(',')}|${deps.hold().front}`;
-    if (key !== trackKey) {
-      try { tracker = new ScrambleTracker(toSourceLetters(colourOf, fromWca(scramble), deps.hold())); trackKey = key; }
-      catch { tracker = null; trackKey = ''; }
-    }
-    track = tracker ? tracker.status(facelets) : null;
+    track = scramble ? watcher.status(fromWca(scramble), facelets, colourOf, deps.hold()) : null;
+    if (!scramble) return;
     renderScramble();
   }
 
@@ -511,14 +500,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const el = $('scr');
     if (!scramble) { el.innerHTML = '<span class="gen">generating a scramble…</span>'; $('track').textContent = ''; return; }
     const toks = scramble.split(' ');
-    const applied = track && !track.off ? track.applied : track ? track.applied : 0;
-    el.innerHTML = toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ');
+    el.innerHTML = scrambleHtml(toks, track);
     const tr = $('track');
-    if (!track) { tr.textContent = ''; tr.className = 'tm-track'; return; }
-    if (track.off) { tr.textContent = `Off the scramble: undo back to turn ${track.applied} (underlined)`; tr.className = 'tm-track off'; }
-    else if (track.matched) { tr.textContent = 'Scrambled ✓'; tr.className = 'tm-track'; }
-    else if (track.half) { tr.textContent = `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}`; tr.className = 'tm-track'; }
-    else { tr.textContent = `${track.applied} of ${track.total} applied`; tr.className = 'tm-track'; }
+    tr.textContent = trackText(track, toks);
+    tr.className = track?.off ? 'tm-track off' : 'tm-track';
   }
   function renderTime(): void {
     const el = $('time');

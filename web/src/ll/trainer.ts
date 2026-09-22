@@ -36,11 +36,11 @@ import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
 import { hold } from '../app/context';
 import { activeSource, onSourceChange, syncDriver } from '../app/sources';
 import { SLOTS, slotSolved } from '../f2l/model';
-import { toSourceLetters, trainerScramble } from '../handoff';
+import { trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
 import { onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
-import { ScrambleTracker, type TrackStatus } from '../timer/track';
-import { moveHtml } from '../timer/trainer';
+import type { TrackStatus } from '../timer/track';
+import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
 import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
@@ -298,13 +298,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
     if (scramble === null) { su.innerHTML = 'Scramble WCA style: <span>…</span>'; tr.textContent = ''; return; }
     const toks = toWca(scramble).split(' ').filter(Boolean);
-    const applied = track ? track.applied : 0;
-    su.innerHTML = `Scramble WCA style: ${toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ')}`;
-    if (!track) { tr.textContent = ''; tr.className = 'll-track'; return; }
-    tr.className = track.off ? 'll-track off' : 'll-track';
-    tr.textContent = track.off ? `Off the scramble${offTurns.length ? ` after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : `: undo back to turn ${track.applied} (underlined)`}` : track.matched ? 'Scrambled ✓' : track.half ? `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}` : `${track.applied} of ${track.total} applied`;
+    su.innerHTML = `Scramble WCA style: ${scrambleHtml(toks, track)}`;
+    tr.className = track?.off ? 'll-track off' : 'll-track';
+    // off the scramble with the turns since known: the undo of those, not "back to turn n"
+    tr.textContent = trackText(track, toks, offTurns.length ? `Off the scramble after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : undefined);
   }
-  let tracker: ScrambleTracker | null = null, trackKey = '', track: TrackStatus | null = null;
+  const watcher = makeTrackWatcher();
+  let track: TrackStatus | null = null;
   let offTurns: string[] = []; // the turns made since the cube left the scramble path, trainer letters
   let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
   let quizOpen = false;        // the case was asked and not yet answered: nothing is read until it is
@@ -497,13 +497,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void {
     if (facelets) belief = { facelets, colourOf };
     if (!scramble || settings.repeat) { track = null; return; }
-    const key = `${scramble}|${Object.values(colourOf).join(',')}|${hold().front}`;
-    if (key !== trackKey) {
-      try { tracker = new ScrambleTracker(toSourceLetters(colourOf, scramble, hold())); trackKey = key; }
-      catch { tracker = null; trackKey = ''; }
-    }
     const was = track;
-    track = tracker ? tracker.status(facelets) : null;
+    track = watcher.status(scramble, facelets, colourOf, hold());
     // off the scramble: keep the turns since (a turn back onto it clears them) and say so once per turn
     if (track?.off && !armedNow) {
       if (turn) {
