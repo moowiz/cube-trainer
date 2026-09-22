@@ -109,13 +109,29 @@ function recordingSink(): Plugin {
   };
 }
 
+// onnxruntime-web's library code holds `new URL('ort-wasm-simd-threaded.jsep.wasm', import.meta.url)`
+// as a fallback for when no wasmPaths is configured, and Vite dutifully emits the 28 MB file as a
+// hashed asset. Both session.ts and ort.worker.ts set wasmPaths to /ort/ (scripts/copy-ort.mjs
+// puts the runtime there), so the runtime's own locateFile wins and the asset is never fetched:
+// drop it from the bundle rather than ship the wasm twice (docs/maintenance-plan.md 2.1).
+function dropBundledOrtWasm(): Plugin {
+  return {
+    name: 'drop-bundled-ort-wasm',
+    generateBundle(_opts, bundle) {
+      for (const name of Object.keys(bundle)) {
+        if (/ort-wasm-simd-threaded.*\.wasm$/.test(name)) delete bundle[name];
+      }
+    },
+  };
+}
+
 export default defineConfig({
   define: { __BUILD__: JSON.stringify(BUILD) },
   // GitHub Pages serves project sites from /<repo>/ — the deploy workflow
   // sets BASE_PATH accordingly. Local dev and plain builds stay at '/'.
   base: process.env.BASE_PATH ?? '/',
   // HTTPS: camera access requires a secure context on phones.
-  plugins: [basicSsl(), captureSink(), recordingSink(), versionStamp()],
+  plugins: [basicSsl(), captureSink(), recordingSink(), versionStamp(), dropBundledOrtWasm()],
   server: { host: true },
   build: {
     rollupOptions: {

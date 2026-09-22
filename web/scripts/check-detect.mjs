@@ -36,8 +36,11 @@ const server = createServer(async (req, res) => {
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
 const port = server.address().port;
 
-const browser = await puppeteer.launch({ headless: true, args: ['--enable-unsafe-swiftshader'] });
+const browser = await puppeteer.launch({ headless: process.env.PUPPETEER_SHELL ? 'shell' : true, args: ['--enable-unsafe-swiftshader'] });
 const page = await browser.newPage();
+// every wasm the page fetches, so a runtime that is not in ort/ (or is fetched twice) shows up
+const wasmFetches = [];
+page.on('response', (r) => { if (r.url().endsWith('.wasm')) wasmFetches.push(`${r.status()} ${new URL(r.url()).pathname}`); });
 page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 await page.goto(`http://127.0.0.1:${port}/?tab=scan`);
 for (const ep of ['webgpu', 'wasm']) {
@@ -79,5 +82,7 @@ for (const ep of ['webgpu', 'wasm']) {
     process.exitCode = 1;
   }
 }
+console.log(`wasm fetched: ${wasmFetches.length ? wasmFetches.join(', ') : 'none'}`);
+if (wasmFetches.some((f) => !f.startsWith('200 /ort/'))) { console.error('a wasm was fetched from outside ort/ or failed'); process.exitCode = 1; }
 await browser.close();
 server.close();
