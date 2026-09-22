@@ -42,6 +42,17 @@ since the one-recorder change of 2026-09-19), **5** and **6** (all but
 `MILESTONES.md`'s header, the user's call). Suite: 61 files / 1064 tests
 in ~11 s.
 
+**vite 8 is deferred, and why (2026-09-22).** The build works and is four
+times faster (rolldown), but the built page throws
+`Cannot read properties of undefined (reading 'Cube')`: cubejs's 2019 UMD
+wrapper ends `}).call(this)` and falls back to `this.Cube = Cube` when it
+does not see a `module`, and `this` is undefined in the strict ESM
+rolldown emits. `check-smart.mjs` catches it; the unit suite does not (it
+loads cubejs through node). So vite is on **7.3.6**, which is green on all
+four headless checks. The fix is 2.2's option 2 - vendor cubejs's two
+files into `web/src/vendor/` as real ESM - and then vite 8 should go
+through; do them together.
+
 Open, each waiting on a decision (section 7's items 12-15): **3.1 + 3.2**
 (the naming layer off the tick - needs the labeler decision), **3.10 +
 4.4** (after 3.1), **2.4** (the model file: LFS or a release asset),
