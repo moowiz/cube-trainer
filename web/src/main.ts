@@ -11,12 +11,11 @@ import { initScannerBridge } from './app/scanner-bridge';
 import { initSmart } from './app/smart';
 import { initSyncUi } from './app/sync-ui';
 import { initWake } from './app/wake';
-import { initAlgs } from './algs/sheet';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
 import { initFavs } from './ll/favs';
 import { mountLL } from './ll/trainer';
-import { initShell, stages } from './shell';
+import { algsHooks, initShell, stages } from './shell';
 import { mountTimer } from './timer/trainer';
 import { setAttemptReader, setAttemptSink } from './ui/drill';
 
@@ -30,6 +29,9 @@ stages.eo = mountEO(panel('eo-panel'));
 // a solve or a drill attempt done: a good moment for nav.js to look for a new deploy (the chip offers the reload)
 const solved = () => document.dispatchEvent(new Event('zz-solved'));
 stages.solve = mountTimer(panel('solve-panel'), { store, hold, onSolve: (s) => { void rig.current()?.solve(s); solved(); } });
+// the Algs sheet (the other puzzles' data and the FTO player with it) loads on first open: a phone
+// on the Solve tab never needs it (maintenance plan 2.5). Before initShell: ?tab=algs opens it there.
+algsHooks.onOpen = () => { void import('./algs/sheet').then((m) => { m.initAlgs(); algsHooks.onOpen(); }); };
 initShell();
 
 // the drills' finished attempts go to the store (per-case memory, M11)
@@ -42,7 +44,6 @@ initScannerBridge();
 initCubeFollow();
 initRecordButton();
 initWake();
-initAlgs();
 
 // For the headless checks and the console: what the store holds.
 (window.ZZ as { store?: unknown }).store = {
