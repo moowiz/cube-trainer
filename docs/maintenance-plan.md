@@ -42,6 +42,13 @@ since the one-recorder change of 2026-09-19), **5** and **6** (all but
 `MILESTONES.md`'s header, the user's call). Suite: 61 files / 1064 tests
 in ~11 s.
 
+**typescript 7 is deferred too (2026-09-22).** `tsc --noEmit` is clean and
+takes 0.35 s instead of 2.4 (the Go port), but `npm run lint` dies:
+"typescript-eslint does not support TS 7.0" (their issue #10940 tracks
+>= 7.1; the side-by-side TS 6 API dance is not worth it for one repo).
+TypeScript is on **6.0.3**, the last JS-based major, which lints and
+typechecks clean. Re-try 7 when typescript-eslint ships support.
+
 **vite 8 is deferred, and why (2026-09-22).** The build works and is four
 times faster (rolldown), but the built page throws
 `Cannot read properties of undefined (reading 'Cube')`: cubejs's 2019 UMD
