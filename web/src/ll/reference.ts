@@ -223,6 +223,8 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   // a favourite from another device while the sheet is up: redrawn (the case list is whatever the table says)
   if (!favsHooked) { favsHooked = true; onFavsChange(() => { if (!document.getElementById('ref-sheet')!.hidden) { feat = feats(); draw(); } }); }
   openSheet('ref-sheet');
+  // the name box ready to type into (a phone keyboard would cover the list, so only where there is a mouse)
+  if (matchMedia('(hover: hover) and (pointer: fine)').matches) panel.querySelector<HTMLInputElement>('#llr-name')?.focus();
 }
 let schemeHooked = false;
 let favsHooked = false;
