@@ -130,7 +130,9 @@ export function annotate(alg: string): TrickRow[] {
 // notation says which move comes first (user, 2026-09-21: "under D" did not); "[A, B]" is a commutator.
 const CHUNKS: { moves: string; label: string }[] = [
   { moves: "R U R' U' R' F R2 U' R'", label: 'T core' },           // the middle of the T perm: in T, Jb, F and Na
-  { moves: "F R U' R' U' R U R' F'", label: "F [R U' R' U' R U R'] F'" },        // Y's first half: R U' R', U', R U R' inside F ... F' (an OLL alg on its own)
+  // Y's opener, and nothing else in the tables uses it (checked 2026-09-22), so it is named for the case
+  // it belongs to: the notation label took too long to say out loud (user)
+  { moves: "F R U' R' U' R U R' F'", label: 'Y base' },
   { moves: "F R U R' U' R' F'", label: "F [sexy R'] F'" },             // Rb's second half
   { moves: "F' R2 U' R' U R' F", label: "F' [R2 U' R' U R'] F" },     // V's middle
   { moves: "R' F' U' F R", label: "R' [F' U' F] R" },                 // Nb: the F insert wrapped in R' ... R

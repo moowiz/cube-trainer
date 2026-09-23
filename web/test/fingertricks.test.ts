@@ -21,7 +21,7 @@ describe('fingertricks', () => {
   });
 
   it('names the triggers in a PLL by position: Y perm ends sexy, sledge', () => {
-    expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 0, n: 9, label: "F [R U' R' U' R U R'] F'" }, { at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
+    expect(triggers("F R U' R' U' R U R' F' R U R' U' R' F R F'")).toEqual([{ at: 0, n: 9, label: 'Y base' }, { at: 9, n: 4, label: 'sexy' }, { at: 13, n: 4, label: 'sledge' }]);
     // T perm: the T core takes the first nine; sexy inside it and the reverse sexy straddling its end go unlabelled
     expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 9, label: 'T core' }]);
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'")).toEqual([{ at: 4, n: 9, label: 'T core' }]); // Jb = R U R' F' + T core
