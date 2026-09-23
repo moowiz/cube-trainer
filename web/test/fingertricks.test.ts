@@ -26,7 +26,11 @@ describe('fingertricks', () => {
     expect(triggers("R U R' U' R' F R2 U' R' U' R U R' F'")).toEqual([{ at: 0, n: 9, label: 'T core' }]);
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'")).toEqual([{ at: 4, n: 9, label: 'T core' }]); // Jb = R U R' F' + T core
     expect(triggers("x' R U' R' D R U R' D' R U R' D R U' R' D' x")).toEqual([{ at: 1, n: 8, label: "E half, U' first" }, { at: 9, n: 8, label: 'E half, U first' }]); // E perm
-    expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 10, n: 5, label: "D [R' U R] D'" }]); // Ga
+    // the G perms: one nine-move block each (the same block in its four guises), then a D conjugate
+    expect(triggers("R2 U R' U R' U' R U' R2 U' D R' U R D'")).toEqual([{ at: 0, n: 9, label: 'Ga block' }, { at: 10, n: 5, label: "D [R' U R] D'" }]); // Ga
+    expect(triggers("R' U' R U D' R2 U R' U R U' R U' R2 D").map((g) => g.label)).toEqual(['reverse sexy', 'Gb block']);
+    expect(triggers("R2 U' R U' R U R' U R2 U D' R U' R' D").map((g) => g.label)).toEqual(['Gc block', "D' [R U' R'] D"]);
+    expect(triggers("R U R' U' D R2 U' R U' R' U R' U R2 D'").map((g) => g.label)).toEqual(['sexy', 'Gd block']);
     // the longest match anywhere wins: Jb keeps its T core although "sexy R' in F'" would start a move earlier
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'").map((g) => g.label)).toEqual(['T core']);
     expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "R' [F' U' F] R"], [10, "R' [F R' F'] R"]]); // Nb's face-turn alt

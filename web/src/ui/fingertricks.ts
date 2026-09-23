@@ -150,6 +150,18 @@ const CHUNKS: { moves: string; label: string }[] = [
   { moves: "B' R F2 R' B R F2 R2", label: 'A commutator backwards, F B version' }, // Ab's F/B version: [B', R F2 R']
   { moves: "L U' R U2 L' U R'", label: 'N half' },                   // Na's R/L alg is this twice
   { moves: "R' U L' U2 R U' L", label: 'N half' },                   // Nb's likewise
+  // The G perms' shared middle (2026-09-23): one nine-move block that takes two pairs apart and puts them
+  // back a slot round, in its four guises - itself, backwards, and both with every U and R the other way.
+  // Each guise belongs to exactly one G perm, so each is named for it; the D conjugate round it is labelled
+  // separately, and the wide (u) versions of the same block go with the alts.
+  { moves: "R2 U R' U R' U' R U' R2", label: 'Ga block' },
+  { moves: "R2 U R' U R U' R U' R2", label: 'Gb block' },
+  { moves: "R2 U' R U' R U R' U R2", label: 'Gc block' },
+  { moves: "R2 U' R U' R' U R' U R2", label: 'Gd block' },
+  { moves: "R2 u R' U R' U' R u' R2", label: 'Ga block, wide' },
+  { moves: "R2 u R' U R U' R u' R2", label: 'Gb block, wide' },
+  { moves: "R2 u' R U' R U R' u R2", label: 'Gc block, wide' },
+  { moves: "R2 u' R U' R' U R' u R2", label: 'Gd block, wide' },
   { moves: "D R' U R D'", label: "D [R' U R] D'" },                 // Ga's ending
   { moves: "D' R U' R' D", label: "D' [R U' R'] D" },               // Gc's ending
 ];
