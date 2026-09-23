@@ -4,23 +4,38 @@
 // down). Starring goes through here so the record is written; cases.ts only
 // applies it.
 
-import type { Store } from '../store/local';
+import type { Coll, Store } from '../store/local';
 import type { FavRecord } from '../store/types';
 import { CASES, isFavourite, type LLKind, setMainAlg, standardAlg } from './cases';
 
 let store: Promise<Store> | null = null;
 const listeners = new Set<() => void>();
 
+// A record's id, and so its Firestore document name: NO SLASH (2026-09-22 - a slash made
+// users/{uid}/favs/pll/Ja, which Firestore reads as a path, and the failing write stopped every
+// other record from syncing too). Records written with the old id are dropped on sight.
+const idOf = (kind: LLKind, caseId: string): string => `${kind}:${caseId}`;
+
+/** The rows written before ids were slash-free: forgotten here, and taken off the sync queue so the push runs again. */
+async function dropOldIds(st: Store): Promise<void> {
+  const bad = (await st.listFavs()).filter((f) => f.id.includes('/'));
+  for (const f of bad) {
+    // keep what it said: the same case's favourite under the new id, unless one is there already
+    if (!(await st.getFav(idOf(f.kind, f.caseId)))) await st.putFav({ ...f, id: idOf(f.kind, f.caseId), editedAt: Date.now() });
+    await st.clearDirty('favs' as Coll, f.id);
+  }
+}
+
 /** Apply the store's favourites to the table; true when any case's main changed. */
 async function applyAll(): Promise<boolean> {
   if (!store) return false;
   const st = await store;
   const favs = await st.listFavs();
-  const want = new Map(favs.map((f) => [f.id, f]));
+  const want = new Map(favs.filter((f) => !f.id.includes('/')).map((f) => [f.id, f]));
   let changed = false;
   for (const kind of ['ocll', 'pll'] as const) {
     for (const c of CASES[kind]) {
-      const f = want.get(`${kind}/${c.id}`);
+      const f = want.get(idOf(kind, c.id));
       const alg = f ? f.alg : null;
       const before = c.alg;
       // an alg the table no longer has (renamed, dropped) leaves the standard one
@@ -34,6 +49,7 @@ async function applyAll(): Promise<boolean> {
 /** Wire the table to the store: the stored favourites applied (the listeners told), then again on every store change. */
 export async function initFavs(s: Promise<Store>): Promise<void> {
   store = s;
+  await dropOldIds(await s);
   const tell = (changed: boolean) => { if (changed) for (const l of listeners) l(); };
   tell(await applyAll());
   (await s).onChange(() => { void applyAll().then(tell); });
@@ -46,7 +62,7 @@ export function onFavsChange(cb: () => void): () => void { listeners.add(cb); re
 export function setFavourite(kind: LLKind, id: string, alg: string | null): boolean {
   const ok = setMainAlg(kind, id, alg);
   if (!ok) return false;
-  const rec: FavRecord = { id: `${kind}/${id}`, kind, caseId: id, alg: alg ?? standardAlg(kind, id)!, editedAt: Date.now(), ...(isFavourite(kind, id) ? {} : { deleted: true }) };
+  const rec: FavRecord = { id: idOf(kind, id), kind, caseId: id, alg: alg ?? standardAlg(kind, id)!, editedAt: Date.now(), ...(isFavourite(kind, id) ? {} : { deleted: true }) };
   if (store) void store.then((st) => st.putFav(rec));
   return true;
 }

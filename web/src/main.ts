@@ -51,4 +51,6 @@ initWake();
   solves: () => store.then((st) => st.allSolves()),
   sessions: () => store.then((st) => st.allSessions()),
   favs: () => store.then((st) => st.listFavs()),
+  putFav: (f: unknown) => store.then((st) => st.putFav(f as Parameters<typeof st.putFav>[0])),
+  dirty: () => store.then((st) => st.dirty()),
 };
