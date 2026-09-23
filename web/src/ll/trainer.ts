@@ -66,6 +66,7 @@ const BLURB: Record<LLKind, string> = {
 const STYLE = `
   .ll-3d { max-width: 250px; }
   .ll-pic { max-width: 180px; margin: 6px auto 0; }
+  .ll-3d[hidden] + .ll-pic { margin-top: 0; }
   .ll-scr .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .ll-scr .mv .p { color: #B3261E; font-weight: 600; } .ll-scr .mv .d { color: #1A56B8; font-weight: 600; }
   .ll-scr .done .p, .ll-scr .done .d { color: inherit; font-weight: 400; }
@@ -254,13 +255,15 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function drawPic(): void {
     // the quiz: the pictures give the case away (user, 2026-09-22), so they stay hidden until it has been answered
     const quiz = settings.voice === 'quiz' && !settings.repeat && !asked && !recorded;
-    drill.$('stage').hidden = quiz;
-    drill.$('pic').parentElement!.hidden = quiz;
-    if (quiz) return;
+    if (quiz) { drill.$('stage').hidden = true; drill.$('pic').parentElement!.hidden = true; return; }
     const f = state(shown ?? setup);
     const r = stageOf(f);
-    render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
     const ll = r.pairs === 4 && r.eoBad === 0;
+    // the diagram says everything a PLL case has to say (user, 2026-09-23), so the 3D cube is only there when
+    // there is no diagram to draw - a drill started at the last pair, or a cube not at the last layer
+    const cube = kind === 'ocll' || !ll;
+    drill.$('stage').hidden = !cube;
+    if (cube) render3d(drill.$('cube') as unknown as SVGSVGElement, STICKERS.map((st) => ({ fill: faceHex(f[st.idx]!) })), view);
     drill.$('pic').parentElement!.hidden = !ll;
     if (ll) drill.$('pic').innerHTML = picSvg(f, kind);
   }
