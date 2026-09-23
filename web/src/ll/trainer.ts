@@ -79,6 +79,7 @@ const STYLE = `
   .ll-case b { font-weight: 600; }
   .ll-opts { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 0 2px 10px; font-size: 13px; color: var(--ink-2); }
   .ll-opts label { display: inline-flex; align-items: center; gap: 6px; }
+  .ll-voice { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
   .ll-opts select { font: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .ll-step { font-size: 13px; color: var(--ink-2); margin-top: 10px; } .ll-step b { color: var(--ink); font-weight: 600; }
   .eo-result .ll-alg { margin: 4px 0 8px; line-height: 1.9; }
@@ -128,17 +129,28 @@ const STYLE = `
 
 /** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
 /** `spell`: the chunk labels the voice reads move by move instead of naming (the rest are named). */
-interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; spell: string[]; alts: boolean; repeat: boolean; cases?: string[] }
-type Voice = 'off' | 'echo' | 'read' | 'watch' | 'quiz' | 'quizwatch';
-const VOICE_SAID: Record<Voice, string> = {
-  off: '', echo: 'I will say your moves', read: 'I will read the alg',
-  watch: 'I will only speak when you go wrong', quiz: 'I will ask the case',
-  quizwatch: 'I will ask the case, then watch for a wrong turn',
+interface Settings {
+  from: LLStart; auto: boolean; next: boolean;
+  /** what the voice does with the scramble and with the alg */
+  say: { scramble: Mode; alg: Mode };
+  /** ask the case before the alg (the recognition quiz) */
+  ask: boolean;
+  spell: string[]; alts: boolean; repeat: boolean; cases?: string[];
+  /** the one dropdown this replaced (2026-09-23), read once and dropped */
+  voice?: string;
+}
+/**
+ * What the voice does with a set of moves - the scramble, or the alg (user, 2026-09-23: the two are the
+ * same job, so they take the same modes and are set separately). Every mode but 'off' calls a wrong turn.
+ */
+type Mode = 'off' | 'read' | 'echo' | 'watch';
+const MODE_LABEL: Record<Mode, string> = {
+  off: 'nothing',
+  read: 'reads me the next move',
+  echo: 'says the moves I make',
+  watch: 'only when I go wrong',
 };
-/** The modes that ask the case before anything is read or watched. */
-const asksCase = (v: Voice): boolean => v === 'quiz' || v === 'quizwatch';
-/** The modes that read the alg's next move; the others only call out a wrong turn (user, 2026-09-23). */
-const readsMoves = (v: Voice): boolean => v === 'read' || v === 'quiz';
+const MODES = Object.keys(MODE_LABEL) as Mode[];
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
  * letter, then a/b/c/d; any word listed for a letter says it, and a surrender ends the wait.
@@ -152,14 +164,7 @@ function sayNote(kind: LLKind): string {
     <p>Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.</p>
     <p>Without a smart cube: scramble by hand, say “ready” to be asked, and “next” for the next case.</p>`;
 }
-const VOICE_LABEL: Record<Voice, string> = {
-  off: 'off',
-  echo: 'says the moves I make',
-  read: 'reads me the next move',
-  watch: 'only tells me when I go wrong',
-  quiz: 'asks me the case, then reads',
-  quizwatch: 'asks me the case, then only tells me when I go wrong',
-};
+
 
 // ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
 // servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
@@ -217,12 +222,25 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   ensurePicStyle();
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, voice: 'off', spell: [], alts: false, repeat: false }, (st) => {
+  let migrated = false;
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, say: { scramble: 'off', alg: 'off' }, ask: false, spell: [], alts: false, repeat: false }, (st) => {
     if (!STARTS[kind].includes(st.from)) st.from = kind;
     if (st.cases && !Array.isArray(st.cases)) st.cases = undefined;
-    if (!(st.voice in VOICE_LABEL)) st.voice = 'off';
     if (!Array.isArray(st.spell)) st.spell = [];
+    // the single voice setting this replaced: off / echo / read / watch / quiz / quizwatch
+    if (st.voice) {
+      const v = st.voice;
+      st.say = { scramble: v === 'off' ? 'off' : 'watch', alg: v === 'echo' ? 'echo' : v === 'read' || v === 'quiz' ? 'read' : v === 'off' ? 'off' : 'watch' };
+      st.ask = v === 'quiz' || v === 'quizwatch';
+      delete st.voice;
+      migrated = true;
+    }
+    if (!st.say || !MODES.includes(st.say.scramble) || !MODES.includes(st.say.alg)) st.say = { scramble: 'off', alg: 'off' };
+    st.ask = !!st.ask;
   });
+  if (migrated) saveSettings(); // the old shape is not left behind to be read again
+  /** Anything spoken at all: the tail of a case (its name, the time) belongs to whichever set is on. */
+  const speaks = () => settings.say.scramble !== 'off' || settings.say.alg !== 'off';
   const drill = mountDrill(root, {
     id: kind, stage: kind, title: TITLE[kind], blurb: BLURB[kind], newLabel: 'New case',
     quiet: true, showLabel: 'Show the alg',
@@ -232,7 +250,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('auto')}"> Show the alg once I start (or answer)</label>
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label title="The algs of the cases in the drill, one after another, from wherever the cube is: no scramble, the alg on show, wrong turns called"><input type="checkbox" id="${id('repeat')}"> Repeat the algs (no scramble)</label>
-        <label>Voice <select id="${id('voice')}">${(Object.keys(VOICE_LABEL) as Voice[]).map((v) => `<option value="${v}">${VOICE_LABEL[v]}</option>`).join('')}</select></label>
+        <span class="ll-voice">Voice ·
+          <label>scramble <select id="${id('vscr')}">${MODES.map((m) => `<option value="${m}">${MODE_LABEL[m]}</option>`).join('')}</select></label>
+          <label>alg <select id="${id('valg')}">${MODES.map((m) => `<option value="${m}">${MODE_LABEL[m]}</option>`).join('')}</select></label>
+          <label title="The case is asked out loud before the alg; say its name, or give up"><input type="checkbox" id="${id('ask')}"> ask me the case</label>
+        </span>
       </div>
       <details class="ll-chunks" id="${id('chunks')}"><summary>Chunks the voice names: <span id="${id('chunksN')}"></span></summary><div id="${id('chunklist')}"></div></details>
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
@@ -270,7 +292,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const SLOT_RY: Record<string, number> = { FR: -35, FL: 35, BR: -125, BL: 125 };
   function drawPic(): void {
     // the quiz: the pictures give the case away (user, 2026-09-22), so they stay hidden until it has been answered
-    const quiz = asksCase(settings.voice) && !settings.repeat && !asked && !recorded;
+    const quiz = settings.ask && !settings.repeat && !asked && !recorded;
     if (quiz) { drill.$('stage').hidden = true; drill.$('pic').parentElement!.hidden = true; return; }
     const f = state(shown ?? setup);
     const r = stageOf(f);
@@ -373,7 +395,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the first move is read once the name and the hold have been said - the utterance's own end, not a
     // timer (a phone's voice is slower than a desktop's and was being cut off mid-sentence), and queued
     // behind it in case a read comes sooner
-    const then = handsFree ? readWhole : readsMoves(settings.voice) ? () => { lastRead = null; keepNext = true; followAlg(drill.moves()); } : undefined;
+    const then = handsFree ? readWhole : settings.say.alg === 'read' ? () => { lastRead = null; keepNext = true; followAlg(drill.moves()); } : undefined;
     if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`, false, then); }
     else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`, false, then); }
     else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`, false, then); }
@@ -390,7 +412,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const READY = /\b(ready|go|okay|ok|start|ask)\b/, NEXT = /\b(next|new case|another|done)\b/;
   function standby(): void {
     const Ctor = recognizerCtor();
-    const want = asksCase(settings.voice) && !activeSource() && !quizOpen && !root.hidden;
+    const want = settings.ask && !activeSource() && !quizOpen && !root.hidden;
     if (!want || !Ctor) { stopStandby(); return; }
     if (standbyOn) return;
     standbyOn = true;
@@ -518,7 +540,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     try { toks = tokens(text); } catch { return; }
     if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; asked = true; drawPic(); }
     if (armedNow && toks.length) reveal();
-    if (settings.voice === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
+    if (settings.say.alg === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
   }
   let belief: { facelets: string; colourOf: Record<FaceId, ColorName> } | null = null; // the cube's last known state, for a rep's start
@@ -534,11 +556,29 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         offTurns = offList([...offTurns, turn]);
         // the scramble is read in WCA letters, so is its undo; an undoing turn gets the rest to undo, not "wrong"
         const words = `${offTurns.length < before ? 'undo' : 'wrong. undo'} ${tokens(toWca(inverse(offTurns.join(' ')))).map(spoken).join(', ')}`;
-        if (settings.voice !== 'off') holdOff(() => say(words));
+        if (settings.say.scramble !== 'off') holdOff(() => say(words));
       }
-    } else if (was?.off && !track?.off) { clearOff(); offTurns = []; if (settings.voice !== 'off' && track && !track.matched) say('back on'); }
+    } else if (was?.off && !track?.off) { clearOff(); offTurns = []; if (settings.say.scramble !== 'off' && track && !track.matched) say('back on'); }
     else { clearOff(); offTurns = []; }
+    sayScramble(turn);
     renderScramble();
+  }
+
+  let scrRead: string | null = null; // the last thing said about the scramble, so a repeat is not said twice
+  /**
+   * The scramble out loud while it is being applied: its next move, or the moves made, in the WCA letters
+   * it is shown in (user, 2026-09-23). Nothing once it is on: from there the alg's own mode has the voice.
+   */
+  function sayScramble(turn?: string): void {
+    const mode = settings.say.scramble;
+    if (mode === 'off' || mode === 'watch' || !track || armedNow) { scrRead = null; return; }
+    if (mode === 'echo') { if (turn && !track.off) say(spoken(tokens(toWca(turn))[0] ?? turn)); return; }
+    if (track.matched) { if (scrRead !== 'done') { scrRead = 'done'; say('scrambled'); } return; }
+    if (track.off || track.half) return; // off it, or mid-double-turn: the rest of that turn is under way
+    const next = toWca(scramble ?? '').split(' ').filter(Boolean)[track.applied];
+    if (!next || next === scrRead) return;
+    scrRead = next;
+    say(spoken(next));
   }
 
   /**
@@ -558,7 +598,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
-    scramble = null; track = null; lastRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    scramble = null; track = null; lastRead = null; scrRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
     quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     const gen = ++scrambleGen;
     setTimeout(() => {
@@ -628,7 +668,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     drill.begin(); render();
     drill.$('next').textContent = 'Next alg';
     drill.$('showSol').click(); // the alg is what is practised: always on show
-    if (settings.voice !== 'off' && !lined) { say(spokenName(kind, c), true); keepNext = true; } // the same rep lined up: the name was said
+    if (speaks() && !lined) { say(spokenName(kind, c), true); keepNext = true; } // the same rep lined up: the name was said
     shareScramble(setup, kind);
     syncDriver(); // the cube is at the setup already: the driver arms now, and the first turn counts
   }
@@ -656,7 +696,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       results.push({ t: t ?? 0, n: toks.length, std: stepMoves(sol) });
       drill.save({ scramble: setup, moves: toks.join(' '), optimal: stepMoves(sol), caseId: sol.name, assisted: true, start: 'repeat' });
       if (drill.$('practice').hasAttribute('open')) void renderPractice();
-      if (settings.voice !== 'off' && t !== null) say(t.toFixed(1));
+      if (speaks() && t !== null) say(t.toFixed(1));
     }
     startRep(true);
   }
@@ -677,7 +717,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     lastDrawn = c.id;
     const r = randomSetup(kind, Math.random, settings.from, [c]);
     load(r.setup, true); shareScramble(setup, kind);
-    if (settings.voice !== 'off') say('scramble', true);
+    if (speaks()) say('scramble', true);
     standby();
   }
 
@@ -836,13 +876,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${undo.map(spoken).join(', ')}`;
           holdOff(() => {
             showOff(bad, undo);
-            if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
+            if (settings.say.alg !== 'off' && words !== lastRead) { lastRead = words; say(words); }
           });
         } else { clearOff(); showOff([], []); }
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
         // the scramble; a rotation is read together with the move after it (the cube cannot see it, and the move's letter assumes it);
         // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
-        if (!bad.length && readsMoves(settings.voice) && onRoute && armedNow && !quizOpen) {
+        if (!bad.length && settings.say.alg === 'read' && onRoute && armedNow && !quizOpen) {
           let d = done;
           const rots: string[] = [];
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
@@ -912,7 +952,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const came = sp.k ? ` (it came up after your first ${sp.k} moves)` : '';
     const what = step ? `Case: ${step.name}${came}. The standard alg is ${stepMoves(step)} moves.` : sp.case === 'skip' ? `A ${TITLE[kind]} skip${came}.` : '';
     drill.result.show(`${TITLE[kind]} done in ${own} moves${sp.k ? ` (${n} in all)` : ''}${ts}`, what + note + (assisted ? ' You peeked at the alg.' : '') + (quizSaid ? ` You said: ${quizSaid}.` : ''));
-    if (settings.voice !== 'off' && t !== null) say(`${step?.case ? spokenName(kind, step.case) : 'skip'}, ${t.toFixed(1)}`);
+    if (speaks() && t !== null) say(`${step?.case ? spokenName(kind, step.case) : 'skip'}, ${t.toFixed(1)}`);
     if (step) putAlgLines([step], before); else drill.result.body.innerHTML = '';
     queueNext();
     if (kind === 'ocll' && stages.pll) {
@@ -942,8 +982,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const repeatBox = drill.$('repeat') as HTMLInputElement;
   repeatBox.checked = settings.repeat;
   repeatBox.addEventListener('change', () => { settings.repeat = repeatBox.checked; saveSettings(); repN = 0; lastRep = null; if (settings.repeat) startRep(false); else newCase(); });
-  const voiceSel = drill.$('voice') as HTMLSelectElement;
-  voiceSel.value = settings.voice;
+  const scrSel = drill.$('vscr') as HTMLSelectElement, algSel = drill.$('valg') as HTMLSelectElement, askBox = drill.$('ask') as HTMLInputElement;
+  scrSel.value = settings.say.scramble; algSel.value = settings.say.alg; askBox.checked = settings.ask;
   // which chunks the voice names (a tick) and which it reads move by move; per chunk, kept with the settings
   function renderChunks(): void {
     const all = chunkList(), named = all.filter((c) => !settings.spell.includes(c.label)).length;
@@ -967,9 +1007,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   });
   renderChunks();
   const sayBox = drill.$('say');
-  const showSay = () => { sayBox.hidden = !asksCase(settings.voice) || kind !== 'pll'; };
+  const showSay = () => { sayBox.hidden = !settings.ask || kind !== 'pll'; };
   showSay();
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); drawPic(); if (settings.voice !== 'off') say(VOICE_SAID[settings.voice] + (asksCase(settings.voice) && !activeSource() ? '. say ready when the cube is scrambled' : '')); standby(); });
+  const voiceChanged = (spoken: string) => { saveSettings(); showSay(); drawPic(); standby(); if (spoken) say(spoken); };
+  scrSel.addEventListener('change', () => { settings.say.scramble = scrSel.value as Mode; voiceChanged(settings.say.scramble === 'off' ? '' : `scramble: ${MODE_LABEL[settings.say.scramble]}`); });
+  algSel.addEventListener('change', () => { settings.say.alg = algSel.value as Mode; voiceChanged(settings.say.alg === 'off' ? '' : `alg: ${MODE_LABEL[settings.say.alg]}`); });
+  askBox.addEventListener('change', () => { settings.ask = askBox.checked; voiceChanged(settings.ask ? `I will ask the case${activeSource() ? '' : '. say ready when the cube is scrambled'}` : ''); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
@@ -997,6 +1040,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       return r;
     },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (asksCase(settings.voice) && !settings.repeat) askCase(); else followAlg(''); },
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.ask && !settings.repeat) askCase(); else followAlg(''); },
   };
 }

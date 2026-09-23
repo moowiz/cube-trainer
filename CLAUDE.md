@@ -94,10 +94,12 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      where the moves done reached the stage; features.ts is its piece-permutation reader), scramble (Kociemba two-phase, best total under a
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
                      top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main; favs.ts keeps that in the store's favs collection, synced),
-                     trainer (start-from and show-right-away settings; the cube in 3D from above with the
-                     diagram under it; the scramble followed on a smart cube like the Solve tab's; a voice
-                     that reads the alg or asks the case - hear.ts parses the answer; a repeat mode: the
-                     algs over and over from wherever the cube is, no scramble), practice (per-case
+                     trainer (start-from and show-right-away settings; the last-layer diagram, with the cube
+                     in 3D only where there is no diagram to draw; the scramble followed on a smart cube like
+                     the Solve tab's; a voice with a mode per move set - the scramble and the alg each read,
+                     echoed, watched for a wrong turn, or silent - and the case asked before the alg
+                     (hear.ts parses the answer); a repeat mode: the algs over and over from wherever the
+                     cube is, no scramble), practice (per-case
                      stats off the store's attempts, which sync to Firestore as their own collection)
     algs/            the Algs sheet (the other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
                      data (the table; every cube alg is run on cube/nxn and checked by test), pic (n×n case
