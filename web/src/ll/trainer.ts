@@ -431,6 +431,15 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
   onSourceChange(standby);
   onTabChange(standby);
+  // DECISION: a wrong turn is called this long after it, not at once (user, 2026-09-23): the cube reports a
+  // slice as its two outer layers, a few ms apart, and the state between them is off the route - a turn that
+  // lands back on it inside this window was never wrong. A hand's two separate turns are far slower than this.
+  const OFF_HOLD_MS = 300;
+  let offTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Say it unless the cube lands back on the route first. */
+  function holdOff(fn: () => void): void { clearTimeout(offTimer); offTimer = setTimeout(fn, OFF_HOLD_MS); }
+  /** Back on the route (or a fresh case): nothing pending is said. */
+  function clearOff(): void { clearTimeout(offTimer); offTimer = undefined; }
   let lastRead: string | null = null; // what the voice last read, so a re-render does not repeat it
   let keepNext = false;               // the next move read is queued after what is being said (a name, the hold), not over it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
@@ -524,10 +533,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         const before = offTurns.length;
         offTurns = offList([...offTurns, turn]);
         // the scramble is read in WCA letters, so is its undo; an undoing turn gets the rest to undo, not "wrong"
-        if (settings.voice !== 'off') say(`${offTurns.length < before ? 'undo' : 'wrong. undo'} ${tokens(toWca(inverse(offTurns.join(' ')))).map(spoken).join(', ')}`);
+        const words = `${offTurns.length < before ? 'undo' : 'wrong. undo'} ${tokens(toWca(inverse(offTurns.join(' ')))).map(spoken).join(', ')}`;
+        if (settings.voice !== 'off') holdOff(() => say(words));
       }
-    } else if (was?.off && !track?.off) { offTurns = []; if (settings.voice !== 'off' && track && !track.matched) say('back on'); }
-    else offTurns = [];
+    } else if (was?.off && !track?.off) { clearOff(); offTurns = []; if (settings.voice !== 'off' && track && !track.matched) say('back on'); }
+    else { clearOff(); offTurns = []; }
     renderScramble();
   }
 
@@ -821,15 +831,18 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         // your U), a slice's two layers folded back into the slice (L' R is the M the hand made)
         const bad = foldSlices(tokens(inHand(route, off.at, offList(off.bad).join(' '))));
         const undo = bad.length ? foldSlices(tokens(inverse(bad.join(' ')))) : [];
-        showOff(bad, undo);
         if (bad.length) {
+          // held: the cube's two halves of a slice arrive one after the other, and the state between them is off the alg
           const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${undo.map(spoken).join(', ')}`;
-          if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
-        }
+          holdOff(() => {
+            showOff(bad, undo);
+            if (settings.voice !== 'off' && words !== lastRead) { lastRead = words; say(words); }
+          });
+        } else { clearOff(); showOff([], []); }
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
         // the scramble; a rotation is read together with the move after it (the cube cannot see it, and the move's letter assumes it);
         // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
-        else if (readsMoves(settings.voice) && onRoute && armedNow && !quizOpen) {
+        if (!bad.length && readsMoves(settings.voice) && onRoute && armedNow && !quizOpen) {
           let d = done;
           const rots: string[] = [];
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
