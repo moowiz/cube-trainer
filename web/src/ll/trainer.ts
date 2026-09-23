@@ -46,7 +46,7 @@ import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
+import { aufToSolve, done, drawCase, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
@@ -641,7 +641,19 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = scrambleGen;
     setTimeout(() => { if (gen === scrambleGen) newCase(); }, NEXT_AFTER_MS);
   }
-  function newCase(): void { drill.$('next').textContent = 'New case'; const r = randomSetup(kind, Math.random, settings.from, pool()); load(r.setup, true); shareScramble(setup, kind); if (settings.voice !== 'off') say('scramble', true); standby(); }
+  // how often each case has been drawn this sitting, and the last one: the draw is weighted by them
+  const drawn: Record<string, number> = {};
+  let lastDrawn: string | null = null;
+  function newCase(): void {
+    drill.$('next').textContent = 'New case';
+    const c = drawCase(pool(), drawn, lastDrawn);
+    drawn[c.id] = (drawn[c.id] ?? 0) + 1;
+    lastDrawn = c.id;
+    const r = randomSetup(kind, Math.random, settings.from, [c]);
+    load(r.setup, true); shareScramble(setup, kind);
+    if (settings.voice !== 'off') say('scramble', true);
+    standby();
+  }
 
   // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
   async function renderPractice(): Promise<void> {

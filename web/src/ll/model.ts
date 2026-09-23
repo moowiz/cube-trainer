@@ -197,6 +197,21 @@ export const stepMoves = (s: RouteStep): number => moveCount(stepPlain(s));
  * away. A short solution inverted (see ./scramble.ts): 7-13 moves for a PLL, a few more with the
  * corners twisted or a pair out, the orientation and the permutation mixed into one sequence.
  */
+/**
+ * The next case to drill: a weighted draw, not a plain one (user, 2026-09-23 - three of the same in a
+ * row happens often with a small pool). A case's weight is 1/(1 + how often it has been drawn), so the
+ * ones seen less come up more and the counts even out over a handful of rounds, and the case just drawn
+ * is left out entirely unless it is the only one. `seen` is read, not written: the caller counts.
+ */
+export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, number>>, last: string | null, rng: () => number = Math.random): LLCase {
+  const from = pool.length > 1 && last ? pool.filter((c) => c.id !== last) : pool;
+  const weights = from.map((c) => 1 / (1 + (seen[c.id] ?? 0)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = rng() * total;
+  for (let i = 0; i < from.length; i++) { r -= weights[i]!; if (r <= 0) return from[i]!; }
+  return from[from.length - 1]!;
+}
+
 export function scrambleFor(setup: string, rng: () => number = Math.random): string {
   return inverse(solveAny(state(setup), rng));
 }
