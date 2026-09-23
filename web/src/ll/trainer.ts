@@ -129,7 +129,16 @@ const STYLE = `
 /** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
 /** `spell`: the chunk labels the voice reads move by move instead of naming (the rest are named). */
 interface Settings { from: LLStart; auto: boolean; next: boolean; voice: Voice; spell: string[]; alts: boolean; repeat: boolean; cases?: string[] }
-type Voice = 'off' | 'echo' | 'read' | 'quiz';
+type Voice = 'off' | 'echo' | 'read' | 'watch' | 'quiz' | 'quizwatch';
+const VOICE_SAID: Record<Voice, string> = {
+  off: '', echo: 'I will say your moves', read: 'I will read the alg',
+  watch: 'I will only speak when you go wrong', quiz: 'I will ask the case',
+  quizwatch: 'I will ask the case, then watch for a wrong turn',
+};
+/** The modes that ask the case before anything is read or watched. */
+const asksCase = (v: Voice): boolean => v === 'quiz' || v === 'quizwatch';
+/** The modes that read the alg's next move; the others only call out a wrong turn (user, 2026-09-23). */
+const readsMoves = (v: Voice): boolean => v === 'read' || v === 'quiz';
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
  * letter, then a/b/c/d; any word listed for a letter says it, and a surrender ends the wait.
@@ -143,7 +152,14 @@ function sayNote(kind: LLKind): string {
     <p>Or ${GIVE_UP_WORDS.map((w) => `“${w}”`).join(', ')} to hear it.</p>
     <p>Without a smart cube: scramble by hand, say “ready” to be asked, and “next” for the next case.</p>`;
 }
-const VOICE_LABEL: Record<Voice, string> = { off: 'off', echo: 'says the moves I make', read: 'reads me the next move', quiz: 'asks me the case, then reads' };
+const VOICE_LABEL: Record<Voice, string> = {
+  off: 'off',
+  echo: 'says the moves I make',
+  read: 'reads me the next move',
+  watch: 'only tells me when I go wrong',
+  quiz: 'asks me the case, then reads',
+  quizwatch: 'asks me the case, then only tells me when I go wrong',
+};
 
 // ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
 // servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
@@ -254,7 +270,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const SLOT_RY: Record<string, number> = { FR: -35, FL: 35, BR: -125, BL: 125 };
   function drawPic(): void {
     // the quiz: the pictures give the case away (user, 2026-09-22), so they stay hidden until it has been answered
-    const quiz = settings.voice === 'quiz' && !settings.repeat && !asked && !recorded;
+    const quiz = asksCase(settings.voice) && !settings.repeat && !asked && !recorded;
     if (quiz) { drill.$('stage').hidden = true; drill.$('pic').parentElement!.hidden = true; return; }
     const f = state(shown ?? setup);
     const r = stageOf(f);
@@ -357,7 +373,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the first move is read once the name and the hold have been said - the utterance's own end, not a
     // timer (a phone's voice is slower than a desktop's and was being cut off mid-sentence), and queued
     // behind it in case a read comes sooner
-    const then = handsFree ? readWhole : () => { lastRead = null; keepNext = true; followAlg(drill.moves()); };
+    const then = handsFree ? readWhole : readsMoves(settings.voice) ? () => { lastRead = null; keepNext = true; followAlg(drill.moves()); } : undefined;
     if (heard === 'giveup') { quizSaid = `gave up (${name})`; quizOutcome = 'gaveUp'; say(`${name}${hold}`, false, then); }
     else if (c && heard === c.id) { quizSaid = `${heard}: right`; quizOutcome = 'right'; say(`right, ${name}${hold}`, false, then); }
     else { quizSaid = `${heard}: wrong (${c?.id ?? '?'})`; quizOutcome = 'wrong'; say(`no, ${name}${hold}`, false, then); }
@@ -374,7 +390,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const READY = /\b(ready|go|okay|ok|start|ask)\b/, NEXT = /\b(next|new case|another|done)\b/;
   function standby(): void {
     const Ctor = recognizerCtor();
-    const want = settings.voice === 'quiz' && !activeSource() && !quizOpen && !root.hidden;
+    const want = asksCase(settings.voice) && !activeSource() && !quizOpen && !root.hidden;
     if (!want || !Ctor) { stopStandby(); return; }
     if (standbyOn) return;
     standbyOn = true;
@@ -773,13 +789,18 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
    * as done, and a quarter turn into a double turn as halfway. Off the route nothing is marked.
    */
   function followAlg(text: string): void {
-    const lines = [...drill.result.body.querySelectorAll<HTMLElement>('.ll-alg')];
+    const els = [...drill.result.body.querySelectorAll<HTMLElement>('.ll-alg')];
+    // the alg on show: every line is its own route from the setup (an alt is another way from where the steps
+    // before leave the cube). With nothing on show the standard route is still followed, unseen, so a wrong
+    // turn can be called while the alg is being done from memory (user, 2026-09-23).
+    const lines: { alg: string; main: boolean; trig: string; el: HTMLElement | null }[] = els.length
+      ? els.map((el) => ({ alg: el.dataset.alg ?? '', main: !!el.dataset.main, trig: el.dataset.trig ?? '[]', el }))
+      : sol ? [{ alg: [...lead, sol].map(stepPlain).join(' ').trim(), main: true, trig: '[]', el: null }] : [];
     if (!lines.length) return;
     let cur: string | null;
     try { cur = state(`${setup} ${tokens(text).join(' ')}`); } catch { cur = null; }
-    // each line is its own route from the setup (an alt is another way from where the steps before leave the cube)
     for (const line of lines) {
-      const route = tokens(line.dataset.alg ?? '');
+      const route = tokens(line.alg);
       let done = 0, half = false, onRoute = false;
       if (cur !== null) {
         const states = [state(setup)];
@@ -793,7 +814,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
           if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; onRoute = true; break; }
         }
       }
-      if (line.dataset.main) {
+      if (line.main) {
         // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
         const off = onRoute || cur === null ? { bad: [], at: 0 } : offRoute(route, text);
         // the wrong turns and their undo in the letters of the frame the alg has the cube in (after its x, the cube's F is
@@ -808,13 +829,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         // the voice reads the next move of the main route (the other half of a double turn when halfway), once the cube is at
         // the scramble; a rotation is read together with the move after it (the cube cannot see it, and the move's letter assumes it);
         // a chunk (sexy, the T core) is named at its start and its moves are not read one by one
-        else if ((settings.voice === 'read' || settings.voice === 'quiz') && onRoute && armedNow && !quizOpen) {
+        else if (readsMoves(settings.voice) && onRoute && armedNow && !quizOpen) {
           let d = done;
           const rots: string[] = [];
           while (route[d] && /^[xyz]/.test(route[d]!)) rots.push(route[d++]!);
           const next = route[d];
           // the setting: a chunk by its name, or every move of it read like any other
-          const trig = (JSON.parse(line.dataset.trig ?? '[]') as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n && !settings.spell.includes(g.label));
+          const trig = (JSON.parse(line.trig) as { at: number; n: number; label: string }[]).find((g) => g.at <= d && d < g.at + g.n && !settings.spell.includes(g.label));
           // halfway through a double turn nothing is said: the second quarter is already under way (the dotted underline shows it)
           const move = next === undefined || half ? null : trig ? (trig.at === d ? spokenLabel(trig.label) : null) : spoken(next); // the end is announced by the check
           const words = move === null ? null : [...rots.map(spoken), move].join(', '); // the rotation with it: the move's letter assumes it
@@ -822,8 +843,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         }
         lastBad = bad.length;
       }
-      const skip = Number(line.dataset.skip ?? 0);
-      for (const mv of line.querySelectorAll<HTMLElement>('.mv')) {
+      if (!line.el) continue;
+      const skip = Number(line.el.dataset.skip ?? 0);
+      for (const mv of line.el.querySelectorAll<HTMLElement>('.mv')) {
         const i = skip + Number(mv.dataset.i);
         mv.classList.toggle('done', i < done);
         mv.classList.toggle('half', half && i === done);
@@ -932,9 +954,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   });
   renderChunks();
   const sayBox = drill.$('say');
-  const showSay = () => { sayBox.hidden = settings.voice !== 'quiz' || kind !== 'pll'; };
+  const showSay = () => { sayBox.hidden = !asksCase(settings.voice) || kind !== 'pll'; };
   showSay();
-  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); drawPic(); if (settings.voice !== 'off') say(settings.voice === 'echo' ? 'I will say your moves' : settings.voice === 'quiz' ? `I will ask the case${activeSource() ? '' : '. say ready when the cube is scrambled'}` : 'I will read the alg'); standby(); });
+  voiceSel.addEventListener('change', () => { settings.voice = voiceSel.value as Voice; saveSettings(); showSay(); drawPic(); if (settings.voice !== 'off') say(VOICE_SAID[settings.voice] + (asksCase(settings.voice) && !activeSource() ? '. say ready when the cube is scrambled' : '')); standby(); });
   fromSel.addEventListener('change', () => { settings.from = fromSel.value as LLStart; saveSettings(); newCase(); });
   autoBox.addEventListener('change', () => { settings.auto = autoBox.checked; saveSettings(); if (settings.auto && sol && !drill.showOpen()) drill.$('showSol').click(); });
 
@@ -962,6 +984,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       return r;
     },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.voice === 'quiz' && !settings.repeat) askCase(); else followAlg(''); },
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (asksCase(settings.voice) && !settings.repeat) askCase(); else followAlg(''); },
   };
 }
