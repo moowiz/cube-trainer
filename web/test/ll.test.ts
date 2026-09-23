@@ -626,28 +626,30 @@ describe('a favourite alg: any of a case\'s algs as its main', () => {
 });
 
 describe('drawCase(): the next case to drill', () => {
-  it('never repeats the one just drawn, and evens the counts out over a few rounds', () => {
+  it('evens the counts out over a few rounds, and repeats are rare', () => {
     const rng = makeRng(11);
     const pool = PLL_CASES.filter((c) => ['Ja', 'Jb', 'T'].includes(c.id));
     const seen: Record<string, number> = {};
     let last: string | null = null;
     const order: string[] = [];
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 300; i++) {
       const c = drawCase(pool, seen, last, rng);
-      expect([i, c.id === last]).toEqual([i, false]);
       seen[c.id] = (seen[c.id] ?? 0) + 1;
       last = c.id;
       order.push(c.id);
     }
-    // 30 draws of three cases: each near ten, and none of them far off
-    for (const c of pool) expect([c.id, seen[c.id]! >= 8 && seen[c.id]! <= 12]).toEqual([c.id, true]);
-    // and the same case never three times running (the no-repeat rule makes even twice impossible)
-    expect(order.some((id, i) => i >= 1 && id === order[i - 1])).toBe(false);
+    // 300 draws of three cases: each near a hundred
+    for (const c of pool) expect([c.id, seen[c.id]! >= 90 && seen[c.id]! <= 110]).toEqual([c.id, true]);
+    // a repeat is allowed but uncommon (a plain draw would give a third of them), and three running rarer still
+    const twice = order.filter((id, i) => i >= 1 && id === order[i - 1]).length;
+    expect(twice).toBeGreaterThan(0);
+    expect(twice).toBeLessThan(order.length / 8);
+    expect(order.filter((id, i) => i >= 2 && id === order[i - 1] && id === order[i - 2]).length).toBeLessThan(order.length / 25);
   });
 
   it('a pool of one keeps drawing it; an unseen case is likelier than a much-seen one', () => {
     const one = PLL_CASES.filter((c) => c.id === 'T');
-    expect(drawCase(one, { T: 5 }, 'T', () => 0.5).id).toBe('T');
+    expect(drawCase(one, { T: 5 }, 'T', () => 0.5).id).toBe('T'); // the only case, so it repeats at full weight
     const two = PLL_CASES.filter((c) => ['Ja', 'Jb'].includes(c.id));
     // Ja seen three times, Jb never: Jb holds 4/5 of the weight
     const picks = Array.from({ length: 100 }, (_, i) => drawCase(two, { Ja: 3 }, null, () => i / 100).id);
