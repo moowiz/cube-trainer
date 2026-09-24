@@ -10,7 +10,66 @@
 // the colour solver's answer, and the scan sheet captures its evidence log
 // beside this file's output.
 import type { DetectResult, FaceDetector } from '../detect/facekp';
+import type { EvidenceLog, FaceGroup, Solution } from '../colour/types';
+import type { MovesResult } from '../colour/solve.worker';
+import type { DEFAULT_PARAMS } from '../colour/solve';
+import type { Hold } from '../handoff';
+import type { Recording } from '../ui/recorder';
+import type { RecordingSession } from '../rig/session';
 import { downloadBlob } from '../ui/download';
+
+/** The evidence-log capture format: 2 = glare means blown to white (v1 counted any saturated channel, which zeroed every orange reading). */
+export const CAPTURE_VERSION = 2;
+
+/**
+ * What the scan sheet's Capture button writes beside the tick snapshot: the
+ * evidence log and everything a replay needs to redo the scan without hands
+ * (test/colour-replay.test.ts, test/moves-replay.test.ts, tools/solve/*.py).
+ * A fixture adds `truth` (a confirmed state) and `note` by hand.
+ */
+export interface ScanCapture {
+  version: typeof CAPTURE_VERSION;
+  scramble: string;
+  /** The truth only when the user says the scramble was applied from solved. */
+  scrambleApplied: boolean;
+  scrambleTruth: string | null;
+  /** The host stage's scramble and hold, what the Check line compared the scan against (null when the sheet was opened without a stage): a replay can redo the comparison. */
+  expected: { scramble: string; hold: Hold; shown?: string } | null;
+  /** The solve recording (null when none): the video's name and wall-clock span (video time = QuadObs.t - startedAt). */
+  recording: Recording | null;
+  /** The moves the user said they turned, and the resulting state when scramble and moves are both truth. */
+  movesApplied: string | null;
+  endTruth: string | null;
+  /** The move reader's record and last trace lines, when it ran. */
+  moves: MovesResult | null;
+  evidenceLog: EvidenceLog;
+  solution: PlainSolution | null;
+  params: typeof DEFAULT_PARAMS;
+  locked: boolean;
+  /** The debug panel's diagnostics line. */
+  stats: string;
+  /** The pipeline's rates and budgets at capture time; the sheet's own EMAs, named as it names them. */
+  timing: Record<string, unknown>;
+}
+
+/** A solution as JSON carries it: the two Maps (a group's rotation, the per-frame gains) as entry lists. */
+export type PlainSolution = Omit<Solution, 'groups' | 'gains'> & {
+  groups: (Omit<FaceGroup, 'rotation'> & { rotation: [number, number][] })[];
+  gains: [number, [number, number]][];
+};
+
+export function plainSolution(sol: Solution | null): PlainSolution | null {
+  return sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null;
+}
+
+/** Where a capture goes instead of a download: a recording session (the evidence log is the session's, and writing it closes the session), or `?post=<name>` (the dev server's capture endpoint; `1` keeps the stamped name), or nowhere (undefined: download). */
+export function captureSink(session: RecordingSession | null, post: string | null, onClosed?: () => Promise<void>): CaptureSink | undefined {
+  if (session) return async (json) => { await session.evidence(json); await onClosed?.(); };
+  if (post) return async (json, name) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); };
+  return undefined;
+}
+
+export type CaptureSink = (json: string, name: string) => Promise<void>;
 
 /** One detection tick, as the scan page keeps it for the capture's history. */
 export interface TickSummary {
@@ -57,7 +116,7 @@ export async function saveRawFrame(video: FrameSource, prefix: string, stamp = D
 
 /** Everything this detection tick saw, as a plain object. */
 function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
-                              history: readonly TickSummary[] = [], extra: Record<string, unknown> = {}): unknown {
+                              history: readonly TickSummary[] = [], extra: object = {}): unknown {
   return {
     ...extra,
     captured: new Date().toISOString(),
@@ -79,8 +138,8 @@ function debugSnapshot(res: DetectResult | null, detector: FaceDetector, video: 
 /** Download the snapshot JSON and the raw frame under one stamp; returns the stem. */
 export async function captureDebug(res: DetectResult | null, detector: FaceDetector, video: FrameSource,
                                    prefix = 'detect-debug', history: readonly TickSummary[] = [],
-                                   extra: Record<string, unknown> = {},
-                                   sink?: (json: string, name: string) => Promise<void>): Promise<string> {
+                                   extra: object = {},
+                                   sink?: CaptureSink): Promise<string> {
   const stamp = Date.now();
   const json = JSON.stringify(debugSnapshot(res, detector, video, history, extra), null, 1);
   if (sink) {

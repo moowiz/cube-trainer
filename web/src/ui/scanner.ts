@@ -50,7 +50,7 @@ import type { EvidenceLog, Solution } from '../colour/types';
 import { ensureCrossOriginIsolated } from '../detect/coi';
 import type { Ep } from '../detect/facekp';
 import { drawSamplePatches, drawTracks, type SampledQuad } from '../debug/detect-overlay';
-import { captureDebug, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
+import { CAPTURE_VERSION, captureDebug, captureSink, plainSolution, saveRawFrame, summarizeTick, type ScanCapture, type TickSummary } from '../debug/dump';
 import { installDetectSelfTest } from '../debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/models';
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
@@ -1330,41 +1330,25 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   });
   captureBtn.addEventListener('click', () => {
     if (!models) { msgEl.textContent = 'nothing to capture: models not loaded'; return; }
-    const sol = locked ?? solution;
-    const extra = {
-      // evidence-log capture format version: 2 = glare means blown to white
-      // (v1 counted any saturated channel, which zeroed every orange reading)
-      version: 2,
+    const extra: ScanCapture = {
+      version: CAPTURE_VERSION,
       scramble,
-      // the truth only when the user says the scramble was applied from solved
       scrambleApplied: appliedChk.checked,
       scrambleTruth: appliedChk.checked ? scrambleState(scramble) : null,
-      // the host stage's scramble and hold, what the Check line compared the scan against
-      // (null when the sheet was opened without a stage): a replay can redo the comparison
       expected: opts.expected?.() ?? null,
-      // solve recording (null when none): the .webm's name and wall-clock span
-      // (video time = QuadObs.t - startedAt), the moves the user said they
-      // turned, and the resulting state when scramble and moves are both truth
       recording: rec.recording,
       movesApplied: movesText() || null,
       endTruth: endTruth(),
-      // the move reader's record and last trace lines, when it ran
       moves: movesResult,
       evidenceLog: log,
-      solution: sol ? { ...sol, groups: sol.groups.map((g) => ({ ...g, rotation: [...g.rotation] })), gains: [...sol.gains] } : null,
+      solution: plainSolution(locked ?? solution),
       params: DEFAULT_PARAMS,
       locked: !!locked,
       stats: diagText(),
       timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, sampleMinMs: SAMPLE_MIN_MS, peak: +peakEma.toFixed(0), clip: +clipEma.toFixed(2), exposureComp, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
     };
-    const post = params.get('post');
-    const session = rec.takeSession();
-    const sink = session
-      // a recording streamed to the rig: the evidence log is the session's, and that closes it
-      ? async (json: string) => { await session.evidence(json); await opts.onRecordStop?.(); }
-      : post
-        ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
-        : undefined;
+    // a recording streamed to the rig: the capture is the session's, and that closes it
+    const sink = captureSink(rec.takeSession(), params.get('post'), opts.onRecordStop);
     void captureDebug(lastTick?.result ?? null, models.detector, exportFrame(), 'scan-debug', tickHistory, extra, sink)
       .then((stem) => { msgEl.textContent = `captured ${stem}.{json,png}`; console.log(`CAPTURED ${stem}`); })
       .finally(() => { captureOwed = false; }); // the log is written out: trimming may resume

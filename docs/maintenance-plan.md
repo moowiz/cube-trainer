@@ -47,6 +47,28 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-24, later: 3.10's third commit, the capture's shape
+
+Gates green before and after; nothing moved in the drift numbers since
+the pass earlier today (570 -> 571 kB `main`, 12 clones, 12 `console.*`,
+one TODO, pack 232 MB, `moves-replay` 9.5 s).
+
+**3.10, third of three:** the capture's shape is `ScanCapture` in
+`debug/dump.ts` (typed, with the field docs that were comments in the
+button handler, and `CAPTURE_VERSION`), the solution's JSON form is
+`plainSolution` / `PlainSolution`, and the three places a capture can go
+(the rig session, `?post=`, a download) are `captureSink`. 1407 -> 1391
+lines. Less than the plan's "debug exports (1444-1495)" suggested: every
+field of the capture reads the sheet's own state (EMAs, selects, the
+log), so the assembly stays where the state is; what moved is the format
+and the routing. `ui/scanner.ts` ends 3.10 at 1391 lines, not the ~850
+the plan targeted: the solution / evidence / fill UI and the live
+scramble check (the plan's other two sections) are still inside, and the
+300-line loop. 4.4 (the verdict row and the lock gating as pure
+functions) is the next thing that would shrink it, and is a test task,
+so it comes with its tests. Guards run: `check:smart`, `check:record`,
+`check:rig`; the rig's `evidence.json` still carries every field.
+
 ## Status 2026-09-24: 3.10's second commit, the recorder
 
 Gates green before and after (lint, typecheck, 62 files / 1086 tests in
