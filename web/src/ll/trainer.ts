@@ -622,7 +622,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = ++scrambleGen;
     setTimeout(() => {
       if (gen !== scrambleGen) return;
-      // a PLL case from the PLL: the finger-friendly fixed-length scramble; an earlier start or a handed-over
+      // a PLL case from the PLL: the U D R2 L2 fixed-length scramble; an earlier start or a handed-over
       // cube is off G1 and takes the plain shortest answer
       const opts = kind === 'pll' && settings.from === 'pll' && !lead.length ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
       const t = trimAuf(scrambleFor(setup, Math.random, opts));
@@ -707,8 +707,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     startRep(false, true, true);
     return true;
   }
-  /** The faces a PLL scramble may turn, in the trainer's letters: every face but the one shown as B (blue, held WCA style). */
-  const scrambleFaces = (): string => 'UDRLFB'.replace(fromWca('B').trim()[0]!, '');
+  /** The faces a PLL scramble may turn, in the trainer's letters: every face but the ones shown as F and B (green and blue, held WCA style). */
+  const scrambleFaces = (): string => 'UDRLFB'.replace(fromWca('F').trim()[0]!, '').replace(fromWca('B').trim()[0]!, '');
   /** A rep's alg done: recorded (its time is first turn to last), and the next rep starts from here. */
   function checkRep(txt: string): void {
     let toks: string[];

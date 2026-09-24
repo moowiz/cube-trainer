@@ -16,8 +16,10 @@
 // Equal-length answers are tried in a random order, so the same case does
 // not always draw the same one. The scramble is the answer inverted.
 //
-// Options (user, 2026-09-24): the faces phase 2 may turn (the drill drops B,
-// the hardest face to double-turn with the cube in hand), an exact answer
+// Options (user, 2026-09-24): the faces phase 2 may turn (the PLL drill
+// keeps U, D, R2 and L2: every PLL state is reachable with those, measured
+// over all 84, and F2 and B2 are the awkward double turns with the cube in
+// hand), an exact answer
 // length (every scramble the same length, and a random answer of that
 // length rather than the one or two shortest ones, so the scramble does
 // not name the case), and no U as the answer's first move (the scramble
@@ -224,6 +226,8 @@ export interface SolveOpts {
   faces?: string;
   /** an answer of exactly this many moves, when there is one (else the shortest, as without) */
   length?: number;
+  /** an answer this many moves past the shortest, the count drawn from [min, max] (a G1 state; else ignored) */
+  longer?: [number, number];
   /** no U as the first move of the answer: the scramble (the answer backwards) then never ends in an AUF */
   noLeadingU?: boolean;
 }
@@ -248,9 +252,15 @@ function solveG1(facelets: string, rng: () => number = Math.random, opts: SolveO
   if (!inG1(p)) return null;
   const order = movesOf(opts, rng), last = opts.noLeadingU ? 0 : -1;
   const st = coords2(p);
-  // DECISION: the exact length first; when nothing has that length (too short, or the wrong parity for
+  let length = opts.length;
+  if (length === undefined && opts.longer) {
+    const shortest = searchG1(st, 0, 30, last, order);
+    const [lo, hi] = opts.longer;
+    if (shortest) length = shortest.length + lo + Math.floor(rng() * (hi - lo + 1));
+  }
+  // DECISION: the asked length first; when nothing has that length (too short, or the wrong parity for
   // the moves allowed) the shortest answer stands in - a scramble that works beats one of the right length
-  const path = (opts.length !== undefined ? searchG1(st, opts.length, opts.length, last, order) : null)
+  const path = (length !== undefined ? searchG1(st, length, length, last, order) : null)
     ?? searchG1(st, 0, 30, last, order) ?? searchG1(st, 0, 30, -1, shuffled(MOVES.length, rng));
   return path ? path.map((m) => MOVES[m]).join(' ') : null; // phase 2 needs at most 18 moves with every face: never null for a G1 state
 }

@@ -146,18 +146,19 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     }
   });
 
-  it('the PLL drill\'s options: 16 moves every time, no B, never ending in an AUF, several scrambles per state', async () => {
-    const { PLL_SCRAMBLE, PLL_SCRAMBLE_LEN } = await import('../src/ll/model');
+  it('the PLL drill\'s options: U D R2 L2 only, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
+    const { PLL_SCRAMBLE } = await import('../src/ll/model');
     const rng = makeRng(21);
     let fewest = Infinity;
     for (const c of PLL_CASES) for (const auf of ['', 'U', 'U2', "U'"]) {
       const setup = `${inverse(c.alg)} ${auf}`;
+      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true })).length; // the trainer drops the faces shown as F and B
       const seen = new Set<string>();
       for (let k = 0; k < 8; k++) {
-        const scr = scrambleFor(setup, rng, { ...PLL_SCRAMBLE, faces: 'UDRLF', noLeadingU: true }); // the trainer drops the face shown as B
+        const scr = scrambleFor(setup, rng, { ...PLL_SCRAMBLE, faces: 'UDRL', noLeadingU: true });
         const toks = tokens(scr);
-        expect([c.id, auf, toks.length]).toEqual([c.id, auf, PLL_SCRAMBLE_LEN]);
-        expect(toks.some((m) => m.startsWith('B'))).toBe(false);
+        expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
+        expect(toks.every((m) => /^(U|D|R2|L2)/.test(m) && !/^[RL]'?$/.test(m))).toBe(true);
         expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
         expect(state(scr)).toBe(state(setup));
         seen.add(scr);
@@ -165,7 +166,7 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
       fewest = Math.min(fewest, seen.size);
     }
     expect(fewest).toBeGreaterThanOrEqual(3); // eight draws never come back with one or two scrambles
-  });
+  }, 30_000); // 84 states x 9 draws: ~3 s alone, more under the suite's load
   it('an exact length that no answer has falls back to the shortest', async () => {
     const t = PLL_CASES.find((c) => c.id === 'T')!;
     const scr = scrambleFor(inverse(t.alg), makeRng(4), { faces: 'UDRLF', length: 3 });

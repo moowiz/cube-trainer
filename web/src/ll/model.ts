@@ -216,16 +216,17 @@ export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, 
 }
 
 /**
- * The PLL drill's scramble options (user, 2026-09-24): no B face as the scramble is shown (WCA
- * orientation, so the blue face - the hardest double turn with the cube in hand; the trainer adds
- * that face in its own letters), every scramble PLL_SCRAMBLE_LEN moves, and a random
- * answer of that length, not the one or two shortest, so the scramble does not name the case.
- * Measured over the 84 PLL states: the shortest answers run 10-15 moves; at 15 one Rb angle has a
- * single answer, at 16 every state has at least four in twelve draws (about eleven on average),
- * under a millisecond a draw. OCLL keeps the plain shortest answer (user: not drilled much).
+ * The PLL drill's scramble options (user, 2026-09-24): no F or B face as the scramble is shown
+ * (WCA orientation, so the green and blue faces - the awkward double turns with the cube in hand;
+ * the trainer names them in its own letters), leaving U, D, R2 and L2; and a random answer one or
+ * two moves past the state's shortest, never the shortest itself. Measured over the 84 PLL states:
+ * every one is reachable with those four faces (a quarter turn of R or L is never needed); the
+ * shortest answers run 11-18 moves and for 22 states the shortest is the only answer of its
+ * length, so it would name the case; one past it every state has at least two answers, two past
+ * at least three, so a state draws from five or more scrambles of 12-20 moves. About 1 ms a draw.
+ * OCLL keeps the plain shortest answer with every face (user: not drilled much).
  */
-export const PLL_SCRAMBLE_LEN = 16;
-export const PLL_SCRAMBLE: SolveOpts = { length: PLL_SCRAMBLE_LEN };
+export const PLL_SCRAMBLE: SolveOpts = { longer: [1, 2] };
 
 export function scrambleFor(setup: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
   return inverse(solveAny(state(setup), rng, opts));
