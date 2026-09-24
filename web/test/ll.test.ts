@@ -785,3 +785,26 @@ describe('sliceForm(): a scramble as done in hand, an R2 L2 pair as one M2', () 
     expect(sliceForm([])).toEqual({ toks: [], spans: [] });
   });
 });
+
+describe('nextInCycle(): every case once before any comes again', () => {
+  it('runs the pool through in a shuffled order, reshuffles when done or when the pool changes, and never repeats across the join', async () => {
+    const { nextInCycle } = await import('../src/ll/model');
+    const rng = makeRng(3);
+    const pool = PLL_CASES.filter((c) => ['Ja', 'Jb', 'T', 'Y', 'H'].includes(c.id));
+    let cycle: import('../src/ll/model').Cycle | undefined;
+    const seen: string[] = [];
+    for (let i = 0; i < 5; i++) { const r = nextInCycle(pool, cycle, rng); expect([i, r.fresh]).toEqual([i, i === 0]); expect(r.cycle.at).toBe(i + 1); cycle = r.cycle; seen.push(r.case.id); }
+    expect([...seen].sort()).toEqual(['H', 'Ja', 'Jb', 'T', 'Y']);
+    // the sixth draw starts over, not on the case just seen
+    const again = nextInCycle(pool, cycle, rng);
+    expect([again.fresh, again.cycle.at]).toEqual([true, 1]);
+    expect(again.case.id).not.toBe(seen[4]);
+    // a changed pool starts a fresh cycle at once
+    const smaller = pool.slice(0, 2);
+    const r = nextInCycle(smaller, again.cycle, rng);
+    expect([r.fresh, r.cycle.ids.length, r.cycle.at]).toEqual([true, 2, 1]);
+    // a pool of one just repeats it
+    const one = nextInCycle(pool.slice(0, 1), undefined, rng);
+    expect(nextInCycle(pool.slice(0, 1), one.cycle, rng).case.id).toBe(one.case.id);
+  });
+});

@@ -47,7 +47,7 @@ import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, drawCase, fitAlg, type LLStart, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, sliceForm, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
+import { aufToSolve, done, drawCase, fitAlg, type LLStart, type Cycle, nextInCycle, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, sliceForm, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
 import { noteFor, onNotesChange } from './notes';
@@ -80,6 +80,7 @@ const STYLE = `
   .ll-track.off, .ll-off { color: #7A4B00; font-weight: 600; }
   .ll-off { font-size: 14px; margin: 4px 0 8px; } .ll-off .mv { padding: 0 2px; }
   .ll-case { font-size: 16px; min-height: 22px; }
+  .ll-cycle { margin-left: auto; font-size: 15px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .ll-trig { display: inline-block; position: relative; padding: 0 2px 13px; margin: 0 2px; border-bottom: 2px solid var(--ink-2); line-height: 1.3; }
   .ll-trig i { position: absolute; left: 0; right: 0; bottom: -1px; font-size: 11px; font-style: normal; line-height: 1; text-align: center; white-space: nowrap; color: var(--ink-2); word-spacing: normal; letter-spacing: .02em; }
   .ll-case b { font-weight: 600; }
@@ -152,6 +153,10 @@ interface Settings {
   spell: string[]; alts: boolean; repeat: boolean; cases?: string[];
   /** the cube picture (the diagram or the 3D cube) on show; off, the case is only what the cube in hand says */
   pic: boolean;
+  /** how New case picks from the pool: weighted at random, or each case once per cycle (with a counter) */
+  order: 'random' | 'cycle';
+  /** the cycle in progress, kept across a reload */
+  cycle?: Cycle;
   /** the one dropdown this replaced (2026-09-23), read once and dropped */
   voice?: string;
 }
@@ -239,7 +244,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
   let migrated = false;
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, say: { scramble: 'off', alg: 'off' }, ask: false, spell: [], alts: false, repeat: false, pic: true }, (st) => {
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, say: { scramble: 'off', alg: 'off' }, ask: false, spell: [], alts: false, repeat: false, pic: true, order: 'random' }, (st) => {
     if (!STARTS[kind].includes(st.from)) st.from = kind;
     if (st.cases && !Array.isArray(st.cases)) st.cases = undefined;
     if (!Array.isArray(st.spell)) st.spell = [];
@@ -254,6 +259,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!st.say || !MODES.includes(st.say.scramble) || !MODES.includes(st.say.alg)) st.say = { scramble: 'off', alg: 'off' };
     st.ask = !!st.ask;
     st.pic = st.pic !== false;
+    if (st.order !== 'cycle') st.order = 'random';
+    if (st.cycle && !(Array.isArray(st.cycle.ids) && typeof st.cycle.at === 'number')) st.cycle = undefined;
   });
   if (migrated) saveSettings(); // the old shape is not left behind to be read again
   /** Anything spoken at all: the tail of a case (its name, the time) belongs to whichever set is on. */
@@ -267,6 +274,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         <label><input type="checkbox" id="${id('auto')}"> Show the alg once I start (or answer)</label>
         <label><input type="checkbox" id="${id('chain')}"> Next case when solved</label>
         <label title="The algs of the cases in the drill, one after another, from wherever the cube is: no scramble, the alg on show, wrong turns called"><input type="checkbox" id="${id('repeat')}"> Repeat the algs (no scramble)</label>
+        <label title="At random: weighted so the counts even out, the same case rarely twice running. In a cycle: every case in the drill once, in a shuffled order, then a new shuffle - with a counter">Cases come <select id="${id('order')}"><option value="random">at random</option><option value="cycle">each once, in a cycle</option></select></label>
         <span class="ll-voice">Voice ·
           <label>scramble <select id="${id('vscr')}">${MODES.map((m) => `<option value="${m}">${MODE_LABEL[m]}</option>`).join('')}</select></label>
           <label>alg <select id="${id('valg')}">${MODES.map((m) => `<option value="${m}">${MODE_LABEL[m]}</option>`).join('')}</select></label>
@@ -282,7 +290,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
       <label class="ll-showpic" title="Untick to drill by the cube in hand alone: no diagram, no 3D cube"><input type="checkbox" id="${id('showpic')}"> picture</label>
-      <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
+      <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="ll-cycle" id="${id('cycle')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble ll-scr" id="${id('setup')}"></div>
       <div class="ll-track" id="${id('track')}"></div>`,
   }, { onNew: () => (settings.repeat ? startRep(true) : newCase()), onCheck: (txt) => (settings.repeat ? checkRep(txt) : check(txt)), onShow: onShow, onClear: () => { shown = null; render(); },
@@ -737,9 +745,21 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // how often each case has been drawn this sitting, and the last one: the draw is weighted by them
   const drawn: Record<string, number> = {};
   let lastDrawn: string | null = null;
+  /** The cycle's counter in the status row ("4 / 21"), or nothing when the cases come at random. */
+  function renderCycle(): void {
+    const cy = settings.order === 'cycle' ? settings.cycle : undefined;
+    drill.$('cycle').textContent = cy ? `${cy.at} / ${cy.ids.length}` : '';
+    drill.$('cycle').title = cy ? 'this cycle: cases seen of the cases in the drill' : '';
+  }
   function newCase(): void {
     drill.$('next').textContent = 'New case';
-    const c = drawCase(pool(), drawn, lastDrawn);
+    let c: LLCase;
+    if (settings.order === 'cycle') {
+      const r = nextInCycle(pool().length ? pool() : CASES[kind], settings.cycle);
+      settings.cycle = r.cycle; saveSettings(); c = r.case;
+      if (r.fresh && r.cycle.ids.length > 1) drill.flash(`A new cycle of ${r.cycle.ids.length}.`);
+    } else c = drawCase(pool(), drawn, lastDrawn);
+    renderCycle();
     drawn[c.id] = (drawn[c.id] ?? 0) + 1;
     lastDrawn = c.id;
     const r = randomSetup(kind, Math.random, settings.from, [c]);
@@ -1070,6 +1090,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement, nextBox = drill.$('chain') as HTMLInputElement;
   fromSel.value = settings.from; autoBox.checked = settings.auto; nextBox.checked = settings.next;
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
+  const orderSel = drill.$('order') as HTMLSelectElement;
+  orderSel.value = settings.order;
+  orderSel.addEventListener('change', () => { settings.order = orderSel.value === 'cycle' ? 'cycle' : 'random'; if (settings.order === 'random') settings.cycle = undefined; saveSettings(); renderCycle(); });
+  renderCycle();
   const picBox = drill.$('showpic') as HTMLInputElement;
   picBox.checked = settings.pic;
   picBox.addEventListener('change', () => { settings.pic = picBox.checked; saveSettings(); drawPic(); });

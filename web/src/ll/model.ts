@@ -215,6 +215,31 @@ export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, 
   return from[from.length - 1]!;
 }
 
+/** Where a cycle through the pool stands: the cases in the order drawn, and how many have come up. */
+export interface Cycle { ids: string[]; at: number }
+
+/**
+ * The next case when every case comes up once before any comes again (user, 2026-09-24: "so I can be
+ * sure I've hit them all"): the cycle's next case, or a fresh shuffle of the pool when the cycle is
+ * done or the pool has changed (the ids no longer match as a set). The first case of a fresh cycle is
+ * not the last of the old one, when the pool has more than one.
+ */
+export function nextInCycle(pool: readonly LLCase[], cycle: Cycle | undefined, rng: () => number = Math.random): { cycle: Cycle; case: LLCase; fresh: boolean } {
+  const same = !!cycle && cycle.ids.length === pool.length && pool.every((c) => cycle.ids.includes(c.id));
+  let next = same && cycle!.at < cycle!.ids.length ? { ids: cycle!.ids, at: cycle!.at } : null;
+  let fresh = false;
+  if (!next) {
+    fresh = true;
+    const ids = pool.map((c) => c.id);
+    for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [ids[i], ids[j]] = [ids[j]!, ids[i]!]; }
+    const last = same ? cycle!.ids[cycle!.ids.length - 1] : undefined;
+    if (ids.length > 1 && ids[0] === last) [ids[0], ids[1]] = [ids[1]!, ids[0]!];
+    next = { ids, at: 0 };
+  }
+  const c = pool.find((x) => x.id === next!.ids[next!.at])!;
+  return { cycle: { ids: next.ids, at: next.at + 1 }, case: c, fresh };
+}
+
 /**
  * The PLL drill's scramble options (user, 2026-09-24): no F or B face as the scramble is shown
  * (WCA orientation, so the green and blue faces - the awkward double turns with the cube in hand;

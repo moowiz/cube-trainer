@@ -1,7 +1,7 @@
 // Headless checks of the LL drill on a replayed smart cube (docs/ll-drill-next-steps.md 1):
-// so far, the alg on show surviving an undo of the first move back to the scramble (user,
-// 2026-09-24: the scaffold's empty box cleared the panel). Each replay() is a fresh connection,
-// so the captures are cumulative.
+// the alg on show surviving an undo of the first move back to the scramble (user, 2026-09-24:
+// the scaffold's empty box cleared the panel), and the cycle order's counter. Each replay() is
+// a fresh connection, so the captures are cumulative.
 //
 //   npm run check:ll        (run `npm run build` first)
 import { launchBrowser, serveDist } from './headless.mjs';
@@ -36,5 +36,23 @@ check(await shown(), 'the first turn shows the alg');
 await page.evaluate((t) => window.ZZ.smart.replay(t), capture(`${cubeScr} ${firstCube} ${inverse(firstCube)}`));
 await new Promise((r) => setTimeout(r, 200));
 check(await shown(), 'undone back to the scramble: the alg stays on show');
+// the cycle order: five cases picked, five New cases see each once with a counter, the sixth starts over
+await page.evaluate(() => { document.getElementById('pll-cases').open = true; });
+await page.click('#pll-caselist [data-cases="none"]');
+for (const id of ['Ja', 'Jb', 'T', 'Y', 'H']) await page.click(`#pll-caselist [data-case="${id}"]`);
+await page.select('#pll-order', 'cycle');
+const seen = [];
+for (let i = 1; i <= 6; i++) {
+  await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
+  seen.push(await page.evaluate(() => window.ZZ.pll.scramble()));
+  const counter = await page.$eval('#pll-cycle', (e) => e.textContent);
+  check(counter === `${i === 6 ? 1 : i} / 5`, `counter after New case ${i}: ${counter}`);
+}
+check(new Set(seen.slice(0, 5)).size === 5, 'five different scrambles in the cycle');
+await page.select('#pll-order', 'random');
+check((await page.$eval('#pll-cycle', (e) => e.textContent)) === '', 'at random: no counter');
+await page.select('#pll-order', 'cycle'); await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
+await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
+await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/ll-cycle.png' });
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok'); process.exit(failed ? 1 : 0);
