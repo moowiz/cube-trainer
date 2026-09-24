@@ -50,7 +50,7 @@ import { CASES, families, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, drawCase, fitAlg, type LLStart, type Cycle, nextInCycle, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, sliceForm, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
-import { noteFor, onNotesChange } from './notes';
+import { noteFor, onNotesChange, setNote } from './notes';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
@@ -92,7 +92,9 @@ const STYLE = `
   .eo-result .ll-alg { margin: 4px 0 8px; line-height: 1.9; }
   .eo-result .ll-alg .eo-apply { float: right; margin: 4px 0 0 8px; }
   .eo-result .ll-alg small { clear: both; }
-  .ll-note { margin: 4px 0 0; padding: 6px 9px; background: #FFFDF2; border: 1px solid #E4D9A8; border-radius: 8px; font-size: 13px; color: var(--ink); line-height: 1.45; word-spacing: normal; white-space: pre-wrap; }
+  .ll-note { display: block; width: 100%; box-sizing: border-box; margin: 4px 0 0; padding: 6px 9px; background: #FFFDF2; border: 1px solid #E4D9A8; border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); line-height: 1.45; word-spacing: normal; resize: vertical; }
+  .ll-note:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .ll-notebox .eo-link { font-size: 12px; padding: 2px 0; }
   .ll-alts { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
   .ll-alts summary { cursor: pointer; }
   .ll-alts .ll-step { margin-top: 8px; }
@@ -883,14 +885,30 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   renderCases();
 
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first${kind === 'pll' ? '; a bracket at the end lines it up after' : ''}.</small>`;
-  /** Your note on the step's alg, under its line (the case list sheet is where it is written). */
+  /**
+   * Your note on the step's alg, under its line, written here or in the case list sheet (user,
+   * 2026-09-24: editable on the drill too): the note as a field when there is one, an "add a note"
+   * link when there is not; kept when the field is left.
+   */
   function noteUnder(line: HTMLElement, step: RouteStep): void {
     const c = step.case;
     if (!c) return;
-    const text = noteFor(step.stage === 'pll' ? 'pll' : 'ocll', c.id, step.alg); // a pair step has no case, so the stage is the kind
-    if (!text) return;
-    const p = document.createElement('div'); p.className = 'll-note'; p.textContent = text;
-    line.insertAdjacentElement('afterend', p);
+    const k: LLKind = step.stage === 'pll' ? 'pll' : 'ocll'; // a pair step has no case, so the stage is the kind
+    const text = noteFor(k, c.id, step.alg);
+    const box = document.createElement('div'); box.className = 'll-notebox';
+    const field = (t: string): HTMLTextAreaElement => {
+      const a = document.createElement('textarea'); a.className = 'll-note'; a.value = t; a.placeholder = `Your note on ${c.name}…`;
+      a.rows = t ? Math.min(4, Math.ceil(t.length / 46) + (t.match(/\n/g)?.length ?? 0)) : 1;
+      a.addEventListener('focusout', () => { setNote(k, c.id, step.alg, a.value); if (!a.value.trim()) { box.replaceChildren(link()); } });
+      return a;
+    };
+    const link = (): HTMLButtonElement => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'eo-link'; b.textContent = 'add a note';
+      b.addEventListener('click', () => { const a = field(''); box.replaceChildren(a); a.focus(); });
+      return b;
+    };
+    box.appendChild(text ? field(text) : link());
+    line.insertAdjacentElement('afterend', box);
   }
 
   /**
@@ -1142,7 +1160,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }, favChanged));
   onFavsChange(favChanged);
   // a note written (here or on another device) while a case is up: the panel is rebuilt with it
-  onNotesChange(() => { if (drill.showOpen() && sol) onShow(true); });
+  // (not while one is being written here: the redraw would take the caret)
+  onNotesChange(() => { if (drill.showOpen() && sol && !document.activeElement?.classList.contains('ll-note')) onShow(true); });
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();

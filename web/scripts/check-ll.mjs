@@ -1,6 +1,7 @@
 // Headless checks of the LL drill on a replayed smart cube (docs/ll-drill-next-steps.md 1):
 // the alg on show surviving an undo of the first move back to the scramble (user, 2026-09-24:
-// the scaffold's empty box cleared the panel), and the cycle order's counter. Each replay() is
+// the scaffold's empty box cleared the panel), the cycle order's counter, and a note written
+// under the alg on the drill. Each replay() is
 // a fresh connection, so the captures are cumulative.
 //
 //   npm run check:ll        (run `npm run build` first)
@@ -51,6 +52,21 @@ for (let i = 1; i <= 6; i++) {
 check(new Set(seen.slice(0, 5)).size === 5, 'five different scrambles in the cycle');
 await page.select('#pll-order', 'random');
 check((await page.$eval('#pll-cycle', (e) => e.textContent)) === '', 'at random: no counter');
+// a note written on the drill: under the alg line, kept, back after a reload, and cleared from there too
+await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
+await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
+check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'the alg panel offers "add a note"');
+await page.click('#pll-result .ll-notebox .eo-link');
+await page.keyboard.type('bars facing me: T');
+await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
+check((await page.$eval('#pll-result .ll-note', (e) => e.value)) === 'bars facing me: T', 'the note is in the field after leaving it');
+await page.reload({ waitUntil: 'networkidle0' }); await new Promise((r) => setTimeout(r, 400));
+await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
+await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
+check((await page.$eval('#pll-result .ll-note', (e) => e.value)) === 'bars facing me: T', 'the note is back after a reload');
+await page.click('#pll-result .ll-note'); await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace');
+await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
+check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'cleared: back to "add a note"');
 await page.select('#pll-order', 'cycle'); await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
 await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/ll-cycle.png' });
