@@ -1,7 +1,7 @@
 // What the practice so far says about each case: how often, how fast, how
 // well recognised, whether it is getting faster - which cases to work on
-// next, the table sorted any way, and one case's times over time for the
-// graph. Pure, on the store's attempt records (ui/drill.ts files one per
+// next, and the table sorted any way (the graph is practicegraph.ts). Pure,
+// on the store's attempt records (ui/drill.ts files one per
 // solved case); the drill shows it and sets its case pool from it.
 
 import type { AttemptRecord } from '../store/types';
@@ -122,12 +122,3 @@ export function sortStats(stats: readonly CaseStats[], key: SortKey, dir: 'asc' 
 export const DEFAULT_DIR: Record<SortKey, 'asc' | 'desc'> = {
   work: 'asc', name: 'asc', n: 'asc', best: 'desc', recent: 'desc', trend: 'desc', recognition: 'desc', execution: 'desc', quiz: 'asc', last: 'desc',
 };
-
-/** One case's timed attempts (or every case's, with `caseName` null) in time order, for the graph: ms and wall clocks. */
-export function caseSeries(attempts: readonly AttemptRecord[], caseName: string | null): { times: number[]; whens: number[] } {
-  // DECISION: reps (the alg over and over, no scramble) count here as they do in `recent`: they are
-  // timed first turn to last and so read a shade faster, but leaving them out would hide most of an
-  // evening spent on one alg.
-  const as = attempts.filter((a) => !a.deleted && a.time !== null && a.caseId && (caseName === null || a.caseId === caseName)).sort((a, b) => a.when - b.when);
-  return { times: as.map((a) => a.time!), whens: as.map((a) => a.when) };
-}

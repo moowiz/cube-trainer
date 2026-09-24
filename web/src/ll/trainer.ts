@@ -18,7 +18,8 @@
 // (each named chunk by its name or move by move, a list of ticks),
 // and which cases New case draws from (the ones being learnt; with an
 // earlier start the case that comes up is still whatever the step before
-// leaves).
+// leaves). And a tick under the picture that hides it (2026-09-23): the
+// case by the cube in hand alone.
 //
 // The picture is the cube in 3D, seen from above (the last layer is what
 // matters, the sides show the case's bars and headlights), turned to the open
@@ -53,8 +54,8 @@ import { noteFor, onNotesChange } from './notes';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
-import { caseSeries, caseStats, DEFAULT_DIR, RECENT, secs, SORT_KEYS, sortStats, type SortKey, trendText, workOn } from './practice';
-import { mountGraph, WINDOWS } from '../timer/graph';
+import { caseStats, DEFAULT_DIR, RECENT, secs, SORT_KEYS, sortStats, type SortKey, trendText, workOn } from './practice';
+import { AVG_N, caseLines, MIN_N, mountCaseGraph } from './practicegraph';
 import { dayOf } from '../timer/when';
 import { chainSummary, openLLReference } from './reference';
 import { ensureStyle } from '../ui/dom';
@@ -70,6 +71,8 @@ const STYLE = `
   .ll-3d { max-width: 250px; }
   .ll-pic { max-width: 180px; margin: 6px auto 0; }
   .ll-3d[hidden] + .ll-pic { margin-top: 0; }
+  .ll-showpic { display: block; text-align: center; margin: 4px auto 0; font-size: 12px; color: var(--ink-2); }
+  .ll-showpic input { vertical-align: -2px; margin-right: 3px; }
   .ll-scr .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .ll-scr .mv .p { color: #B3261E; font-weight: 600; } .ll-scr .mv .d { color: #1A56B8; font-weight: 600; }
   .ll-scr .done .p, .ll-scr .done .d { color: inherit; font-weight: 400; }
@@ -133,11 +136,8 @@ const STYLE = `
   .ll-practice th button { font: inherit; background: none; border: none; padding: 0; color: inherit; cursor: pointer; white-space: nowrap; }
   .ll-practice th button.on { color: var(--ink); font-weight: 600; }
   .ll-practice td.name button { font: inherit; font-weight: 600; background: none; border: none; padding: 0; color: var(--ink); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
-  .ll-practice td.name button.on { text-decoration: underline solid; }
   .ll-practice td.faster { color: #1A7F4B; } .ll-practice td.slower { color: #B3261E; }
   .ll-graph { margin-top: 12px; }
-  .ll-graph .pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .ll-graph .pick select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
   .ll-graph .n { color: var(--ink-2); }
 `;
 
@@ -150,6 +150,8 @@ interface Settings {
   /** ask the case before the alg (the recognition quiz) */
   ask: boolean;
   spell: string[]; alts: boolean; repeat: boolean; cases?: string[];
+  /** the cube picture (the diagram or the 3D cube) on show; off, the case is only what the cube in hand says */
+  pic: boolean;
   /** the one dropdown this replaced (2026-09-23), read once and dropped */
   voice?: string;
 }
@@ -237,7 +239,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const id = (n: string) => `${kind}-${n}`;
   const SETTINGS_KEY = `zz-${kind}-settings`;
   let migrated = false;
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, say: { scramble: 'off', alg: 'off' }, ask: false, spell: [], alts: false, repeat: false }, (st) => {
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { from: kind, auto: false, next: false, say: { scramble: 'off', alg: 'off' }, ask: false, spell: [], alts: false, repeat: false, pic: true }, (st) => {
     if (!STARTS[kind].includes(st.from)) st.from = kind;
     if (st.cases && !Array.isArray(st.cases)) st.cases = undefined;
     if (!Array.isArray(st.spell)) st.spell = [];
@@ -251,6 +253,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     }
     if (!st.say || !MODES.includes(st.say.scramble) || !MODES.includes(st.say.alg)) st.say = { scramble: 'off', alg: 'off' };
     st.ask = !!st.ask;
+    st.pic = st.pic !== false;
   });
   if (migrated) saveSettings(); // the old shape is not left behind to be read again
   /** Anything spoken at all: the tail of a case (its name, the time) belongs to whichever set is on. */
@@ -274,10 +277,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
       <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div>
-        <div class="ll-graph" id="${id('practiceGraphWrap')}" hidden><div class="pick"><label>Over time <select id="${id('practiceCase')}"></select></label><span class="n" id="${id('practiceN')}"></span></div><div id="${id('practiceGraph')}"></div></div></details>`,
+        <div class="ll-graph" id="${id('practiceGraphWrap')}" hidden><div class="n" id="${id('practiceN')}"></div><div id="${id('practiceGraph')}"></div></div></details>`,
     left: `
       <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
+      <label class="ll-showpic" title="Untick to drill by the cube in hand alone: no diagram, no 3D cube"><input type="checkbox" id="${id('showpic')}"> picture</label>
       <div class="eo-status"><div class="ll-case" id="${id('case')}"></div><div class="eo-timer" id="${id('timer')}">0.00</div></div>
       <div class="eo-scramble ll-scr" id="${id('setup')}"></div>
       <div class="ll-track" id="${id('track')}"></div>`,
@@ -308,7 +312,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function drawPic(): void {
     // the quiz: the pictures give the case away (user, 2026-09-22), so they stay hidden until it has been answered
     const quiz = settings.ask && !settings.repeat && !asked && !recorded;
-    if (quiz) { drill.$('stage').hidden = true; drill.$('pic').parentElement!.hidden = true; return; }
+    if (quiz || !settings.pic) { drill.$('stage').hidden = true; drill.$('pic').parentElement!.hidden = true; return; }
     const f = state(shown ?? setup);
     const r = stageOf(f);
     const ll = r.pairs === 4 && r.eoBad === 0;
@@ -737,15 +741,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
 
   // ---- the practice so far: per-case numbers from the store, sorted any way (worst first by default), buttons that
-  // set the pool from them, and a graph of one case's (or every case's) times with the running ao5 / ao12 ----
+  // set the pool from them, and a graph with a line per case: its running ao5 over every try of the stage ----
   const SORT_KEY = `zz-${kind}-practice-sort`;
   const { settings: sortBy, save: saveSort } = persisted<{ key: SortKey; dir: 'asc' | 'desc' }>(SORT_KEY, { key: 'work', dir: 'asc' }, (st) => {
     if (!SORT_KEYS.includes(st.key)) st.key = 'work';
     if (st.dir !== 'asc' && st.dir !== 'desc') st.dir = DEFAULT_DIR[st.key];
   });
-  /** the case graphed: a case name, or null for every case together */
-  let graphCase: string | null = null;
-  let drawGraph: ((d: { times: number[]; whens: number[]; dated?: boolean; dayOf(w: number): string }) => void) | null = null;
+  let graph: ReturnType<typeof mountCaseGraph> | null = null;
   const COLS: { key: SortKey; label: string; title: string }[] = [
     { key: 'name', label: 'case', title: 'the case list\'s order' }, { key: 'n', label: 'tries', title: 'solved attempts' }, { key: 'best', label: 'best', title: 'the fastest timed try' },
     { key: 'recent', label: 'recent', title: `the mean of the last ${RECENT} timed tries` }, { key: 'trend', label: 'trend', title: `recent against the ${RECENT} tries before those: minus is faster` },
@@ -768,7 +770,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     };
     const cell = (s: (typeof stats)[number], key: SortKey): string => {
       switch (key) {
-        case 'name': return `<td class="name"><button type="button" class="${graphCase === s.name ? 'on' : ''}" data-graph="${s.name}" title="Graph this case">${s.name}</button></td>`;
+        case 'name': return `<td class="name"><button type="button" data-graph="${s.id}" title="Graph this case on its own">${s.name}</button></td>`;
         case 'n': return `<td>${s.n}${s.assisted ? `<small> (${s.assisted} peeked)</small>` : ''}</td>`;
         case 'best': return `<td>${secs(s.best)}</td>`;
         case 'recent': return `<td>${secs(s.recent)}</td>`;
@@ -782,23 +784,17 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     };
     body.innerHTML = `<div class="ll-scroll"><table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${stats.map((s) => `
       <tr class="${s.n < 3 ? 'dim' : ''}">${cols.map((c) => cell(s, c.key)).join('')}</tr>`).join('')}</tbody></table></div>
-      <p class="note">${sortBy.key === 'work' ? `Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}.` : 'Tap a heading to sort by it, again to flip it.'} Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster. Tap a case to graph it.</p>
+      <p class="note">${sortBy.key === 'work' ? `Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}.` : 'Tap a heading to sort by it, again to flip it.'} Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster. Tap a case to graph it on its own.</p>
       <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpractised</button>${sortBy.key === 'work' ? '' : '<button type="button" class="eo-link" data-sort="work">sort worst first</button>'}</div>`;
-    // the graph: the case picker lists every case with a timed try, then the graph of the one picked
-    const timed = done.filter((s) => s.best !== null);
-    if (graphCase !== null && !timed.some((s) => s.name === graphCase)) graphCase = null;
-    const pick = drill.$('practiceCase') as HTMLSelectElement;
-    pick.innerHTML = `<option value="">every case</option>${timed.map((s) => `<option value="${s.name}"${s.name === graphCase ? ' selected' : ''}>${s.name}</option>`).join('')}`;
-    pick.value = graphCase ?? '';
-    wrap.hidden = !timed.length;
-    if (!timed.length) return;
-    drawGraph ??= mountGraph(drill.$('practiceGraph'), { windows: WINDOWS.filter((w) => w.n <= 12), shownKey: 'zz-ll-graph-shown', unit: 'try', empty: 'No timed tries of this case yet.' });
-    const series = caseSeries(attempts, graphCase);
-    drill.$('practiceN').textContent = `${series.times.length} timed ${series.times.length === 1 ? 'try' : 'tries'}${graphCase ? ` of ${graphCase}` : ''}`;
-    drawGraph({ ...series, dated: true, dayOf: (w) => dayOf(w) });
+    // the graph: a line per case, over every timed try of the stage
+    const { lines, whens } = caseLines(attempts, CASES[kind]);
+    wrap.hidden = !whens.length;
+    if (!whens.length) return;
+    graph ??= mountCaseGraph(drill.$('practiceGraph'), `zz-${kind}-graph-hidden`);
+    drill.$('practiceN').textContent = `Each case's ao${AVG_N} (ao${MIN_N} until there are five), over ${whens.length} timed ${whens.length === 1 ? 'try' : 'tries'}: a line that comes down is a case being learnt.`;
+    graph.draw({ lines, whens, dayOf: (w) => dayOf(w) });
   }
   drill.$('practice').addEventListener('toggle', () => { if (drill.$('practice').hasAttribute('open')) void renderPractice(); });
-  drill.$('practiceCase').addEventListener('change', () => { graphCase = (drill.$('practiceCase') as HTMLSelectElement).value || null; void renderPractice(); });
   drill.$('practiceBody').addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     const sort = t.closest<HTMLElement>('[data-sort]');
@@ -809,12 +805,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       saveSort(); void renderPractice();
       return;
     }
-    const graph = t.closest<HTMLElement>('[data-graph]');
-    if (graph) {
-      graphCase = graphCase === graph.dataset.graph ? null : graph.dataset.graph!;
-      void renderPractice();
-      return;
-    }
+    const one = t.closest<HTMLElement>('[data-graph]');
+    if (one) { graph?.only(one.dataset.graph!); drill.$('practiceGraphWrap').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
     const b = t.closest<HTMLElement>('[data-work]');
     if (!b) return;
     void (async () => {
@@ -1070,6 +1062,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const fromSel = drill.$('from') as HTMLSelectElement, autoBox = drill.$('auto') as HTMLInputElement, nextBox = drill.$('chain') as HTMLInputElement;
   fromSel.value = settings.from; autoBox.checked = settings.auto; nextBox.checked = settings.next;
   nextBox.addEventListener('change', () => { settings.next = nextBox.checked; saveSettings(); });
+  const picBox = drill.$('showpic') as HTMLInputElement;
+  picBox.checked = settings.pic;
+  picBox.addEventListener('change', () => { settings.pic = picBox.checked; saveSettings(); drawPic(); });
   const repeatBox = drill.$('repeat') as HTMLInputElement;
   repeatBox.checked = settings.repeat;
   repeatBox.addEventListener('change', () => { settings.repeat = repeatBox.checked; saveSettings(); repN = 0; lastRep = null; if (settings.repeat) startRep(false); else newCase(); });

@@ -3,9 +3,10 @@
 // over twelve days: T getting faster, Y slower, Ga and Gb barely tried),
 // opens the section and asserts on the table's default order, the sort
 // by heading (and its flip, and that it survives a reload), the trend
-// column, and the graph (every case, then one case by tapping its name:
-// dots per try, ao5 and ao12 lines only). Phone and desktop screenshots go
-// to $TMPDIR/practice-*.png.
+// column, and the graph (a line per case with three or more timed tries,
+// the legend toggling them, a tap on a name in the table showing that
+// case alone), and the tick under the cube picture that hides it. Phone and
+// desktop screenshots go to $TMPDIR/practice-*.png.
 //
 //   npm run check:practice        (run `npm run build` first)
 import { launchBrowser, serveDist } from './headless.mjs';
@@ -46,8 +47,10 @@ console.log('headings', heads.join(' | '));
 let r = await rows();
 console.log('worst first:', r.slice(0, 6).join(', '));
 check(r.indexOf('Ga') < r.indexOf('Y') && r.indexOf('Y') < r.indexOf('T'), 'the least practised first, then the slow and misnamed Y, then T');
-check(await page.$('#pll-practiceGraph svg.gr-svg') !== null, 'the graph is drawn');
-check((await page.$eval('#pll-practiceN', (e) => e.textContent)).startsWith('71 timed'), `every case's timed tries counted: ${await page.$eval('#pll-practiceN', (e) => e.textContent)}`);
+check(await page.$('#pll-practiceGraph svg.pg-svg') !== null, 'the graph is drawn');
+const lineIds = () => page.$$eval('#pll-practiceGraph .pg-case', (gs) => gs.map((g) => g.dataset.id).sort());
+check((await lineIds()).join(',') === 'H,Ja,Jb,T,Y', `a line per case with three timed tries: ${(await lineIds()).join(',')}`);
+check((await page.$$eval('#pll-practiceGraph .pg-legend .btn.none', (b) => b.map((x) => x.textContent.trim())).then((x) => x.join(','))) === 'Ga', 'Ga (two timed tries) listed greyed, no line yet; the untimed Gb and the untried not listed');
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/practice-phone-default.png', fullPage: false });
 // sort by recent, slowest first
 await page.click('#pll-practiceBody th button[data-sort="recent"]');
@@ -65,13 +68,19 @@ await new Promise((r) => setTimeout(r, 400));
 const trend = await page.$$eval('#pll-practiceBody tbody tr', (trs) => trs.map((tr) => [tr.querySelector('td.name').textContent.trim(), [...tr.querySelectorAll('td')].find((td) => td.classList.contains('faster') || td.classList.contains('slower'))?.textContent]));
 console.log('trend:', JSON.stringify(trend.slice(0, 3)));
 check(trend[0][0] === 'Y' && trend[0][1]?.startsWith('+'), 'Y, getting slower, tops the trend');
-// pick a case for the graph by tapping its name
+// a legend chip hides its line; "all" brings it back; tapping a name in the table shows that case alone
+await page.click('#pll-practiceGraph .pg-legend button[data-id="Y"]');
+await new Promise((r) => setTimeout(r, 300));
+check((await lineIds()).join(',') === 'H,Ja,Jb,T', 'Y switched off in the legend');
+await page.click('#pll-practiceGraph .pg-legend button[data-all="on"]');
+await new Promise((r) => setTimeout(r, 300));
+check((await lineIds()).join(',') === 'H,Ja,Jb,T,Y', 'all back on');
+await page.evaluate(() => document.getElementById('pll-practiceGraphWrap').scrollIntoView());
+await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/practice-phone-graph.png' });
 await page.click('#pll-practiceBody td.name button[data-graph="T"]');
 await new Promise((r) => setTimeout(r, 500));
-check((await page.$eval('#pll-practiceN', (e) => e.textContent)) === '24 timed tries of T', 'tapping T graphs T');
-check((await page.$eval('#pll-practiceCase', (e) => e.value)) === 'T', 'the picker follows');
-check((await page.$$eval('#pll-practiceGraph .gr-dot', (d) => d.length)) === 24, '24 dots');
-check((await page.$$eval('#pll-practiceGraph .gr-line', (l) => l.map((x) => x.dataset.key)).then((k) => k.join(','))) === 'ao5,ao12', 'ao5 and ao12 lines, nothing bigger');
+check((await lineIds()).join(',') === 'T', 'tapping T shows T alone');
+check((await page.$$eval('#pll-practiceGraph .pg-case[data-id="T"] .pg-dot', (d) => d.length)) === 22, '22 points: 24 tries, a value from the third');
 await page.evaluate(() => document.getElementById('pll-practice').scrollIntoView());
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/practice-phone-T.png' });
 // the sort survives a reload
@@ -80,9 +89,24 @@ await new Promise((r) => setTimeout(r, 500));
 await page.evaluate(() => { document.getElementById('pll-practice').open = true; });
 await new Promise((r) => setTimeout(r, 600));
 check((await page.$eval('#pll-practiceBody th button.on', (b) => b.dataset.sort)) === 'trend', 'the sort is remembered');
-await page.setViewport({ width: 1280, height: 900 });
+// the tick under the picture hides it, and stays off over a reload
+const picShown = () => page.evaluate(() => !document.getElementById('pll-pic').parentElement.hidden || !document.getElementById('pll-stage').hidden);
+check(await picShown(), 'the picture is on by default');
+await page.click('#pll-showpic');
+await new Promise((r) => setTimeout(r, 200));
+check(!(await picShown()), 'unticked: no diagram, no 3D cube');
+await page.reload({ waitUntil: 'networkidle0' });
+await new Promise((r) => setTimeout(r, 500));
+check(!(await picShown()) && !(await page.$eval('#pll-showpic', (b) => b.checked)), 'still hidden after a reload');
+await page.click('#pll-showpic');
+await new Promise((r) => setTimeout(r, 200));
+check(await picShown(), 'ticked again: the picture is back');
+await page.evaluate(() => { document.getElementById('pll-practice').open = true; });
 await new Promise((r) => setTimeout(r, 600));
-await page.evaluate(() => document.getElementById('pll-practice').scrollIntoView());
+await page.setViewport({ width: 1280, height: 900 });
+await page.click('#pll-practiceGraph .pg-legend button[data-all="on"]');
+await new Promise((r) => setTimeout(r, 600));
+await page.evaluate(() => document.getElementById('pll-practiceGraphWrap').scrollIntoView());
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/practice-desktop.png' });
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');

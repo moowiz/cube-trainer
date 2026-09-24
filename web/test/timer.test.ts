@@ -88,12 +88,6 @@ describe('the graph', () => {
     expect(Object.keys(g.series)).toEqual(WINDOWS.map((w) => w.key));
     expect(g.series.ao50![19]).toBeUndefined();
   });
-  it('a graph can carry its own set of averages (the LL drill: ao5 and ao12 only)', () => {
-    const two = WINDOWS.filter((w) => w.n <= 12);
-    const g = layoutGraph(ramp, { width: 400, height: 280, shown: ['ao5', 'ao12', 'ao50'], windows: two });
-    expect(Object.keys(g.series)).toEqual(['ao5', 'ao12']);
-    expect(g.lines.map((l) => l.key)).toEqual(['ao5', 'ao12']);
-  });
   it('one huge solve is pinned at the top, not the scale', () => {
     const times = [...Array.from({ length: 60 }, () => 15_000), 120_000];
     const g = layoutGraph(times, { width: 400, height: 280, shown: ['ao5'] });

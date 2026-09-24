@@ -600,25 +600,20 @@ describe('practice stats: what to work on', () => {
     // H has too few attempts to judge, Y is slow and misnamed, T is fine
     expect(workOn(stats).map((s) => s.id)).toEqual(['H', 'Y', 'T']);
   });
-  it('the trend is the last eight against the eight before, and the series is one case\'s timed tries in order', async () => {
-    const { caseStats, caseSeries, RECENT, trendText } = await import('../src/ll/practice');
+  it('the trend is the last eight against the eight before', async () => {
+    const { caseStats, RECENT, trendText } = await import('../src/ll/practice');
     const t = PLL_CASES.find((c) => c.id === 'T')!, y = PLL_CASES.find((c) => c.id === 'Y')!;
     const at = (caseId: string, when: number, time: number | null): import('../src/store/types').AttemptRecord =>
       ({ id: `${caseId}${when}`, puzzle: '333', stage: 'pll', when, scramble: '', moves: '', time, assisted: false, source: 'cube', editedAt: 0, caseId });
     // T: twelve tries, 3.0 s down to 1.9 s; the last eight average 2.25, the four before them 2.85
     const tt = Array.from({ length: 12 }, (_, i) => at(t.name, 1000 + i, 3000 - i * 100));
     const yy = [at(y.name, 5, 4000), at(y.name, 6, null), at(y.name, 7, 3500)];
-    const stats = caseStats([...yy, ...tt].sort(() => 0), [t, y]);
+    const stats = caseStats([...yy, ...tt], [t, y]);
     const T = stats.find((s) => s.id === 'T')!, Y = stats.find((s) => s.id === 'Y')!;
     expect(T.trend).toBeCloseTo(2250 - 2850, 6);
     expect(Y.trend).toBeNull(); // nothing before the recent ones
     expect(trendText(T.trend)).toBe('−0.6s'); expect(trendText(300)).toBe('+0.3s'); expect(trendText(20)).toBe('±0'); expect(trendText(null)).toBe('–');
     expect(RECENT).toBe(8);
-    // the series: timed only, this case only, oldest first; every case together otherwise
-    const one = caseSeries([...tt, ...yy].reverse(), y.name);
-    expect(one).toEqual({ times: [4000, 3500], whens: [5, 7] });
-    const every = caseSeries([...tt, ...yy].reverse(), null);
-    expect(every.times).toHaveLength(14); expect(every.whens[0]).toBe(5); expect(every.whens[13]).toBe(1011);
   });
   it('sorts by any column, blanks at the bottom either way, and \'work\' is the worst-first order', async () => {
     const { caseStats, sortStats, workOn, DEFAULT_DIR } = await import('../src/ll/practice');
@@ -702,5 +697,46 @@ describe('drawCase(): the next case to drill', () => {
     const jb = picks.filter((id) => id === 'Jb').length;
     expect(jb).toBeGreaterThan(70);
     expect(jb).toBeLessThan(90);
+  });
+});
+
+describe('the practice graph: a line per case', () => {
+  const at = (caseId: string, when: number, time: number | null): import('../src/store/types').AttemptRecord =>
+    ({ id: `${caseId}${when}`, puzzle: '333', stage: 'pll', when, scramble: '', moves: '', time, assisted: false, source: 'cube', editedAt: 0, caseId });
+  it('runs each case\'s ao5 (ao3 first) at its own tries, indexed over every timed try of the stage', async () => {
+    const { caseLines, colourOf } = await import('../src/ll/practicegraph');
+    const [t, y, h] = ['T', 'Y', 'H'].map((id) => PLL_CASES.find((c) => c.id === id)!) as [LLCase, LLCase, LLCase];
+    // T and Y interleaved, newest first in the input; an untimed Y in the middle; H never tried
+    const attempts = [
+      at(t.name, 1, 3000), at(y.name, 2, 5000), at(t.name, 3, 2000), at(y.name, 4, null), at(t.name, 5, 1000), at(y.name, 6, 4000),
+      at(t.name, 7, 2500), at(t.name, 8, 1500), at(t.name, 9, 9000), at(y.name, 10, 3000),
+    ].reverse();
+    const { lines, whens } = caseLines(attempts, [t, y, h]);
+    expect(whens).toEqual([1, 2, 3, 5, 6, 7, 8, 9, 10]);
+    const T = lines[0]!, Y = lines[1]!, H = lines[2]!;
+    expect([T.name, T.colour, Y.colour]).toEqual(['T', colourOf(0), colourOf(1)]);
+    expect(T.points.map((p) => p.i)).toEqual([0, 2, 3, 5, 6, 7]);
+    // under three: nothing; three: the median; four: the middle two; five: ao5 drops the best and the worst; six: the last five
+    expect(T.points.map((p) => p.v)).toEqual([null, null, 2000, 2250, 2000, 2000]);
+    expect(Y.points.map((p) => [p.i, p.v])).toEqual([[1, null], [4, null], [8, 4000]]);
+    expect(H.points).toEqual([]);
+  });
+  it('lays the drawn lines out inside the plot, only the cases asked for, labels apart, a tick per day', async () => {
+    const { caseLines, layoutCaseGraph, caseGraphSvg } = await import('../src/ll/practicegraph');
+    const [t, y] = ['T', 'Y'].map((id) => PLL_CASES.find((c) => c.id === id)!) as [LLCase, LLCase];
+    const day = 864e5;
+    const attempts = Array.from({ length: 20 }, (_, i) => at(i % 2 ? y.name : t.name, i * day, 3000 - i * 50));
+    const { lines, whens } = caseLines(attempts, [t, y]);
+    const days = whens.map((w) => String(Math.round(w / day)));
+    const g = layoutCaseGraph(lines, whens.length, { width: 400, height: 280, shown: ['T', 'Y'], days });
+    expect(g.lines.map((l) => l.id)).toEqual(['T', 'Y']);
+    for (const l of g.lines) for (const d of l.dots) { expect(d.x).toBeGreaterThanOrEqual(g.x0); expect(d.x).toBeLessThanOrEqual(g.x1); expect(d.y).toBeGreaterThanOrEqual(g.y0); expect(d.y).toBeLessThanOrEqual(g.y1); }
+    expect(g.lines[0]!.dots).toHaveLength(8); // ten tries, a value from the third
+    expect(g.endLabels[1]!.y - g.endLabels[0]!.y).toBeGreaterThanOrEqual(13);
+    expect(g.xTicks.length).toBeGreaterThan(2);
+    const one = layoutCaseGraph(lines, whens.length, { width: 400, height: 280, shown: ['Y'], days });
+    expect(one.lines.map((l) => l.id)).toEqual(['Y']);
+    const svg = caseGraphSvg(g);
+    expect(svg).toContain('data-id="T"'); expect(svg).toContain('>Y</text>');
   });
 });

@@ -105,9 +105,10 @@ syncing until `0f63ad6` migrated the ids to `pll:Ja`).
 
 2026-09-23, later: the practice table sorts by any heading (tap again to
 flip; remembered per drill), has a trend column (the last eight timed tries
-against the eight before), and a graph under it - every case or one case,
-tapped in the table or picked from the list - with the running ao5 and ao12
-(`timer/graph.ts`, mounted with its own windows and legend key).
+against the eight before), and a graph under it with a line per case - its
+running ao5 (ao3 until there are five) over every timed try of the stage,
+a legend chip per case, a tap on a name in the table showing that case
+alone (`ll/practicegraph.ts`). A tick under the cube picture hides it.
 `scripts/check-practice.mjs` (`npm run check:practice`) seeds attempts into
 the page's IndexedDB and checks all of it headlessly; item 1's other checks
 are still to write.
