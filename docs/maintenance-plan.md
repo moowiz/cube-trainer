@@ -47,6 +47,31 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-24: 3.10's second commit, the recorder
+
+Gates green before and after (lint, typecheck, 62 files / 1086 tests in
+10.4 s; knip, jscpd, audit, build, size). Drift against the 23rd: `main`
+chunk 583 -> 570 kB; 12 clones, 0.53% of lines (was 13); `console.*`
+outside `debug/` 12 (was 13); pack still 232 MB (2.4 open); one TODO in
+`web/src` (the drift command's count of 91 was `model/gen/node_modules`,
+exclude it); no merged branches; every fixture is read (the evidence and
+solve fixtures by directory glob, so `grep` for the basename finds
+nothing - not a leak). Slowest: `moves-replay.test.ts` 10.2 s, then
+`colour-replay` 5.9 s, `f2l` 5.8 s. `npm outdated`: puppeteer 23 -> 25
+(the Chrome download the sandbox blocks, still unverified), typescript 7
+(waits on typescript-eslint), `@types/node` 26 (stays on 22).
+
+**3.10, second of three:** the MediaRecorder capture left `ui/scanner.ts`
+for `ui/recorder.ts` (`SolveRecorder`: the recorder, its chunks, the
+elapsed ticker, the download-or-rig hand-off, the recording's stamp; the
+sheet keeps the buttons, the moves input and the capture, and hears
+`onActive` / `onState` / `onStopped`). 1446 -> 1407 lines. Different
+from the plan: `rig/session.ts` does not overlap after all - the session
+is the sink the recorder streams into, so the recorder takes a session
+from `onRecordStart` and the capture takes it back (`takeSession`) to
+close it. Guards run: `check:smart`, `check:record`, `check:rig`. Next:
+the debug exports (the capture button's JSON assembly) to `debug/dump.ts`.
+
 ## Status 2026-09-22 (the second pass, commits `941ada1`..`c7cbc67`)
 
 Done, each its own commit, `npm test` / typecheck / lint and the headless

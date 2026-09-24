@@ -70,7 +70,8 @@ web/
                      camera, overlay, evidence, lock, live scramble check), cubeview.ts (the Cube sheet:
                      what the app believes the cube looks like, the smart cube's controls and resyncs),
                      fingertricks.ts (the tricks sheet: a move sequence finger by finger, triggers as one
-                     step), hint, settings, download (the one downloadBlob)
+                     step), recorder (the solve recording: MediaRecorder, its chunks, the rig hand-off), hint,
+                     settings, download (the one downloadBlob)
     moves/           the camera move reader (reader, anchor, record; moves.ts is its 54-slot permutation
                      table, checked against cubejs) AND the MoveSource contract every consumer of turns
                      reads (source.ts: cube / camera / typed / replay; readersource.ts wraps the reader),

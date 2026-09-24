@@ -56,11 +56,11 @@ import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/mod
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
 import { QuadTracker, type QuadDetection } from '../detect/tracker';
 import { HintState, hintFor } from './hint';
+import { SolveRecorder } from './recorder';
 import { matchSharedEdge } from '../detect/orient';
 import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
 import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
-import { downloadBlob } from './download';
 import type { RecordingSession } from '../rig/session';
 import { persistControls } from './settings';
 import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
@@ -367,7 +367,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   // growing after the start lock - sampling continues, nothing is trimmed -
   // so the moves that follow the lock are in the capture. The solver still
   // stops at the lock; its Solution is the start state, not a running read.
-  const solveMode = (): boolean => params.get('solve') === '1' || recorder !== null || following();
+  const solveMode = (): boolean => params.get('solve') === '1' || rec.active() || following();
   // Follow mode (the checkbox; a clip replay follows only when its URL says
   // ?follow=1, so the replay tooling's captures are unchanged): after the
   // lock the reader runs, the camera stays on, and the solver keeps working
@@ -380,7 +380,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   // until that capture has been taken (2026-09-19: a six-minute session's log was trimmed to its last 40 s
   // in that gap).
   let captureOwed = false;
-  const keepWholeLog = (): boolean => params.get('solve') === '1' || recorder !== null || captureOwed;
+  const keepWholeLog = (): boolean => params.get('solve') === '1' || rec.active() || captureOwed;
 
   const camera = new Camera();
   const fps = new FpsCounter();
@@ -699,7 +699,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
           useEl.hidden = false;
           // a live scan is for the trainer: hand it over as soon as it is read (following: every lock, a clip too)
           if (following()) followScan = scan;
-          if (following() || (!clipUrl && !recorder)) use(scan);
+          if (following() || (!clipUrl && !rec.active())) use(scan);
           renderFollow();
         })
         .catch((e) => { solEl.textContent = `solver failed: ${e}`; });
@@ -707,7 +707,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       // overlay stays up) rather than keep streaming a feed nothing reads any
       // more. A clip must play to its end so the autocapture hook fires.
       // (not while recording a solve: the moves come after the lock)
-      if (!clipUrl && !recorder && !following() && pauseOnLockChk.checked) setPaused(true);
+      if (!clipUrl && !rec.active() && !following() && pauseOnLockChk.checked) setPaused(true);
       epochFromT = Date.now();
       followEl.hidden = !following();
     }
@@ -1176,7 +1176,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     saveBtn.disabled = true;
     captureBtn.disabled = true;
     pauseBtn.disabled = true;
-    if (recorder) recorder.stop(); // the stream is about to end; keep what was recorded
+    rec.stop(); // the stream is about to end; keep what was recorded
     recBtn.disabled = true;
   }
 
@@ -1191,20 +1191,11 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
 
   pauseBtn.addEventListener('click', () => { if (running) setPaused(!paused); });
 
-  // Solve recording: MediaRecorder on the live camera stream, so the .webm
-  // holds exactly the frames the pipeline saw at app resolution. Stopping it
-  // downloads the video and then fires the debug capture, whose evidence log
-  // carries the same wall-clock t as `recording.startedAt` - video time is
-  // t - startedAt. The clip replay (below) then reproduces the session with no
-  // hands, and `movesApplied` / `endTruth` are the fixture's truth.
+  // Solve recording (ui/recorder.ts): the video and the debug capture download
+  // together, aligned on the same clock; the moves typed are the take's truth.
   const recBtn = $<HTMLButtonElement>('rec');
   const movesInput = $<HTMLInputElement>('moves');
   const recStateEl = $('recState');
-  let recorder: MediaRecorder | null = null;
-  let recChunks: Blob[] = [];
-  let rigSession: RecordingSession | null = null; // the recording rig's session while one streams this recording
-  let recording: { startedAt: number; stoppedAt: number | null; file: string; mime: string } | null = null;
-  let recTimer = 0;
   const MOVES_RE = /^(\s*[URFDLBurfdlbMESxyz][2']?)*\s*$/;
   function movesText(): string { return movesInput.value.trim().replace(/\s+/g, ' '); }
   /** The state after scramble + moves from solved, when both are trustworthy. */
@@ -1213,57 +1204,27 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     if (!appliedChk.checked || !MOVES_RE.test(m)) return null;
     try { return scrambleState(m ? `${scramble} ${m}` : scramble); } catch { return null; }
   }
-  function pickMime(): string {
-    // DECISION: webm first (Android Chrome, desktop); mp4 is Safari's only option
-    for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4']) {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) return m;
-    }
-    return '';
-  }
-  async function startRecording(): Promise<void> {
-    const stream = camera.stream;
-    if (!running || !stream || typeof MediaRecorder === 'undefined') { msgEl.textContent = 'recording needs the live camera'; return; }
-    const mime = pickMime();
-    const startedAt = Date.now();
-    const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
-    recording = { startedAt, stoppedAt: null, file: `solve-rec-${startedAt}.${ext}`, mime };
-    recChunks = [];
-    // the recording rig, when the dev server's sink is there: chunks stream to disk as they come
-    rigSession = (await opts.onRecordStart?.()) ?? null;
-    const session = rigSession;
-    // DECISION: 2.5 Mbps at 640x480 - ~20 MB/min, clean enough to re-run the detector on
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 2_500_000 } : undefined);
-    recorder.addEventListener('dataavailable', (e) => {
-      if (!e.data.size) return;
-      if (session) void session.videoChunk(e.data, performance.now());
-      else recChunks.push(e.data);
-    });
-    recorder.addEventListener('stop', () => {
-      const rec = recording!;
-      rec.stoppedAt = Date.now();
-      if (!session) downloadBlob(rec.file, new Blob(recChunks, { type: recorder?.mimeType || mime || 'video/webm' }));
-      recChunks = [];
-      recorder = null;
-      recBtn.textContent = 'Record';
-      recBtn.classList.remove('sc-on');
-      movesInput.disabled = false;
-      clearInterval(recTimer);
-      const secs = ((rec.stoppedAt - rec.startedAt) / 1000).toFixed(1);
-      recStateEl.textContent = session ? `streamed to recordings/${session.stream.session} (${secs} s)` : `saved ${rec.file} (${secs} s)`;
+  const rec = new SolveRecorder({
+    onRecordStart: opts.onRecordStart,
+    onActive: (on) => {
+      recBtn.textContent = on ? 'Stop recording' : 'Record';
+      recBtn.classList.toggle('sc-on', on);
+      movesInput.disabled = on; // the moves are the truth for this take - fix them before pressing Record
+    },
+    onState: (text) => { recStateEl.textContent = text; },
+    onStopped: () => {
       // the paired evidence log: into the session, or a second download (a second prompt on Android is expected)
       captureOwed = true;
       setTimeout(() => captureBtn.click(), 800);
-    });
-    recorder.start(1000);
-    recBtn.textContent = 'Stop recording';
-    recBtn.classList.add('sc-on');
-    movesInput.disabled = true; // the moves are the truth for this take - fix them before pressing Record
-    const tick = () => { recStateEl.textContent = `REC ${((Date.now() - startedAt) / 1000).toFixed(0)} s`; };
-    tick();
-    recTimer = window.setInterval(tick, 500);
+    },
+  });
+  async function startRecording(): Promise<void> {
+    const stream = camera.stream;
+    if (!running || !stream || !SolveRecorder.supported()) { msgEl.textContent = 'recording needs the live camera'; return; }
+    await rec.start(stream);
   }
   recBtn.addEventListener('click', () => {
-    if (recorder) recorder.stop(); else startRecording();
+    if (rec.active()) rec.stop(); else void startRecording();
   });
 
   // Clip replay: ?clip=/clips/x.mp4[&autostart=1][&autocapture=1] feeds a
@@ -1282,7 +1243,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       try {
         if (clipUrl) {
           await camera.startClip(clipUrl, () => {
-            if (recording) recording.stoppedAt = Date.now();
+            if (rec.recording) rec.recording.stoppedAt = Date.now();
             const sol = locked ?? solution;
             msgEl.textContent = `clip ended - ${locked ? 'LOCKED' : (sol?.reason ?? 'no solution')}`;
             // the line tools/solve/replay_clips.py reads off the headless console
@@ -1290,7 +1251,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
             if (params.get('autocapture')) setTimeout(() => captureBtn.click(), 1500);
           });
           // a replayed clip is stamped like a live recording: video time = t - startedAt
-          recording = { startedAt: Date.now(), stoppedAt: null, file: clipUrl, mime: 'clip' };
+          rec.recording = { startedAt: Date.now(), stoppedAt: null, file: clipUrl, mime: 'clip' };
         } else await camera.start();
         running = true;
         startBtn.textContent = 'Stop camera';
@@ -1384,7 +1345,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       // solve recording (null when none): the .webm's name and wall-clock span
       // (video time = QuadObs.t - startedAt), the moves the user said they
       // turned, and the resulting state when scramble and moves are both truth
-      recording,
+      recording: rec.recording,
       movesApplied: movesText() || null,
       endTruth: endTruth(),
       // the move reader's record and last trace lines, when it ran
@@ -1397,10 +1358,10 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       timing: { fps: +fps.fps.toFixed(1), viewDelayFrames: syncSel.value === 'sync' ? Math.ceil(lagMax) : 0, latencyFrames: +lagEma.toFixed(2), lateTicks, samplingMs: +sampler.msEma.toFixed(1), samplingDropped: sampler.dropped, sampleMinMs: SAMPLE_MIN_MS, peak: +peakEma.toFixed(0), clip: +clipEma.toFixed(2), exposureComp, detectEvery: everySel.value, solveMs: +solveEma.toFixed(1), locateMs: +locateEma.toFixed(1), inferMs: +inferEma.toFixed(1), stage1Misses, ticks, ep: models.detector.ep, threads: models.detector.threads, worker: models.detector.proxied, bench: models.detector.benchMs ?? null },
     };
     const post = params.get('post');
-    const session = rigSession;
+    const session = rec.takeSession();
     const sink = session
       // a recording streamed to the rig: the evidence log is the session's, and that closes it
-      ? async (json: string) => { rigSession = null; await session.evidence(json); await opts.onRecordStop?.(); }
+      ? async (json: string) => { await session.evidence(json); await opts.onRecordStop?.(); }
       : post
         ? async (json: string, name: string) => { await fetch(`/__capture?name=${encodeURIComponent(post === '1' ? name : post)}`, { method: 'POST', body: json }); }
         : undefined;
@@ -1428,14 +1389,14 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     following,
     setDocked: (on) => root.classList.toggle('sc-docked', on),
     record: async () => {
-      if (recorder) return;
+      if (rec.active()) return;
       await startCapture();
       if (!running) throw new Error(msgEl.textContent || 'the camera did not start');
       await startRecording();
-      if (!recorder) throw new Error(msgEl.textContent || 'recording did not start');
+      if (!rec.active()) throw new Error(msgEl.textContent || 'recording did not start');
     },
-    stopRecording: () => { recorder?.stop(); },
-    recording: () => (recorder && recording ? (Date.now() - recording.startedAt) / 1000 : null),
+    stopRecording: () => rec.stop(),
+    recording: () => rec.seconds(),
     popOut: async () => {
       const v = camera.video;
       if (typeof v.requestPictureInPicture !== 'function' || !document.pictureInPictureEnabled) throw new Error('this browser has no Picture-in-Picture');
