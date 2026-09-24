@@ -40,6 +40,8 @@
   .tabs button.ico.busy .ico-txt { display: inline-block; animation: sync-spin 1.4s linear infinite; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
   @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
+  /* a 400 px phone: five tabs and four icons ran 9 px past the edge and gave the page a sideways scroll */
+  @media (max-width: 420px) { .tabs button { padding: 8px 8px; } .tabs button.ico { padding: 6px 8px; } }
   /* sheets: the scanner and the settings float over whichever stage is open */
   .zz-sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(20,22,28,.45); overflow: auto; }
   .zz-sheet-box { background: var(--bg); min-height: 100%; }

@@ -17,6 +17,7 @@
     "check:detect": "node scripts/check-detect.mjs",
     "check:smart": "node scripts/check-smart.mjs",
     "check:record": "node scripts/check-record.mjs",
+    "check:practice": "node scripts/check-practice.mjs",
     "check:rig": "node scripts/check-record.mjs --rig"
   },
   "dependencies": {

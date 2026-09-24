@@ -1,6 +1,7 @@
 // The Solve tab's graph (docs/smart-cube-design.md 4.1 Results): every
 // solve as a dot and the running ao5 / ao12 / ao50 / ao100 as lines, over
-// the session or over everything. The layout is a pure function of the
+// the session or over everything; the LL drill mounts it too, per case, with
+// ao5 and ao12 only. The layout is a pure function of the
 // times (ms, null = DNF, newest last) into positions, then into an SVG
 // string; the mount adds the hover layer (a crosshair and a tooltip on
 // the nearest solve), the legend that toggles the lines, and the table
@@ -58,6 +59,8 @@ export interface GraphOpts {
   shown: readonly string[];
   /** the day of each solve, as shown: the x-axis then marks the day changes instead of solve numbers */
   days?: readonly string[];
+  /** the averages computed (the Solve tab's four unless told otherwise; the LL drill wants ao5 and ao12) */
+  windows?: readonly Window[];
 }
 
 interface GraphPoint { i: number; x: number; y: number; t: number; /** above the top of the scale: drawn pinned there */ clipped: boolean }
@@ -87,16 +90,17 @@ const MARGIN = { left: 40, right: 48, top: 14, bottom: 24 };
 
 export function layoutGraph(times: readonly Time[], opts: GraphOpts): Graph {
   const { width, height } = opts;
+  const windows = opts.windows ?? WINDOWS;
   const x0 = MARGIN.left, x1 = width - MARGIN.right, y0 = MARGIN.top, y1 = height - MARGIN.bottom;
   const n = times.length;
   const series: Record<string, (Time | undefined)[]> = {};
-  for (const w of WINDOWS) series[w.key] = rolling(times, w.n);
+  for (const w of windows) series[w.key] = rolling(times, w.n);
   const singles = times.filter((t): t is number => t !== null).sort((a, b) => a - b);
   // DECISION: the scale stops at the 98th percentile of the singles (or the highest average on
   // show, if higher) so one two-minute solve does not flatten a session of fifteens; the solves
   // above it sit pinned at the top as triangles and the tooltip gives their real time.
   let hi = percentile(singles, 0.98) ?? 1000;
-  for (const w of WINDOWS) if (opts.shown.includes(w.key)) for (const v of series[w.key]!) if (typeof v === 'number' && v > hi) hi = v;
+  for (const w of windows) if (opts.shown.includes(w.key)) for (const v of series[w.key]!) if (typeof v === 'number' && v > hi) hi = v;
   let lo = singles[0] ?? 0;
   if (hi <= lo) hi = lo + 1000;
   const pad = (hi - lo) * 0.06;
@@ -116,7 +120,7 @@ export function layoutGraph(times: readonly Time[], opts: GraphOpts): Graph {
     if (!best || t < best.t) best = p;
   });
   const lines: GraphLine[] = [];
-  for (const w of WINDOWS) {
+  for (const w of windows) {
     if (!opts.shown.includes(w.key)) continue;
     let d = '', pen = false, end: { x: number; y: number } | null = null;
     series[w.key]!.forEach((v, i) => {
@@ -227,15 +231,27 @@ export interface GraphData {
 
 const SHOWN_KEY = 'zz-graph-shown';
 const HEIGHT = 280;
+
+export interface MountOpts {
+  /** the averages offered in the legend (default: the Solve tab's four) */
+  windows?: readonly Window[];
+  /** where the legend's on/off state is kept (each graph its own, so hiding ao50 on the Solve tab is not felt elsewhere) */
+  shownKey?: string;
+  /** what the plot says with nothing to draw */
+  empty?: string;
+  /** the word for one point: "solve" (the Solve tab), "try" (a drill) */
+  unit?: string;
+}
 // DECISION: the table view lists the newest rows only past this many; ten thousand rows of seven
 // cells is more DOM than a phone should build for a fallback.
 const TABLE_ROWS = 300;
 
 /** Draw the graph, its legend and its table into `root`; returns the redraw for new data. */
-export function mountGraph(root: HTMLElement): (data: GraphData) => void {
+export function mountGraph(root: HTMLElement, mopts: MountOpts = {}): (data: GraphData) => void {
   ensureStyle('graph-style', STYLE);
-  let shown = new Set<string>(WINDOWS.map((w) => w.key));
-  { const saved = readStoredJson(SHOWN_KEY); if (Array.isArray(saved)) shown = new Set(saved.filter((k) => WINDOWS.some((w) => w.key === k))); }
+  const windows = mopts.windows ?? WINDOWS, shownKey = mopts.shownKey ?? SHOWN_KEY, unit = mopts.unit ?? 'solve';
+  let shown = new Set<string>(windows.map((w) => w.key));
+  { const saved = readStoredJson(shownKey); if (Array.isArray(saved)) shown = new Set(saved.filter((k) => windows.some((w) => w.key === k))); }
   root.innerHTML = '<div class="gr-legend"></div><div class="gr"><div class="gr-plot"></div><div class="gr-tip" hidden></div></div><details class="gr-table"><summary>Table</summary><div class="gr-rows"></div></details>';
   const legend = root.querySelector<HTMLElement>('.gr-legend')!, plot = root.querySelector<HTMLElement>('.gr-plot')!;
   const tip = root.querySelector<HTMLElement>('.gr-tip')!, rows = root.querySelector<HTMLElement>('.gr-rows')!, table = root.querySelector<HTMLDetailsElement>('.gr-table')!;
@@ -243,23 +259,23 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
   let g: Graph | null = null;
 
   function drawLegend(): void {
-    legend.innerHTML = `<span class="btn" style="cursor:default"><span class="dot"></span>solve</span>` +
-      WINDOWS.map((w) => `<button type="button" class="btn ${shown.has(w.key) ? 'on' : ''}" data-key="${w.key}" aria-pressed="${shown.has(w.key)}"><span class="k" style="background:${w.colour}"></span>${w.key}</button>`).join('');
+    legend.innerHTML = `<span class="btn" style="cursor:default"><span class="dot"></span>${unit}</span>` +
+      windows.map((w) => `<button type="button" class="btn ${shown.has(w.key) ? 'on' : ''}" data-key="${w.key}" aria-pressed="${shown.has(w.key)}"><span class="k" style="background:${w.colour}"></span>${w.key}</button>`).join('');
   }
   legend.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('button[data-key]');
     if (!b) return;
     const k = b.dataset.key!;
     if (shown.has(k)) shown.delete(k); else shown.add(k);
-    writeStored(SHOWN_KEY, JSON.stringify([...shown]));
+    writeStored(shownKey, JSON.stringify([...shown]));
     drawLegend(); draw();
   });
 
   function draw(): void {
     hide();
     const width = Math.max(200, plot.clientWidth || root.clientWidth || 320);
-    if (!data.times.length) { g = null; plot.innerHTML = '<div class="gr-empty">No solves to graph yet.</div>'; rows.innerHTML = ''; return; }
-    g = layoutGraph(data.times, { width, height: HEIGHT, shown: [...shown], days: data.dated ? data.whens.map((w) => data.dayOf(w)) : undefined });
+    if (!data.times.length) { g = null; plot.innerHTML = `<div class="gr-empty">${esc(mopts.empty ?? 'No solves to graph yet.')}</div>`; rows.innerHTML = ''; return; }
+    g = layoutGraph(data.times, { width, height: HEIGHT, shown: [...shown], days: data.dated ? data.whens.map((w) => data.dayOf(w)) : undefined, windows });
     plot.innerHTML = graphSvg(g);
     if (table.open) drawTable();
   }
@@ -268,9 +284,9 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     const n = data.times.length, from = Math.max(0, n - TABLE_ROWS);
     const cells: string[] = [];
     for (let i = n - 1; i >= from; i--) {
-      cells.push(`<tr><td>${i + 1}</td><td>${esc(data.dayOf(data.whens[i]!))}</td><td>${formatTime(data.times[i])}</td>${WINDOWS.map((w) => `<td>${formatTime(g!.series[w.key]![i])}</td>`).join('')}</tr>`);
+      cells.push(`<tr><td>${i + 1}</td><td>${esc(data.dayOf(data.whens[i]!))}</td><td>${formatTime(data.times[i])}</td>${windows.map((w) => `<td>${formatTime(g!.series[w.key]![i])}</td>`).join('')}</tr>`);
     }
-    rows.innerHTML = `${from ? `<div class="note">The last ${TABLE_ROWS} of ${n}.</div>` : ''}<table><thead><tr><th>#</th><th>when</th><th>time</th>${WINDOWS.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>`;
+    rows.innerHTML = `${from ? `<div class="note">The last ${TABLE_ROWS} of ${n}.</div>` : ''}<table><thead><tr><th>#</th><th>when</th><th>time</th>${windows.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>`;
   }
   table.addEventListener('toggle', () => { if (table.open) drawTable(); });
 
@@ -296,7 +312,7 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     cross.setAttribute('x1', String(x)); cross.setAttribute('x2', String(x)); cross.removeAttribute('hidden');
     const p = g.points.find((q) => q.i === i);
     if (p) { hit.setAttribute('cx', String(p.x)); hit.setAttribute('cy', String(p.y)); hit.removeAttribute('hidden'); } else hit.setAttribute('hidden', '');
-    const avgs = WINDOWS.filter((w) => shown.has(w.key)).map((w) => `<div><span class="k" style="background:${w.colour}"></span>${w.key} <b>${formatTime(g!.series[w.key]![i])}</b></div>`).join('');
+    const avgs = windows.filter((w) => shown.has(w.key)).map((w) => `<div><span class="k" style="background:${w.colour}"></span>${w.key} <b>${formatTime(g!.series[w.key]![i])}</b></div>`).join('');
     tip.innerHTML = `<div>#${i + 1} · ${esc(data.dayOf(data.whens[i]!))} · <b>${formatTime(t)}</b>${p?.clipped ? ' (above the scale)' : ''}</div>${avgs}`;
     tip.hidden = false;
     // beside the pointer, on the left when it would run off the right edge; on a phone the finger

@@ -2,7 +2,7 @@
 // cubejs here (state() normalisation quirks especially) was checked by
 // actually running it, not guessed - see the comment on the y/R test.
 import { describe, expect, it } from 'vitest';
-import { CASES, OCLL_CASES, PLL_CASES, isFavourite, setMainAlg, standardAlg } from '../src/ll/cases';
+import { CASES, type LLCase, OCLL_CASES, PLL_CASES, isFavourite, setMainAlg, standardAlg } from '../src/ll/cases';
 import { algAngle, features } from '../src/ll/features';
 import { algHtml, chainSummary } from '../src/ll/reference';
 import {
@@ -599,6 +599,52 @@ describe('practice stats: what to work on', () => {
     expect([H.n, H.recent]).toEqual([1, 1500]);
     // H has too few attempts to judge, Y is slow and misnamed, T is fine
     expect(workOn(stats).map((s) => s.id)).toEqual(['H', 'Y', 'T']);
+  });
+  it('the trend is the last eight against the eight before, and the series is one case\'s timed tries in order', async () => {
+    const { caseStats, caseSeries, RECENT, trendText } = await import('../src/ll/practice');
+    const t = PLL_CASES.find((c) => c.id === 'T')!, y = PLL_CASES.find((c) => c.id === 'Y')!;
+    const at = (caseId: string, when: number, time: number | null): import('../src/store/types').AttemptRecord =>
+      ({ id: `${caseId}${when}`, puzzle: '333', stage: 'pll', when, scramble: '', moves: '', time, assisted: false, source: 'cube', editedAt: 0, caseId });
+    // T: twelve tries, 3.0 s down to 1.9 s; the last eight average 2.25, the four before them 2.85
+    const tt = Array.from({ length: 12 }, (_, i) => at(t.name, 1000 + i, 3000 - i * 100));
+    const yy = [at(y.name, 5, 4000), at(y.name, 6, null), at(y.name, 7, 3500)];
+    const stats = caseStats([...yy, ...tt].sort(() => 0), [t, y]);
+    const T = stats.find((s) => s.id === 'T')!, Y = stats.find((s) => s.id === 'Y')!;
+    expect(T.trend).toBeCloseTo(2250 - 2850, 6);
+    expect(Y.trend).toBeNull(); // nothing before the recent ones
+    expect(trendText(T.trend)).toBe('−0.6s'); expect(trendText(300)).toBe('+0.3s'); expect(trendText(20)).toBe('±0'); expect(trendText(null)).toBe('–');
+    expect(RECENT).toBe(8);
+    // the series: timed only, this case only, oldest first; every case together otherwise
+    const one = caseSeries([...tt, ...yy].reverse(), y.name);
+    expect(one).toEqual({ times: [4000, 3500], whens: [5, 7] });
+    const every = caseSeries([...tt, ...yy].reverse(), null);
+    expect(every.times).toHaveLength(14); expect(every.whens[0]).toBe(5); expect(every.whens[13]).toBe(1011);
+  });
+  it('sorts by any column, blanks at the bottom either way, and \'work\' is the worst-first order', async () => {
+    const { caseStats, sortStats, workOn, DEFAULT_DIR } = await import('../src/ll/practice');
+    const [t, y, h, ua] = ['T', 'Y', 'H', 'Ua'].map((id) => PLL_CASES.find((c) => c.id === id)!) as [LLCase, LLCase, LLCase, LLCase];
+    const at = (caseId: string, when: number, time: number | null, extra: Partial<import('../src/store/types').AttemptRecord> = {}): import('../src/store/types').AttemptRecord =>
+      ({ id: `${caseId}${when}`, puzzle: '333', stage: 'pll', when, scramble: '', moves: '', time, assisted: false, source: 'cube', editedAt: 0, caseId, ...extra });
+    const attempts = [
+      ...[1, 2, 3, 4].map((i) => at(t.name, i, 2000 + i * 10, { quiz: 'right' })),
+      ...[5, 6, 7].map((i) => at(y.name, i, 4000, { quiz: i === 5 ? 'wrong' : 'right' })),
+      at(h.name, 8, null),
+    ];
+    const stats = caseStats(attempts, [t, y, h, ua]);
+    const ids = (xs: { id: string }[]) => xs.map((s) => s.id);
+    expect(ids(sortStats(stats, 'work', 'asc'))).toEqual(ids(workOn(stats)));
+    expect(ids(sortStats(stats, 'work', 'desc'))).toEqual(ids(workOn(stats)).reverse());
+    expect(ids(sortStats(stats, 'name', 'asc'))).toEqual(['T', 'Y', 'H', 'Ua']);
+    expect(ids(sortStats(stats, 'n', 'desc'))).toEqual(['T', 'Y', 'H', 'Ua']);
+    expect(ids(sortStats(stats, 'n', 'asc'))).toEqual(['Ua', 'H', 'Y', 'T']);
+    // H and Ua have no time: last, whichever way the timed ones go
+    expect(ids(sortStats(stats, 'recent', 'desc'))).toEqual(['Y', 'T', 'H', 'Ua']);
+    expect(ids(sortStats(stats, 'recent', 'asc'))).toEqual(['T', 'Y', 'H', 'Ua']);
+    expect(ids(sortStats(stats, 'best', 'asc'))).toEqual(['T', 'Y', 'H', 'Ua']);
+    // the quiz share: Y named 2 of 3, T 4 of 4; the unasked at the bottom
+    expect(ids(sortStats(stats, 'quiz', 'asc'))).toEqual(['Y', 'T', 'H', 'Ua']);
+    expect(ids(sortStats(stats, 'last', 'desc'))).toEqual(['H', 'Y', 'T', 'Ua']);
+    expect(DEFAULT_DIR.recent).toBe('desc'); expect(DEFAULT_DIR.quiz).toBe('asc');
   });
 });
 

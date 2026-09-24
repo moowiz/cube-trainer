@@ -53,7 +53,9 @@ import { noteFor, onNotesChange } from './notes';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
-import { caseStats, RECENT, secs, workOn } from './practice';
+import { caseSeries, caseStats, DEFAULT_DIR, RECENT, secs, SORT_KEYS, sortStats, type SortKey, trendText, workOn } from './practice';
+import { mountGraph, WINDOWS } from '../timer/graph';
+import { dayOf } from '../timer/when';
 import { chainSummary, openLLReference } from './reference';
 import { ensureStyle } from '../ui/dom';
 import { persisted } from '../ui/settings';
@@ -127,6 +129,16 @@ const STYLE = `
   .ll-practice tr.dim td { color: var(--ink-2); opacity: .7; }
   .ll-practice .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
   .ll-practice .note { margin-top: 6px; }
+  .ll-practice .ll-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ll-practice th button { font: inherit; background: none; border: none; padding: 0; color: inherit; cursor: pointer; white-space: nowrap; }
+  .ll-practice th button.on { color: var(--ink); font-weight: 600; }
+  .ll-practice td.name button { font: inherit; font-weight: 600; background: none; border: none; padding: 0; color: var(--ink); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+  .ll-practice td.name button.on { text-decoration: underline solid; }
+  .ll-practice td.faster { color: #1A7F4B; } .ll-practice td.slower { color: #B3261E; }
+  .ll-graph { margin-top: 12px; }
+  .ll-graph .pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .ll-graph .pick select { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+  .ll-graph .n { color: var(--ink-2); }
 `;
 
 /** `cases`: the ids New case draws from; absent means all of them. `repeat`: the algs over and over, no scramble. */
@@ -261,7 +273,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       <details class="ll-chunks" id="${id('chunks')}"><summary>Chunks the voice names: <span id="${id('chunksN')}"></span></summary><div id="${id('chunklist')}"></div></details>
       <details class="ll-say" id="${id('say')}" hidden><summary>What to say when asked the case</summary><div>${sayNote(kind)}</div></details>
       <details class="ll-cases" id="${id('cases')}"><summary>Cases in the drill: <span id="${id('casesN')}"></span></summary><div class="ll-caselist" id="${id('caselist')}"></div></details>
-      <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div></details>`,
+      <details class="ll-practice" id="${id('practice')}"><summary>Practice so far: what to work on</summary><div id="${id('practiceBody')}"></div>
+        <div class="ll-graph" id="${id('practiceGraphWrap')}" hidden><div class="pick"><label>Over time <select id="${id('practiceCase')}"></select></label><span class="n" id="${id('practiceN')}"></span></div><div id="${id('practiceGraph')}"></div></div></details>`,
     left: `
       <div class="eo-stage ll-3d" id="${id('stage')}"><svg id="${id('cube')}" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="ll-pic"><svg id="${id('pic')}" viewBox="0 0 200 200" aria-label="last layer"></svg></div>
@@ -723,22 +736,86 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     standby();
   }
 
-  // ---- the practice so far: per-case numbers from the store, worst first, and buttons that set the pool from them ----
+  // ---- the practice so far: per-case numbers from the store, sorted any way (worst first by default), buttons that
+  // set the pool from them, and a graph of one case's (or every case's) times with the running ao5 / ao12 ----
+  const SORT_KEY = `zz-${kind}-practice-sort`;
+  const { settings: sortBy, save: saveSort } = persisted<{ key: SortKey; dir: 'asc' | 'desc' }>(SORT_KEY, { key: 'work', dir: 'asc' }, (st) => {
+    if (!SORT_KEYS.includes(st.key)) st.key = 'work';
+    if (st.dir !== 'asc' && st.dir !== 'desc') st.dir = DEFAULT_DIR[st.key];
+  });
+  /** the case graphed: a case name, or null for every case together */
+  let graphCase: string | null = null;
+  let drawGraph: ((d: { times: number[]; whens: number[]; dated?: boolean; dayOf(w: number): string }) => void) | null = null;
+  const COLS: { key: SortKey; label: string; title: string }[] = [
+    { key: 'name', label: 'case', title: 'the case list\'s order' }, { key: 'n', label: 'tries', title: 'solved attempts' }, { key: 'best', label: 'best', title: 'the fastest timed try' },
+    { key: 'recent', label: 'recent', title: `the mean of the last ${RECENT} timed tries` }, { key: 'trend', label: 'trend', title: `recent against the ${RECENT} tries before those: minus is faster` },
+    { key: 'recognition', label: 'recog.', title: 'scramble on the cube to the first turn, recent cube-fed tries' }, { key: 'execution', label: 'exec.', title: 'first turn to last, recent cube-fed tries' },
+    { key: 'quiz', label: 'named', title: 'the quiz: named right, of those asked' }, { key: 'last', label: 'last', title: 'when the case last came up' },
+  ];
   async function renderPractice(): Promise<void> {
-    const body = drill.$('practiceBody');
-    const stats = workOn(caseStats(await readAttempts(kind), CASES[kind]));
-    const done = stats.filter((s) => s.n > 0);
-    if (!done.length) { body.innerHTML = '<p class="note">Nothing recorded yet: solve a case and it goes in the store (and the cloud, when sync is on).</p>'; return; }
-    const anyQuiz = stats.some((s) => s.quizAsked), anyFed = stats.some((s) => s.recognition !== null);
+    const body = drill.$('practiceBody'), wrap = drill.$('practiceGraphWrap');
+    const attempts = await readAttempts(kind);
+    const all = caseStats(attempts, CASES[kind]);
+    const stats = sortStats(all, sortBy.key, sortBy.dir);
+    const done = all.filter((s) => s.n > 0);
+    if (!done.length) { body.innerHTML = '<p class="note">Nothing recorded yet: solve a case and it goes in the store (and the cloud, when sync is on).</p>'; wrap.hidden = true; return; }
+    const anyQuiz = all.some((s) => s.quizAsked), anyFed = all.some((s) => s.recognition !== null);
     const ago = (t: number | null) => { if (t === null) return '–'; const d = (Date.now() - t) / 864e5; return d < 1 ? 'today' : d < 2 ? 'yesterday' : `${Math.floor(d)}d ago`; };
-    body.innerHTML = `<table><thead><tr><th>case</th><th>tries</th><th>best</th><th>recent</th>${anyFed ? '<th>recog.</th><th>exec.</th>' : ''}${anyQuiz ? '<th>named</th>' : ''}<th>last</th></tr></thead><tbody>${stats.map((s) => `
-      <tr class="${s.n < 3 ? 'dim' : ''}"><td class="name">${s.name}</td><td>${s.n}${s.assisted ? `<small> (${s.assisted} peeked)</small>` : ''}</td><td>${secs(s.best)}</td><td>${secs(s.recent)}</td>${anyFed ? `<td>${secs(s.recognition)}</td><td>${secs(s.execution)}</td>` : ''}${anyQuiz ? `<td>${s.quizAsked ? `${s.quizRight}/${s.quizAsked}` : '–'}</td>` : ''}<td>${ago(s.last)}</td></tr>`).join('')}</tbody></table>
-      <p class="note">Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}. Recent = the last ${RECENT} timed tries.</p>
-      <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpractised</button></div>`;
+    const cols = COLS.filter((c) => (anyFed || (c.key !== 'recognition' && c.key !== 'execution')) && (anyQuiz || c.key !== 'quiz'));
+    const th = (c: { key: SortKey; label: string; title: string }) => {
+      const on = sortBy.key === c.key;
+      return `<th><button type="button" class="${on ? 'on' : ''}" data-sort="${c.key}" title="${c.title}">${c.label}${on ? (sortBy.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button></th>`;
+    };
+    const cell = (s: (typeof stats)[number], key: SortKey): string => {
+      switch (key) {
+        case 'name': return `<td class="name"><button type="button" class="${graphCase === s.name ? 'on' : ''}" data-graph="${s.name}" title="Graph this case">${s.name}</button></td>`;
+        case 'n': return `<td>${s.n}${s.assisted ? `<small> (${s.assisted} peeked)</small>` : ''}</td>`;
+        case 'best': return `<td>${secs(s.best)}</td>`;
+        case 'recent': return `<td>${secs(s.recent)}</td>`;
+        case 'trend': return `<td class="${s.trend === null || Math.abs(s.trend) < 50 ? '' : s.trend < 0 ? 'faster' : 'slower'}">${trendText(s.trend)}</td>`;
+        case 'recognition': return `<td>${secs(s.recognition)}</td>`;
+        case 'execution': return `<td>${secs(s.execution)}</td>`;
+        case 'quiz': return `<td>${s.quizAsked ? `${s.quizRight}/${s.quizAsked}` : '–'}</td>`;
+        case 'last': return `<td>${ago(s.last)}</td>`;
+        default: return '<td></td>';
+      }
+    };
+    body.innerHTML = `<div class="ll-scroll"><table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${stats.map((s) => `
+      <tr class="${s.n < 3 ? 'dim' : ''}">${cols.map((c) => cell(s, c.key)).join('')}</tr>`).join('')}</tbody></table></div>
+      <p class="note">${sortBy.key === 'work' ? `Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}.` : 'Tap a heading to sort by it, again to flip it.'} Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster. Tap a case to graph it.</p>
+      <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpractised</button>${sortBy.key === 'work' ? '' : '<button type="button" class="eo-link" data-sort="work">sort worst first</button>'}</div>`;
+    // the graph: the case picker lists every case with a timed try, then the graph of the one picked
+    const timed = done.filter((s) => s.best !== null);
+    if (graphCase !== null && !timed.some((s) => s.name === graphCase)) graphCase = null;
+    const pick = drill.$('practiceCase') as HTMLSelectElement;
+    pick.innerHTML = `<option value="">every case</option>${timed.map((s) => `<option value="${s.name}"${s.name === graphCase ? ' selected' : ''}>${s.name}</option>`).join('')}`;
+    pick.value = graphCase ?? '';
+    wrap.hidden = !timed.length;
+    if (!timed.length) return;
+    drawGraph ??= mountGraph(drill.$('practiceGraph'), { windows: WINDOWS.filter((w) => w.n <= 12), shownKey: 'zz-ll-graph-shown', unit: 'try', empty: 'No timed tries of this case yet.' });
+    const series = caseSeries(attempts, graphCase);
+    drill.$('practiceN').textContent = `${series.times.length} timed ${series.times.length === 1 ? 'try' : 'tries'}${graphCase ? ` of ${graphCase}` : ''}`;
+    drawGraph({ ...series, dated: true, dayOf: (w) => dayOf(w) });
   }
   drill.$('practice').addEventListener('toggle', () => { if (drill.$('practice').hasAttribute('open')) void renderPractice(); });
+  drill.$('practiceCase').addEventListener('change', () => { graphCase = (drill.$('practiceCase') as HTMLSelectElement).value || null; void renderPractice(); });
   drill.$('practiceBody').addEventListener('click', (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-work]');
+    const t = e.target as HTMLElement;
+    const sort = t.closest<HTMLElement>('[data-sort]');
+    if (sort) {
+      const key = sort.dataset.sort as SortKey;
+      sortBy.dir = key === sortBy.key ? (sortBy.dir === 'asc' ? 'desc' : 'asc') : DEFAULT_DIR[key];
+      sortBy.key = key;
+      saveSort(); void renderPractice();
+      return;
+    }
+    const graph = t.closest<HTMLElement>('[data-graph]');
+    if (graph) {
+      graphCase = graphCase === graph.dataset.graph ? null : graph.dataset.graph!;
+      void renderPractice();
+      return;
+    }
+    const b = t.closest<HTMLElement>('[data-work]');
     if (!b) return;
     void (async () => {
       const stats = workOn(caseStats(await readAttempts(kind), CASES[kind]));

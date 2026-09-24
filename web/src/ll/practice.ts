@@ -1,7 +1,8 @@
 // What the practice so far says about each case: how often, how fast, how
-// well recognised - and which cases to work on next. Pure, on the store's
-// attempt records (ui/drill.ts files one per solved case); the drill shows
-// it and sets its case pool from it.
+// well recognised, whether it is getting faster - which cases to work on
+// next, the table sorted any way, and one case's times over time for the
+// graph. Pure, on the store's attempt records (ui/drill.ts files one per
+// solved case); the drill shows it and sets its case pool from it.
 
 import type { AttemptRecord } from '../store/types';
 import type { LLCase } from './cases';
@@ -15,6 +16,8 @@ export interface CaseStats {
   best: number | null;
   /** ms, the mean of the last `RECENT` timed attempts; null untimed */
   recent: number | null;
+  /** ms, `recent` minus the mean of the `RECENT` timed attempts before those (negative = faster now); null until there are enough */
+  trend: number | null;
   /** ms, mean recognition (scramble matched -> first turn) over the recent cube-fed attempts */
   recognition: number | null;
   /** ms, mean execution (first -> last turn) likewise */
@@ -33,6 +36,12 @@ export const RECENT = 8;
 
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
+/** The last RECENT against the up-to-RECENT before them: null with nothing before. */
+function trendOf(timed: readonly number[]): number | null {
+  const now = mean(timed.slice(-RECENT)), before = mean(timed.slice(-2 * RECENT, -RECENT));
+  return now === null || before === null ? null : now - before;
+}
+
 /** Per-case stats for `cases`, from the stage's attempts (oldest first); every case is listed, practised or not. */
 export function caseStats(attempts: readonly AttemptRecord[], cases: readonly LLCase[]): CaseStats[] {
   const byCase = new Map<string, AttemptRecord[]>();
@@ -48,6 +57,7 @@ export function caseStats(attempts: readonly AttemptRecord[], cases: readonly LL
       id: c.id, name: c.name, n: as.length,
       best: timed.length ? Math.min(...timed) : null,
       recent: mean(timed.slice(-RECENT)),
+      trend: trendOf(timed),
       recognition: mean(fed.filter((a) => !reps(a)).map((a) => a.recognition!)),
       execution: mean(fed.map((a) => a.execution!)),
       quizRight: asked.filter((a) => a.quiz === 'right').length, quizAsked: asked.length,
@@ -71,3 +81,53 @@ export function workOn(stats: readonly CaseStats[]): CaseStats[] {
 }
 
 export const secs = (ms: number | null): string => (ms === null ? '–' : `${(ms / 1000).toFixed(1)}s`);
+
+/** A signed trend: "−0.4s" (faster), "+0.2s" (slower), "±0" ; '–' with none. */
+export const trendText = (ms: number | null): string => (ms === null ? '–' : Math.abs(ms) < 50 ? '±0' : `${ms < 0 ? '−' : '+'}${(Math.abs(ms) / 1000).toFixed(1)}s`);
+
+/** The table's columns, as the sort knows them; 'work' is the worst-first ranking. */
+export type SortKey = 'work' | 'name' | 'n' | 'best' | 'recent' | 'trend' | 'recognition' | 'execution' | 'quiz' | 'last';
+export const SORT_KEYS: readonly SortKey[] = ['work', 'name', 'n', 'best', 'recent', 'trend', 'recognition', 'execution', 'quiz', 'last'];
+
+/**
+ * The stats sorted by a column. `dir` is the direction as read down the table; a case with no
+ * value in that column sits at the bottom either way. 'name' takes the case list's order; 'quiz' is
+ * the share named right; 'last' descending is the most recent first.
+ */
+export function sortStats(stats: readonly CaseStats[], key: SortKey, dir: 'asc' | 'desc'): CaseStats[] {
+  if (key === 'work') { const w = workOn(stats); return dir === 'asc' ? w : w.reverse(); }
+  const sign = dir === 'asc' ? 1 : -1;
+  const order = new Map(stats.map((s, i) => [s.id, i]));
+  const value = (s: CaseStats): number | null => {
+    switch (key) {
+      case 'name': return order.get(s.id)!;
+      case 'n': return s.n;
+      case 'best': return s.best;
+      case 'recent': return s.recent;
+      case 'trend': return s.trend;
+      case 'recognition': return s.recognition;
+      case 'execution': return s.execution;
+      case 'quiz': return s.quizAsked ? s.quizRight / s.quizAsked : null;
+      case 'last': return s.last;
+    }
+  };
+  return [...stats].sort((a, b) => {
+    const va = value(a), vb = value(b);
+    if (va === null || vb === null) return va === vb ? 0 : va === null ? 1 : -1;
+    return sign * (va - vb) || order.get(a.id)! - order.get(b.id)!;
+  });
+}
+
+/** The default direction for a column: what puts the interesting rows on top. */
+export const DEFAULT_DIR: Record<SortKey, 'asc' | 'desc'> = {
+  work: 'asc', name: 'asc', n: 'asc', best: 'desc', recent: 'desc', trend: 'desc', recognition: 'desc', execution: 'desc', quiz: 'asc', last: 'desc',
+};
+
+/** One case's timed attempts (or every case's, with `caseName` null) in time order, for the graph: ms and wall clocks. */
+export function caseSeries(attempts: readonly AttemptRecord[], caseName: string | null): { times: number[]; whens: number[] } {
+  // DECISION: reps (the alg over and over, no scramble) count here as they do in `recent`: they are
+  // timed first turn to last and so read a shade faster, but leaving them out would hide most of an
+  // evening spent on one alg.
+  const as = attempts.filter((a) => !a.deleted && a.time !== null && a.caseId && (caseName === null || a.caseId === caseName)).sort((a, b) => a.when - b.when);
+  return { times: as.map((a) => a.time!), whens: as.map((a) => a.when) };
+}
