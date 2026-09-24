@@ -14,6 +14,7 @@ import { initWake } from './app/wake';
 import { mountEO } from './eo/trainer';
 import { mountF2L } from './f2l/trainer';
 import { initFavs } from './ll/favs';
+import { initNotes } from './ll/notes';
 import { mountLL } from './ll/trainer';
 import { algsHooks, initShell, stages } from './shell';
 import { mountTimer } from './timer/trainer';
@@ -21,6 +22,8 @@ import { setAttemptReader, setAttemptSink } from './ui/drill';
 
 // the favourite algs from the store onto the case table (async: the drills hear it and re-derive their case)
 void initFavs(store);
+// and what you have written about each alg (shown in the case sheet and under the alg on show)
+void initNotes(store);
 // the stages: PLL before OCLL (whose Continue button needs it), F2L, EO, and the timer
 stages.pll = mountLL(panel('pll-panel'), 'pll');
 stages.ocll = mountLL(panel('ocll-panel'), 'ocll');
@@ -51,6 +54,7 @@ initWake();
   solves: () => store.then((st) => st.allSolves()),
   sessions: () => store.then((st) => st.allSessions()),
   favs: () => store.then((st) => st.listFavs()),
+  notes: () => store.then((st) => st.listNotes()),
   putFav: (f: unknown) => store.then((st) => st.putFav(f as Parameters<typeof st.putFav>[0])),
   dirty: () => store.then((st) => st.dirty()),
 };

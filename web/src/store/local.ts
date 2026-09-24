@@ -4,11 +4,11 @@
 // through applyRemote, which keeps the later edit and marks nothing.
 // Tests run it on fake-indexeddb.
 
-import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type FavRecord, type SessionRecord, type SolveRecord } from './types';
+import { DEFAULT_PUZZLE, type AttemptRecord, type AttemptStage, type FavRecord, type NoteRecord, type SessionRecord, type SolveRecord } from './types';
 
-export type Coll = 'solves' | 'sessions' | 'attempts' | 'favs';
-type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : C extends 'attempts' ? AttemptRecord : FavRecord;
-type AnyRecord = SolveRecord | SessionRecord | AttemptRecord | FavRecord;
+export type Coll = 'solves' | 'sessions' | 'attempts' | 'favs' | 'notes';
+type RecordOf<C extends Coll> = C extends 'solves' ? SolveRecord : C extends 'sessions' ? SessionRecord : C extends 'attempts' ? AttemptRecord : C extends 'favs' ? FavRecord : NoteRecord;
+type AnyRecord = SolveRecord | SessionRecord | AttemptRecord | FavRecord | NoteRecord;
 
 export interface Store {
   putSolve(s: SolveRecord): Promise<void>;
@@ -30,6 +30,10 @@ export interface Store {
   getFav(id: string): Promise<FavRecord | undefined>;
   /** the favourite algs in force (tombstones left out) */
   listFavs(): Promise<FavRecord[]>;
+  putNote(n: NoteRecord): Promise<void>;
+  getNote(id: string): Promise<NoteRecord | undefined>;
+  /** the notes written (tombstones left out) */
+  listNotes(): Promise<NoteRecord[]>;
   /** a record from the other side: kept when the local edit is later; returns what happened */
   applyRemote<C extends Coll>(coll: C, r: RecordOf<C>): Promise<'applied' | 'kept'>;
   /** records edited here and not yet pushed */
@@ -50,7 +54,7 @@ function withPuzzle<T extends { puzzle?: unknown }>(r: T): T & { puzzle: typeof 
   return r.puzzle ? (r as T & { puzzle: typeof DEFAULT_PUZZLE }) : { ...r, puzzle: DEFAULT_PUZZLE };
 }
 
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export function openStore(name = 'cube-coach'): Promise<Store> {
   return new Promise((resolve, reject) => {
@@ -83,6 +87,7 @@ export function openStore(name = 'cube-coach'): Promise<Store> {
         }
       }
       if (oldVersion < 3) db.createObjectStore('favs', { keyPath: 'id' });
+      if (oldVersion < 4) db.createObjectStore('notes', { keyPath: 'id' });
     };
     open.onerror = () => reject(open.error);
     open.onsuccess = () => resolve(wrap(open.result));
@@ -126,6 +131,9 @@ function wrap(db: IDBDatabase): Store {
     putFav: (f) => put('favs', f, true),
     getFav: (id) => get<FavRecord>('favs', id),
     async listFavs() { return (await all<FavRecord>('favs')).filter((f) => !f.deleted); },
+    putNote: (n) => put('notes', n, true),
+    getNote: (id) => get<NoteRecord>('notes', id),
+    async listNotes() { return (await all<NoteRecord>('notes')).filter((n) => !n.deleted); },
     async applyRemote(coll, r) {
       const mine = await get<AnyRecord>(coll, r.id);
       if (mine && mine.editedAt >= r.editedAt) return 'kept';

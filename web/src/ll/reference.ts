@@ -13,6 +13,7 @@ import { closeSheet, openSheet } from '../shell';
 import { triggers } from '../ui/fingertricks';
 import { CASES, isFavourite, type LLCase, type LLKind, matchesName } from './cases';
 import { onFavsChange, setFavourite } from './favs';
+import { noteFor, onNotesChange, setNote } from './notes';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
@@ -58,6 +59,10 @@ const STYLE = `
   .llr-fav.on { color: #C8930A; }
   .llr-fav:hover { color: var(--ink); }
   .llr-hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+  .llr-note { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); line-height: 1.4; resize: vertical; }
+  .llr-note::placeholder { color: var(--ink-2); }
+  .llr-note:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .llr-note.has { background: #FFFDF2; border-color: #E4D9A8; }
   .llr-chain { font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
   .llr-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 8px; }
   .llr-foot .llr-tags { flex: 1 1 100%; }
@@ -169,6 +174,12 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
         const star = (alg: string, on: boolean) => `<button type="button" class="llr-fav${on ? ' on' : ''}" data-fav="${esc(alg)}" title="${on ? 'This is the alg the drill uses (tap for the standard one)' : 'Make this the alg the drill uses'}">${on ? '★' : '☆'}</button>`;
         const chain = !p ? '' : `<span class="llr-chain" title="${p.id === c.id ? 'The alg again solves it' : 'After the alg, that is the case on the cube'}">${p.id === c.id ? '↻ itself' : `↔ ${esc(p.name)}`}</span>`;
         const alts = c.alts ?? [];
+        // your own note on an alg: what tells it from its twin, how you hold it. One per alg, so an
+        // alternative keeps its own (user, 2026-09-23).
+        const note = (alg: string, what: string) => {
+          const t = noteFor(kind, c.id, alg);
+          return `<textarea class="llr-note${t ? ' has' : ''}" rows="${t ? Math.min(4, Math.ceil(t.length / 46) + (t.match(/\n/g)?.length ?? 0)) : 1}" data-note="${esc(alg)}" placeholder="Your note on ${esc(what)}…">${esc(t)}</textarea>`;
+        };
         return `<div class="llr-case" data-id="${esc(c.id)}">
           <div class="llr-head">
             <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
@@ -177,7 +188,8 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
           </div>
           <div class="llr-alg">${algHtml(c.alg)}${alts.length ? star(c.alg, true) : ''}</div>
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
-          ${alts.length ? `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small></div>`).join('')}</details>` : ''}
+          ${note(c.alg, c.name)}
+          ${alts.length ? `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small>${note(a.alg, `this ${c.name}`)}</div>`).join('')}</details>` : ''}
           <div class="llr-foot"><button type="button" class="llr-drill" data-drill="${esc(c.id)}">Drill this case</button><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
           <div class="llr-player"></div>
         </div>`;
@@ -188,6 +200,15 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
   const draw = () => { closePlayer(); render(); };
   draw();
+  // a note: kept when the field is left (or the sheet closed), and the card is not redrawn under the caret
+  panel.addEventListener('focusout', (e) => {
+    const box = e.target as HTMLTextAreaElement;
+    const alg = box.dataset?.note;
+    if (alg === undefined) return;
+    const id = box.closest<HTMLElement>('.llr-case')!.dataset.id!;
+    setNote(kind, id, alg, box.value);
+    box.classList.toggle('has', !!box.value.trim());
+  });
   // the name box: typed into, the list follows; the redraw replaces the box, so the caret goes back where it was
   panel.addEventListener('input', (e) => {
     const box = e.target as HTMLInputElement;
@@ -232,9 +253,12 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) draw(); }); }
   // a favourite from another device while the sheet is up: redrawn (the case list is whatever the table says)
   if (!favsHooked) { favsHooked = true; onFavsChange(() => { if (!document.getElementById('ref-sheet')!.hidden) { feat = feats(); draw(); } }); }
+  // a note from another device: redrawn, unless one is being written here (the caret would jump)
+  if (!notesHooked) { notesHooked = true; onNotesChange(() => { if (!document.getElementById('ref-sheet')!.hidden && !document.activeElement?.classList.contains('llr-note')) draw(); }); }
   openSheet('ref-sheet');
   // the name box ready to type into (a phone keyboard would cover the list, so only where there is a mouse)
   if (matchMedia('(hover: hover) and (pointer: fine)').matches) panel.querySelector<HTMLInputElement>('#llr-name')?.focus();
 }
 let schemeHooked = false;
 let favsHooked = false;
+let notesHooked = false;

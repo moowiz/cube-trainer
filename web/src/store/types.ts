@@ -99,6 +99,19 @@ export interface FavRecord {
   deleted?: boolean;
 }
 
+/** What you wrote about one alg of one case - how you tell it apart, how you hold it. One per alg. */
+export interface NoteRecord {
+  /** `${kind}:${caseId}:${alg with the spaces out and ' as i}` */
+  id: string;
+  kind: 'ocll' | 'pll';
+  caseId: string;
+  /** the alg the note is about, as the table writes it */
+  alg: string;
+  text: string;
+  editedAt: number;
+  deleted?: boolean;
+}
+
 /** The time that counts: raw + 2 s, or null for a DNF. */
 export function effectiveTime(s: Pick<SolveRecord, 'time' | 'penalty'>): number | null {
   return s.penalty === -1 ? null : s.time + s.penalty * 1000;

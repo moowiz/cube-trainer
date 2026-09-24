@@ -49,6 +49,7 @@ import { CASES, families, type LLCase, type LLKind } from './cases';
 import { aufToSolve, done, drawCase, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
+import { noteFor, onNotesChange } from './notes';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
@@ -85,6 +86,7 @@ const STYLE = `
   .eo-result .ll-alg { margin: 4px 0 8px; line-height: 1.9; }
   .eo-result .ll-alg .eo-apply { float: right; margin: 4px 0 0 8px; }
   .eo-result .ll-alg small { clear: both; }
+  .ll-note { margin: 4px 0 0; padding: 6px 9px; background: #FFFDF2; border: 1px solid #E4D9A8; border-radius: 8px; font-size: 13px; color: var(--ink); line-height: 1.45; word-spacing: normal; white-space: pre-wrap; }
   .ll-alts { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
   .ll-alts summary { cursor: pointer; }
   .ll-alts .ll-step { margin-top: 8px; }
@@ -784,6 +786,16 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   renderCases();
 
   const AUF_NOTE = ` <small>[U] is the AUF: turn the top layer that way first${kind === 'pll' ? '; a bracket at the end lines it up after' : ''}.</small>`;
+  /** Your note on the step's alg, under its line (the case list sheet is where it is written). */
+  function noteUnder(line: HTMLElement, step: RouteStep): void {
+    const c = step.case;
+    if (!c) return;
+    const text = noteFor(step.stage === 'pll' ? 'pll' : 'ocll', c.id, step.alg); // a pair step has no case, so the stage is the kind
+    if (!text) return;
+    const p = document.createElement('div'); p.className = 'll-note'; p.textContent = text;
+    line.insertAdjacentElement('afterend', p);
+  }
+
   /**
    * The steps as listed lines, [AUF]s in brackets, triggers labelled, each line applying the route
    * so far (from `before`, moves already done from the setup) so ▶ and the peek show the right cube.
@@ -806,6 +818,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     for (const s of steps) {
       if (steps.length > 1) body.insertAdjacentHTML('beforeend', `<div class="ll-step"><b>${s.name}</b> · ${stepMoves(s)} moves</div>`);
       lastLine = line(s, sofar);
+      noteUnder(lastLine, s);
       sofar = `${sofar} ${stepPlain(s)}`.trim();
     }
     lastLine?.setAttribute('data-main', '1'); // the route the voice reads
@@ -826,6 +839,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         const d = drill.algLine(stepShown(step), `${at} ${stepPlain(step)}`.trim(), at ? tokens(at).length : 0); d.classList.add('ll-alg');
         markTriggers(d, step.alg, step.pre ? 1 : 0);
         box.appendChild(d);
+        noteUnder(d, step);
         altLine = d; altAuf ||= !!(fit!.pre || fit!.post);
       }
       if (altAuf && !steps.some((s) => s.pre || s.post)) altLine?.insertAdjacentHTML('beforeend', AUF_NOTE);
@@ -1023,6 +1037,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   const favChanged = () => { if (settings.repeat) startRep(false); else load(setup); };
   refBtn.addEventListener('click', () => openLLReference(kind, (alg) => { load(alg); window.scrollTo({ top: 0 }); }, favChanged));
   onFavsChange(favChanged);
+  // a note written (here or on another device) while a case is up: the panel is rebuilt with it
+  onNotesChange(() => { if (drill.showOpen() && sol) onShow(true); });
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();

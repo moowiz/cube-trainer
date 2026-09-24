@@ -141,3 +141,17 @@ describe('favs', () => {
     st.close();
   });
 });
+
+describe('notes', () => {
+  it('keeps one note per alg, a tombstone clears it, and the later edit wins from remote', async () => {
+    const st = await openStore(`t-${Math.random()}`);
+    const id = "pll:Jb:RURiFiRURiUiRiFR2UiRi";
+    await st.putNote({ id, kind: 'pll', caseId: 'Jb', alg: "R U R' F' R U R' U' R' F R2 U' R'", text: 'the one with the x', editedAt: 10 });
+    expect((await st.listNotes()).map((n) => n.text)).toEqual(['the one with the x']);
+    expect((await st.dirty()).map((d) => d.coll)).toContain('notes');
+    expect(await st.applyRemote('notes', { id, kind: 'pll', caseId: 'Jb', alg: 'x', text: 'older', editedAt: 5 })).toBe('kept');
+    expect(await st.applyRemote('notes', { id, kind: 'pll', caseId: 'Jb', alg: 'x', text: '', editedAt: 20, deleted: true })).toBe('applied');
+    expect(await st.listNotes()).toEqual([]);
+    st.close();
+  });
+});
