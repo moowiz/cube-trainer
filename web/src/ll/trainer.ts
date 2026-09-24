@@ -95,6 +95,8 @@ const STYLE = `
   .ll-note { display: block; width: 100%; box-sizing: border-box; margin: 4px 0 0; padding: 6px 9px; background: #FFFDF2; border: 1px solid #E4D9A8; border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); line-height: 1.45; word-spacing: normal; resize: vertical; }
   .ll-note:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
   .ll-notebox .eo-link { font-size: 12px; padding: 2px 0; }
+  .ll-hintnote { padding: 8px 2px 0; }
+  .ll-hintnote div.ll-note { white-space: pre-wrap; }
   .ll-alts { margin-top: 10px; font-size: 13px; color: var(--ink-2); }
   .ll-alts summary { cursor: pointer; }
   .ll-alts .ll-step { margin-top: 8px; }
@@ -353,6 +355,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
 
   function render(): void {
     drawPic();
+    renderNoteHint();
     drill.$('case').innerHTML = settings.repeat || (drill.result.visible() && recorded) || !sol ? caseText() : '';
     renderScramble();
     if (results.length) {
@@ -624,7 +627,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     setup = faceTurns(alg);
     const derive = () => { const steps = route(kind, setup); sol = steps?.[steps.length - 1] ?? null; lead = steps?.slice(0, -1) ?? []; };
     derive();
-    shown = null; assisted = false; recorded = false; cameUp = null; held = false; asked = false;
+    shown = null; assisted = false; recorded = false; cameUp = null; held = false; asked = false; noteOpen = false;
     const open = SLOTS.find((sl) => !slotSolved(state(setup), sl));
     view.rx = TOP_VIEW.rx; view.ry = open ? SLOT_RY[open]! : TOP_VIEW.ry;
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
@@ -1093,6 +1096,25 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     render();
   }
 
+  // ---- the note as a hint (user, 2026-09-24): "Show my note" above "Show the alg" shows the case's own note
+  // and nothing else - the recognition cue without the alg. Only there when the case has a note; a peek counts
+  // as assisted, as a hint does ----
+  const hintNote = document.createElement('div'); hintNote.className = 'll-hintnote'; hintNote.hidden = true;
+  const hintNoteBtn = document.createElement('button'); hintNoteBtn.type = 'button'; hintNoteBtn.className = 'eo-link'; hintNoteBtn.id = id('showNote'); hintNoteBtn.textContent = 'Show my note';
+  const hintNoteText = document.createElement('div'); hintNoteText.className = 'll-note'; hintNoteText.id = id('noteHint'); hintNoteText.hidden = true;
+  hintNote.append(hintNoteBtn, hintNoteText);
+  drill.$('showSol').parentElement!.insertAdjacentElement('beforebegin', hintNote);
+  let noteOpen = false;
+  function renderNoteHint(): void {
+    const c = sol?.case;
+    const text = c && sol && !settings.repeat ? noteFor(sol.stage === 'pll' ? 'pll' : 'ocll', c.id, sol.alg) : '';
+    hintNote.hidden = !text;
+    if (!text) { noteOpen = false; return; }
+    hintNoteText.textContent = text; hintNoteText.hidden = !noteOpen;
+    hintNoteBtn.textContent = noteOpen ? 'Hide my note' : 'Show my note';
+  }
+  hintNoteBtn.addEventListener('click', () => { noteOpen = !noteOpen; if (noteOpen) assisted = true; renderNoteHint(); });
+
   function onShow(open: boolean): void {
     drill.setShowLabel(open ? 'Hide the alg' : 'Show the alg');
     if (!open) return;
@@ -1161,7 +1183,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   onFavsChange(favChanged);
   // a note written (here or on another device) while a case is up: the panel is rebuilt with it
   // (not while one is being written here: the redraw would take the caret)
-  onNotesChange(() => { if (drill.showOpen() && sol && !document.activeElement?.classList.contains('ll-note')) onShow(true); });
+  onNotesChange(() => { renderNoteHint(); if (drill.showOpen() && sol && !document.activeElement?.classList.contains('ll-note')) onShow(true); });
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();

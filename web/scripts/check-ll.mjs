@@ -64,9 +64,22 @@ await page.reload({ waitUntil: 'networkidle0' }); await new Promise((r) => setTi
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
 await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
 check((await page.$eval('#pll-result .ll-note', (e) => e.value)) === 'bars facing me: T', 'the note is back after a reload');
+// the note as a hint: "Show my note" above "Show the alg" shows the note alone
+await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
+check(!(await page.$eval('#pll-showNote', (e) => e.parentElement.hidden)), 'a case with a note offers "Show my note"');
+check((await page.$eval('#pll-noteHint', (e) => e.hidden)), 'the note is hidden until asked');
+await page.$eval('#pll-showNote', (b) => b.click()); await new Promise((r) => setTimeout(r, 100)); // a script click: the scramble arriving shifts the layout under a pointer click
+check((await page.$eval('#pll-noteHint', (e) => !e.hidden && e.textContent)) === 'bars facing me: T', 'tapped: the note shows');
+check(!(await page.$eval('#pll-result', (e) => e.classList.contains('show'))), 'and the alg stays hidden');
+check((await page.$eval('#pll-showNote', (e) => e.textContent)) === 'Hide my note', 'the button flips');
+await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 500));
+check((await page.$eval('#pll-noteHint', (e) => e.hidden)), 'a new case: the note is hidden again');
+await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
+await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
 await page.click('#pll-result .ll-note'); await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace');
 await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
 check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'cleared: back to "add a note"');
+check((await page.$eval('#pll-showNote', (e) => e.parentElement.hidden)), 'no note: no "Show my note"');
 await page.select('#pll-order', 'cycle'); await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
 await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/ll-cycle.png' });
