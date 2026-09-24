@@ -201,17 +201,17 @@ const shuffled = (n: number, rng: () => number): number[] => {
  * moves, else of one more, up to `maxDepth`, or null. `lastFace` is the face the moves before it
  * ended on (no U after a U); `order` is the moves tried, in that order (a subset drops faces).
  */
-function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[], noSlice = false): number[] | null {
+function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[], slices?: 'none' | 'paired'): number[] | null {
   const t = (tables ??= buildTables());
   const path: number[] = [];
   const search = (cp: number, ep: number, sl: number, depth: number, last: number): boolean => {
     const h = Math.max(t.pruneCp[cp * N_SLICE + sl]!, t.pruneEp[ep * N_SLICE + sl]!);
     if (h > depth) return false;
-    if (depth === 0) return h === 0;
+    if (depth === 0) return h === 0 && slicesOk(path, slices);
     for (const m of order) {
       const f = FACE_OF[m]!;
       if (f === last || (OPPOSITE[f] === last && f < last)) continue; // no U U, and U D only in one order
-      if (noSlice && OPPOSITE[f] === last && f >= 2) continue; // no L2 straight after R2
+      if (slices === 'none' && OPPOSITE[f] === last && f >= 2) continue; // no L2 straight after R2
       path.push(m);
       if (search(t.cpMove[cp * 10 + m]!, t.epMove[ep * 10 + m]!, t.slMove[sl * 10 + m]!, depth - 1, f)) return true;
       path.pop();
@@ -231,8 +231,25 @@ export interface SolveOpts {
   longer?: [number, number];
   /** no U as the first move of the answer: the scramble (the answer backwards) then never ends in an AUF */
   noLeadingU?: boolean;
-  /** no R2 next to an L2 (an M2 in two turns): with U, D, R2, L2 alone the <M2, U> algs - H, Z, Ua, Ub - would otherwise come out as the scramble */
-  noSlice?: boolean;
+  /**
+   * An R2 next to an L2 is an M2 in two turns (the drill shows it as one). 'none' forbids the pair;
+   * 'paired' allows it but wants an even number (each one turns the cube over in hand, the last
+   * layer must end up on top) and not an answer made of U, D and pairs alone - that is the <M2, U>
+   * family, and H, Z, Ua and Ub would come out as their own algs (user, 2026-09-24).
+   */
+  slices?: 'none' | 'paired';
+}
+/** The `slices` rule on a finished path: the pairs are R2 then L2 (the canonical order allows only that way round). */
+function slicesOk(path: readonly number[], rule: 'none' | 'paired' | undefined): boolean {
+  if (!rule) return true;
+  let pairs = 0, other = 0;
+  for (let i = 0; i < path.length; i++) {
+    const f = FACE_OF[path[i]!]!, g = i + 1 < path.length ? FACE_OF[path[i + 1]!]! : -1;
+    if (f >= 2 && g >= 2 && g !== f) { pairs++; i++; continue; }
+    if (f >= 2) other++;
+  }
+  if (rule === 'none') return pairs === 0;
+  return pairs % 2 === 0 && (pairs === 0 || other > 0);
 }
 /** The MOVES kept by `faces`, in a random order. */
 function movesOf(opts: SolveOpts, rng: () => number): number[] {
@@ -255,7 +272,7 @@ function solveG1(facelets: string, rng: () => number = Math.random, opts: SolveO
   if (!inG1(p)) return null;
   const order = movesOf(opts, rng), last = opts.noLeadingU ? 0 : -1;
   const st = coords2(p);
-  const ns = !!opts.noSlice;
+  const ns = opts.slices;
   let length = opts.length;
   if (length === undefined && opts.longer) {
     const shortest = searchG1(st, 0, 30, last, order, ns);

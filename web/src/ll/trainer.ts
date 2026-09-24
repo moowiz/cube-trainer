@@ -41,13 +41,13 @@ import { trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
 import { onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
 import type { TrackStatus } from '../timer/track';
-import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
+import { makeTrackWatcher, moveHtml, scrambleHtml, shownIndex, trackText } from '../timer/track-ui';
 import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, drawCase, fitAlg, type LLStart, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
+import { aufToSolve, done, drawCase, fitAlg, type LLStart, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, sliceForm, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
 import { noteFor, onNotesChange } from './notes';
@@ -352,16 +352,18 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
 
   // ---- the scramble, and following it on a smart cube (as the Solve tab does) ----
+  /** The scramble as shown and read: WCA letters, an R2 L2 pair as one M2 with the turns after it relabelled (sliceForm). */
+  const shownScramble = (): { toks: string[]; spans: number[] } => sliceForm(toWca(scramble ?? '').split(' ').filter(Boolean));
   function renderScramble(): void {
     const su = drill.$('setup'), tr = drill.$('track');
     if (settings.repeat) { const cs = repCases(); su.innerHTML = `Repeating ${cs.length === CASES[kind].length ? `all ${cs.length} cases` : cs.map((c) => c.name).join(', ')} from wherever the cube is: no scramble.`; tr.textContent = ''; tr.className = 'll-track'; return; }
     if (!setup) { su.innerHTML = ''; tr.textContent = ''; return; }
     if (scramble === null) { su.innerHTML = 'Scramble WCA style: <span>…</span>'; tr.textContent = ''; return; }
-    const toks = toWca(scramble).split(' ').filter(Boolean);
-    su.innerHTML = `Scramble WCA style: ${scrambleHtml(toks, track)}`;
+    const { toks, spans } = shownScramble();
+    su.innerHTML = `Scramble WCA style: ${scrambleHtml(toks, track, spans)}`;
     tr.className = track?.off ? 'll-track off' : 'll-track';
     // off the scramble with the turns since known: the undo of those, not "back to turn n"
-    tr.textContent = trackText(track, toks, offTurns.length ? `Off the scramble after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : undefined);
+    tr.textContent = trackText(track, toks, offTurns.length ? `Off the scramble after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : undefined, spans);
   }
   const watcher = makeTrackWatcher();
   let track: TrackStatus | null = null;
@@ -594,7 +596,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (mode === 'echo') { if (turn && !track.off) say(spoken(tokens(toWca(turn))[0] ?? turn)); return; }
     if (track.matched) { if (scrRead !== 'done') { scrRead = 'done'; say('scrambled'); } return; }
     if (track.off || track.half) return; // off it, or mid-double-turn: the rest of that turn is under way
-    const next = toWca(scramble ?? '').split(' ').filter(Boolean)[track.applied];
+    const { toks, spans } = shownScramble();
+    const next = toks[shownIndex(spans, track.applied)];
     if (!next || next === scrRead) return;
     scrRead = next;
     say(spoken(next));
@@ -1126,9 +1129,11 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       // a rep lined up first (a U turn or two before the alg, as in a solve): the rep starts from there instead
       if (settings.repeat && absorbAuf(text)) return false;
       heard(text);
+      const wasOn = drill.result.visible();
       const r = drill.feed(text, t, source);
-      // a rep undone back to its start re-arms with no moves, which clears the panel: the alg stays on show here
-      if (settings.repeat && !drill.result.visible()) drill.result.show(drill.$('rTitle').textContent ?? '', drill.$('rSub').textContent ?? '');
+      // undone back to the scramble: the scaffold's empty box clears the panel, but an alg on show stays on show
+      // (user, 2026-09-24: starting the solve over is not un-seeing the alg); a rep undone to its start likewise
+      if ((settings.repeat || (wasOn && !text.trim())) && !drill.result.visible()) drill.result.show(drill.$('rTitle').textContent ?? '', drill.$('rSub').textContent ?? '');
       if (!r) followAlg(text);
       return r;
     },

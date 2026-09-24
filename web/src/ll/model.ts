@@ -223,13 +223,36 @@ export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, 
  * every one is reachable with those four faces (a quarter turn of R or L is never needed); the
  * shortest answers run 11-18 moves and for 22 states the shortest is the only answer of its
  * length, so it would name the case; one past it every state has at least two answers, two past
- * at least three, so a state draws from five or more scrambles of 12-20 moves. And no L2 next to
- * an R2: that pair is an M2, and with these four faces the <M2, U> algs (H, Z, Ua, Ub) came out as
- * the scramble (user, 2026-09-24: an H perm's scramble was the H perm); without the pair every
- * state is still reachable at the same lengths. About 2 ms a draw. OCLL keeps the plain shortest
+ * at least three, so a state draws from five or more scrambles of 12-20 moves. An R2 L2 pair is
+ * an M2 and is shown as one (sliceForm), an even number of them so the cube ends the right way up,
+ * and never an answer of U, D and M2 alone: that is the <M2, U> family, and an H perm's scramble
+ * came out as the H perm (user, 2026-09-24). About 2 ms a draw. OCLL keeps the plain shortest
  * answer with every face (user: not drilled much).
  */
-export const PLL_SCRAMBLE: SolveOpts = { longer: [1, 2], noSlice: true };
+export const PLL_SCRAMBLE: SolveOpts = { longer: [1, 2], slices: 'paired' };
+
+const FLIP: Record<string, string> = { U: 'D', D: 'U', F: 'B', B: 'F' };
+/**
+ * A scramble as it is done in hand: each R2 L2 pair as one M2, and the turns after it relabelled for
+ * the cube being upside down from then to the next M2 (an M2 leaves the outer layers in your hands
+ * and turns the core over: the core's U is now your D; a smart cube reports the core's view). With
+ * an odd number of pairs the cube would end upside down, so the tokens come back untouched. `spans`
+ * is how many of the given tokens each shown one covers, for the done-so-far marking.
+ */
+export function sliceForm(toks: readonly string[]): { toks: string[]; spans: number[] } {
+  const pair = (i: number) => /^[RL]2$/.test(toks[i] ?? '') && /^[RL]2$/.test(toks[i + 1] ?? '') && toks[i]![0] !== toks[i + 1]![0];
+  let pairs = 0;
+  for (let i = 0; i < toks.length; i++) if (pair(i)) { pairs++; i++; }
+  if (pairs === 0 || pairs % 2) return { toks: [...toks], spans: toks.map(() => 1) };
+  const out: string[] = [], spans: number[] = [];
+  let flipped = false;
+  for (let i = 0; i < toks.length; i++) {
+    if (pair(i)) { out.push('M2'); spans.push(2); flipped = !flipped; i++; continue; }
+    const t = toks[i]!;
+    out.push((flipped ? FLIP[t[0]!] ?? t[0]! : t[0]!) + t.slice(1)); spans.push(1);
+  }
+  return { toks: out, spans };
+}
 
 export function scrambleFor(setup: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
   return inverse(solveAny(state(setup), rng, opts));

@@ -163,6 +163,21 @@ describe('ScrambleTracker', () => {
     expect(tr.status(applySeq(SOLVED, parseAlg("R U2 F'")))).toEqual({ applied: 3, total: 3, off: false, matched: true, half: false });
     expect(tr.target()).toBe(applySeq(SOLVED, parseAlg("R U2 F'")));
   });
+  it('an R2 L2 pair done as an M2: the cube reports the two outer turns in either order, and the first is halfway', () => {
+    const tr = new ScrambleTracker('U R2 L2 D');
+    expect(tr.status(applySeq(SOLVED, parseAlg('U R2')))).toMatchObject({ applied: 2, off: false, half: false });
+    expect(tr.status(applySeq(SOLVED, parseAlg('U L2')))).toMatchObject({ applied: 1, off: false, half: true });
+    expect(tr.status(applySeq(SOLVED, parseAlg('U L2 R2')))).toMatchObject({ applied: 3, off: false, half: false });
+    expect(tr.status(applySeq(SOLVED, parseAlg('U L2 R2 D')))).toMatchObject({ applied: 4, matched: true });
+  });
+  it('the done marking and the halfway text follow the shown tokens when an M2 covers two moves', async () => {
+    const { scrambleHtml, shownIndex, trackText } = await import('../src/timer/track-ui');
+    const toks = ['U', 'M2', 'D'], spans = [1, 2, 1];
+    expect(shownIndex(spans, 0)).toBe(0); expect(shownIndex(spans, 1)).toBe(1); expect(shownIndex(spans, 2)).toBe(1); expect(shownIndex(spans, 3)).toBe(2);
+    const done = (applied: number) => (scrambleHtml(toks, { applied, total: 4, off: false, matched: false, half: false }, spans).match(/class="done"/g) ?? []).length;
+    expect([done(0), done(1), done(2), done(3), done(4)]).toEqual([0, 1, 1, 2, 3]);
+    expect(trackText({ applied: 1, total: 4, off: false, matched: false, half: true }, toks, undefined, spans)).toBe('1 of 4 applied · halfway through M2');
+  });
 });
 
 describe('the local store', () => {

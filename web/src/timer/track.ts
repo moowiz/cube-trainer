@@ -2,7 +2,8 @@
 // scramble the cube has applied, read off the cube's belief against the
 // states the scramble's prefixes reach from solved. A double turn done as
 // two quarter turns passes through a state that is no prefix: those
-// halfway states (either direction) count as still on the scramble. Off
+// halfway states (either direction) count as still on the scramble, as
+// does one turn of an R2 L2 pair done as an M2. Off
 // the scramble (no prefix or halfway state matches) means a wrong turn:
 // the fix is to undo back to the last prefix that matched. Pure; the
 // scramble is in the cube's letters.
@@ -39,6 +40,12 @@ export class ScrambleTracker {
       this.states.push(applySeq(before, [m]));
       const face = m[0] as Move;
       this.halves.push(m.endsWith('2') ? [applySeq(before, [face]), applySeq(before, [`${face}'` as Move])] : []);
+    }
+    // an R2 L2 pair is done as one M2, which the cube reports as its two outer turns in either order: the
+    // other one first is halfway through the pair, not off
+    for (let k = 0; k + 1 < this.moves.length; k++) {
+      const a = this.moves[k]!, b = this.moves[k + 1]!;
+      if (/^[RL]2$/.test(a) && /^[RL]2$/.test(b) && a[0] !== b[0]) this.halves[k]!.push(applySeq(this.states[k]!, [b]));
     }
   }
 

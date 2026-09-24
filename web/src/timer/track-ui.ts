@@ -15,10 +15,19 @@ export function moveHtml(m: string): string {
   return `<span class="mv">${mod ? m.slice(0, -1) : m}${mod}</span>`;
 }
 
-/** The scramble's tokens as moveHtml spans, the applied prefix marked `done`. */
-export function scrambleHtml(toks: readonly string[], track: TrackStatus | null): string {
+/** The shown token that move `applied` falls in, when each shown token covers `spans[j]` moves. */
+export function shownIndex(spans: readonly number[] | undefined, applied: number): number {
+  if (!spans) return applied;
+  let at = 0;
+  for (let j = 0; j < spans.length; j++) { if (applied < at + spans[j]!) return j; at += spans[j]!; }
+  return spans.length;
+}
+
+/** The scramble's tokens as moveHtml spans, the applied prefix marked `done`; `spans` when a shown token covers more than one move (an M2 for R2 L2). */
+export function scrambleHtml(toks: readonly string[], track: TrackStatus | null, spans?: readonly number[]): string {
   const applied = track ? track.applied : 0;
-  return toks.map((t, i) => `<span class="${track && i < applied ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ');
+  const done = (j: number): boolean => { if (!spans) return j < applied; let at = 0; for (let k = 0; k <= j; k++) at += spans[k]!; return at <= applied; };
+  return toks.map((t, j) => `<span class="${track && done(j) ? 'done' : ''}">${moveHtml(t)}</span>`).join(' ');
 }
 
 /**
@@ -26,11 +35,11 @@ export function scrambleHtml(toks: readonly string[], track: TrackStatus | null)
  * turn the cube is halfway through), or off the scramble - `off` when the caller has a better
  * undo to offer than "back to turn n".
  */
-export function trackText(track: TrackStatus | null, toks: readonly string[], off?: string): string {
+export function trackText(track: TrackStatus | null, toks: readonly string[], off?: string, spans?: readonly number[]): string {
   if (!track) return '';
   if (track.off) return off ?? `Off the scramble: undo back to turn ${track.applied} (underlined)`;
   if (track.matched) return 'Scrambled ✓';
-  if (track.half) return `${track.applied} of ${track.total} applied · halfway through ${toks[track.applied]}`;
+  if (track.half) return `${track.applied} of ${track.total} applied · halfway through ${toks[shownIndex(spans, track.applied)]}`;
   return `${track.applied} of ${track.total} applied`;
 }
 

@@ -110,8 +110,12 @@ running ao5 (ao3 until there are five) over every timed try of the stage,
 a legend chip per case, a tap on a name in the table showing that case
 alone (`ll/practicegraph.ts`). A tick under the cube picture hides it.
 `scripts/check-practice.mjs` (`npm run check:practice`) seeds attempts into
-the page's IndexedDB and checks all of it headlessly; item 1's other checks
-are still to write.
+the page's IndexedDB and checks all of it headlessly. `scripts/check-ll.mjs`
+(`npm run check:ll`) is item 1's file, with one check so far (the alg on
+show survives an undo back to the scramble); the rest are still to write.
+PLL scrambles (2026-09-24) come from U, D, R2, L2 only, one or two moves
+past the shortest, an R2 L2 pair shown as M2 with the turns after it
+relabelled (`model.ts` sliceForm), never the <M2, U> algs themselves.
 
 The case sheet's layout and name filter, per-alg favourites and notes, the
 weighted draw, the watching voices, the 300 ms hold before a wrong turn is

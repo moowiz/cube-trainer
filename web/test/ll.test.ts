@@ -146,20 +146,23 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     }
   });
 
-  it('the PLL drill\'s options: U D R2 L2 only, no L2 R2 pair, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
+  it('the PLL drill\'s options: U D R2 L2 only, M2 pairs even and never the whole answer, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
     const { PLL_SCRAMBLE } = await import('../src/ll/model');
     const rng = makeRng(21);
     const opts = { ...PLL_SCRAMBLE, faces: 'UDRL', noLeadingU: true }; // the trainer drops the faces shown as F and B
     // every state once: reachable with the four faces, in range, no trailing AUF
     for (const c of PLL_CASES) for (const auf of ['', 'U', 'U2', "U'"]) {
       const setup = `${inverse(c.alg)} ${auf}`;
-      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true, noSlice: true })).length;
+      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true, slices: 'paired' })).length;
       const scr = scrambleFor(setup, rng, opts);
       const toks = tokens(scr);
       expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
       expect(toks.every((m) => /^(U|D|R2|L2)/.test(m) && !/^[RL]'?$/.test(m))).toBe(true);
       expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
-      expect(scr).not.toMatch(/R2 L2|L2 R2/); // no M2 in two turns: the H perm's scramble was the H perm
+      // R2 L2 pairs (an M2 each) in an even number, and never a scramble of U, D and M2 alone: the H perm's scramble was the H perm
+      const pairs = (scr.match(/(?:R2 L2|L2 R2)/g) ?? []).length;
+      expect([scr, pairs % 2]).toEqual([scr, 0]);
+      if (pairs) expect(scr.replace(/R2 L2|L2 R2/g, '').trim()).toMatch(/[RL]2/);
       expect(state(scr)).toBe(state(setup));
     }
     // the states with the fewest answers (measured 2026-09-24: Ja and Jb at 12-13 moves, Ga and Rb): eight draws never
@@ -769,5 +772,16 @@ describe('the practice graph: a line per case', () => {
     expect(one.lines.map((l) => l.id)).toEqual(['Y']);
     const svg = caseGraphSvg(g);
     expect(svg).toContain('data-id="T"'); expect(svg).toContain('>Y</text>');
+  });
+});
+
+describe('sliceForm(): a scramble as done in hand, an R2 L2 pair as one M2', () => {
+  it('merges the pairs, relabels the turns while the cube is upside down, and leaves an odd count alone', async () => {
+    const { sliceForm } = await import('../src/ll/model');
+    // U D L2 R2 U F2 R2 L2 D: after the first M2 the core's U is your D and its F your B, back after the second
+    expect(sliceForm(tokens("U D' L2 R2 U F2 R2 L2 D2"))).toEqual({ toks: ['U', "D'", 'M2', 'D', 'B2', 'M2', 'D2'], spans: [1, 1, 2, 1, 1, 2, 1] });
+    expect(sliceForm(tokens('R2 L2 U'))).toEqual({ toks: ['R2', 'L2', 'U'], spans: [1, 1, 1] }); // one pair: it would end upside down
+    expect(sliceForm(tokens('R2 U L2'))).toEqual({ toks: ['R2', 'U', 'L2'], spans: [1, 1, 1] }); // not adjacent: not a pair
+    expect(sliceForm([])).toEqual({ toks: [], spans: [] });
   });
 });

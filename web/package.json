@@ -18,6 +18,7 @@
     "check:smart": "node scripts/check-smart.mjs",
     "check:record": "node scripts/check-record.mjs",
     "check:practice": "node scripts/check-practice.mjs",
+    "check:ll": "node scripts/check-ll.mjs",
     "check:rig": "node scripts/check-record.mjs --rig"
   },
   "dependencies": {
