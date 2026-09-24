@@ -153,7 +153,7 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     // every state once: reachable with the four faces, in range, no trailing AUF
     for (const c of PLL_CASES) for (const auf of ['', 'U', 'U2', "U'"]) {
       const setup = `${inverse(c.alg)} ${auf}`;
-      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true })).length;
+      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true, noSlice: true })).length;
       const scr = scrambleFor(setup, rng, opts);
       const toks = tokens(scr);
       expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
