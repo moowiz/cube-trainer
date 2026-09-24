@@ -29,7 +29,7 @@
 // followed on a smart cube like the Solve tab's: turns done are underlined.
 
 import { faceMoves, inverse, mergeMoves, moveCount, movesStr, tokens } from '../cube/alg';
-import { toWca } from '../cube/frame';
+import { fromWca, toWca } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceHex, onSchemeChange } from '../cube/scheme';
@@ -47,7 +47,7 @@ import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
-import { aufToSolve, done, drawCase, fitAlg, type LLStart, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
+import { aufToSolve, done, drawCase, fitAlg, type LLStart, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
 import { noteFor, onNotesChange } from './notes';
@@ -622,7 +622,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const gen = ++scrambleGen;
     setTimeout(() => {
       if (gen !== scrambleGen) return;
-      const t = trimAuf(scrambleFor(setup));
+      // a PLL case from the PLL: the finger-friendly fixed-length scramble; an earlier start or a handed-over
+      // cube is off G1 and takes the plain shortest answer
+      const opts = kind === 'pll' && settings.from === 'pll' && !lead.length ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
+      const t = trimAuf(scrambleFor(setup, Math.random, opts));
       if (freeAuf && t.auf) {
         setup = faceTurns(`${setup} ${inverse(t.auf)}`);
         derive(); shareScramble(setup, kind);
@@ -676,7 +679,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       if (armedNow) setup = faceTurns(`${setup} ${tokens(drill.moves()).join(' ')}`);
       else if (belief) { try { setup = trainerScramble({ ...belief, solution: solveAny(belief.facelets) }, hold()); } catch { /* a cube the trainer cannot hold: the setup stays */ } }
     }
-    if (tokens(setup).length > REBASE_AT) setup = scrambleFor(setup);
+    if (tokens(setup).length > REBASE_AT) setup = scrambleFor(setup, Math.random, kind === 'pll' ? { faces: scrambleFaces() } : {});
     sol = { stage: kind, name: c.name, hint: c.hint, pre: '', alg: c.alg, post: '', case: c }; lead = [];
     shown = null; assisted = false; recorded = false; cameUp = null; held = false;
     view.rx = TOP_VIEW.rx; view.ry = TOP_VIEW.ry;
@@ -704,6 +707,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     startRep(false, true, true);
     return true;
   }
+  /** The faces a PLL scramble may turn, in the trainer's letters: every face but the one shown as B (blue, held WCA style). */
+  const scrambleFaces = (): string => 'UDRLFB'.replace(fromWca('B').trim()[0]!, '');
   /** A rep's alg done: recorded (its time is first turn to last), and the next rep starts from here. */
   function checkRep(txt: string): void {
     let toks: string[];

@@ -146,6 +146,32 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     }
   });
 
+  it('the PLL drill\'s options: 16 moves every time, no B, never ending in an AUF, several scrambles per state', async () => {
+    const { PLL_SCRAMBLE, PLL_SCRAMBLE_LEN } = await import('../src/ll/model');
+    const rng = makeRng(21);
+    let fewest = Infinity;
+    for (const c of PLL_CASES) for (const auf of ['', 'U', 'U2', "U'"]) {
+      const setup = `${inverse(c.alg)} ${auf}`;
+      const seen = new Set<string>();
+      for (let k = 0; k < 8; k++) {
+        const scr = scrambleFor(setup, rng, { ...PLL_SCRAMBLE, faces: 'UDRLF', noLeadingU: true }); // the trainer drops the face shown as B
+        const toks = tokens(scr);
+        expect([c.id, auf, toks.length]).toEqual([c.id, auf, PLL_SCRAMBLE_LEN]);
+        expect(toks.some((m) => m.startsWith('B'))).toBe(false);
+        expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
+        expect(state(scr)).toBe(state(setup));
+        seen.add(scr);
+      }
+      fewest = Math.min(fewest, seen.size);
+    }
+    expect(fewest).toBeGreaterThanOrEqual(3); // eight draws never come back with one or two scrambles
+  });
+  it('an exact length that no answer has falls back to the shortest', async () => {
+    const t = PLL_CASES.find((c) => c.id === 'T')!;
+    const scr = scrambleFor(inverse(t.alg), makeRng(4), { faces: 'UDRLF', length: 3 });
+    expect(state(scr)).toBe(state(inverse(t.alg)));
+    expect(tokens(scr).length).toBeGreaterThan(3);
+  });
   it('off G1 (a twist alone) the shortest scramble is the alg backwards, as it must be; solved is empty', () => {
     const sune = OCLL_CASES.find((c) => c.id === 'S')!;
     const scr = scrambleFor(inverse(sune.alg), () => 0.5);

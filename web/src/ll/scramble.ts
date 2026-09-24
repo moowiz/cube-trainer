@@ -16,6 +16,13 @@
 // Equal-length answers are tried in a random order, so the same case does
 // not always draw the same one. The scramble is the answer inverted.
 //
+// Options (user, 2026-09-24): the faces phase 2 may turn (the drill drops B,
+// the hardest face to double-turn with the cube in hand), an exact answer
+// length (every scramble the same length, and a random answer of that
+// length rather than the one or two shortest ones, so the scramble does
+// not name the case), and no U as the answer's first move (the scramble
+// does not end in an AUF, which the drill would trim off).
+//
 // Pruning: the classic tables, BFS-built on first use - phase 1 by corner
 // orientation x middle-layer edge positions (2187 x 495) and edge
 // orientation x the same (2048 x 495); phase 2 by corner permutation x
@@ -188,16 +195,17 @@ const shuffled = (n: number, rng: () => number): number[] => {
 };
 
 /**
- * An optimal phase-2 solution (move indices into MOVES) for G1 coordinates, of `maxDepth` moves at
- * most, or null. `lastFace` is the face the moves before it ended on (no U after a U).
+ * A phase-2 solution (move indices into MOVES) for G1 coordinates: the first found of `minDepth`
+ * moves, else of one more, up to `maxDepth`, or null. `lastFace` is the face the moves before it
+ * ended on (no U after a U); `order` is the moves tried, in that order (a subset drops faces).
  */
-function searchG1(st: { cp: number; ep: number; sl: number }, maxDepth: number, lastFace: number, order: readonly number[]): number[] | null {
+function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[]): number[] | null {
   const t = (tables ??= buildTables());
   const path: number[] = [];
   const search = (cp: number, ep: number, sl: number, depth: number, last: number): boolean => {
     const h = Math.max(t.pruneCp[cp * N_SLICE + sl]!, t.pruneEp[ep * N_SLICE + sl]!);
     if (h > depth) return false;
-    if (depth === 0) return true;
+    if (depth === 0) return h === 0;
     for (const m of order) {
       const f = FACE_OF[m]!;
       if (f === last || (OPPOSITE[f] === last && f < last)) continue; // no U U, and U D only in one order
@@ -207,8 +215,27 @@ function searchG1(st: { cp: number; ep: number; sl: number }, maxDepth: number, 
     }
     return false;
   };
-  for (let depth = 0; depth <= Math.min(maxDepth, 18); depth++) if (search(st.cp, st.ep, st.sl, depth, lastFace)) return path;
+  for (let depth = Math.max(0, minDepth); depth <= maxDepth; depth++) if (search(st.cp, st.ep, st.sl, depth, lastFace)) return path;
   return null;
+}
+
+export interface SolveOpts {
+  /** the faces phase 2 may turn, as letters (default every face: 'UDRLFB'); U and D are always in */
+  faces?: string;
+  /** an answer of exactly this many moves, when there is one (else the shortest, as without) */
+  length?: number;
+  /** no U as the first move of the answer: the scramble (the answer backwards) then never ends in an AUF */
+  noLeadingU?: boolean;
+}
+/** The MOVES kept by `faces`, in a random order. */
+function movesOf(opts: SolveOpts, rng: () => number): number[] {
+  const faces = (opts.faces ?? 'UDRLFB').toUpperCase();
+  return shuffled(MOVES.length, rng).filter((m) => 'UDRLFB'[FACE_OF[m]!]!.match(/[UD]/) || faces.includes('UDRLFB'[FACE_OF[m]!]!));
+}
+/** The phase-1 moves kept by `faces`, in a random order (a face dropped from phase 2 is dropped here too). */
+function moves1Of(opts: SolveOpts, rng: () => number): number[] {
+  const faces = (opts.faces ?? 'UDRLFB').toUpperCase();
+  return shuffled(ALL.length, rng).filter((m) => 'UDRLFB'[FACE_OF_ALL[m]!]!.match(/[UD]/) || faces.includes('UDRLFB'[FACE_OF_ALL[m]!]!));
 }
 
 /**
@@ -216,11 +243,16 @@ function searchG1(st: { cp: number; ep: number; sl: number }, maxDepth: number, 
  * state is not in G1. Equal-length solutions are tried in a random order, so the same case does
  * not always draw the same one.
  */
-function solveG1(facelets: string, rng: () => number = Math.random): string | null {
+function solveG1(facelets: string, rng: () => number = Math.random, opts: SolveOpts = {}): string | null {
   const p = piecesOf(Cube.fromString(facelets));
   if (!inG1(p)) return null;
-  const path = searchG1(coords2(p), 18, -1, shuffled(MOVES.length, rng));
-  return path ? path.map((m) => MOVES[m]).join(' ') : null; // phase 2 needs at most 18 moves: never null for a G1 state
+  const order = movesOf(opts, rng), last = opts.noLeadingU ? 0 : -1;
+  const st = coords2(p);
+  // DECISION: the exact length first; when nothing has that length (too short, or the wrong parity for
+  // the moves allowed) the shortest answer stands in - a scramble that works beats one of the right length
+  const path = (opts.length !== undefined ? searchG1(st, opts.length, opts.length, last, order) : null)
+    ?? searchG1(st, 0, 30, last, order) ?? searchG1(st, 0, 30, -1, shuffled(MOVES.length, rng));
+  return path ? path.map((m) => MOVES[m]).join(' ') : null; // phase 2 needs at most 18 moves with every face: never null for a G1 state
 }
 
 // DECISION: the two-phase search stops after this many phase-1 nodes (~50 ms) and returns the best
@@ -233,12 +265,16 @@ const NODE_BUDGET = 400_000;
  * best total found within the node budget (optimal in practice for the drills' states, which are a
  * few moves out of G1). Equal-length solutions come up in a random order.
  */
-export function solveAny(facelets: string, rng: () => number = Math.random): string {
+export function solveAny(facelets: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
   const p0 = piecesOf(Cube.fromString(facelets));
-  if (inG1(p0)) return solveG1(facelets, rng)!;
+  if (inG1(p0)) return solveG1(facelets, rng, opts)!;
   const t1 = (tables1 ??= buildTables1());
   tables ??= buildTables();
-  const order1 = shuffled(ALL.length, rng), order2 = shuffled(MOVES.length, rng);
+  const order1 = moves1Of(opts, rng), order2 = movesOf(opts, rng);
+  const first = opts.noLeadingU ? 0 : -1;
+  // an exact total: each phase-1 answer gets a phase-2 tail of exactly the rest (the first found), and
+  // the search stops at the first total that fits; else the shortest total, as before
+  const exact = opts.length;
   const found: { best: string[] | null } = { best: null };
   let nodes = 0;
   const stack: Pieces[] = Array.from({ length: 20 }, () => new Uint8Array(40));
@@ -252,9 +288,16 @@ export function solveAny(facelets: string, rng: () => number = Math.random): str
     if (h > depth) return;
     if (depth === 0) {
       if (h !== 0 || (path.length && IS_PHASE2[path[path.length - 1]!])) return;
+      if (exact !== undefined) {
+        const rest = exact - path.length;
+        if (rest < 0) return;
+        const tail = searchG1(coords2(p), rest, rest, lastFace, order2);
+        if (tail) { found.best = [...path.map((m) => ALL[m]!), ...tail.map((m) => MOVES[m]!)]; nodes = NODE_BUDGET + 1; }
+        return;
+      }
       const cap = found.best ? found.best.length - path.length - 1 : 18;
       if (cap < 0) return;
-      const tail = searchG1(coords2(p), cap, lastFace, order2);
+      const tail = searchG1(coords2(p), 0, cap, lastFace, order2);
       if (tail) found.best = [...path.map((m) => ALL[m]!), ...tail.map((m) => MOVES[m]!)];
       return;
     }
@@ -269,7 +312,8 @@ export function solveAny(facelets: string, rng: () => number = Math.random): str
   };
   for (let d1 = 1; d1 <= 12 && nodes <= NODE_BUDGET; d1++) {
     if (found.best && d1 >= found.best.length) break;
-    search1(p0, d1, -1, 0);
+    search1(p0, d1, first, 0);
   }
+  if (!found.best && (exact !== undefined || opts.noLeadingU || opts.faces)) return solveAny(facelets, rng, exact !== undefined ? { ...opts, length: undefined } : {}); // nothing of that length (or with those faces): the shortest stands in
   return found.best!.join(' '); // phase 1 finds a solution by depth 12 for any state, far inside the budget
 }

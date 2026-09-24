@@ -9,7 +9,7 @@ import { SOLVED, aufToSolve, faceTurns, state } from '../cube/state';
 import { DATA } from '../f2l/data';
 import { findCase, fullAlg, SLOTS, SLOT_WORD, slotSolved, slotState } from '../f2l/model';
 import { stageOf } from '../stage';
-import { solveAny } from './scramble';
+import { type SolveOpts, solveAny } from './scramble';
 import { CASES, casesVersion, type LLCase, type LLKind } from './cases';
 
 export { inverse, moveCount, tokens } from '../cube/alg';
@@ -215,8 +215,20 @@ export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, 
   return from[from.length - 1]!;
 }
 
-export function scrambleFor(setup: string, rng: () => number = Math.random): string {
-  return inverse(solveAny(state(setup), rng));
+/**
+ * The PLL drill's scramble options (user, 2026-09-24): no B face as the scramble is shown (WCA
+ * orientation, so the blue face - the hardest double turn with the cube in hand; the trainer adds
+ * that face in its own letters), every scramble PLL_SCRAMBLE_LEN moves, and a random
+ * answer of that length, not the one or two shortest, so the scramble does not name the case.
+ * Measured over the 84 PLL states: the shortest answers run 10-15 moves; at 15 one Rb angle has a
+ * single answer, at 16 every state has at least four in twelve draws (about eleven on average),
+ * under a millisecond a draw. OCLL keeps the plain shortest answer (user: not drilled much).
+ */
+export const PLL_SCRAMBLE_LEN = 16;
+export const PLL_SCRAMBLE: SolveOpts = { length: PLL_SCRAMBLE_LEN };
+
+export function scrambleFor(setup: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
+  return inverse(solveAny(state(setup), rng, opts));
 }
 
 /**
