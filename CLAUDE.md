@@ -213,6 +213,9 @@ cd model && make export      # writes web/public/models/facekp.onnx
 
 ## Prior art
 
+- `docs/ll-drill-next-steps.md` — the loose ends from the PLL-drilling
+  sessions (2026-09-21..23): the headless checks to re-commit, drawing
+  cases from the stored practice, the AUF-tolerant wrong-turn watcher.
 - `docs/rubiks-vision-analysis.md` — analysis of gillis.oldfeldt/rubiks-vision
   (a comparable browser scanner: whole-cube 54-keypoint pose, learned colour
   model, exact 9-per-colour decoder). Verdict: keep our per-face
