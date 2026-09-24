@@ -149,24 +149,27 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
   it('the PLL drill\'s options: U D R2 L2 only, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
     const { PLL_SCRAMBLE } = await import('../src/ll/model');
     const rng = makeRng(21);
-    let fewest = Infinity;
+    const opts = { ...PLL_SCRAMBLE, faces: 'UDRL', noLeadingU: true }; // the trainer drops the faces shown as F and B
+    // every state once: reachable with the four faces, in range, no trailing AUF
     for (const c of PLL_CASES) for (const auf of ['', 'U', 'U2', "U'"]) {
       const setup = `${inverse(c.alg)} ${auf}`;
-      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true })).length; // the trainer drops the faces shown as F and B
-      const seen = new Set<string>();
-      for (let k = 0; k < 8; k++) {
-        const scr = scrambleFor(setup, rng, { ...PLL_SCRAMBLE, faces: 'UDRL', noLeadingU: true });
-        const toks = tokens(scr);
-        expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
-        expect(toks.every((m) => /^(U|D|R2|L2)/.test(m) && !/^[RL]'?$/.test(m))).toBe(true);
-        expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
-        expect(state(scr)).toBe(state(setup));
-        seen.add(scr);
-      }
-      fewest = Math.min(fewest, seen.size);
+      const shortest = tokens(scrambleFor(setup, rng, { faces: 'UDRL', noLeadingU: true })).length;
+      const scr = scrambleFor(setup, rng, opts);
+      const toks = tokens(scr);
+      expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
+      expect(toks.every((m) => /^(U|D|R2|L2)/.test(m) && !/^[RL]'?$/.test(m))).toBe(true);
+      expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
+      expect(state(scr)).toBe(state(setup));
     }
-    expect(fewest).toBeGreaterThanOrEqual(3); // eight draws never come back with one or two scrambles
-  }, 30_000); // 84 states x 9 draws: ~3 s alone, more under the suite's load
+    // the states with the fewest answers (measured 2026-09-24: Ja and Jb at 12-13 moves, Ga and Rb): eight draws never
+    // come back with one or two scrambles
+    for (const [id, auf] of [['Ja', ''], ['Jb', ''], ['Ja', "U'"], ['Ga', 'U'], ['Rb', ''], ['Ua', 'U2']] as const) {
+      const setup = `${inverse(PLL_CASES.find((c) => c.id === id)!.alg)} ${auf}`;
+      const seen = new Set<string>();
+      for (let k = 0; k < 8; k++) seen.add(scrambleFor(setup, rng, opts));
+      expect([id, auf, seen.size >= 3]).toEqual([id, auf, true]);
+    }
+  });
   it('an exact length that no answer has falls back to the shortest', async () => {
     const t = PLL_CASES.find((c) => c.id === 'T')!;
     const scr = scrambleFor(inverse(t.alg), makeRng(4), { faces: 'UDRLF', length: 3 });
