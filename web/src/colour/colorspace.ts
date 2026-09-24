@@ -21,8 +21,8 @@ import { median } from './robust';
  * knee keeps neutrals linear (white vs a dim blue still separates by
  * chroma) while a colour seen dim stays with its hue.
  */
-export const CHROMA_KNEE = 20;
-export const CHROMA_SLOPE = 0.5;
+const CHROMA_KNEE = 20;
+const CHROMA_SLOPE = 0.5;
 
 export type EmbeddingName = 'logchroma' | 'lab-rel' | 'lab-crushed' | 'lab-half' | 'lab-norm';
 

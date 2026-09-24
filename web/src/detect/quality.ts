@@ -19,7 +19,7 @@ import { warpQuad, type ImageDataLike } from '../rectify';
 /** Prefix of the refusal reason for a face too small to sample. A hint reads it. */
 export const TOO_SMALL_REASON = 'face too small';
 /** Prefix of the refusal reason for a centre sticker with something on it. */
-export const OBSCURED_REASON = 'centre obscured';
+const OBSCURED_REASON = 'centre obscured';
 
 /** Where the quad's frame sits in the source: the size gate is decided in SOURCE px. */
 export interface FrameGeom {

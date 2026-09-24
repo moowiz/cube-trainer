@@ -1,6 +1,6 @@
 name: CI
 
-# Lint, typecheck and the unit suite on every push and pull request, ruff over
+# Lint, typecheck, the unit suite and the maintenance gates on every push and pull request, ruff over
 # the Python half and the tools, and the smart-cube path replayed through the built page in headless Chrome
 # (check:smart needs no model, camera or Bluetooth; check:detect needs the
 # models and WebGPU, check:record a fake camera - those stay manual). The
@@ -30,6 +30,15 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # The maintenance gates (docs/maintenance-plan.md, `npm run maintain`):
+      # dead exports (knip), exact clones over 1% of lines (jscpd), high
+      # advisories in the shipped (non-dev) dependencies, and a ceiling on the
+      # page's entry chunk after a build.
+      - run: npm run check:dead
+      - run: npm run check:dup
+      - run: npm run check:audit
+      - run: npm run build
+      - run: npm run check:size
 
   python:
     runs-on: ubuntu-latest

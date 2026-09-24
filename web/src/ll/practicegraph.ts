@@ -18,7 +18,7 @@ import type { LLCase } from './cases';
 // table's cases off the graph for an evening.
 export const AVG_N = 5, MIN_N = 3;
 
-export interface CasePoint {
+interface CasePoint {
   /** the try's index among every timed try of the stage (the x axis) */
   i: number;
   when: number;
@@ -31,7 +31,7 @@ export interface CaseLine { id: string; name: string; colour: string; points: Ca
 
 // DECISION: twenty hues, no two neighbours alike, so the drill's 21 cases each get one (the last
 // wraps); a line's colour is by its place in the case list and never changes when others are hidden.
-export const CASE_COLOURS = ['#2A78D6', '#EB6834', '#1BAF7A', '#4A3AA7', '#D6299A', '#B58A00', '#0F8FA8', '#C0392B', '#5B8C1A', '#7D4FD6', '#E07B00', '#2C6E49', '#A03E78', '#6B7280', '#008B8B', '#8B4513', '#3B5BDB', '#C2185B', '#558B2F', '#795548'];
+const CASE_COLOURS = ['#2A78D6', '#EB6834', '#1BAF7A', '#4A3AA7', '#D6299A', '#B58A00', '#0F8FA8', '#C0392B', '#5B8C1A', '#7D4FD6', '#E07B00', '#2C6E49', '#A03E78', '#6B7280', '#008B8B', '#8B4513', '#3B5BDB', '#C2185B', '#558B2F', '#795548'];
 export const colourOf = (k: number): string => CASE_COLOURS[k % CASE_COLOURS.length]!;
 
 /** Every case's line from the stage's attempts (any order), and the wall clock of every timed try in x order. */

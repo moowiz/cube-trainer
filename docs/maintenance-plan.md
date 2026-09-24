@@ -19,6 +19,27 @@ Baseline before the audit: 374 commits, 51 test files / 1000 tests green in
 19.6 s, typecheck and lint clean, deploy green. `web/src` is ~21.7k lines in
 ~120 files; `web/test` ~7k lines.
 
+## Status 2026-09-23: the gates are in CI, and a `/maintain` skill
+
+`npm run maintain` (= `check:dead` knip, `check:dup` jscpd over 1% of
+lines, `check:audit` high advisories in the shipped deps, `build`,
+`check:size` a ceiling on `dist/assets/main-*.js`) runs in the CI `web`
+job after the suite. Ten exports that had crept back since the 22nd are
+un-exported; knip's `duplicates` rule is off for the intentional
+`LAB_NORM` / `DEFAULT_EMBEDDING` alias. `docs/maintain-skill.md` is the
+recurring pass (move it to `.claude/skills/maintain/SKILL.md`): gates,
+drift report, one plan item, stop.
+
+Measured this pass: 62 files / 1086 tests in 10.5 s, `moves-replay.test.ts`
+the critical path at 11 s alone; `main` chunk 583 kB (ceiling 620);
+pack 232 MB (2.4 still open); 13 exact clones, three inside
+`ll/practicegraph.ts`; 13 `console.*` outside `debug/`. `npm audit` shows
+4 high in puppeteer 23's `extract-zip` (dev only; `check:audit` omits
+dev). **Puppeteer 25 clears it but could not be verified here**: the
+sandbox blocks the Chrome download, so the bump was reverted. Next pass
+on a machine with the browser: `npm i -D puppeteer@25`, then all four
+headless checks.
+
 ## Status 2026-09-22 (the second pass, commits `941ada1`..`c7cbc67`)
 
 Done, each its own commit, `npm test` / typecheck / lint and the headless

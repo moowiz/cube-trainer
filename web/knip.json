@@ -1,11 +1,27 @@
 {
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "entry": [
-    "src/main.ts", "src/label-main.ts", "src/signin.ts",
-    "src/solver.worker.ts", "src/colour/solve.worker.ts", "src/colour/sample.worker.ts", "src/detect/ort.worker.ts",
-    "scripts/*.{mjs,ts}", "test/**/*.test.ts", "vite.config.ts"
+    "src/label-main.ts",
+    "src/signin.ts",
+    "src/solver.worker.ts",
+    "src/colour/solve.worker.ts",
+    "src/colour/sample.worker.ts",
+    "src/detect/ort.worker.ts",
+    "scripts/*.{mjs,ts}",
+    "test/**/*.test.ts"
   ],
-  "project": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.{mjs,ts}"],
-  "ignore": ["public/**", "scripts/cut-solves.d.mts"],
-  "ignoreDependencies": ["web-bluetooth"]
+  "project": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.{mjs,ts}"
+  ],
+  "ignoreDependencies": [
+    "cubing"
+  ],
+  "ignoreBinaries": [
+    "tokens=5"
+  ],
+  "rules": {
+    "duplicates": "off"
+  }
 }

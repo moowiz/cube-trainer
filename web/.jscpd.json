@@ -1,0 +1,9 @@
+{
+  "minTokens": 60,
+  "minLines": 6,
+  "threshold": 1,
+  "reporters": ["console"],
+  "ignore": ["**/vendor/**", "**/node_modules/**"],
+  "absolute": false,
+  "gitignore": true
+}

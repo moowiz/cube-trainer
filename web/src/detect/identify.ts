@@ -75,7 +75,7 @@ export function normalizeFaceCells(cells: readonly Lab[], lWeight = CLUSTER_L_WE
 // pairs sit at ~6 (cube-scan-1789101879130), while the hardest legitimate
 // pair seen — white under a blue monitor cast vs a real blue centre
 // (cube-scan-1789102942492) — sits at 12.8 and must stay apart.
-export const CENTER_MIN_DIST = 10;
+const CENTER_MIN_DIST = 10;
 
 /** The colour word a face id means under the (possibly measured) scheme. */
 function colorOf(face: FaceId): ColorName {
@@ -87,10 +87,10 @@ function colorOf(face: FaceId): ColorName {
  * debug view can style this refusal differently from a naming failure: it is
  * not that the color was unreadable, it is that the app declined to guess.
  */
-export const TOO_SMALL_REASON = 'face too small';
+const TOO_SMALL_REASON = 'face too small';
 
 /** Prefix of the refusal reason for a center sticker with something on it. */
-export const OBSCURED_REASON = 'center obscured';
+const OBSCURED_REASON = 'center obscured';
 
 /** Prefix of the refusal reason when the two nearest exemplars are too close to call. */
 export const AMBIGUOUS_REASON = 'ambiguous centre';

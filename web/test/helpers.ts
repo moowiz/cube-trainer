@@ -41,13 +41,13 @@ export function setPixel(img: ImageData, x: number, y: number, rgb: readonly [nu
 }
 
 /** The one scrambled cube the colour-solver suites share as their truth (a random state, every colour on every face). */
-export const TRUTH_SCRAMBLE = "F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D";
+const TRUTH_SCRAMBLE = "F2 D2 L2 D2 U2 R2 U2 B' L2 B F2 U2 L' F D U B L2 B2 D";
 export const TRUTH: string = new Cube().move(TRUTH_SCRAMBLE).asString();
 
 // ---- 3D scenes ---------------------------------------------------------------------------------
 
 /** {pts, fill} for one poly, points sorted within the poly and rounded, so set-equality survives relabelling and float noise. */
-export function polySig(p: { pts: readonly (readonly number[])[]; fill: string }): string {
+function polySig(p: { pts: readonly (readonly number[])[]; fill: string }): string {
   const pts = p.pts.map((v) => v.map((x) => (Math.round(x * 1e6) / 1e6).toFixed(6)).join(',')).sort();
   return `${pts.join('|')}#${p.fill}`;
 }
