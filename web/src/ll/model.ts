@@ -223,10 +223,13 @@ export function drawCase(pool: readonly LLCase[], seen: Readonly<Record<string, 
  * every one is reachable with those four faces (a quarter turn of R or L is never needed); the
  * shortest answers run 11-18 moves and for 22 states the shortest is the only answer of its
  * length, so it would name the case; one past it every state has at least two answers, two past
- * at least three, so a state draws from five or more scrambles of 12-20 moves. About 1 ms a draw.
- * OCLL keeps the plain shortest answer with every face (user: not drilled much).
+ * at least three, so a state draws from five or more scrambles of 12-20 moves. And no L2 next to
+ * an R2: that pair is an M2, and with these four faces the <M2, U> algs (H, Z, Ua, Ub) came out as
+ * the scramble (user, 2026-09-24: an H perm's scramble was the H perm); without the pair every
+ * state is still reachable at the same lengths. About 2 ms a draw. OCLL keeps the plain shortest
+ * answer with every face (user: not drilled much).
  */
-export const PLL_SCRAMBLE: SolveOpts = { longer: [1, 2] };
+export const PLL_SCRAMBLE: SolveOpts = { longer: [1, 2], noSlice: true };
 
 export function scrambleFor(setup: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
   return inverse(solveAny(state(setup), rng, opts));

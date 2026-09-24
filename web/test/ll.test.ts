@@ -146,7 +146,7 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     }
   });
 
-  it('the PLL drill\'s options: U D R2 L2 only, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
+  it('the PLL drill\'s options: U D R2 L2 only, no L2 R2 pair, one or two past the shortest, never ending in an AUF, several scrambles per state', async () => {
     const { PLL_SCRAMBLE } = await import('../src/ll/model');
     const rng = makeRng(21);
     const opts = { ...PLL_SCRAMBLE, faces: 'UDRL', noLeadingU: true }; // the trainer drops the faces shown as F and B
@@ -159,6 +159,7 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
       expect([c.id, auf, toks.length >= shortest + 1 && toks.length <= shortest + 2]).toEqual([c.id, auf, true]);
       expect(toks.every((m) => /^(U|D|R2|L2)/.test(m) && !/^[RL]'?$/.test(m))).toBe(true);
       expect(toks[toks.length - 1]!.startsWith('U')).toBe(false);
+      expect(scr).not.toMatch(/R2 L2|L2 R2/); // no M2 in two turns: the H perm's scramble was the H perm
       expect(state(scr)).toBe(state(setup));
     }
     // the states with the fewest answers (measured 2026-09-24: Ja and Jb at 12-13 moves, Ga and Rb): eight draws never
