@@ -1109,7 +1109,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const c = sol?.case;
     const text = c && sol && !settings.repeat ? noteFor(sol.stage === 'pll' ? 'pll' : 'ocll', c.id, sol.alg) : '';
     hintNote.hidden = !text;
-    if (!text) { noteOpen = false; return; }
+    if (!text) { noteOpen = false; hintNoteText.hidden = true; return; }
     hintNoteText.textContent = text; hintNoteText.hidden = !noteOpen;
     hintNoteBtn.textContent = noteOpen ? 'Hide my note' : 'Show my note';
   }
