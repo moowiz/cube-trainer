@@ -40,6 +40,13 @@ sandbox blocks the Chrome download, so the bump was reverted. Next pass
 on a machine with the browser: `npm i -D puppeteer@25`, then all four
 headless checks.
 
+**3.10, first of three commits (2026-09-23):** the overlay drawing left
+`ui/scanner.ts` for `debug/detect-overlay.ts` (`drawTracks`,
+`drawSamplePatches`; the face-of-track and colour-of-face lookups are
+passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
+the debug exports are the next two. Guards run: `check:smart`,
+`check:record`.
+
 ## Status 2026-09-22 (the second pass, commits `941ada1`..`c7cbc67`)
 
 Done, each its own commit, `npm test` / typecheck / lint and the headless

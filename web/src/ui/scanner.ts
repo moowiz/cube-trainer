@@ -33,7 +33,7 @@ import { Camera } from '../camera';
 import { FrameRing, type RingFrame } from '../framering';
 import { FpsCounter } from '../debug/fps';
 import { labToSrgb } from '../colour/lab';
-import { minFaceEdgePx, type CellPlan } from '../colour/patch';
+import { minFaceEdgePx } from '../colour/patch';
 import { SolverClient } from '../colour/client';
 import type { MovesResult } from '../colour/solve.worker';
 import { commitmentsFrom } from '../moves/anchor';
@@ -49,16 +49,14 @@ import { DEFAULT_PARAMS } from '../colour/solve';
 import type { EvidenceLog, Solution } from '../colour/types';
 import { ensureCrossOriginIsolated } from '../detect/coi';
 import type { Ep } from '../detect/facekp';
-import { drawHeatmap, drawQuad, drawStage1 } from '../debug/detect-overlay';
+import { drawSamplePatches, drawTracks, type SampledQuad } from '../debug/detect-overlay';
 import { captureDebug, saveRawFrame, summarizeTick, type TickSummary } from '../debug/dump';
 import { installDetectSelfTest } from '../debug/selftest';
 import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/models';
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
-import { QuadTracker, type QuadDetection, type TrackedQuad } from '../detect/tracker';
-import { TOO_SMALL_REASON } from '../detect/quality';
+import { QuadTracker, type QuadDetection } from '../detect/tracker';
 import { HintState, hintFor } from './hint';
 import { matchSharedEdge } from '../detect/orient';
-import { mapUV, squareToQuad } from '../rectify';
 import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
 import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
@@ -456,7 +454,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   let lastUiTs = 0;
   let paused = false;
   /** The quads actually sampled this frame (source px, refined) and their sampling plan, for the overlay. */
-  let sampledQuads: { track: number; quad: [number, number][]; plan: CellPlan }[] = [];
+  let sampledQuads: SampledQuad[] = [];
   let lastSolveTs = 0;
   let lastSampleTs = -Infinity;
   let peakEma = 255;         // running median-ish of the brightest channel of sampled readings
@@ -560,38 +558,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     return DEFAULT_SCHEME_HEX[f];
   }
 
-  /** Outline every patch the colour sampler reads on the quads that voted this frame. */
-  function drawSamplePatches(): void {
-    ctx.save();
-    ctx.lineWidth = 1.5;
-    for (const { track, quad, plan } of sampledQuads) {
-      const m = squareToQuad(quad);
-      const face = faceOfTrack(track);
-      ctx.strokeStyle = face ? cssOfLetter(face) : '#cfd3dc';
-      const box = (u: number, v: number, half: number) => {
-        const pts = [[u - half, v - half], [u + half, v - half], [u + half, v + half], [u - half, v + half]]
-          .map(([a, b]) => mapUV(m, a!, b!));
-        ctx.beginPath();
-        pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-        ctx.closePath();
-        ctx.stroke();
-      };
-      for (let r = 0; r < 3; r++) {
-        for (let c = 0; c < 3; c++) {
-          const u = (c + 0.5) / 3;
-          const v = (r + 0.5) / 3;
-          if (r === 1 && c === 1) {
-            box(u, v, plan.centreHalf / 3);
-            for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) box(u + (sx! * plan.centreOff) / 3, v + (sy! * plan.centreOff) / 3, plan.centreHalf / 3);
-          } else {
-            box(u, v, plan.half / 3);
-          }
-        }
-      }
-    }
-    ctx.restore();
-  }
-
   /**
    * The solution as six 3x3 grids: each cell painted with the aggregated
    * reading of that sticker, badged with the letter the decoder gave it (a
@@ -678,35 +644,6 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     solver.trimmed(dropped.quads, dropped.pairings, dropped.events);
     logVersion++;
   };
-
-  function drawOverlay(tracks: TrackedQuad[]): void {
-    // Debug layering, back to front: stage 1's box and ROI, heatmap, then the
-    // raw anonymous quads in grey (what the model actually said), then the
-    // tracked quads in the colour their cluster resolved to (what the app
-    // decided). Seeing them all at once is how a naming bug is told apart from
-    // a detection bug, and a stage-1 miss from a stage-2 one. Dashed amber =
-    // seen but deliberately skipped for size; solid grey = a quality refusal.
-    if (lastTick?.result?.heat && heatChk.checked) drawHeatmap(ctx, lastTick.result.heat);
-    if (lastTick && stageChk.checked) drawStage1(ctx, lastTick.box?.box ?? null, lastTick.roi, lastTick.obj);
-    if (lastTick?.result && refusedChk.checked) {
-      for (const u of lastTick.result.refused) {
-        const tooSmall = u.reason.startsWith(TOO_SMALL_REASON);
-        drawQuad(ctx, u.quad.corners, tooSmall ? '#d98a1f' : '#8b93a3', `${u.quad.conf.toFixed(2)} ${u.reason}`, 1.5, tooSmall);
-      }
-    }
-    // Solid = a detection on this frame; dashed = coasting (the tracker's
-    // memory of a quad, kept up to dropMs so a one-frame miss does not kill
-    // the track - never sampled). Bold = confident enough to be sampled.
-    for (const t of tracks) {
-      const strong = t.conf >= SAMPLE_CONF;
-      const coasting = t.sinceDetectMs > 0;
-      const face = faceOfTrack(t.id);
-      ctx.globalAlpha = strong && !coasting ? 1 : 0.5;
-      const label = labelsChk.checked ? `#${t.id} ${face ? DEFAULT_SCHEME_NAMES[face] : '?'} ${t.conf.toFixed(2)}${coasting ? ` coast ${Math.round(t.sinceDetectMs)}ms` : ''}` : '';
-      drawQuad(ctx, t.corners, face ? cssOfLetter(face) : '#cfd3dc', label, strong && !coasting ? 4 : 1.5, coasting);
-      ctx.globalAlpha = 1;
-    }
-  }
 
   /** Live solver table: the palette, the face groups, and the certificates. */
   function renderSolver(): void {
@@ -1083,8 +1020,9 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       }
 
       if (!confident.length || locked) sampledQuads = [];
-      drawOverlay(tracks);
-      if (samplesChk.checked) drawSamplePatches();
+      drawTracks(ctx, lastTick, tracks, { heat: heatChk.checked, stage: stageChk.checked, refused: refusedChk.checked, labels: labelsChk.checked },
+        SAMPLE_CONF, faceOfTrack, cssOfLetter);
+      if (samplesChk.checked) drawSamplePatches(ctx, sampledQuads, (track) => { const f = faceOfTrack(track); return f ? cssOfLetter(f) : null; });
       // Banner for refusals the user can fix (too far, too dark, glare).
       const reasons = lastTick?.result?.refused.map((u) => u.reason) ?? [];
       const dark = confident.length > 0 && !locked && peakEma < DARK_PEAK;
