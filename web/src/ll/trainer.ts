@@ -599,6 +599,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
 
   let scrRead: string | null = null; // the last thing said about the scramble, so a repeat is not said twice
+  let firstRead = false;             // the read of a fresh scramble's first move: queued, not cutting the cue off
   /**
    * The scramble out loud while it is being applied: its next move, or the moves made, in the WCA letters
    * it is shown in (user, 2026-09-23). Nothing once it is on: from there the alg's own mode has the voice.
@@ -613,7 +614,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     const next = toks[shownIndex(spans, track.applied)];
     if (!next || next === scrRead) return;
     scrRead = next;
-    say(spoken(next));
+    say(spoken(next), firstRead);
   }
 
   /**
@@ -649,6 +650,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
         if (drill.showOpen() && sol) { onShow(true); if (held) { drill.result.hide(); drill.setShowLabel('Show the alg'); } }
       }
       scramble = freeAuf ? t.scramble : `${t.scramble} ${t.auf}`.trim();
+      // a cube is connected: the tracker starts now, not at the first turn, so the voice reads the first move
+      // (user, 2026-09-25: it was reading from the second, the first being done by the time it heard of it);
+      // the read queues behind the "scramble" cue said at New case
+      if (belief) { firstRead = true; watch(belief.facelets, belief.colourOf); firstRead = false; }
       render();
     });
     drill.begin();

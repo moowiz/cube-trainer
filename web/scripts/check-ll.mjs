@@ -18,6 +18,12 @@ function capture(moves) {
   return lines.join('\n') + '\n';
 }
 let failed = 0; const check = (ok, what) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`); if (!ok) failed++; };
+// the voice, stubbed: what it says is collected
+await page.evaluateOnNewDocument(() => {
+  const said = []; window.__said = said;
+  Object.defineProperty(window, 'speechSynthesis', { value: { speak: (u) => said.push(u.text), cancel: () => {}, getVoices: () => [], speaking: false, pending: false }, configurable: true });
+  window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+});
 await page.goto(`${server.origin}/?tab=pll`, { waitUntil: 'networkidle0' });
 await page.evaluate(() => { const b = document.getElementById('pll-auto'); if (!b.checked) b.click(); });
 const T = "R U R' U' R' F R2 U' R' U' R U R' F'"; // the T perm, trainer letters
@@ -80,6 +86,17 @@ await page.click('#pll-result .ll-note'); await page.keyboard.down('Control'); a
 await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
 check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'cleared: back to "add a note"');
 check((await page.$eval('#pll-showNote', (e) => e.parentElement.hidden)), 'no note: no "Show my note"');
+// the scramble voice reads the first move of a new case as soon as the scramble is there, after the "scramble" cue
+// (user, 2026-09-25: it read from the second move, the first done before it heard of it)
+await page.select('#pll-vscr', 'read');
+await page.evaluate((t) => window.ZZ.smart.replay(t), capture('')); // a cube connected, solved, not moving
+await page.evaluate(() => { window.__said.length = 0; });
+await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 700));
+const said = await page.evaluate(() => [...window.__said]);
+const first = await page.$eval('#pll-setup .mv', (e) => e.textContent.replace('′', ' prime').replace(/2$/, ' two'));
+console.log('said', JSON.stringify(said), 'first shown move', JSON.stringify(first));
+check(said[0] === 'scramble' && said[1] === first, 'New case: "scramble", then the first move, before any turn');
+await page.select('#pll-vscr', 'off');
 await page.select('#pll-order', 'cycle'); await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
 await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/ll-cycle.png' });
