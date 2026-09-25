@@ -14,6 +14,7 @@ import { triggers } from '../ui/fingertricks';
 import { CASES, isFavourite, type LLCase, type LLKind, matchesName } from './cases';
 import { onFavsChange, setFavourite } from './favs';
 import { noteFor, onNotesChange, setNote } from './notes';
+import { readStored, writeStored } from '../ui/settings';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
@@ -30,6 +31,9 @@ const STYLE = `
   .llr-filters .gap { flex-basis: 100%; height: 0; }
   .llr-filters .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .llr-filters .eo-chip small { opacity: .7; margin-left: 3px; }
+  .llr-feats { flex-basis: 100%; font-size: 13px; color: var(--ink-2); }
+  .llr-feats summary { cursor: pointer; }
+  .llr-feats .llr-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; }
   .llr-search { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); width: 9em; }
   .llr-count { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
   .llr-tags { font-size: 12px; color: var(--ink-2); }
@@ -144,17 +148,21 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();
+  // the piece and side chips fold away (user, 2026-09-24: rarely used); open or closed is remembered
+  const FEATS_KEY = 'zz-llr-feats-open';
+  let featsOpen = readStored(FEATS_KEY) === '1';
   let namePat = ''; // the name box: "G", "R*", "Ja Jb"
   const shown = (c: LLCase) => { const f = feat.get(c.id); return matchesName(c, namePat) && (!f || FILTERS.every((x) => !active.has(x.key) || x.test(f))); };
   const filterBar = () => {
     const nameBox = `<span class="lbl">Name</span><input class="llr-search" id="llr-name" type="search" placeholder="G, R*, Ja Jb" value="${esc(namePat).replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" spellcheck="false">`;
     if (kind !== 'pll') return `<div class="llr-filters">${nameBox}</div>`;
     const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && matchesName(c, namePat) && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
-    let group = '', out = `<div class="llr-filters">${nameBox}<span class="gap"></span>`;
+    let group = '', chips = '';
     for (const x of FILTERS) {
-      if (x.group !== group) { out += `${group ? '<span class="gap"></span>' : ''}<span class="lbl">${x.group}</span>`; group = x.group; }
-      out += `<button type="button" class="eo-chip${active.has(x.key) ? ' on' : ''}" data-filter="${x.key}">${esc(x.label)}<small>${count(x)}</small></button>`;
+      if (x.group !== group) { chips += `${group ? '<span class="gap"></span>' : ''}<span class="lbl">${x.group}</span>`; group = x.group; }
+      chips += `<button type="button" class="eo-chip${active.has(x.key) ? ' on' : ''}" data-filter="${x.key}">${esc(x.label)}<small>${count(x)}</small></button>`;
     }
+    const out = `<div class="llr-filters">${nameBox}<details class="llr-feats" id="llr-feats"${featsOpen ? ' open' : ''}><summary>By corners, edges and sides${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details>`;
     const n = CASES[kind].filter(shown).length;
     return `${out}</div><p class="llr-count">${active.size || namePat ? `${n} of ${CASES[kind].length} cases match${n ? '' : ': nothing has all of that'}.` : 'Type a name (G, R*, Ja Jb) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>`;
   };
@@ -200,6 +208,12 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
   const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
   const draw = () => { closePlayer(); render(); };
   draw();
+  // the chips folded or unfolded: remembered (toggle does not bubble, so it is caught on the way down)
+  panel.addEventListener('toggle', (e) => {
+    const d = e.target as HTMLElement;
+    if (d.id !== 'llr-feats') return;
+    featsOpen = (d as HTMLDetailsElement).open; writeStored(FEATS_KEY, featsOpen ? '1' : '0');
+  }, true);
   // a note: kept when the field is left (or the sheet closed), and the card is not redrawn under the caret
   panel.addEventListener('focusout', (e) => {
     const box = e.target as HTMLTextAreaElement;
