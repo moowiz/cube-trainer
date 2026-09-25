@@ -47,6 +47,21 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-24, fourth pass: the two patches
+
+Gates green before and after; drift unchanged (63 files / 1102 tests in
+~11 s, `main` 571 kB, 12 clones, 12 `console.*`, one TODO, pack 232 MB,
+`moves-replay` 10.7 s, every fixture read). **2.3's minors:** vite 8.3.0
+-> 8.3.1 and `@types/web-bluetooth` 0.0.20 -> 0.0.21 (the smart cube
+library still pins its own 0.0.20 copy underneath; harmless). All five
+headless checks pass on the bumped dev server. Section 7 now has no item
+left that does not wait on a decision: 2.4 (the model file), the majors
+(puppeteer 25 needs a machine with the Chrome download; typescript 7
+needs typescript-eslint), `label.html`'s script, and `MILESTONES.md`'s
+header. The scan sheet at 1350 lines and the LL trainer at 1208 are the
+two files over the 1000-line mark; neither is on the list, so further
+extraction is a new item for the user to rank.
+
 ## Status 2026-09-24, third pass: 4.4, the scan sheet's verdicts as pure functions
 
 Gates green before and after. Drift: unchanged but for `vite` 8.3.0 ->
