@@ -135,6 +135,10 @@ const CHUNKS: { moves: string; label: string }[] = [
   { moves: "F R U' R' U' R U R' F'", label: 'Y base' },
   { moves: "F R U R' U' R' F'", label: "F [sexy R'] F'" },             // Rb's second half
   { moves: "F' R2 U' R' U R' F", label: "F' [R2 U' R' U R'] F" },     // V's middle
+  // Nb's wide alg (user, 2026-09-24: "a commutator-like structure?"): a conjugate, not a commutator - the
+  // setup r' D' F r, a U', the setup undone (r' F' D r) - then the wide sexy and the wide sledge; the alg's
+  // r2 is the conjugate's closing r and the sexy's first r, so the chunk takes it (as the A commutator does)
+  { moves: "r' D' F r U' r' F' D r2", label: 'N conjugate' },
   { moves: "R' F' U' F R", label: "R' [F' U' F] R" },                 // Nb: the F insert wrapped in R' ... R
   { moves: "R' F R' F' R", label: "R' [F R' F'] R" },                 // Nb: and its partner
   // the commutators, named (user, 2026-09-21: the notation read aloud is no help; none has a name in the wild -

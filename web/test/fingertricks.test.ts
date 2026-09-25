@@ -3,6 +3,8 @@
 // rows cover the alg exactly.
 import { describe, expect, it } from 'vitest';
 import { annotate, triggers } from '../src/ui/fingertricks';
+import { inverse } from '../src/cube/alg';
+import { state } from '../src/cube/state';
 
 describe('fingertricks', () => {
   it('describes every face, slice, wide and rotation token', () => {
@@ -34,7 +36,9 @@ describe('fingertricks', () => {
     // the longest match anywhere wins: Jb keeps its T core although "sexy R' in F'" would start a move earlier
     expect(triggers("R U R' F' R U R' U' R' F R2 U' R'").map((g) => g.label)).toEqual(['T core']);
     expect(triggers("R' U R U' R' F' U' F R U R' F R' F' R U' R").map((g) => [g.at, g.label])).toEqual([[4, "R' [F' U' F] R"], [10, "R' [F R' F'] R"]]); // Nb's face-turn alt
-    expect(triggers("r' D' F r U' r' F' D r2 U r' U' r' F r F'").map((g) => [g.at, g.label])).toEqual([[12, 'wide sledge']]); // Nb (J Perm's, wide moves)
+    // Nb (J Perm's, wide moves): the conjugate r' D' F r · U' · r' F' D r (its closing r and the wide sexy's first r are the r2), then U r' U', then the wide sledge
+    expect(triggers("r' D' F r U' r' F' D r2 U r' U' r' F r F'").map((g) => [g.at, g.n, g.label])).toEqual([[0, 9, 'N conjugate'], [12, 4, 'wide sledge']]);
+    expect(state("r' D' F r U' r' F' D r2")).toBe(state(`r' D' F r U' ${inverse("r' D' F r")} r`)); // the claim, run
     expect(triggers("x R' U R' D2 R U' R' D2 R2 x'").map((g) => [g.at, g.n, g.label])).toEqual([[2, 8, 'A commutator']]); // Aa (the closing R and the R after are the R2)
     expect(triggers("x R2 D2 R U R' D2 R U' R x'").map((g) => [g.at, g.n, g.label])).toEqual([[1, 8, 'A commutator backwards']]); // Ab (an R' and the opening R' are the R2)
     expect(triggers("R' U2 R U2 R' F R U R' U' R' F' R2").map((g) => [g.at, g.label])).toEqual([[5, "F [sexy R'] F'"]]); // Rb
