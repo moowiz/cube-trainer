@@ -47,6 +47,29 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-24, third pass: 4.4, the scan sheet's verdicts as pure functions
+
+Gates green before and after. Drift: unchanged but for `vite` 8.3.0 ->
+8.3.1 (a patch, not taken this pass) and the suite now 63 files / 1102
+tests in ~11 s; `main` 571 kB, 12 clones, 12 `console.*`, one TODO,
+pack 232 MB, `moves-replay` 9.3 s.
+
+**4.4:** `ui/verdict.ts` holds, with no DOM, what the sheet says about
+the reading: `coloursOf` / `coloursOfStrict` (the colour of each letter
+from the naming), `scrambleCheck` + `scrambleCheckLine` (the live check
+against the host's scramble: text and state class), `verdictLine` (the
+debug panel's verdict row), `lightVerdict` / `lightLine` (too dark, too
+bright, whites clip) with the three light thresholds. `test/verdict.test.ts`
+(16 tests) pins them, including the check being by colour (the same
+cube read upside down, through cubejs's `x2`) and the "close" band.
+1391 -> 1350 lines. Different from the plan: the lock gating itself is
+not in the sheet - it is the decoder's certificates (`colour/decode.ts`,
+already tested), and the sheet only reads `sol.lockable`; the overlay
+geometry left in 3.10's first commit. `check:smart` failed once on its
+tab-following assertion (the PLL tab's state) and passed on the rerun
+with no change between: a timing flake in the headless check, noted for
+whoever sees it next. `check:record`, `check:rig` pass.
+
 ## Status 2026-09-24, later: 3.10's third commit, the capture's shape
 
 Gates green before and after; nothing moved in the drift numbers since

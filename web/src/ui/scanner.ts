@@ -56,14 +56,15 @@ import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/mod
 import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
 import { QuadTracker, type QuadDetection } from '../detect/tracker';
 import { HintState, hintFor } from './hint';
+import { BRIGHT_CLIP, BRIGHT_PEAK, DARK_PEAK, coloursOf, lightLine, scrambleCheck, scrambleCheckLine, verdictLine } from './verdict';
 import { SolveRecorder } from './recorder';
 import { matchSharedEdge } from '../detect/orient';
 import { randomScramble, scrambleState } from '../scramble';
 import { solveState, warmSolver } from '../state';
-import { diffFacelets, expectedFacelets, type Hold, type ScannedCube } from '../handoff';
+import type { Hold, ScannedCube } from '../handoff';
 import type { RecordingSession } from '../rig/session';
 import { persistControls } from './settings';
-import { COLOR_NAMES, DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
+import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
 import { scoped } from './dom';
 
@@ -140,18 +141,6 @@ const SOLVE_MIN_MS = 300;
 // and took the solve to 1 s, while nEff saturated on frame-to-frame copies
 // rather than independent looks. 12 samples/s is the phone's own pace.
 const SAMPLE_MIN_MS = 80;
-// The evidence is too dark to read when the running median of the
-// brightest channel of what is being sampled sits below this (sRGB): the
-// SNR weight (evidence.ts BRIGHT_FULL) has such readings at a tenth of
-// their weight, and the palette fit cannot separate colours in them
-// (scan-debug-1789348371807 read whole faces at RGB (40, 27, 14)).
-const DARK_PEAK = 55;
-// ...and too bright when the median peak is up here or this share of the
-// sampled sticker pixels is clipped: whites and yellows both read (2xx,
-// 25x, 25x) and stop separating (solve 1789360518933: peak 228-255, clip
-// 0.17, and auto at 62.5 ms had every turn motion-blurred at 15 fps).
-const BRIGHT_PEAK = 215;
-const BRIGHT_CLIP = 0.12;
 // Exposure steps are at least this far apart: a manual step is immediate
 // but the sampled-brightness EMA needs ~1 s to say what it did, and a
 // camera handed back to auto takes ~3 s to settle (LifeCam, measured).
@@ -679,7 +668,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
       // the solution's moves are named by centre: U is the face whose centre
       // is the U colour, F the F colour - say so, or the moves are meaningless
       const hold = `Hold the cube with the ${colourOf[st[4] as FaceId]} centre on top and the ${colourOf[st[22] as FaceId]} centre facing you.`;
-      const chk = checkExpected(locked, st.split(''));
+      const chk = scrambleCheck(opts.expected?.(), locked, st.split(''));
       const match = !chk || chk.note ? '' : chk.wrong.length === 0 ? '<div class="sc-match sc-ok">This is the scramble ✓</div>' : `<div class="sc-match sc-bad">Not the scramble: ${chk.wrong.length} sticker${chk.wrong.length === 1 ? '' : 's'} differ</div>`;
       const cert = `${locked.decode!.changed} sticker(s) moved by the cube's constraints; runner-up state ${locked.decode!.delta === Infinity ? 'none' : `${locked.decode!.delta.toFixed(1)} worse`}`;
       // facelets and moves are letters from the solver, never user text
@@ -714,36 +703,9 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     if (sol !== renderedSolution) { renderedSolution = sol; renderSolution(); }
   }
 
-  /** The colour each letter's centre carries, from the solver's naming (the standard scheme where it left a letter unnamed). */
-  function coloursOf(sol: Solution): Record<FaceId, ColorName> {
-    const out = { ...DEFAULT_SCHEME_NAMES };
-    sol.colourLetter.forEach((letter, c) => {
-      const name = sol.naming.names[c];
-      if (letter && name && (COLOR_NAMES as readonly string[]).includes(name)) out[letter] = name as ColorName;
-    });
-    return out;
-  }
-  /** coloursOf, but only once the solver has named every face - a partial naming would check against the wrong frame. */
-  function coloursOfStrict(sol: Solution): Record<FaceId, ColorName> | null {
-    const named = sol.colourLetter.filter((l, c) => l && sol.naming.names[c]).length;
-    return named === 6 ? coloursOf(sol) : null;
-  }
 
   // ---- the host's scramble: is the cube in view the one the trainer thinks it is? ----
   const expectEl = $('expect');
-  /** The check against the host's scramble for a (partial) reading; null when there is nothing to check. */
-  function checkExpected(sol: Solution, letters: readonly (string | null)[]): { scramble: string; read: number; wrong: number[]; note?: string } | null {
-    const exp = opts.expected?.();
-    if (!exp) return null;
-    const colourOf = coloursOfStrict(sol);
-    if (!colourOf) return { scramble: exp.scramble, read: 0, wrong: [], note: 'waiting for all six centres' };
-    try {
-      const want = expectedFacelets(exp.scramble, exp.hold, colourOf);
-      return { scramble: exp.scramble, ...diffFacelets(want, letters) };
-    } catch (err) {
-      return { scramble: exp.scramble, read: 0, wrong: [], note: err instanceof Error ? err.message : String(err) };
-    }
-  }
   function renderExpected(sol: Solution | null): void {
     const exp = opts.expected?.();
     expectEl.hidden = !exp;
@@ -751,12 +713,9 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     if (!exp) return;
     $('expectAlg').textContent = exp.shown ?? exp.scramble;
     const st = $('expectState');
-    const chk = sol ? checkExpected(sol, sol.slotLetter) : null;
-    if (!chk) { st.textContent = 'scan to compare'; st.className = 'sc-expectState'; return; }
-    if (chk.note) { st.textContent = chk.note; st.className = 'sc-expectState'; return; }
-    const w = chk.wrong.length;
-    st.textContent = chk.read === 0 ? 'no stickers read yet' : w === 0 ? `${chk.read} of 54 stickers read, all match ✓` : `${chk.read} read, ${w} differ${w <= 3 ? ' (close)' : ''}`;
-    st.className = 'sc-expectState ' + (chk.read === 0 ? '' : w === 0 ? 'sc-ok' : w <= 3 ? 'sc-near' : 'sc-bad');
+    const line = scrambleCheckLine(sol ? scrambleCheck(exp, sol, sol.slotLetter) : null);
+    st.textContent = line.text;
+    st.className = `sc-expectState${line.state ? ` sc-${line.state}` : ''}`;
   }
   renderExpected(null);
   $('expectNew').hidden = !opts.onNewScramble;
@@ -1053,7 +1012,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         const sol = locked ?? solution;
         setDiag('frame', `${v.videoWidth}×${v.videoHeight} · ${fps.fps.toFixed(1)} fps`);
         setDiag('exposure', exposureSel.value === 'loop' ? `app-controlled${exposureComp !== null ? ` → ${exposureComp}` : ''}` : (exposureComp ?? exposureSel.value));
-        setDiag('peak', peakEma === 255 && !log.quads.length ? 'no readings yet' : `${peakEma.toFixed(0)} / 255 (darkest tenth ${peakLowEma.toFixed(0)}) · ${(clipEma * 100).toFixed(0)}% clipped${peakEma < DARK_PEAK ? ' · too dark' : peakEma > BRIGHT_PEAK || clipEma > BRIGHT_CLIP ? (peakLowEma / 2 > DARK_PEAK ? ' · too bright' : ' · whites clip, darkening would lose the blues') : ''}`);
+        setDiag('peak', lightLine(peakEma, peakLowEma, clipEma, log.quads.length > 0));
         setDiag('backend', m ? `${m.detector.ep}${m.detector.threads > 1 ? ` × ${m.detector.threads} threads` : ''}${m.detector.proxied ? ' · worker' : ''}` : 'loading');
         setDiag('stage1', lastTick ? `${locateEma.toFixed(1)} ms · obj ${lastTick.obj.toFixed(2)} · no cube on ${stage1Misses} of ${ticks} ticks` : '–');
         setDiag('stage2', lastTick ? (lastTick.result ? `${inferEma.toFixed(1)} ms · ${lastTick.result.quads.length} quad${lastTick.result.quads.length === 1 ? '' : 's'}` : stage2Off.checked ? 'off' : 'skipped (no cube)') : '–');
@@ -1063,7 +1022,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
         setDiag('log', `${log.frames} frames · ${log.quads.length} quads · ${log.pairings.length} pairings`);
         setDiag('solve', sol ? `${solveEma.toFixed(0)} ms · ${sol.embedding}` : solveEma ? `${solveEma.toFixed(0)} ms` : '–');
         setDiag('faces', sol ? `${sol.centresSeen} of 6 · ${sol.groups.length} groups` : '–');
-        setDiag('verdict', locked ? 'locked ✓' : solverError ? `solver failed: ${solverError.split('\n')[0]} (Capture debug and file it)` : sol ? sol.reason : '–');
+        setDiag('verdict', verdictLine(!!locked, solverError, sol?.reason ?? null));
       }
       shown = frame;
     }
