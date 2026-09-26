@@ -14,6 +14,7 @@ import { CubeSource } from '../smart/source';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
 import { mountCubeView, type CubeView } from '../ui/cubeview';
 import { downloadText } from '../ui/download';
+import { readStored, writeStored } from '../ui/settings';
 import { hold, panel, scans } from './context';
 import { rig } from './rig';
 import { activeSource, dropSource, onSourceChange, useSource } from './sources';
@@ -99,6 +100,11 @@ function connected(src: CubeSource, link: CubeLink): void {
 // connected, the remembered cube is listened for and connected the moment it advertises. `wantCube`
 // is off only after the user's own Disconnect, so a dropped link comes back and a dismissed one stays away.
 let wantCube = true;
+// The Cube sheet's "Reconnect the cube on load" box (2026-09-26: the connect attempts on load made the
+// page feel stuck, and a phone without the cube around has nothing to gain from them). Off: only the
+// Connect button connects; a dropped link is not retried either.
+const AUTO_KEY = 'cube.smart.autoconnect';
+let autoOn = readStored(AUTO_KEY) !== 'off';
 let listening: AbortController | null = null;
 let attempts = 0;
 // DECISION: without watchAdvertisements the page can only try the connection and wait for Chrome's own
@@ -136,6 +142,7 @@ function explain(why: string): void {
 
 async function listenForCube(): Promise<void> {
   if (cubeLink || listening || !wantCube) return;
+  if (!autoOn) { explain('off ("Reconnect the cube on load" is unticked)'); return; }
   const support = autoConnectSupport();
   if (!support.ok) { explain(support.why); return; }
   const devices = await permittedDevices();
@@ -224,6 +231,14 @@ export function initSmart(): void {
       refreshView();
     },
     hasScan: () => scans.last() !== null,
+    autoConnect: autoOn,
+    setAutoConnect(on) {
+      autoOn = on;
+      writeStored(AUTO_KEY, on ? null : 'off');
+      if (!on) { stopListening(); view.setBusy(null); headerLight(cubeLink ? 'on' : 'idle', cubeLink?.name); return; }
+      attempts = 0;
+      void listenForCube();
+    },
     save() { if (cube) downloadText(`smart-${cube.capture.header.startedAt}.jsonl`, cube.capture.toJSONL(), 'application/x-ndjson'); },
     hold,
   });

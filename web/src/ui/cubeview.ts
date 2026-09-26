@@ -40,6 +40,9 @@ export interface CubeViewOpts {
   /** download the session's capture */
   save(): void;
   hold(): Hold;
+  /** the remembered cube reconnected on page load (the auto-connect), and the box that turns it off */
+  autoConnect: boolean;
+  setAutoConnect(on: boolean): void;
 }
 
 export interface CubeView {
@@ -56,6 +59,7 @@ const STYLE = `
   .cv-chip { font-size: 14px; padding: 6px 10px; border-radius: 999px; background: var(--grey-ll); color: var(--ink-2); }
   .cv-chip.on { background: #DDF3E4; color: var(--good); }
   .cv-chip.drift { background: #FBE9C6; color: #7A4B00; }
+  .cv-auto { font-size: 13px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .cv-status, .cv-busy { font-size: 13px; color: var(--ink-2); margin: 2px 2px 8px; line-height: 1.5; }
   .cv-warn { background: #FBE9C6; border: 1px solid #E9C784; border-radius: 10px; padding: 10px 12px; margin: 0 0 10px; font-size: 14px; line-height: 1.45; }
   .cv-warn .btn { margin: 6px 6px 0 0; }
@@ -113,6 +117,8 @@ export function mountCubeView(root: HTMLElement, opts: CubeViewOpts): CubeView {
         <button class="btn" id="cv-disconnect" type="button" hidden>Disconnect</button>
         <button class="btn" id="cv-save" type="button" hidden title="Download this session's capture: every event with both clocks, as JSONL - it replays in the tests">Save capture</button>
       </div>
+      <div class="cv-row"><label class="cv-auto" id="cv-autolbl" title="On: the cube you last connected is reconnected when the page loads and after a dropped link, no tap. Off: only the Connect button connects.">
+        <input type="checkbox" id="cv-auto"> Reconnect the cube on load</label></div>
       <div class="cv-busy" id="cv-busy" hidden></div>
       <div class="cv-status" id="cv-status"></div>
       <div class="cv-warn" id="cv-warn" hidden></div>
@@ -189,6 +195,10 @@ export function mountCubeView(root: HTMLElement, opts: CubeViewOpts): CubeView {
   $('connect').onclick = () => { void opts.connect(); };
   $('disconnect').onclick = () => { void opts.disconnect(); };
   $('save').onclick = () => opts.save();
+  const auto = $('auto') as HTMLInputElement;
+  auto.checked = opts.autoConnect;
+  $('autolbl').hidden = !opts.bluetooth;
+  auto.onchange = () => opts.setAutoConnect(auto.checked);
   $('solved').onclick = () => opts.resync('solved');
   $('scan').onclick = () => opts.resync('scan');
   $('report').onclick = () => opts.resync('report');
