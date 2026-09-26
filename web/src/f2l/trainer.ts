@@ -26,7 +26,7 @@ import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
-  acnUrl, describe, explain, findCase, fullAlg, genF2L, genFull, isSlot, normalizeAlg, randomCase, slotOf, slotSolved, slotState,
+  acnUrl, describe, explain, findCase, fullAlg, genF2L, isSlot, normalizeAlg, randomCase, slotOf, slotSolved, slotState,
   SLOT_WORD, SLOTS, trace, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
 import { ensureStyle, scoped } from '../ui/dom';
@@ -101,11 +101,7 @@ const STYLE = `
   .f2l .trace td:first-child { font-weight: 600; white-space: nowrap; }
   .f2l .why { background: var(--panel); border-left: 3px solid var(--ink); padding: 10px 12px; margin: -4px 0 8px; font-size: 14px; line-height: 1.5; color: var(--ink); border-radius: 0 6px 6px 0; }
   .f2l .why b { font-weight: 600; }
-  .f2l .scr { margin-top: 12px; max-width: 520px; }
-  .f2l .scr summary { font-size: 14px; color: var(--ink-2); cursor: pointer; }
-  .f2l .scrbody { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-  .f2l .scrbody label { font-size: 13px; color: var(--ink-2); }
-  .f2l .scrbody textarea { font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); resize: vertical; letter-spacing: .02em; }
+  .f2l .scr { margin-top: 12px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
   .f2l .scrbtns { display: flex; gap: 8px; flex-wrap: wrap; }
   .f2l .scrmsg { margin: 0; font-size: 14px; color: var(--ink-2); min-height: 1.2em; }
   .f2l .scrmsg.bad { color: #B3261E; }
@@ -145,7 +141,7 @@ const MARKUP = `
 <header>
   <h1>ZZF2L case finder</h1>
   <p>Tap the facelet where the <b>white</b> sticker of your corner is, then tap where the <span id="edgename">green-red</span> edge is. White stays on the bottom.</p>
-  <p style="margin-top:8px">All four slots start open, like right after EOCross. Solve a scramble's EOCross in the EO trainer tab and it lands here tracked. Solve a pair on your cube, press <b>Solved, next pair</b>, and it's marked done.</p>
+  <p style="margin-top:8px">All four slots start open, like right after EOCross. A practice scramble keeps EO and the cross solved and is tracked from the moment it is made; on a smart cube the pieces follow your turns. Solve a pair on your cube, press <b>Solved, next pair</b>, and it's marked done.</p>
   <div class="tracker" id="tracker"></div>
   <details class="principles"><summary>The principles behind the cases</summary>
     <ol>
@@ -159,25 +155,14 @@ const MARKUP = `
       <li><b>The four slots are mirrors of each other,</b> so learn one deeply and the rest are the same hand motions reflected. Within a slot, the 12 top-layer cases plus the three pop moves cover almost everything.</li>
     </ol>
   </details>
-  <details class="scr" id="scr">
-    <summary>Use a scramble (auto-fills the pieces)</summary>
-    <div class="scrbody">
-      <div class="scrbtns">
-        <button class="btn" type="button" id="genF2L">F2L practice scramble</button>
-        <button class="btn" type="button" id="genFull">Full scramble</button>
-        <button class="btn" type="button" id="toEO">Solve EOCross in the EO trainer</button>
-      </div>
-      <label for="scrtext" id="scrlabel"></label>
-      <textarea id="scrtext" rows="2" placeholder="Paste a scramble, or generate one above"></textarea>
-      <label for="pretext" id="prelabel"></label>
-      <textarea id="pretext" rows="2" placeholder="Leave empty for an F2L practice scramble"></textarea>
-      <div class="scrbtns"><button class="btn" type="button" id="applyscr">Apply to the cube</button>
-        <button class="btn" type="button" id="stoptrack">Stop tracking</button>
-        <button class="btn" type="button" id="scrtricks" title="Finger by finger: the scramble, or the EOCross moves under it when there are any">✋ Fingertricks</button></div>
-      <p class="scrfollow" id="scrfollow" hidden></p>
-      <p class="scrmsg" id="scrmsg"></p>
+  <div class="scr" id="scr">
+    <div class="scrbtns">
+      <button class="btn" type="button" id="genF2L">F2L practice scramble</button>
+      <button class="btn" type="button" id="scrtricks" title="The scramble finger by finger">✋ Fingertricks</button>
     </div>
-  </details>
+    <p class="scrfollow" id="scrfollow" hidden></p>
+    <p class="scrmsg" id="scrmsg"></p>
+  </div>
   <p class="pairrow"><label for="slotsel">Pair to solve</label>
     <select id="slotsel" class="bigsel"></select></p>
 </header>
@@ -217,7 +202,7 @@ export function mountF2L(root: HTMLElement): Stage {
   root.innerHTML = MARKUP;
   const $ = scoped(root, (id) => `#${id}`, 'f2l markup');
   const svg = $('cube3d') as unknown as SVGSVGElement, netSvg = $('net') as unknown as SVGSVGElement;
-  const scrBox = $<HTMLTextAreaElement>('scrtext'), preBox = $<HTMLTextAreaElement>('pretext');
+  let scrWca = ''; // the scramble on show, WCA letters (the hold it is applied in); '' for none
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
   const advanced = () => (document.getElementById('advanced') as HTMLInputElement | null)?.checked ?? false;
@@ -319,9 +304,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (edge) q.set('e', edge);
     if (!showHints()) q.set('h', '0');
     if (advanced()) q.set('a', '1');
-    const scr = scrBox.value.trim(), pre = preBox.value.trim();
-    if (scr) { q.set('scr', scr); q.set('w', '1'); } // w: the box is WCA (old links stored the trainer frame)
-    if (pre) q.set('pre', pre);
+    if (scrWca) { q.set('scr', scrWca); q.set('w', '1'); } // w: the scramble is WCA (old links stored the trainer frame)
     if (tracked) { q.set('t', '1'); if (tracked.hist.length) q.set('hist', tracked.hist.join('|')); } // hist is WCA too (under w=1)
     const s = q.toString();
     try { history.replaceState(null, '', `#${s}`); }
@@ -344,18 +327,18 @@ export function mountF2L(root: HTMLElement): Stage {
       if (s && isSlot(s)) slot = s;
       if (q.get('d')) solvedSlots = new Set(q.get('d')!.split(',').filter(isSlot));
       const scr = q.get('scr');
-      if (scr) scrBox.value = q.get('w') === '1' ? scr : safe(() => toWca(clean(scr))) ?? scr;
-      if (q.get('pre')) preBox.value = q.get('pre')!;
-      if (q.get('t') === '1' && scr) {
-        const wca = q.get('w') === '1';
+      const wca = q.get('w') === '1';
+      // an old link's EOCross moves (typed under the scramble, trainer frame) fold into the scramble
+      if (scr) scrWca = safe(() => clean(`${wca ? scr : toWca(clean(scr))} ${q.get('pre') ? toWca(clean(q.get('pre')!)) : ''}`)) ?? '';
+      if (q.get('t') === '1' && scrWca) {
         const t = safe(() => ({
-          scr: clean(scrBox.value), pre: toWca(clean(preBox.value)),
+          scr: scrWca, pre: '',
           hist: q.get('hist') ? q.get('hist')!.split('|').map((h) => (wca ? normalizeAlg(h) : toWca(normalizeAlg(h)))) : [],
         }));
         if (t) {
           tracked = t;
           const r = stageOf(state(trackedAlg()));
-          if (r.eoBad === 0 && r.cross === 4) { $<HTMLDetailsElement>('scr').open = true; trackMsg('Tracking restored from the page address.'); }
+          if (r.eoBad === 0 && r.cross === 4) trackMsg('Tracking restored from the page address.');
           else tracked = null;
         }
       }
@@ -401,8 +384,6 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   function updateEdgeName(): void {
     $('edgename').textContent = `${faceColorName(slot[0])}-${faceColorName(slot[1])}`;
-    $('scrlabel').textContent = `Scramble: apply it holding the cube ${WCA_HOLD} (WCA). Then turn it white down with ${faceColorName('F')} facing you and solve. "Solve EOCross in the EO trainer" opens it there; finishing EO and cross brings the cube back here.`;
-    $('prelabel').textContent = `Moves you did after the scramble (your EOCross solution), holding it white down, ${faceColorName('F')} in front`;
   }
   function trackMsg(t: string, bad = false): void { const m = $('scrmsg'); m.textContent = t; m.className = `scrmsg${bad ? ' bad' : ''}`; }
 
@@ -428,22 +409,20 @@ export function mountF2L(root: HTMLElement): Stage {
     pairAt = fed.length; // the pair's alg is followed from here
     render();
   }
+  /** Track the scramble on show (from solved): the pieces are read off it. A scramble not at EOCross is kept, untracked, for a cube to do. */
   function applyScramble(): void {
-    const scr = scrBox.value.trim(), pre = preBox.value.trim();
-    if (!scr) { trackMsg('Enter or generate a scramble first.', true); return; }
-    let t: { scr: string; pre: string; hist: string[] };
-    try { t = { scr: clean(scr), pre: toWca(clean(pre)), hist: [] }; }
-    catch (err) { trackMsg(err instanceof Error ? err.message : String(err), true); return; }
-    const r = stageOf(state([t.scr, t.pre].map(fromWca).filter(Boolean).join(' ')));
+    if (!scrWca) { trackMsg('Make a scramble first.', true); return; }
+    const t = { scr: scrWca, pre: '', hist: [] };
+    const r = stageOf(state(fromWca(t.scr)));
     if (r.eoBad > 0 || r.cross < 4) {
-      trackMsg(r.eoBad > 0 ? 'EO is not solved on this state. Add your EOCross solution below the scramble.' : 'The cross is not solved on this state. Add your EOCross solution below the scramble.', true);
+      trackMsg(activeSource() ? 'EOCross is not solved on this scramble: do it on your cube, then solve EOCross, and the pairs are read off the cube.' : 'EOCross is not solved on this scramble. Solve it in the EO tab: finishing EO and the cross brings the cube back here.', true);
       return;
     }
     tracked = t; solvedSlots = new Set(); fed = []; fedBy = null; pairAt = null;
     trackMsg(activeSource() ? 'Tracking your cube: solve the pairs on it and the pieces follow.' : 'Tracking your cube. Pieces are filled in automatically; press "Did this" on the alg you used.');
     syncFromCube();
   }
-  const boxes = () => safe(() => ({ scr: clean(scrBox.value.trim()), pre: toWca(clean(preBox.value.trim())) }));
+  const boxes = () => (scrWca ? { scr: scrWca, pre: '' } : null);
   /** The cube that feeds this stage is at the scramble (and the EOCross moves under it): track it from here without a press. */
   function armed(): void {
     const b = boxes();
@@ -452,7 +431,6 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!tracked || tracked.scr !== b.scr || tracked.pre !== b.pre) { tracked = { ...b, hist: [] }; solvedSlots = new Set(); }
     else tracked.hist = [];
     fed = []; fedBy = 'cube'; pairAt = null; corner = null; edge = null; // the kind is set right by the first feed
-    $<HTMLDetailsElement>('scr').open = true;
     trackMsg('Your cube is at the scramble: following it.');
     syncFromCube();
   }
@@ -527,36 +505,35 @@ export function mountF2L(root: HTMLElement): Stage {
     track = watcher.status(stageScramble(), facelets, colourOf, holdOf());
     renderFollow();
   }
+  /** The scramble on show (WCA letters), the turns a cube has made of it marked, and the line under it while a cube is on. */
   function renderFollow(): void {
     const el = $('scrfollow');
-    const src = activeSource();
-    const scr = scrBox.value.trim(), pre = preBox.value.trim();
-    if (!src || !scr || !track) { el.hidden = true; el.innerHTML = ''; return; }
-    const toks = safe(() => tokens(scr).concat(tokens(pre)));
-    if (!toks) { el.hidden = true; return; }
+    const toks = scrWca ? safe(() => tokens(scrWca)) : null;
+    if (!toks) { el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false;
     // once the cube's turns are the solve, the scramble stays done: the solve is not "off the scramble"
-    const t: TrackStatus = fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : track;
-    el.innerHTML = `${scrambleHtml(toks, t)}<small class="${t.off ? 'off' : ''}">${trackText(t, toks)}</small>`;
+    const t: TrackStatus | null = !activeSource() ? null : fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : track;
+    el.innerHTML = `${scrambleHtml(toks, t)}<small class="${t?.off ? 'off' : ''}">${trackText(t, toks)}</small>`;
   }
-  /** The stage's scramble (trainer frame): the box's scramble, then the EOCross moves under it. */
+  /** The stage's scramble, trainer frame; null with none. */
   function stageScramble(): string | null {
-    const scr = scrBox.value.trim();
-    if (!scr) return null;
-    return safe(() => [fromWca(clean(scr)), clean(preBox.value.trim())].filter(Boolean).join(' '));
+    return scrWca ? safe(() => fromWca(scrWca)) : null;
   }
   function didThis(full: string): void {
     if (!tracked) return;
     tracked.hist.push(toWca(normalizeAlg(full)));
     syncFromCube();
   }
+  /** Show `alg` (trainer frame) as the scramble, and track it. */
   function putScramble(alg: string, msg: string): void {
-    scrBox.value = toWca(alg); preBox.value = ''; trackMsg(msg); saveUrl(); renderFollow();
+    scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset();
+    trackMsg(msg); saveUrl(); renderFollow();
+    if (scrWca) applyScramble();
   }
+  /** A practice scramble (EO and the cross solved, the pairs and the top layer mixed), tracked, and given to the other tabs. */
   function newScramble(): void {
-    const scr = genFull();
-    putScramble(scr, activeSource() ? `Apply this to your cube held ${WCA_HOLD}: it is followed as you go. Then solve EOCross on it and the pairs are read off the cube.`
-      : `Apply this to a solved cube held ${WCA_HOLD}. Then turn it ${hold()}, solve EOCross, type the moves you used below, then apply.`);
+    const scr = genF2L();
+    putScramble(scr, `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Cross and EO stay solved; only the pairs and top layer are scrambled.${activeSource() ? ' On your cube it is followed as you go.' : ''}`);
     shareScramble(scr, 'f2l');
   }
 
@@ -680,25 +657,12 @@ export function mountF2L(root: HTMLElement): Stage {
   }
 
   // ---- wiring ----
-  $('genF2L').onclick = () => putScramble(genF2L(), `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Cross and EO stay solved; only the pairs and top layer are scrambled.`);
-  $('genFull').onclick = newScramble;
-  $('applyscr').onclick = applyScramble;
-  $('stoptrack').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; trackMsg('Tracking stopped.'); render(); };
-  // the EOCross moves (trainer frame) when there are any, else the scramble (WCA)
+  $('genF2L').onclick = newScramble;
   $('scrtricks').onclick = () => {
-    const pre = preBox.value.trim(), scr = scrBox.value.trim();
-    const ok = pre ? openFingertricks(pre, { title: 'Your EOCross moves', hold: hold() }) : scr ? openFingertricks(scr, { title: 'The scramble', hold: WCA_HOLD }) : null;
-    if (ok === null) trackMsg('Enter or generate a scramble first.', true);
+    const ok = scrWca ? openFingertricks(scrWca, { title: 'The scramble', hold: WCA_HOLD }) : null;
+    if (ok === null) trackMsg('Make a scramble first.', true);
     else if (!ok) trackMsg('Could not read the moves.', true);
   };
-  $('toEO').onclick = () => {
-    let scr = scrBox.value.trim();
-    if (!scr) { scr = toWca(genFull()); scrBox.value = scr; preBox.value = ''; saveUrl(); }
-    let alg: string;
-    try { alg = fromWca(clean(scr)); } catch (err) { trackMsg(err instanceof Error ? err.message : String(err), true); return; }
-    shareScramble(alg, 'f2l'); showTab('eo'); window.scrollTo({ top: 0 });
-  };
-  scrBox.addEventListener('input', saveUrl); preBox.addEventListener('input', saveUrl);
   $<HTMLSelectElement>('slotsel').addEventListener('change', (e) => {
     const v = (e.target as HTMLSelectElement).value;
     if (!isSlot(v)) return;
@@ -708,7 +672,6 @@ export function mountF2L(root: HTMLElement): Stage {
   $('random').onclick = () => { const r = randomCase(slot); corner = r.corner; edge = r.edge; render(); };
   $('reset').onclick = () => { corner = null; edge = null; render(); };
   $('restart').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
-  scrBox.addEventListener('input', renderFollow); preBox.addEventListener('input', renderFollow);
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
   onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
@@ -717,12 +680,13 @@ export function mountF2L(root: HTMLElement): Stage {
 
   fillSlotSelect(); updateEdgeName();
   loadUrl();
+  renderFollow();
   if (tracked) syncFromCube(); else render();
 
   return {
     load(scramble: string): void {
-      scrBox.value = toWca(scramble); preBox.value = '';
-      $<HTMLDetailsElement>('scr').open = true;
+      scrWca = safe(() => clean(toWca(scramble))) ?? ''; track = null; watcher.reset();
+      saveUrl(); renderFollow();
       applyScramble();
     },
     render,
