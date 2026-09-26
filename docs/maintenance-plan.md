@@ -26,9 +26,8 @@ lines, `check:audit` high advisories in the shipped deps, `build`,
 `check:size` a ceiling on `dist/assets/main-*.js`) runs in the CI `web`
 job after the suite. Ten exports that had crept back since the 22nd are
 un-exported; knip's `duplicates` rule is off for the intentional
-`LAB_NORM` / `DEFAULT_EMBEDDING` alias. `docs/maintain-skill.md` is the
-recurring pass (move it to `.claude/skills/maintain/SKILL.md`): gates,
-drift report, one plan item, stop.
+`LAB_NORM` / `DEFAULT_EMBEDDING` alias. `.claude/skills/maintain/SKILL.md` is the recurring pass: gates, drift
+report, one plan item, stop.
 
 Measured this pass: 62 files / 1086 tests in 10.5 s, `moves-replay.test.ts`
 the critical path at 11 s alone; `main` chunk 583 kB (ceiling 620);
@@ -734,7 +733,13 @@ WSL sandbox (`docs/wsl-sandbox.md`), so it stays manual.
 
 ---
 
-## 7. Suggested order
+## 7. Suggested order (complete as of 2026-09-25)
+
+Every row is done or waits on a decision: 1-11, 13 (3.10 + 4.4), 14
+(LFS, done before the audit counted it) and 15 (vite 8, vitest 5,
+puppeteer 25; typescript 7 waits on typescript-eslint) are done; 12 landed
+as `detect/quality.ts` with `identify.ts` kept for the labeler; 16 is done
+but for `MILESTONES.md`'s header. Section 8 is the next list.
 
 | # | item | effort | why first |
 |---|---|---|---|
@@ -757,3 +762,546 @@ WSL sandbox (`docs/wsl-sandbox.md`), so it stays manual.
 
 Items 1-6 fit in a day and each ships on its own. Items 12-13 are the
 structural ones and should wait for the labeler decision in 3.1.
+
+
+---
+
+## 8. The second audit (2026-09-25): proposed work list
+
+Five sweeps (code health, tests and checks, build / deploy / security,
+the Python half, docs and process) over the repo at `86bc1c5`, each claim
+checked by reading the code; the bugs in 8.1 were re-verified by hand
+before this was written. Same conventions as the first audit: colours not
+letters, one cube model, fixtures beat mocks, stage by path, the gates
+and the headless checks green after every item. S / M / L as before.
+
+The shape of what came back: the first audit's list is finished, and what
+remains is (a) a handful of real bugs the audit tripped over, (b) tooling
+that lies (a 60 s wait in every headless run, 16 s of tests that assert
+nothing, a Makefile that would overwrite the deployed model), (c) the
+structural seams the plan's ~850-line target for the scan sheet implied
+but never listed, and (d) docs that describe the app of two weeks ago.
+
+### 8.1 Bugs (S each; fix first, each its own commit)
+
+1. **Open redirect on the sign-in page.** `web/src/signin.ts:16-18` accepts
+   `?return=` when it starts with `/` and not `//`. `/\evil.example` passes
+   and the URL parser reads `\` as `/` on https, so `location.replace` after
+   a successful Google sign-in goes off-site. Fix: `new URL(r,
+   location.origin).origin === location.origin`, and a test in
+   `test/` for the four shapes (`/x`, `//x`, `/\x`, `https://x`).
+2. **Imported text into `innerHTML` unescaped in the Solve tab.**
+   `timer/trainer.ts:557` (session names, in `<option>`) and `:573` (the
+   scramble, in a `title=` and as text). Both come from csTimer imports and
+   from Firestore. Use `esc()` from `ui/dom.ts` like everywhere else.
+3. **The sample worker can wedge the scanner silently.** `colour/sampler.ts:26-31`
+   decrements `inFlight` only in `onmessage`; the worker has no `onerror`
+   and `sample.worker.ts:44-81` has no try/catch, while `samplePatchStats`
+   throws (`patch.ts:337`). Two failed frames leave `busy` true for good
+   and the evidence log stops growing with no message. Fix: always reply
+   (an empty `quads` is fine), `onerror` like `colour/client.ts:36`, and a
+   test with a throwing sampler.
+4. **The Solve tab's scramble race.** `timer/trainer.ts:584` `load` calls
+   `setScramble(..., false)` without bumping `generation`, so the
+   `newScramble()` started at mount (`:150-155`) can resolve later and
+   overwrite the scramble the follow loaded. This is also the
+   `check:smart` flake of the 24th: `check-smart.mjs:104-119` reads every
+   tab's scramble before `#tm-scr` stops saying "generating". Fix:
+   `++generation` in `load`, a `waitForFunction` in the check, and a unit
+   test with a slow fake generator.
+5. **Four eval tools cannot load a twist checkpoint.** `diagnose.py:238`,
+   `dump_failures.py:96`, `viz_nms.py:190`, `dump_decode_fixture.py:114`
+   call `build_model` without `twist=ckpt.get("twist")` (`twostage.py:61`
+   and `export_onnx.py:204` do). Loading `runs/tw1/best.pt` fails with a
+   head-shape mismatch, and `docs/twist-head-plan.md:170`'s step is that
+   call. 8.5's shared loader fixes all four at once.
+6. **`predict.py` writes drawn real photos to a folder git does not
+   ignore.** Its default `--out preds` is `model/train/preds/`;
+   `.gitignore` covers `model/train/failures/` for exactly this reason.
+   Add `model/train/preds` (and check nothing is staged from it).
+7. **`tools/eocross` is broken.** `tools/eocross/lib.ts:11` imports
+   `randomScramble` from `web/src/eo/solver`, gone since 3.8 (`6d3a6b0`);
+   all five scripts go through it. `npx vite-node` (README:41, the script
+   headers) is no longer installed, since vitest 5 stopped shipping it, so
+   `npx` fetches an unpinned copy. `check.ts:14` imports puppeteer from
+   `model/gen/node_modules`. None of `tools/**/*.ts` or
+   `web/scripts/cube-fixture.ts` is in `web/tsconfig.json`'s `include`.
+   Fix: import from `cube/alg`, add `tsx` or `vite-node` as a devDependency
+   with an `npm run eocross:*` script, include `tools/**/*.ts` and
+   `scripts/*.ts` in a `tsconfig.tools.json` that `typecheck` also runs.
+8. **Wake lock race.** `app/wake.ts:12-18` has no in-flight guard: turning
+   the setting off while `request()` is pending keeps the lock; a
+   visibilitychange and an init call together can create two sentinels.
+9. **A user-visible string sends people to a scanner that no longer
+   exists.** `detect/models.ts:40,45` say "use the grid scanner" (removed
+   2026-09-14). Same claim in comments at `facekp.ts:27,152`,
+   `cubebox.ts:7`. Reword.
+
+### 8.2 Build, deploy, CI, security
+
+10. **Deploy is not gated on CI (S).** `deploy.yml` runs on every push to
+    `main`, in parallel with `ci.yml`, and only builds. A red suite still
+    deploys. Trigger on `workflow_run` of CI with `conclusion == success`,
+    or one workflow with `needs:`. While there: `permissions:` and
+    `concurrency:` blocks and `timeout-minutes` in both, `cancel-in-progress:
+    false` on the Pages deploy, the `deploy.yml:28` comment names
+    `web/.gitattributes` (the rule is at the root), pin `ruff` in the
+    python job, cache `~/.cache/puppeteer` and `node_modules` in `ci.yml`
+    as `deploy.yml` already does, and add `check:ll` + `check:practice`
+    to the headless job (they need only `serveDist`). `check:record`
+    can follow once 8.3's dev-server fix lands.
+11. **Every page load downloads and benchmarks the detector, even on the
+    Solve tab (M).** `app/scanner-bridge.ts:179` mounts the scanner at
+    init; `ui/scanner.ts:247,483` then registers the COI service worker (a
+    forced reload on first visit) and loads the 28 MB wasm, both models
+    and the ORT worker, and on a WebGPU first visit runs 15 inferences per
+    execution provider (`facekp.ts:203-208`). `models-*.js` (414 kB) is
+    modulepreloaded for the same reason. Import the scanner dynamically on
+    first scan-sheet open (or on `requestIdleCallback` after first paint),
+    the way `algs/sheet.ts` is. Guard: `check:smart` (the Solve tab must
+    not fetch `ort/`), `check:record` (the sheet still comes up docked).
+12. **Model and ORT URLs have no cache-busting (S).** `facekp.ts:157-160`,
+    `cubebox.ts:52-55`, `session.ts:31,48` are fixed paths and Pages caches
+    them ~10 min: after an ORT bump new JS can pair with an old wasm, after
+    a model push the version chip can show the new run over the old
+    weights. Append `?v=${__BUILD__.hash}` (the build already stamps
+    `version.json`).
+13. **`copy-ort.mjs` copies a dead 368 kB `ort.min.mjs` (S).** Its comment
+    says `label.html` imports it; `label.html` goes through the bundle
+    now. Drop it; re-verify with the network panel that the worker fetches
+    exactly the `.jsep.mjs` + `.jsep.wasm` pair.
+14. **Node is unpinned (S).** No `.nvmrc`, `engines` or `packageManager`;
+    vite 8 needs 22.12+. Add `engines.node: ">=22.12"` and `.nvmrc`.
+15. **`smartcube-web-bluetooth` is a git+ssh dependency that builds from
+    source on every `npm ci` (M, decide).** Its `prepare` runs its own
+    rollup + typescript. Vendoring its `dist` the way `cubejs` is vendored
+    removes the git fetch and the third-party build; `smart/adapter.ts` is
+    the only importer. Also a lazy-load candidate (below).
+16. **`main` chunk, the next lazy loads (M).** The smartcube library (208
+    kB ESM + rxjs + aes-js + lz-string) is static through `app/smart.ts:11`
+    and could load on Connect; `f2l/data.ts` (97 kB source) with the F2L
+    tab; the scanner + colour + moves code with item 11. Then ratchet
+    `check-size.mjs`'s ceiling down (572 kB measured against 620), and use
+    `fileURLToPath` there instead of `new URL().pathname`.
+17. **Firestore rules and auth under COEP (S).** `firestore.rules:8-10`
+    lets any signed-in account write any collection under its own uid, any
+    size up to 1 MiB: restrict to the five collections in
+    `store/sync.ts:48` plus a size check; confirm in the console that the
+    web key is referrer-restricted (and consider App Check).
+    `sync.ts:91`'s `getRedirectResult` on the cross-origin-isolated page
+    looks vestigial now that sign-in lives on `signin.html` and its
+    `.catch` would hide a COEP block: check in devtools, then delete.
+18. **No offline shell (M, the user's call).** `coi-serviceworker.js` is
+    pass-through; the installed PWA shows the dinosaur offline. A
+    cache-first app shell would make the timer and the drills work
+    offline; the models can stay network-only. Also `manifest.json` lacks
+    `id`.
+19. **Dev-server sinks (no action, noted).** `/__capture` and
+    `/__recording` are `configureServer` only and sanitise names, but
+    `server.host: true` puts unauthenticated disk writes on the LAN and
+    `debug/dump.ts:68` posts to an absolute `/__capture` ignoring
+    `BASE_URL`. Fine for a dev rig on a home network; say so in
+    `docs/wsl-sandbox.md`.
+
+### 8.3 Tests and the headless checks
+
+20. **`moves-replay.test.ts` spends ~10 s asserting nothing (S).** All three
+    `fixtures/solves/*.json` are `hard`, so the only live assertion is
+    `frames > 0` (`:147`); `free` (`:83`) is never asserted. Gate the
+    per-fixture replay behind `BENCH` and keep one pinned decode on the
+    smallest file (`solve-1789369770950`, 294 quads). `npm test` should
+    drop to ~7 s.
+21. **`colour-replay` runs 30 of its 36 MB with no assertion (S).** Ten of
+    fourteen `evidence/*.json` have neither `truth` nor `scrambleTruth`
+    and only print (`:141-150`); `scan-debug-1789348275571` locked on the
+    phone and nothing pins that it still does; the CASES solves run at
+    collection time in the describe body (`:80-90`); "prints the bake-off
+    table" is still a tautology after 4.5. Pin the captured `solution` of
+    each no-truth file as a no-regression check, move the rest to bench.
+22. **`headless.mjs` wastes 60 s on every run (S).** Node's `fetch` rejects
+    vite's self-signed certificate, so the readiness loop (`:57-60`) always
+    runs all 60 × 1 s before the curl fallback. Start vite in-process
+    (`createServer({ server: { port: 0 } })`), which also removes the
+    hard-coded `--strictPort` 5198/5199 and the Windows `taskkill`. Every
+    check gets a minute faster.
+23. **The checks' own hygiene (M).** `check-record` leaks the session
+    folder when a wait throws (cleanup is after `finally`) and its rig wait
+    regex can match static label text (`:38`); `check-smart` has ≥50 s of
+    fixed waits (`:125,:150`, a real-time 16 s replay gap `:135-140`) and a
+    0.4-0.7 s window asserted after a 420 ms sleep (`:234-240`), a `||
+    true` (`:175`), no `try/finally` (browser left running on a throw),
+    and parses `console.log` traces (`:138,:190,:205`) - expose
+    `ZZ.follow.history()` from `app/cubefollow.ts:136` instead;
+    `check-ll` has no `pageerror` listener. Shared: `SOLVED` / `inverse` /
+    `capture()` in smart and ll, the `check`/`failed`/summary pattern in
+    all five, `sleep` twice, the quarter-turn split four times in
+    check-smart. One `scripts/check-lib.mjs`; `headless.mjs`'s header lists
+    three checks of five.
+24. **Coverage gaps that are logic, not DOM (M).** `ll/trainer.ts`:
+    `spokenLabel :195`, `offRoute :466`, `inHand :478`, `foldSlices` +
+    `SLICE_OF_PAIR :494-507`, `repDone :627`, `absorbAuf :666` (the
+    AUF-tolerant wrong-turn watcher, `docs/ll-drill-next-steps.md`);
+    `timer/trainer.ts` `armed`/`feed`/`finish` (`:248-300`) and
+    `rollSession :386`; `f2l/trainer.ts` `saveUrl`/`loadUrl` (`:279-334`,
+    incl. old `w=1` links); `ui/cubeview.ts` `rotationToHold`/`beliefCells`
+    (`:83-104`); `app/scanner-bridge.ts` `matchText`/`useInTrainer`;
+    `colour/client.ts` `sync`/`trimmed` (`:46-61`, with a fake Worker as
+    `sampler.test` does). Each pairs with the seam in 8.4 that extracts it.
+25. **The rest of the suite's slack (S each).** `f2l.test.ts:133-151,178-190`
+    re-parse `state()` thousands of times and `explain()` at `:185` asserts
+    nothing; `ll.test.ts:149-176` runs `scrambleFor` 216 times; cubejs
+    `initSolver` is paid by three files. Sample in `npm test`, exhaustive
+    behind `BENCH`. Weak: `follow.test.ts:195` `toBeTruthy`,
+    `exemplar-guard.test.ts:128-135` ("says which two" checks only
+    `ranked`), `state.test.ts:110` / `tracker.test.ts:219-220`
+    `toBeDefined` beside a `!`. Unseeded: `state.test.ts:14-18,46`,
+    `moves.test.ts:10,17`, `f2l.test.ts:88`, `ll.test.ts:188`.
+    `timer.test.ts:305-340` fake timers with no `afterEach`. Diagnostic
+    prints in `moves-synthetic:115,134,145,162`, `decode:79`. Duplicated
+    helpers: `fakeSource`/`fakeStage`/`onCube` (cubefollow, sources,
+    shell), `frameWith`/`quadFor` (identify, quality), three LCGs
+    (`ll.test.ts:16`'s loses precision above 2^53), `TRUTH` inline six
+    times beside `helpers.TRUTH`; the `cubefollow.test.ts:134-137` mock
+    drops `shareScramble`'s `from !== activeTab()` guard. Names by letter:
+    `identify.test.ts:73,103`.
+26. **Config (S).** Move the test config out of `vite.config.ts` (every
+    run loads the dev plugins and shells out to `git rev-parse`); a
+    `testTimeout` instead of five per-file overrides; install
+    `@vitest/coverage-v8` and a `coverage` script (one run would sharpen
+    item 24). `fixtures/README.md`: the naming-space reader is
+    `exemplar-guard.test.ts:149-150`; `clip-*` "refuse honestly" is not
+    asserted; `clip-*.json` live in `evidence/`; the `solves/` and `smart/`
+    recipes (`scripts/cube-fixture.ts`, `tools/solve/moves_fixture.py`,
+    `scripts/cut-solves.mjs`) and `test/bank` are missing.
+
+### 8.4 Code health in `web/src`
+
+27. **Decide `noUncheckedIndexedAccess` (M to decide, L to enable).** The
+    code is written as if it were on: ~843 of ~1,125 `!` are on indexed
+    reads and do nothing today (clusters: `colour/decode.ts` 83,
+    `moves/anchor.ts` 73, `colour/neighbours.ts` 66, `ll/scramble.ts` 60).
+    On, `tsc` reports 353 errors, mostly in files that skipped the habit
+    (`anchor` 34, `f2l/model` 34, `detect/orient` 29, `facekp` 29,
+    `eo/solver` 23; ~60 in tests). Either turn it on file by file or stop
+    writing the `!`. Free today, 0 errors each: `noImplicitOverride`,
+    `verbatimModuleSyntax`, `noFallthroughCasesInSwitch`,
+    `noImplicitReturns`; `noUnusedParameters` costs one
+    (`colour/palette.ts:88`). eslint is `recommended`, not type-checked,
+    so there is no `no-floating-promises` (see 30).
+28. **The `as unknown as` casts have cheap fixes (S).** 23 casts, no
+    `any` but `solver.worker.ts:23`, no ts-ignore, no eslint-disable.
+    Seven are `scoped()` returning SVG (`ui/dom.ts:12` constrains `T
+    extends HTMLElement`; make it `Element`); three are warp-then-sample
+    (`quality.ts:68`, `identify.ts:481`, `sample.worker.ts:67`; let the
+    samplers take `ImageDataLike`); four are worker `self` (one `declare
+    const self: DedicatedWorkerGlobalScope` in `workers/rpc.ts`); two are
+    seg-button `data-v` writes (item 31).
+29. **`detect/identify.ts` re-implements `detect/quality.ts` (S).**
+    `identify.ts:464-502` repeats `quality.ts:55-80` step for step with its
+    own constants, already drifted (`'center obscured'` vs `'centre
+    obscured'`). `nameQuads` should call `quadQuality`. While there, its
+    header (`:1-19`) and `facekp.ts:10-16,142` still describe it as the
+    app's live colour layer; `observeCenter` (`facekp.ts:288`) has no
+    callers.
+30. **Store writes fired with `void` and nothing catching them (S).**
+    `timer/trainer.ts:418` `putSolve`, `main.ts:41` `putAttempt`,
+    `ll/favs.ts:66`, `ll/notes.ts:51`, the IIFE at `ll/trainer.ts:787-794`.
+    A failed IndexedDB write loses a solve silently. One
+    `persistOrToast(promise, what)` in `store/`; `eo/trainer.ts:88`'s
+    `.catch(() => undefined)` leaves "EOCross …" on screen for good if the
+    worker fails; `f2l/trainer.ts:334` `console.error` in a production
+    path.
+31. **Semantic duplicates jscpd cannot see (S each, one commit each).**
+    Two colour tables (`types.ts:59` `DEFAULT_SCHEME_HEX` vs
+    `cube/scheme.ts:7-8`; `types.ts:49` vs `cube/frame.ts:67
+    WCA_COLOUR`; a reverse lookup built at `ui/scanner.ts:765`). The
+    segmented-button wiring four times (`eo/trainer.ts:299-313`,
+    `timer/trainer.ts:440-445,482-492`, `app/cubefollow.ts:261-266`) - a
+    `bindSeg(el, get, set)` in `ui/dom.ts`. The "R2 L2 is one M2" rule
+    three ways (`ll/model.ts:268`, `timer/track.ts:46-49`,
+    `ll/trainer.ts:494-506`) - one helper in `cube/alg.ts`. Two types both
+    named `Move` (`cube/alg.ts:6` `{face, times}`, `moves/moves.ts:9` a
+    string union) with different parsers and inverses - rename one
+    (`FaceTurn`). `f2l/trainer.ts:188 clean()` beside `f2l/model.ts:51
+    normalizeAlg` (the `TODO(shared)`), `algs/sheet.ts:102` counting tokens
+    beside `moveCount`. `timer/trainer.ts:188` repeats `track-ui`'s
+    done-prefix markup. "Days ago" by 24 h windows (`ll/trainer.ts:746`)
+    vs calendar days (`timer/when.ts:22-30`), so the two tabs can disagree
+    about today. Raw `localStorage` + JSON in `smart/adapter.ts:36-45` and
+    `detect/facekp.ts:179-220` beside `readStoredJson`/`writeStored`.
+32. **Two SVG line-graph engines (M).** `timer/graph.ts` and
+    `ll/practicegraph.ts` each own MARGIN, layout, STYLE, shown-key
+    persistence, `HEIGHT = 280`, `GAP = 13`; practicegraph already imports
+    `secondsLabel`/`secondsStep` from graph. One `ui/linegraph.ts` for
+    axes, day marks, legend.
+33. **The seams the ~850-line target implied (M-L, one commit per
+    seam, tests with each).** `ll/trainer.ts` (1157): the speech quiz and
+    hands-free standby (`184-208`, `353-455`) → `ll/quiz.ts`; the
+    wrong-turn / echo logic (`455-560`, nearly pure, item 24); repeat mode
+    (`616-707`); the practice table (`724-800`) → `ll/practice-ui.ts`; case
+    chips and alg lines (`802-1000`); the 78-line STYLE. `ui/scanner.ts`
+    (1350): the exposure controller (`1043-1128`, ~8 state variables) →
+    `ui/exposure.ts` with the decision as a pure function in the style of
+    `verdict.ts`; the debug readouts (`557-706`); the 73-line TEMPLATE;
+    `loop()` stays. `moves/anchor.ts` (715): the pure fitting and cost
+    functions (`462-715`) → `moves/anchor-fit.ts`.
+34. **Imports that cross between features (S-M).** No cycles (a Tarjan
+    pass over 133 files / 521 edges). But `cube/scheme.ts:1` and
+    `store/sync.ts:10` import `ui/settings` (move `readStored` /
+    `writeStored` / `persisted` to a neutral `src/storage.ts`);
+    `ll/trainer.ts:37-38` is the only feature importing `app/` (pass
+    `hold` and the source through `mountLL` options as `mountTimer`
+    does); `timer/track-ui.ts` is shared by `ll/`, `ui/voice.ts` and
+    `app/` and belongs in `ui/`; `ll/practicegraph.ts` imports
+    `timer/graph` (item 32).
+35. **Cruft (S).** Comments naming files that no longer exist
+    (`ui/scanner.ts:11,20`, `ui/hint.ts:31`, `detect/session.ts:33`,
+    `camera.ts:136`, `detect/tracker.ts:14`); `src/color-notes.md`
+    (M1-era, cited from `assign.ts:11`, `identify.ts:12`; move to
+    `docs/archive/`); the legacy (B,6,9) head branch (`facekp.ts:335-354`,
+    unreachable since `models.ts` refuses un-stamped models - confirm with
+    8.5 item 45); `REFINE = true` (`ui/scanner.ts:126`) always on; the
+    `?follow=1` param nothing sets; dead CSS (`.sc-swatches .sc-sw .sc-seed
+    .sc-exemplars` in `scanner.css`, `.eo-legend` in `index.html`,
+    `.cv-nobt`); unused `window.ZZ` members (`shell.ts:207-209`
+    `openScan`…`openAlgs`, `handoff`, `store.{solves,sessions,favs,notes,
+    putFav,dirty}`) kept for the console; the voice→say/ask migration
+    (`ll/trainer.ts:219-233`) once your browsers have loaded it; CLAUDE.md
+    says the solver runs "every ~700 ms", the code is adaptive with a 300
+    ms floor (`ui/scanner.ts:137`).
+
+### 8.5 The Python half and `tools/`
+
+36. **A shared loader and geometry module (M).** Checkpoint-to-model is
+    written eight times (`twostage.py:58`, `export_onnx.py:191`,
+    `diagnose.py:231`, `dump_failures.py:88`, `dump_decode_fixture.py:108`,
+    `viz_nms.py:187`, `bbox_eval/score_frames.py:17`,
+    `roboflow_audit.py:25`), six with `global INPUT_WH`, four without the
+    twist flag (8.1 item 5). `batch_index` three times, drifted
+    (`diagnose.py:135`, `export_colour_bank.py:36`, `bbox_eval/common.py:74`).
+    Shoelace area ×3, `edges()` ×2, DLT homography ×2, the cube-corner
+    table ×2 (both copied from `gen/scene.mjs`), letterbox ×3, sigmoid ×2,
+    label glob + `json.loads` ×6, `--ckpt` in nine argparsers.
+    `model/train/ckpt.py` (`load_kp`, `load_box`, `add_ckpt_args`) and
+    `geom.py`; drop the redundant `sys.path` inserts (`bench_*.py`,
+    `score_frames`, `roboflow_audit`).
+37. **The Makefile would overwrite the deployed model (S).** `make data`
+    renders 20k landscape images into `../data` (does not exist; PORTRAIT
+    decision 5 rules out landscape); `make train` → `runs/base`; `make
+    export` exports it and `export_onnx.py` deploys by default. CLAUDE.md
+    "Commands" lists all three. Retarget to the README's real recipe
+    (data_v5/v6, `train_bbox`, `export_bbox`, `check_targets`,
+    `check_twist`, `watch`, ruff), add `help`, drop `*-v4`, `deps` runs
+    `npm ci`; point CLAUDE.md at it. `gen/package.json`'s `data`/`preview`
+    have the same dead target.
+38. **Orphans and their requirements (S, some the user's call).**
+    `train/detect_server.py` (219 lines, Windows DirectShow, "for a future
+    `?detector=local` mode" the app never got) is the only reason
+    `opencv-python` and `websockets` are required; `tools/solve/hands_survey.py`
+    (319) keeps `mediapipe` (+ opencv-contrib) for an archived experiment;
+    `bbox_eval/roboflow_audit.py` needs a checkpoint no longer trained;
+    `aspect_test.py` / `occl_test.py` are landscape-era; `score_frames.py`
+    hard-codes `PAD=0.45` against `shapes.PAD_VAL` 0.20. Delete or move to
+    `model/train/attic/`, and the three packages to
+    `requirements-extras.txt`. Historical but cited: `viz_nms`,
+    `dump_failures`, `bench_*` (`bench_local.py:1` cites a `bench2.py`
+    that does not exist), `tools/solve/overlay_log`, `survey_log`.
+39. **Pins (S).** `requirements.txt` says "the pinned older torch" but
+    nothing is pinned; `triton-windows` is absent though `--compile auto`
+    needs it. A `constraints-windows.txt` (`torch==2.6.*`,
+    `triton-windows<3.3`) makes CLAUDE.md's deferred upgrade enforceable;
+    add `pytest` and `ruff` (CI installs ruff unpinned). The matplotlib
+    comment says "viz_nms only"; `cube_latency.py:289` uses it too. Venv
+    paths disagree across usage lines (`.venv/Scripts/python` vs
+    `.venv/bin/python`; `ruff.toml:2`).
+40. **Python tests, from zero (M).** `check_targets.py` (2.3 s) and
+    `check_twist.py` (0.9 s) already exit nonzero: wrap them as the first
+    two tests. Pure functions to pin: `check_labels.is_convex_simple` /
+    `adjacent`, `import_labels.normalize_winding`,
+    `dataset.letterbox_params` / `crop_window`, `diagnose.fit_homography`
+    / `rotation_deg`, `bbox_eval/common.iou`, `grid_check.seam_score` on a
+    synthetic warp, a seeded `augment` label-consistency check, a tiny
+    `pretrained=False` export-to-ORT parity. Trap: `aspect_test.py` /
+    `occl_test.py` match `*_test.py` and run top-level code on import -
+    `testpaths` or rename. Then `pytest` in the CI python job. ruff: add
+    `C4`, `SIM`, `RUF` (35 findings, incl. 7 unused unpacked variables),
+    `ARG`; `--select ALL`'s big buckets (quotes, annotations, prints) are
+    not worth adopting.
+41. **Stale plumbing in `tools/` (S).** `tools/solve/replay_clips.py:16`
+    hard-codes a Windows Chrome path; `cube_latency.py:23` hard-codes
+    `/usr/bin/ffmpeg` while `overlay_log`/`extract_frames` use
+    `imageio_ffmpeg`; `tools/eocross/check.ts:14` (8.1 item 7). No
+    `__main__` guard in the seven `bbox_eval/*.py`, `overlay_log.py`,
+    `replay_clips.py` (latent spawn-recursion risk on Windows).
+42. **Model-side docs drift (S).** `model/README.md:4` "currently at M4";
+    pad 0.45 at `:40,:62,:145,:645` vs `shapes.py:45` 0.20 with no note of
+    the change; `autoscan-main.ts` (`:85,:645`), `scan.html` (`:780,:858`),
+    `bbox_vs_faces.py` (`:648`) are gone; `:1049-1058` describes
+    `_zoom_crop` and "stage 1 only at acquisition" (now always two-stage);
+    `:1200-1205` the landscape `npm run data`; the layout at `:1249` omits
+    `data_v6`, `cloud/`, `roboflow`, the twist tooling, and says "int8
+    quantize". `cloud/RUNBOOK.md` is v4-era and two of its commands error
+    (`check_labels.py --data`, bare `--crop-trained`): archive or a
+    "pre-portrait" header. `PORTRAIT-DESIGN.md:3` still says "start from
+    here", `:202` says kpft3+box11 deployed, `:71,:122,:173` pad 0.45.
+    `targets.py:6`, `viz_nms.py:8` say "grid is 15x20" (16x16 at 256).
+    `export_onnx.py:12-17` explains quantisation in terms of the legacy FC
+    head.
+43. **Data dirs and the drive (S, mostly the user's call).**
+    `tools/wsl/setup-user.sh:45-48` omits `model/data_v6` (linked by hand
+    on 09-20); `model/preview_twist` is a real 29 MB dir on the Linux disk;
+    dead `.gitignore` entries (`model/data`, `data_v3`, `preview_v2`,
+    `val2017.zip`) and its int8 comment; `data_real_val/cache_320x240` is a
+    stale cache; `diagnose.py --dump` writes into the held-out val dir;
+    `roboflow/*.zip` beside their extractions; a stray
+    `/mnt/cube-data/recordings$s/`; `/mnt/cube-data/model/clips` (13 GB)
+    and `faces` (2 GB) have no producer in the repo; `data_v4` (14 GB) is
+    "unused". `model/runs` holds only `mp/` while runs live in
+    `model/train/runs`.
+44. **The twist audit ran and its numbers were never written down (S,
+    then the user's decision).** `docs/twist-head-plan.md:158-160` says to
+    write them into `smart-cube-design.md` 5.3. They exist only on the
+    drive (`recordings/{2026-09-19-094131,2026-09-19-105604,
+    2026-09-20-141443}/twist-audit/twft1/summary.md`): recall at p≥0.5 is
+    0.40 / 0.43 / 0.15, false alarms on rest frames 0.17 / 0.013 / 0.066.
+    The plan's rule ("at least half the turns readable → step 3, else 3B")
+    points at 3B; the call is the user's. The plan's step 2 still names
+    `runs/tw-ft1`, which step 1 says failed; `model/README.md:27-29`
+    still advertises `--init kpft8 --twist`, which the plan forbids;
+    `MILESTONES.md:547-551` says the decision is open.
+45. **The legacy head (M, the user's call).** `model.py:36-135` and 48
+    `"legacy"` branches across train/export/diagnose/predict/twostage and
+    `web/src/detect/facekp.ts:11,121` exist only so the landscape ft1-ft7
+    checkpoints load; PORTRAIT decision 5 drops those and the app refuses
+    un-stamped models. Same for the `gap` bbox head in `train_bbox.py`.
+
+### 8.6 Docs and process
+
+46. **CLAUDE.md drift (S, one commit).** Commands: `make data/train/export`
+    (item 37); missing `lint`, `typecheck`, `build`, `maintain`, `check:*`;
+    `Get-Content -Wait` is Windows (`tail -f` here). Layout: "Kalman
+    tracker" (`:47`; it is alpha-beta, as `:23` says); `firebase/` sits
+    mid-list so everything after it looks nested under `web/src`; "Blender
+    or Three.js" (`:137`; Blender was rejected `:188`); export "quantize"
+    (`:140`); fixtures "real frames as PNG" (`:135`; they are JSON);
+    "four empty stage panels" (`:167`; five); `model/data/` does not
+    exist; `cache_320x240` is now `cache_240x320` / `cache_crop320`;
+    "until static QDQ is implemented" (it is; the gate picks fp32).
+    Missing: `workers/rpc.ts`, `colour/cells.ts`, `ui/dom.ts`,
+    `ui/voice.ts`, `timer/track-ui.ts`, `ll/practicegraph.ts`,
+    `debug/detect-overlay.ts`, `build.d.ts`, the `detect/` two-stage files
+    (`cubebox`, `facekp`, `twostage`, `models`, `ort.worker`, `quality`,
+    `orient`, `gridfit`, `coi`, `identify` as the labeler's namer),
+    `web/scripts/`, `web/public/` (scan.html redirect, coi-serviceworker,
+    eocross-worker.js), `tools/{eocross,solve,wsl}`, `.github/workflows`,
+    `recordings/`, `web/clips/`, `cubebox.onnx`. Pipeline: step 2 omits the
+    two stages; step 1 says 640x480 (phones deliver 480x640 portrait); step
+    8 lists `nMin` / `marginMin` as lock gates but `solve.ts:360-368` gates
+    on faces seen, free ≤ 9, legal, `kMax`, `deltaMin` only (the other two
+    feed the UI). "Work on the current milestone only" (`:147`) is
+    contradicted by M10b and the LL work.
+47. **This plan has become a log (M).** Eight status sections (~240 lines)
+    before the plan, out of date order; section 6 mostly done but unmarked
+    (README names the Solve tab; the trainer survey has its superseded
+    line; hand-pose, BBOX-HANDOFF, PORTRAIT-BRIEF archived; `color.ts` is
+    gone but `color-notes.md` survived). Restructure: one drift table with
+    a row per pass (date, tests, seconds, main kB, clones, console, pack,
+    longest file), a newest-first log below it, ticks in the tables.
+48. **Docs inventory (S).** Archive: `housekeeping-plan.md` (closed
+    2026-09-22, superseded by this), `colour-pipeline-postmortem.md`
+    (history; its paths are dead), `reconstruction-sites-survey.md`
+    (nothing references it), `smart-cube-trainer-survey.md` (says it is
+    superseded). Add a status line: `other-puzzles-survey.md` (partly
+    realised by the Algs sheet). `docs/archive/PORTRAIT-BRIEF.md:115`
+    cites `model/BBOX-HANDOFF.md` (now in the archive). `wsl-sandbox.md`
+    contradicts itself (`:117` nothing runs on Windows, `:140` training
+    does) and `:133` says every launch is `headless: 'shell'` (gated on
+    `PUPPETEER_SHELL`, `headless.mjs:27`). Then a `docs/README.md` with
+    one line per doc and its status, and an archive index with the reason
+    each file moved. CLAUDE.md's "Prior art" lists 4 of 15 docs and files
+    `ll-drill-next-steps.md` (a live work list) under it.
+49. **Design docs vs code (S-M).** `colour-pipeline-design.md` §5 names
+    parameters in SCREAMING_CASE with no values (`N_SAT`…) against
+    `DEFAULT_PARAMS` (`nSat` 12, `nMin` 6, `kMax` 9, `deltaMin` 3,
+    `marginMin` 1, `nu` 3, `gainPrior` 10, `gainMax` 15, `mergeMin` 0.6);
+    `freeBelow` 0.5, `rounds` 3, `SIGMA_FLOOR` 2, `COST_CAP` 30 are not in
+    the doc; `M_MIN`/`N_MIN` listed as lock gates but only feed the UI; the
+    DECISION at `solve.ts:36-40` says `changed` is a UI hint yet `:367`
+    gates on `kMax`; §3.1 and §7 name `color.ts`; §7 omits `complete`,
+    `neighbours`, `sampler`, `cells`, `robust`, `client`; ~100 lines of
+    dated addenda precede the design. `smart-cube-design.md` §3.1 lists
+    `smart/ui.ts` (never built; the chip is in `ui/cubeview.ts` +
+    `app/smart.ts`); its MoveSource sketch lacks `kind: 'move'`,
+    `ordered`, `ResyncItem.how`, `dispose()`. `solve-tracking-design.md`
+    §10 omits `source.ts`, `readersource.ts`, `drive.ts`; "10.3 Next" sits
+    after §11; its item 1 (typed `Moves` truth) is superseded by
+    `scripts/cube-fixture.ts`.
+50. **README and MILESTONES (S; the header is the user's call).** README:
+    Git LFS is required (without it the scan sheet says no model); the
+    phone URL and the self-signed cert / firewall rule
+    (`docs/wsl-sandbox.md:96-113`); Node 22; the check scripts and
+    `maintain`; `npx vite-node` (item 7); Algs also has the 3x3 last layer.
+    MILESTONES: `:5-13` "no move reader yet" (built the same day); the LL
+    work of 09-22..25, the Solve tab's scramble voice, the twist result
+    (item 44), the FTO's pictures and 3D player (`:566`) are unrecorded;
+    the ledger `:670-717` overlaps this plan (`:708-711` "until
+    moves-replay.test.ts exists"); "Offline PWA install" appears twice; the
+    cube's arrival date disagrees (09-19 vs 09-21).
+51. **Process gaps (S-M).** No `docs/README.md`, no archive index, no
+    changelog (the commit log stands in), no index of the 132 `DECISION`
+    comments (a `grep -rn DECISION` listing the maintain pass regenerates
+    would do), no "how to add a tab" guide (the contract is `Stage` and
+    `TABS` in `shell.ts:9-27`, the `index.html` panel, the `main.ts`
+    mount, `stages[]`, `feed`/`isDone`; one short section in CLAUDE.md).
+    `.claude/settings.local.json` is ignored only by the global excludes.
+    Names disagree: `cube-scanner` (package.json), "ZZ trainer"
+    (manifest), "Cube trainer + scanner" (README).
+
+### 8.7 Proposed edits to the maintain skill
+
+`.claude/skills/maintain/SKILL.md` is outside what a sandboxed pass can
+write, so these are for the user to apply:
+
+- Delete `:8-9` ("move it there from `docs/maintain-skill.md`").
+- The TODO grep: add `--exclude-dir=node_modules --exclude-dir=.venv`
+  (91 hits against 1 real).
+- The fixture-unread check: skip `evidence/`, `solves/`, `smart/` (read
+  by glob) and instead assert each is non-empty.
+- Branches: add `git worktree list` and `git branch --no-merged main`
+  (the unmerged `worktree-wsl-chrome-headless-shell`, 2026-09-18,
+  superseded by `PUPPETEER_SHELL`).
+- A Git LFS health step: `git lfs ls-files` lists both `.onnx`; `head -c
+  40 web/public/models/*.onnx` is not pointer text; `lfs: true` still in
+  `deploy.yml`.
+- A docs-drift step: every backticked path in CLAUDE.md, README.md and
+  `docs/*.md` exists; `ls web/src/*/` against the CLAUDE.md layout.
+- `npm outdated` in `model/gen` too.
+- Python: `python -m compileall -q model/train model/export tools/solve`
+  until 8.5 item 40 gives it tests, and say so in the report.
+- Section 3: when section 7/8 has nothing pickable, re-rank from the
+  drift report and stop for the user, rather than reporting an empty pass.
+- The headless note: cite `docs/wsl-sandbox.md` and `headless.mjs:9-27`,
+  and name the two hosts the Chrome download needs
+  (`storage.googleapis.com`, `googlechromelabs.github.io`).
+- The masks list: "an untracked char device or dotfile at the root is a
+  mask" instead of four names (there are a dozen).
+
+### 8.8 Suggested order
+
+| # | items | effort | why |
+|---|---|---|---|
+| 1 | 8.1 bugs 1-9 | S ×9 | real bugs; each a commit with a test |
+| 2 | 10 deploy gate + CI hygiene, 14 Node pin | S | a red suite must not deploy |
+| 3 | 22 dev-server readiness, 20-21 the empty 16 s of tests | S | every check and every `npm test` a minute faster |
+| 4 | 37 Makefile, 46 CLAUDE.md, 42 model docs | S | the commands a newcomer types must not overwrite the model |
+| 5 | 13 dead ort.min, 12 cache-busting, 16 size ratchet | S | deploy correctness after a bump |
+| 6 | 11 lazy detector, 16 lazy smartcube / f2l data | M | the Solve tab should not download 34 MB |
+| 7 | 36 ckpt.py + geom.py, 38 orphans + extras, 39 pins, 40 first pytest | M | the Python half gets its first tests and one loader |
+| 8 | 29, 30, 28, 31 (one dup per commit) | S each | tsc-guarded mechanical work |
+| 9 | 23 the checks' hygiene, 25-26 suite slack and config | M | a runnable UI net that does not lie |
+| 10 | 33 seams + 24 tests, 32 one graph, 34 imports | M-L | the last structural work; each seam ships with its tests |
+| 11 | 47 plan restructure, 48 docs inventory, 49 design docs, 50-51 | S-M | after the code settles |
+| 12 | 27 the indexed-access decision, 15 vendor smartcube, 17 rules, 18 offline, 43 the drive, 44 twist, 45 legacy head | decide | the user's calls, in one sitting |
+
+Rows 1-5 are a day and each ships on its own. Row 12 is one
+conversation, not a pass.
