@@ -47,6 +47,20 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-25: vitest 5.0.2
+
+Gates green before and after on a `main` that gained three commits
+overnight (the follow and the scramble voice: `app/cubefollow.ts`,
+`ll/trainer.ts`, `timer/trainer.ts`, `shell.ts`, `ui/voice.ts`). Drift:
+63 files / 1103 tests in ~11.5 s; `main` 572 kB; 12 clones; `console.*`
+outside `debug/` 13 (was 12: one more `CUBE FOLLOW` trace in
+`app/cubefollow.ts`, which `check-smart.mjs` parses, so it stays like the
+others); one TODO; pack 232 MB; `ll/trainer.ts` 1208 -> 1157 lines,
+`ui/scanner.ts` 1350; `moves-replay` 9.3 s. **2.3's minor:** vitest
+5.0.1 -> 5.0.2, the suite and `npm run bench` green on it; audit clean.
+Section 7 still has nothing a pass can pick alone (2.4, puppeteer 25,
+typescript 7, `label.html`, `MILESTONES.md`'s header).
+
 ## Status 2026-09-24, fourth pass: the two patches
 
 Gates green before and after; drift unchanged (63 files / 1102 tests in
