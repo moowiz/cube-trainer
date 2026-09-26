@@ -1,6 +1,8 @@
 # UI redesign: the journeys, what makes it cluttered, and a two-pane practice screen (2026-09-26)
 
-Status: **a proposal for review. Nothing is built.** Mockups are in
+Status: **built, first cut (2026-09-26, later the same day)** - section 12
+says what is in it, how it differs from the proposal below, and what is
+still open. The proposal as first written follows unchanged. Mockups are in
 `docs/ui-redesign/mockups.html` (open it in a browser); the PNGs beside
 it are screenshots of each frame, and the `now-*.png` files are the app
 as it is today (headless Chrome at 400 x 860 and 1280 x 900, with a
@@ -881,3 +883,89 @@ above "Show the alg" to none.
 - **The mockups are static HTML** with the app's palette and its own
   SVG renders. The cube net in P1, D1 and P9 is drawn by a small
   script in the page, not by the app.
+
+---
+
+## 12. Built: the first cut (2026-09-26)
+
+**Your answers** (the same day): voice matters as much as the screen (the
+phone may lie flat, out of sight); keeping the cube in sync and scanning
+happen at the desk too; no AUF phase (the end of PLL); OCLL and PLL merged;
+the bottom nav; one Space rule; splits in the strip now; the coach on by
+default; the scanner is a labelling tool, not the product, so it is left as
+it was; the version chip stays. On the two questions you asked about ("the
+pool", "switch mode"): both built the recommended way, to be judged by use.
+
+**What is in it** (`web/src/ui/rail.ts`, `web/src/app/modes.ts`,
+`web/src/timer/splits.ts`, `web/index.html`):
+
+- **The cube rail**, beside the stage on a desktop and above it on a phone.
+  It holds the stage strip (EOCross, F2L with four pips, OCLL, PLL), the
+  scramble (the next turn boxed; a wrong turn replaced by its undo in big
+  type; folded to one line once the cube is at it or the clock runs), the
+  clock (the Solve tab's press rule for every mode, Space included), the
+  cube as the app believes it (net, 3D or hidden, remembered per mode), and
+  four tools: New, the voice switch, the view, and fingertricks.
+- **The rail draws the owner stage**: the open panel, or the Solve tab while
+  the coach carries its timed solve through the stage panels. So the Solve
+  timer stays on screen while the focus shows the pairs, then the OCLL case,
+  then the PLL case.
+- **Six modes**: Solve, EO/EOCross, F2L, F2L → LL, the last layer (OCLL or
+  PLL; PLL can start from OCLL or the last pair), and Find an F2L case (the
+  tap finder alone; the rail goes).
+  - The mode chip opens the picker, with a strip per mode; keys 1-6.
+  - On a desktop the four main modes are also tabs.
+- **The follow opens only the stages inside the mode**, so the EOCross mode
+  stays on EO and the F2L mode stays on F2L.
+- **A cube picked up by hand** shows its stage under a banner offering
+  "Practise X from here" or "Back to <mode>". The mode does not change by
+  itself, and a picked-up solve ends on the mode's own stage (it was always
+  the Solve tab before).
+- **Each mode's settings sheet** holds the rows that used to sit on the tab
+  or in the global Settings. They were moved with their ids and listeners.
+  - Solve: coach, next scramble, sounds, the voice.
+  - EO: the five EO settings.
+  - F2L: all pairs or picked cases, next scramble when solved, hide the
+    cube, hints, advanced algs.
+  - Last layer: OCLL or PLL, and all of each drill's options, voice, pool,
+    chunk names and picture.
+- **The ? button** shows the prose the panes now hide.
+- **Cases** (F2L / OCLL / PLL / Other puzzles in one switch; a drawer from
+  1300 px up) and **Progress** (Solves: the session picker, the graph and
+  the history file; Last layer and F2L: the practice tables) are places of
+  their own. The phone has a bottom nav for them.
+- **The cube pill** in the top bar replaces the Cube, Scan and Resume
+  buttons. Scanning moved into the Cube sheet; `c` still opens it.
+- **Splits**: first crossings, live in the strip, zero-length stages shown
+  as "skip". A PLL drill's split is PLL alone; the attempt starts from the
+  stage before the first turn, since a PLL alg's first R breaks the cross.
+- **Voice**: the Solve mode says the time whenever its voice is on.
+
+**Different from the proposal:**
+
+- No AUF segment.
+- The Settings sheet keeps only the colour, keep-awake, sync and the labeler.
+- There is no separate "developer tools" switch: the scanner's rows stay as
+  they were, since the scanner is the labelling tool.
+- The picked-case pool is still chosen the old way per drill: last-layer
+  chips in the settings sheet, F2L Practise toggles on the case cards.
+  Unifying the two is still open.
+
+**Fixed on the way:**
+
+- The amber "Off the scramble" through every timed solve and alg. The rail
+  never shows it; the stages' own hidden lines still compute it.
+- Fingertricks can be reached from every mode (the rail's ✋).
+- The version chip no longer sits on the phone's buttons.
+
+**Still open:**
+
+- One pool for both drills (10.4).
+- The Solve list does not show splits yet. `splitsOf` reads them from a
+  stored solve; the list has not been wired to it.
+- The drills' result panels still differ between OCLL/PLL, EO and F2L.
+- F2L's message line still does three jobs.
+- The bugs in section 4 that the rail does not paper over: the Solve tab
+  taking drill shares, and Escape with a docked scanner.
+- Nothing has been tried on the phone yet: this is what your feedback is
+  for.

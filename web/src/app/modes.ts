@@ -106,6 +106,9 @@ function selectMode(id: ModeId, keep = false): void {
     // finding a case by hand: the tracked scramble goes, the pieces are yours to place
     if (id === 'find' && !wasFind) document.getElementById('restart')?.click();
   }
+  // F2L into the last layer: the whole cube solved brings the next F2L scramble (the finder's own box, ticked)
+  const rescr = document.getElementById('rescramble') as HTMLInputElement | null;
+  if (id === 'f2lll' && rescr && !rescr.checked) { rescr.checked = true; rescr.dispatchEvent(new Event('change')); }
   const home = modeDef(id).home();
   showTab(home);
   if (!keep) ensureCase(home);
@@ -140,9 +143,9 @@ function render(): void {
   const banner = document.getElementById('focus-banner')!;
   const off = t !== home && !carriedSolve() && !inMode(t);
   banner.hidden = !off;
-  if (off) {
-    banner.innerHTML = `<span>Following your cube: it is at <b>${TAB_NAME[t]}</b>.</span><button type="button" class="btn" data-go="here">Practise ${TAB_NAME[t]} from here</button><button type="button" class="btn" data-go="back">Back to ${def.name()}</button>`;
-  }
+  // redrawn only when it says something else: this runs every second, and a redraw under a press would eat the click
+  const html = off ? `<span>Following your cube: it is at <b>${TAB_NAME[t]}</b>.</span><button type="button" class="btn" data-go="here">Practise ${TAB_NAME[t]} from here</button><button type="button" class="btn" data-go="back">Back to ${def.name()}</button>` : '';
+  if (banner.dataset.html !== html) { banner.dataset.html = html; banner.innerHTML = html; }
 }
 
 // ---- the picker ----

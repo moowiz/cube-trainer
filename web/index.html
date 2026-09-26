@@ -95,6 +95,8 @@
   /* the ? shows the prose again, where it was */
   .focus.help .eo-head { display: flex !important; } .focus.help .eo-head button { display: none; }
   .focus.help #eo-orient, .focus.help .eo-note:not(.eo-stratnote), .focus.help .f2l > header > p { display: block !important; }
+  /* with a cube the pairs move on by themselves: "Solved, next pair" is for tracking by hand */
+  body.has-cube .focus .f2l .nextbtn { display: none !important; }
   /* typed moves only without a cube */
   body.has-cube .focus #eo-sol, body.has-cube .focus label[for="eo-sol"], body.has-cube .focus .eo-row:has(#eo-check) { display: none !important; }
   /* the last-layer drill: the case big, the two buttons at thumb height */
