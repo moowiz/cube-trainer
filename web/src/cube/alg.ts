@@ -21,12 +21,19 @@ export function movesStr(ms: readonly Move[]): string {
   return ms.map(moveStr).join(' ');
 }
 
-/** Adjacent turns of one face merged (R2 R' -> R, R R' -> nothing), so a joined sequence reads as one alg. */
+const OPPOSITE: Record<string, string> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
+
+/**
+ * Turns of one face merged (R2 R' -> R, R R' -> nothing), across the opposite face too since those commute
+ * (D' U' D -> U', user 2026-09-26), so a joined sequence reads as one alg with nothing in it to cancel.
+ */
 export function mergeMoves(ms: readonly Move[]): Move[] {
   const out: Move[] = [];
+  const mergeAt = (i: number, m: Move) => { const q = (out[i]!.times + m.times) % 4; if (q) out[i] = { face: m.face, times: q as 1 | 2 | 3 }; else out.splice(i, 1); };
   for (const m of ms) {
-    const last = out[out.length - 1];
-    if (last && last.face === m.face) { const q = (last.times + m.times) % 4; out.pop(); if (q) out.push({ face: m.face, times: q as 1 | 2 | 3 }); }
+    const n = out.length;
+    if (n && out[n - 1]!.face === m.face) mergeAt(n - 1, m);
+    else if (n > 1 && out[n - 1]!.face === OPPOSITE[m.face] && out[n - 2]!.face === m.face) mergeAt(n - 2, m);
     else out.push(m);
   }
   return out;

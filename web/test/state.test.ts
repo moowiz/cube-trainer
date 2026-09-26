@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { faceMoves, mergeMoves, movesStr } from '../src/cube/alg';
 import Cube from 'cubejs';
 import { solveState, validateState } from '../src/state';
 import { SOLVED } from '../src/cube/state';
@@ -124,4 +125,19 @@ describe('solveState (node fallback)', () => {
     cube.move(solution);
     expect(cube.isSolved()).toBe(true);
   }, 20000);
+});
+
+describe('mergeMoves', () => {
+  const merge = (alg: string) => movesStr(mergeMoves(faceMoves(alg)!));
+  it('merges a face across its opposite, which commutes with it', () => {
+    expect(merge("D' U' D")).toBe("U'");
+    expect(merge("R L R' L'")).toBe('');
+    expect(merge("R L' R2 L R")).toBe('');
+    expect(merge('U D U2')).toBe("U' D");
+  });
+  it('leaves the rest alone', () => {
+    expect(merge("R U R' U'")).toBe("R U R' U'");
+    expect(merge("R2 R'")).toBe('R');
+    expect(merge('R F R')).toBe('R F R');
+  });
 });

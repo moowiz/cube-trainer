@@ -81,7 +81,14 @@ describe('scrambles', () => {
       expect(r.eoBad, alg).toBe(0);
       expect(r.cross, alg).toBe(4);
       expect(r.pairs, alg).toBeLessThan(4);
-      for (const m of faceMoves(alg)!) if (m.face === 'F' || m.face === 'B') expect(m.times, alg).toBe(2);
+      const ms = faceMoves(alg)!;
+      for (const m of ms) if (m.face === 'F' || m.face === 'B') expect(m.times, alg).toBe(2);
+      // nothing to cancel: no face twice in a run of one axis (D' U' D, user 2026-09-26)
+      const axis = (f: string) => 'UD RL FB'.split(' ').findIndex((a) => a.includes(f));
+      for (let i = 1; i < ms.length; i++) {
+        expect(ms[i]!.face, alg).not.toBe(ms[i - 1]!.face);
+        if (i > 1 && axis(ms[i]!.face) === axis(ms[i - 1]!.face)) expect(ms[i]!.face, alg).not.toBe(ms[i - 2]!.face);
+      }
     }
   });
   it('genFull is 25 face turns', () => {
