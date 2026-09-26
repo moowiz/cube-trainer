@@ -42,6 +42,24 @@ helpers stripped, the deploy shrank 115 MB -> 35 MB, and CI now runs the
 headless checks and ruff. **Current milestone: M10's calibration,
 alongside M13's next step.**
 
+**Update (2026-09-26): the camera half is PAUSED.** M8's real-room
+checklist, M10's calibration (the reader's numbers over the cube-labelled
+recordings; 25 sessions exist under `recordings/`, enough to start), and
+M13's app side (`facekp.ts` decoding the twist channel, the reader's twist
+channel, the app-side-channel vs video-window call in
+`docs/twist-head-plan.md`) all wait on detector work that stops here for
+now. The twist head (`tw1`) is trained and its bars are met; the models
+deployed stay as they are. Pick this back up from `docs/twist-head-plan.md`
+(the handoff) and `docs/solve-tracking-design.md` 10.2 (why the reader
+cannot be calibrated until the detector sees layers rather than hands).
+Everything since 2026-09-22 has gone into the smart-cube trainers instead:
+the F2L finder, case sheet and targeted practice (`web/src/f2l/`, off the
+plan like M10b), the PLL scramble rules, the voice modes, the smart cube's
+auto-reconnect, and the second maintenance audit. The UI redesign
+(`docs/ui-redesign.md`) is its own track. **Current milestone: M11**
+(`web/src/analysis/`, which still does not exist), with M12 behind it;
+`docs/ll-drill-next-steps.md` 2-6 are the loose ends worth clearing first.
+
 ---
 
 ## M0 — Skeleton ✅ (done 2026-09)
