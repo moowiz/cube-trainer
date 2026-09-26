@@ -155,6 +155,17 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     expect(state(scrH)).toBe(state(h));
   });
 
+  it('a full scramble under the PLL options (an F2L link shared to the drill) runs into the cap, not for ever', async () => {
+    const { lastSearchStats } = await import('../src/ll/scramble');
+    // the link of 2026-09-25: phase 2 restricted to U D R2 L2 on a state far from G1 walked 716M nodes (17 s)
+    const scr = "U2 L D2 U2 B2 F2 D' U L' D R' L' U2 R2 D' R2 U R2 F2 D2 B2";
+    const t0 = performance.now();
+    const s = scrambleFor(scr, makeRng(3), { longer: [1, 2], slices: 'paired', faces: 'UDRL', noLeadingU: true });
+    expect(performance.now() - t0).toBeLessThan(4000);
+    expect(state(s)).toBe(state(scr));
+    expect(lastSearchStats().phase2).toBeLessThan(10_000_000); // the capped search plus the looser one that stood in
+  });
+
   it('every drill setup (an AUF each side of the case) answers in well under a second', () => {
     const rng = makeRng(7);
     const opts = { longer: [1, 2] as [number, number], slices: 'paired' as const, faces: 'UDRL', noLeadingU: true };

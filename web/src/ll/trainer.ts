@@ -548,8 +548,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     setTimeout(() => {
       if (gen !== scrambleGen) return;
       // a PLL case from the PLL: the U D R2 L2 fixed-length scramble; an earlier start or a handed-over
-      // cube is off G1 and takes the plain shortest answer
-      const opts = kind === 'pll' && settings.from === 'pll' && !lead.length ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
+      // cube is off G1 and takes the plain shortest answer. The state itself decides, not `lead`: a shared
+      // full scramble has no route (lead empty too), and the PLL options on a cube far from G1 asked the
+      // two-phase search for phase-2 tails inside <U, D, R2, L2>, which a random G1 state is not in - the
+      // 45 s freeze of 2026-09-25 (an F2L link's scramble, 716M nodes on the desktop; capped since)
+      const pllState = ['pll', 'solved'].includes(stageOf(state(setup)).stage);
+      const opts = kind === 'pll' && settings.from === 'pll' && !lead.length && pllState ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
       const t0 = performance.now();
       const t = trimAuf(scrambleFor(setup, Math.random, opts));
       { const st = lastSearchStats(); console.info(`[ll] ${kind} scramble search took ${(performance.now() - t0).toFixed(0)} ms (phase 1 ${st.phase1} nodes, phase 2 ${st.phase2}, gave up ${st.gaveUp}) for "${setup}" ${JSON.stringify(opts)}`); }
