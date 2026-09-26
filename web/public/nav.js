@@ -7,7 +7,7 @@
 // (it sat on the recording preview); the pages link to each other instead.
 // The chip also watches for a new deploy: version.json is fetched again
 // every few minutes, whenever the tab comes back into view, and when a
-// solve or drill attempt finishes (the app's 'zz-solved' event), and when
+// solve or drill attempt finishes (the app's 'zz-solved' event), on a tap, and when
 // its hash changes the chip turns amber and offers a reload (a tap; never
 // by itself - a solve or a recording may be running).
 (() => {
@@ -35,27 +35,35 @@
       e.stopPropagation();
       if (ver.classList.contains('update')) { location.reload(); return; }
       ver.classList.toggle('open'); ver.textContent = ver.classList.contains('open') ? long : short;
+      check(true); // a tap also looks for a new deploy right now, and says when there is none
     });
     ver.hidden = false;
 
     // a new deploy: the chip becomes the update notice
     let checking = false;
-    const check = () => {
+    // `told`: the tap's check reports "up to date" for a moment on the chip; the timed checks stay silent
+    const check = (told) => {
       if (checking || ver.classList.contains('update') || document.hidden) return;
       checking = true;
+      const said = (msg) => {
+        if (!told) return;
+        const was = ver.classList.contains('open') ? long : short;
+        ver.textContent = `${was}\n${msg}`;
+        setTimeout(() => { if (!ver.classList.contains('update')) ver.textContent = ver.classList.contains('open') ? long : short; }, 2500);
+      };
       // a fresh query string: 'no-cache' only skips the browser's copy, and Pages' CDN keeps version.json up to
       // ten minutes after a deploy under the same URL (a solve right after a push found the old hash)
       fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject())).then((n) => {
-        if (n.hash === v.hash) return;
+        if (n.hash === v.hash) { said('✓ up to date'); return; }
         ver.classList.remove('open'); ver.classList.add('update');
         ver.textContent = `↻ New version ${n.hash} · tap to reload`;
         ver.title = `You are on ${v.hash}; ${n.hash} was deployed ${n.time}. Tap to reload (finish the solve or the recording first).`;
-      }).catch(() => undefined).finally(() => { checking = false; });
+      }).catch(() => said('could not check (offline?)')).finally(() => { checking = false; });
     };
-    setInterval(check, 5 * 60 * 1000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
-    window.addEventListener('focus', check);
-    document.addEventListener('zz-solved', check); // the app: a solve or a drill attempt just finished
+    setInterval(() => check(false), 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(false); });
+    window.addEventListener('focus', () => check(false));
+    document.addEventListener('zz-solved', () => check(false)); // the app: a solve or a drill attempt just finished
   }).catch(() => ver.remove());
 
   const mount = () => { document.body.append(style, ver); };
