@@ -52,8 +52,8 @@ import type { Ep } from '../detect/facekp';
 import { drawSamplePatches, drawTracks, type SampledQuad } from '../debug/detect-overlay';
 import { CAPTURE_VERSION, captureDebug, captureSink, plainSolution, saveRawFrame, summarizeTick, type ScanCapture, type TickSummary } from '../debug/dump';
 import { installDetectSelfTest } from '../debug/selftest';
-import { describeModels, loadTwoStage, type TwoStageModels } from '../detect/models';
-import { detectTwoStage, type TwoStageResult } from '../detect/twostage';
+import type { TwoStageModels } from '../detect/models';
+import type { TwoStageResult } from '../detect/twostage';
 import { QuadTracker, type QuadDetection } from '../detect/tracker';
 import { HintState, hintFor } from './hint';
 import { BRIGHT_CLIP, BRIGHT_PEAK, DARK_PEAK, coloursOf, lightLine, scrambleCheck, scrambleCheckLine, verdictLine } from './verdict';
@@ -67,6 +67,16 @@ import { persistControls } from './settings';
 import { DEFAULT_SCHEME_HEX, DEFAULT_SCHEME_NAMES, FACE_ORDER } from '../types';
 import type { ColorName, FaceId } from '../types';
 import { scoped } from './dom';
+
+// DECISION: the detector code (and with it onnxruntime-web's 416 kB bundle) is a dynamic import
+// made by the scan sheet's first load(), so a page that never opens the scanner never fetches it.
+// Loaded once and kept: tick() runs per frame and must not await a module.
+type DetectorCode = Pick<typeof import('../detect/models'), 'loadTwoStage' | 'describeModels'> & Pick<typeof import('../detect/twostage'), 'detectTwoStage'>;
+let detectorCode: Promise<DetectorCode> | null = null;
+function loadDetectorCode(): Promise<DetectorCode> {
+  return (detectorCode ??= Promise.all([import('../detect/models'), import('../detect/twostage')])
+    .then(([m, t]) => ({ loadTwoStage: m.loadTwoStage, describeModels: m.describeModels, detectTwoStage: t.detectTwoStage })));
+}
 
 export interface ScannerOptions {
   /**
@@ -419,6 +429,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
   }
 
   let models: TwoStageModels | null = null;
+  let detect: DetectorCode | null = null; // set by load(), before models is
   let running = false;
   let loopGen = 0;           // bumps per start so a stale frame callback can't run a second loop
   let frameNo = 0;
@@ -468,13 +479,18 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
     const previous = models;
     models = null;
     statusEl.textContent = 'model loading…';
-    const outcome = await loadTwoStage(ep, previous);
+    try { detect = await loadDetectorCode(); }
+    catch (err) {
+      statusEl.textContent = `detector code failed to load: ${err instanceof Error ? err.message : err}`;
+      return { models: null, reason: statusEl.textContent };
+    }
+    const outcome = await detect.loadTwoStage(ep, previous);
     models = outcome.models;
     if (!models) {
       statusEl.textContent = outcome.reason;
       return outcome;
     }
-    statusEl.textContent = `model ready: ${describeModels(models)}`;
+    statusEl.textContent = `model ready: ${detect.describeModels(models)}`;
     const anon = models.detector.anonymous;
     $('heatLbl').hidden = !anon;
     return outcome;
@@ -501,7 +517,7 @@ export function mountScanner(root: HTMLElement, opts: ScannerOptions = {}): Scan
    *  padded box unless the debug panel has switched stage 2 off. Both stages
    *  see the same pixels (the live video moved on between them before). */
   async function tick(src: HTMLCanvasElement, m: TwoStageModels): Promise<TwoStageResult> {
-    if (!stage2Off.checked) return detectTwoStage(m.localizer, m.detector, src);
+    if (!stage2Off.checked) return detect!.detectTwoStage(m.localizer, m.detector, src);
     const t0 = performance.now();
     const box = await m.localizer.locate(src, src.width, src.height);
     return { result: null, box, roi: null, obj: m.localizer.lastObj, locateMs: performance.now() - t0 };

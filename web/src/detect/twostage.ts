@@ -11,8 +11,8 @@
 // There is deliberately no tracker-hull ROI, no centre crop and no full-frame
 // fallback: the stage-2 model has never seen a full frame and would only
 // produce confident garbage on one.
-import { CubeLocalizer, type CubeBox } from './cubebox';
-import { FaceDetector, type DetectResult } from './facekp';
+import type { CubeLocalizer, CubeBox } from './cubebox';
+import type { FaceDetector, DetectResult } from './facekp';
 import { padBox, type Box } from './geometry';
 
 /**

@@ -8,7 +8,7 @@ import { invertMap } from '../cube/frame';
 import { SOLVED } from '../cube/state';
 import { expectedFacelets, frameMap, relabelMoves, trainerScramble } from '../handoff';
 import { toast } from '../shell';
-import { autoConnect, autoConnectSupport, bluetoothAvailable, connectCube, PERMISSIONS_HINT, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
+import type { ConnectOpts, CubeLink } from '../smart/adapter';
 import { Capture, replay } from '../smart/capture';
 import { CubeSource } from '../smart/source';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
@@ -22,6 +22,14 @@ import { activeSource, dropSource, onSourceChange, useSource } from './sources';
 // DECISION: a smart cube's letters are its colours on the standard scheme (white up, green front,
 // red right), which is what a GAN reports; a differently coloured smart cube would need a setting.
 const CUBE_COLOURS = DEFAULT_SCHEME_NAMES;
+
+// DECISION: the adapter (and the smart cube library behind it, ~137 kB with its AES and rxjs)
+// is a dynamic import made on the first connect attempt, so a page without a cube never fetches it.
+type Adapter = typeof import('../smart/adapter');
+let adapterCode: Promise<Adapter> | null = null;
+function adapter(): Promise<Adapter> { return (adapterCode ??= import('../smart/adapter')); }
+/** adapter.bluetoothAvailable, without loading the adapter: the Cube sheet asks at mount. */
+function bluetoothAvailable(): boolean { return typeof navigator !== 'undefined' && 'bluetooth' in navigator && !!navigator.bluetooth; }
 let cubeLink: CubeLink | null = null;
 let cube: CubeSource | null = null;     // the connected cube, or a replayed capture; kept after a disconnect for Save
 let view: CubeView;
@@ -143,6 +151,7 @@ function explain(why: string): void {
 async function listenForCube(): Promise<void> {
   if (cubeLink || listening || !wantCube) return;
   if (!autoOn) { explain('off ("Reconnect the cube on load" is unticked)'); return; }
+  const { autoConnect, autoConnectSupport, permittedDevices, pickKnownDevice, rememberedDevice, PERMISSIONS_HINT } = await adapter();
   const support = autoConnectSupport();
   if (!support.ok) { explain(support.why); return; }
   const devices = await permittedDevices();
@@ -187,7 +196,7 @@ async function connectSmartCube(): Promise<void> {
   headerLight('busy', 'Connecting the smart cube');
   let link: CubeLink;
   try {
-    link = await connectCube(connectOpts(src));
+    link = await (await adapter()).connectCube(connectOpts(src));
   } catch (err) {
     view.setBusy(null);
     headerLight('idle');

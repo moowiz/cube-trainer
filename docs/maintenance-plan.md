@@ -175,8 +175,10 @@ Done, each its own commit, `npm test` / typecheck / lint and the headless
 checks green after each: **2.1** (deploy 115 -> 35 MB), **2.2** (cubejs's
 npm stubbed by `overrides`: lockfile 751 -> 294, audit 44 -> 2), **2.3**
 (smartcube ref pinned, `@types/web-bluetooth` declared, ORT 1.30, eslint
-patches; the majors are still open), **2.5** (the Algs sheet lazy; only
-38 kB moved, the rest of `main` is the trainers), **3.3** (`state.ts`
+patches; the majors are still open), **2.5** (the Algs sheet lazy, 38 kB; on
+09-26 the detector code with the ORT bundle and the smart cube adapter with
+its library went lazy too: `main` 646 -> 501 kB, startup 325 -> 170 kB gzipped,
+ceiling 520; the rest of `main` is the trainers, `f2l/data.ts` 82 kB of it), **3.3** (`state.ts`
 split; one piece table in `cube/pieces.ts`), **3.4** (`persisted()`),
 **3.5** (`timer/track-ui.ts`), **3.6** (`ll/pic.ts` on `picTop`), **3.7**
 (`ui/dom.ts`, one `median`, one `downloadBlob`, one `SOLVED`), **3.8**

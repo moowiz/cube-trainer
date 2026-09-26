@@ -6,8 +6,8 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// DECISION: 620 kB minified; measured 583 kB on 2026-09-23.
-const CEILING_KB = 620;
+// DECISION: 520 kB minified; measured 501 kB on 2026-09-26 (583 kB on 09-23, before the detector and the smart cube adapter went lazy).
+const CEILING_KB = 520;
 const dir = new URL('../dist/assets/', import.meta.url).pathname;
 
 const main = readdirSync(dir).filter((f) => /^main-.*\.js$/.test(f));
