@@ -86,20 +86,23 @@ web/
                      csTimer's 5% trim), cstimer (its export file both ways), track (scramble following),
                      graph (the history graph), when (day boundaries for the stats)
     store/           the solve store: types (records in WCA notation; solves, sessions, drill attempts, favourite
-                     algs, per-alg notes), local (IndexedDB, always), sync
+                     algs and per-alg notes for the OCLL, PLL and F2L tables), local (IndexedDB, always), sync
                      (optional Firestore layer, Google sign-in), firebase (the only SDK import, lazy)
 firebase/            firestore.rules (per-user) + firebase.json; paste into the console or deploy with the CLI
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
-    f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
-                     (on a smart cube: the scramble followed, the cube tracked from it, each pair's case read off
-                     it, the alg being done lit and followed; `npm run check:f2l` replays that headlessly)
+    f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators, the
+                     favourite alg per case), pic (the pair pictured on the cube), trainer (on a smart cube: the
+                     scramble followed, the cube tracked from it, each pair's case read off it, the alg being done
+                     lit and followed; `npm run check:f2l` replays that headlessly), reference (the case sheet: one
+                     slot's 83 cases by section, corner and edge, filtered; stars and notes like the LL sheet's)
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner;
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
                      where the moves done reached the stage; features.ts is its piece-permutation reader), scramble (Kociemba two-phase, best total under a
                      node budget: short face-turn scrambles that do not read as the alg backwards), pic (the
                      top-down picture), reference (the case list sheet: pictures, algs with triggers, chains; a star makes any of a case's algs its main, and each alg has a note field of your own; favs.ts and notes.ts keep those in the store, synced),
-                     trainer (start-from and show-right-away settings; the last-layer diagram, with the cube
+                     trainer (start-from and show-right-away settings; the case sheet's scaffold - the cards' parts,
+                     stars, notes, the 3D player, the wiring - is ui/refsheet.ts, shared with the F2L sheet; the last-layer diagram, with the cube
                      in 3D only where there is no diagram to draw; the scramble followed on a smart cube like
                      the Solve tab's; a voice with a mode per move set - the scramble and the alg each read,
                      echoed, watched for a wrong turn, or silent - and the case asked before the alg

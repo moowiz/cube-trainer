@@ -79,6 +79,34 @@ check(chips[0].includes('done'), `the first slot is marked done (${chips.join(' 
 check(/^(FL|BL|BR) case \d+$/.test(await text('#result .case-title h2') ?? ''), `the next pair's case read: ${await text('#result .case-title h2')}`);
 check(new RegExp(`tracking · ${algToks.length} moves so far`).test(await text('#result .trackbadge') ?? ''), `the moves so far: ${await text('#result .trackbadge')}`);
 
+// the case sheet: one slot's cases, filtered, a star that leads the finder, a case set on the finder
+await page.click('#allcases'); await wait(400);
+check(!(await page.$eval('#ref-sheet', (e) => e.hidden)), 'the sheet opens');
+check((await count('#ref-panel .llr-case')) === 83, `one slot's 83 cases (${await count('#ref-panel .llr-case')})`);
+check((await count('#ref-panel .llr-3d svg polygon')) >= 83 * 27, 'every case pictured in 3D (the three faces in view)');
+check((await count('#ref-panel h3.llr-group')) === 4, 'the four sections');
+await page.evaluate(() => { document.getElementById('f2lr-feats').open = true; });
+await page.click('#ref-panel [data-filter="sec-Last slot"]'); await wait(300);
+check((await count('#ref-panel .llr-case')) === 20, `the last-slot section filtered: 20 cases (${await count('#ref-panel .llr-case')})`);
+await page.click('#ref-panel [data-filter="slot-FL"]'); await wait(300);
+check((await page.$eval('#ref-panel .llr-case', (e) => e.dataset.id)).startsWith('FL-'), 'the front-left slot on show');
+await page.click('#ref-panel [data-filter="slot-FR"]'); await wait(300);
+// star case 4's first other alg: the card says "your pick", the finder leads with it
+const card4 = '#ref-panel .llr-case[data-id="FR-4"]';
+await page.evaluate((sel) => { document.querySelector(`${sel} .llr-more`).open = true; }, card4);
+const starred = await page.$eval(`${card4} .llr-alt [data-fav]`, (e) => e.dataset.fav);
+await page.click(`${card4} .llr-alt [data-fav]`); await wait(300);
+check(/your pick/.test(await text(`${card4} .llr-name`)), 'the card says "your pick"');
+await page.click(`${card4} [data-go]`); await wait(300);
+check(await page.$eval('#ref-sheet', (e) => e.hidden), 'Set in finder closes the sheet');
+check((await text('#result .case-title h2')) === 'FR case 4', `the finder is on case 4: ${await text('#result .case-title h2')}`);
+check(/your pick/.test(await text('#result .alg .tag')) && (await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg)).replace(/[()]/g, '') === starred.replace(/[()]/g, ''), `the finder leads with the starred alg: ${starred}`);
+// the star put back: the case's standard alg leads again
+await page.click('#allcases'); await wait(400);
+await page.click(`${card4} .llr-alg [data-fav].on`); await wait(300);
+check(!/your pick/.test(await text(`${card4} .llr-name`)), 'unstarred');
+await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
+
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
 process.exit(failed ? 1 : 0);

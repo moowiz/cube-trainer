@@ -396,3 +396,48 @@ export function trace(slot: SlotName, full: string): Trace {
     rows,
   };
 }
+
+// ---- the favourite alg: any of a case's algs (the sheet's, a slot shortcut, the R/L/U one) can be made
+// its main (as a last-layer case's can, ll/cases.ts), which is what the finder lists first, follows and
+// solves the pair with on "Solved, next pair". The data table stays as generated; the choice lives here.
+// Keeping it (the store's favs collection, synced) is ll/favs.ts's job, so this stays pure for the tests.
+const FAV = new Map<string, string>();
+/** A case's id for the store: its slot and number ('FR-4'). */
+export const caseId = (slot: SlotName, n: number): string => `${slot}-${n}`;
+/** The case an id names, or null. */
+export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
+  const m = /^(FR|FL|BR|BL)-(\d+)$/.exec(id);
+  if (!m) return null;
+  const slot = m[1] as SlotName, c = DATA.slots[slot].cases[m[2]!];
+  return c ? { slot, c } : null;
+}
+/** Every alg a case has: the sheet's, then the slot shortcuts, then the searched R/L/U one when there is one. */
+export function allAlgs(c: F2LCase): string[] {
+  const out = [...c.algs, ...c.others.map((o) => o.alg)];
+  if (c.simple_src === 'search') out.push(c.simple);
+  return [...new Set(out)];
+}
+export function f2lCaseIds(): string[] { return SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).map((c) => caseId(s, c.n))); }
+/** The table's own main: the first sheet alg. */
+export function f2lStandardAlg(id: string): string | undefined { return caseOf(id)?.c.algs[0]; }
+/** The alg the finder leads with: the favourite, else the standard. */
+export function f2lMainAlg(id: string): string | undefined { return FAV.get(id) ?? f2lStandardAlg(id); }
+export function f2lIsFavourite(id: string): boolean { return FAV.has(id); }
+/** Make `alg` (one the case has) its main; null puts the standard back. False for an alg the case lacks. */
+export function f2lSetMainAlg(id: string, alg: string | null): boolean {
+  const hit = caseOf(id);
+  if (!hit) return false;
+  if (alg !== null && !allAlgs(hit.c).includes(alg)) return false;
+  if (alg === null || alg === hit.c.algs[0]) FAV.delete(id); else FAV.set(id, alg);
+  return true;
+}
+/**
+ * The algs to list for a case, main first: the favourite when there is one, else the sheet's first alg
+ * (advanced) or the R/L/U-only one (simple). The rest of the sheet's algs follow; the slot shortcuts are
+ * the caller's to add (they need free slots).
+ */
+export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean): string[] {
+  const fav = FAV.get(caseId(slot, c.n));
+  const main = fav ?? (advanced ? c.algs[0]! : c.simple);
+  return [main, ...(advanced ? c.algs : []).filter((a) => a !== main)];
+}

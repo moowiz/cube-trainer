@@ -18,7 +18,7 @@ import { moveCount, tokens } from '../cube/alg';
 import { fromWca, toWca, WCA_HOLD } from '../cube/frame';
 import { offList, offRoute, routeProgress, wrongTurns } from '../cube/route';
 import { pieceType, posName, STICKERS, type Sticker } from '../cube/geometry';
-import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
+import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type View } from '../cube/render';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { stageOf } from '../stage';
@@ -26,9 +26,12 @@ import { shareScramble, showTab, type Stage, stages } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
-  acnUrl, describe, explain, findCase, fullAlg, genF2L, isSlot, normalizeAlg, randomCase, slotOf, slotSolved, slotState,
+  acnUrl, caseId, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, isSlot, normalizeAlg, orderedAlgs, randomCase, slotSolved, slotState,
   SLOT_WORD, SLOTS, trace, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
+import { caseCells, GREY } from './pic';
+import { openF2LReference } from './reference';
+import { onFavsChange } from '../ll/favs';
 import { ensureStyle, scoped } from '../ui/dom';
 import { readStored, writeStored } from '../ui/settings';
 import { hold as holdOf } from '../app/context';
@@ -37,7 +40,6 @@ import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher, markRouteDone, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
 import type { ColorName, FaceId } from '../types';
 
-const GREY = '#DDE1E7'; // the page's --grey-ll: SVG fill attributes cannot read a CSS variable
 const STORE_KEY = 'zzf2l-state';
 
 // the page's F2L rules, scoped to the panel; the .st colour classes are gone (stickers are painted with faceHex)
@@ -164,7 +166,8 @@ const MARKUP = `
     <p class="scrmsg" id="scrmsg"></p>
   </div>
   <p class="pairrow"><label for="slotsel">Pair to solve</label>
-    <select id="slotsel" class="bigsel"></select></p>
+    <select id="slotsel" class="bigsel"></select>
+    <button class="btn" type="button" id="allcases">All 83 cases</button></p>
 </header>
 <main>
   <section>
@@ -231,22 +234,7 @@ export function mountF2L(root: HTMLElement): Stage {
   const hold = () => `white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right)`;
 
   // ---- pictures ----
-  function cells(): Cell[] {
-    const D = DATA.slots[slot];
-    const open = new Set<string>(SLOTS.filter((s) => !solvedSlots.has(s)));
-    open.add(slot);
-    if (corner && !corner.pos.startsWith('U')) open.add(corner.pos.slice(1));
-    if (edge && !edge.startsWith('U')) open.add(edge);
-    const pairFill = (letter: string) => (letter === 'D' ? '#ffffff' : faceHex(letter)); // white pops against the white-ish D
-    return STICKERS.map((s) => {
-      const t = pieceType(s.pos), name = posName(s.pos), sl = slotOf(s.pos);
-      if (t === 'center') return { fill: faceHex(s.face), cls: 'center' };
-      if (t === 'corner' && corner && name === corner.pos) return { fill: pairFill(D.cmap[`${corner.pos}-${corner.o}`]?.[s.face] ?? s.face), cls: 'pair' };
-      if (t === 'edge' && edge && name === edge) return { fill: pairFill(D.emap[edge]?.[s.face] ?? s.face), cls: 'pair' };
-      const solved = (s.pos[1] === -1 && (sl === null || !open.has(sl))) || (t === 'edge' && s.pos[1] === 0 && sl !== null && !open.has(sl));
-      return solved ? { fill: faceHex(s.face), cls: 'solved' } : { fill: GREY, cls: 'hit' };
-    });
-  }
+  const cells = () => caseCells(slot, corner, edge, SLOTS.filter((s) => !solvedSlots.has(s)));
   /** Stickers are buttons: label them by colour and position, keep them reachable by keyboard. */
   function a11y(picture: SVGSVGElement): void {
     picture.querySelectorAll<SVGElement>('[data-idx]').forEach((el) => {
@@ -584,7 +572,7 @@ export function mountF2L(root: HTMLElement): Stage {
     b.addEventListener('click', () => {
       if (tracked && currentHit && !fedBy) { // tracking: the pair is solved by doing the alg shown
         const c = DATA.slots[slot].cases[currentHit.n];
-        if (c) { didThis(fullAlg(currentHit.auf, advanced() ? c.algs[0] : c.simple)); return; }
+        if (c) { didThis(fullAlg(currentHit.auf, orderedAlgs(slot, c, advanced())[0]!)); return; }
       }
       markSolved();
     });
@@ -626,16 +614,17 @@ export function mountF2L(root: HTMLElement): Stage {
     t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
-    const ex = explain(slot, c, adv ? c.algs[0] : c.simple);
+    const algs = orderedAlgs(slot, c, adv);
+    const fav = f2lIsFavourite(caseId(slot, c.n));
+    const ex = explain(slot, c, algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
     hb.hidden = !showHints();
     const wrap = document.createElement('div');
     const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
-    if (adv) {
-      for (const a of c.algs) wrap.appendChild(algRow(a, hit.auf, '', c));
-      if (c.simple_src === 'search') wrap.appendChild(algRow(c.simple, hit.auf, 'R/L/U only, not in the sheet', c));
-    } else wrap.appendChild(algRow(c.simple, hit.auf, c.simple_src === 'search' ? 'not in the sheet' : '', c));
-    const usable = c.others.filter((o) => o.free.every((s) => !solvedSlots.has(s)) && (adv || isSimple(o.alg)));
+    // the favourite leads (the sheet's star); then the sheet's algs (advanced) or the R/L/U one alone
+    algs.forEach((a, i) => wrap.appendChild(algRow(a, hit.auf, i === 0 && fav ? 'your pick' : a === c.simple && c.simple_src === 'search' ? (adv ? 'R/L/U only, not in the sheet' : 'not in the sheet') : '', c)));
+    if (adv && c.simple_src === 'search' && !algs.includes(c.simple)) wrap.appendChild(algRow(c.simple, hit.auf, 'R/L/U only, not in the sheet', c));
+    const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((s) => !solvedSlots.has(s)) && (adv || isSimple(o.alg)));
     if (usable.length) {
       const h3 = document.createElement('h3'); h3.textContent = 'Shortcuts using slots that are still open'; wrap.appendChild(h3);
       for (const o of usable) wrap.appendChild(algRow(o.alg, hit.auf, `uses ${o.free.map((s) => SLOT_WORD[s]).join(' + ')}`, c));
@@ -670,6 +659,11 @@ export function mountF2L(root: HTMLElement): Stage {
     if (tracked) syncFromCube(); else render();
   });
   $('random').onclick = () => { const r = randomCase(slot); corner = r.corner; edge = r.edge; render(); };
+  // the case sheet: a case set from it lands on the finder as if tapped in
+  $('allcases').onclick = () => openF2LReference(slot, (s, c) => {
+    slot = s; corner = { pos: c.corner, o: c.co }; edge = c.edge; fillSlotSelect(); updateEdgeName(); render(); window.scrollTo({ top: 0 });
+  }, render);
+  onFavsChange(render); // a favourite from the sheet or another device: the case on show leads with it
   $('reset').onclick = () => { corner = null; edge = null; render(); };
   $('restart').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back

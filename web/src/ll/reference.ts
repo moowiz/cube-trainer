@@ -2,76 +2,20 @@
 // its alg (triggers labelled), what to look for, and what it chains to -
 // the case a solved cube is at after the alg, so two cases can be drilled
 // back to back with no scramble. Tapping a case drills it; its "play"
-// button opens the 3D player (algs/player.ts) in the card instead.
+// button opens the 3D player in the card instead. The sheet itself (the
+// cards' parts, the stars, the notes, the wiring) is ui/refsheet.ts, shared
+// with the F2L finder's sheet.
 
-import { nxnAnimatable } from '../algs/nxn3d';
-import { mountPlayer } from '../algs/player';
-import { inverse, moveCount, tokens } from '../cube/alg';
-import { onSchemeChange } from '../cube/scheme';
+import { inverse, moveCount } from '../cube/alg';
 import { state } from '../cube/state';
-import { closeSheet, openSheet } from '../shell';
-import { triggers } from '../ui/fingertricks';
 import { CASES, isFavourite, type LLCase, type LLKind, matchesName } from './cases';
-import { onFavsChange, setFavourite } from './favs';
-import { noteFor, onNotesChange, setNote } from './notes';
-import { readStored, writeStored } from '../ui/settings';
 import { algAngle, features, type Features } from './features';
 import { chainPartner } from './model';
 import { ensurePicStyle, picSvg } from './pic';
-import { ensureStyle, esc } from '../ui/dom';
+import { esc } from '../ui/dom';
+import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 
-const STYLE = `
-  /* a phone: the head's blurb under the title and the Close button, not squeezed into a column beside them */
-  @media (max-width: 700px) {
-    #ref-sheet .zz-sheet-head { flex-wrap: wrap; }
-    #ref-sheet .zz-sheet-head .sub { flex-basis: 100%; order: 3; font-size: 12px; }
-  }
-  .llr-filters { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 12px; }
-  .llr-filters .lbl { font-size: 13px; color: var(--ink-2); margin-right: 2px; }
-  .llr-filters .gap { flex-basis: 100%; height: 0; }
-  .llr-filters .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
-  .llr-filters .eo-chip small { opacity: .7; margin-left: 3px; }
-  .llr-feats { flex-basis: 100%; font-size: 13px; color: var(--ink-2); }
-  .llr-feats summary { cursor: pointer; }
-  .llr-feats .llr-chips { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 8px; }
-  .llr-search { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); width: 9em; }
-  .llr-count { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
-  .llr-tags { font-size: 12px; color: var(--ink-2); }
-  .llr-chains { font-size: 13px; color: var(--ink-2); margin: 0 0 12px; }
-  .llr-chains b { color: var(--ink); font-weight: 600; }
-  .llr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; align-items: start; }
-  .llr-case { display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); text-align: left; font: inherit; color: inherit; }
-  .llr-drill { font: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); cursor: pointer; }
-  .llr-drill:hover { border-color: var(--ink); }
-  .llr-head { display: flex; align-items: center; gap: 10px; }
-  .llr-head .ll-pic { width: 64px; flex: none; }
-  .llr-play { font: inherit; font-size: 12px; padding: 0; border: 0; background: none; color: var(--ink-2); text-decoration: underline; cursor: pointer; justify-self: start; }
-  .llr-play.on { color: var(--ink); font-weight: 600; }
-  .llr-player { grid-column: 1 / -1; cursor: auto; }
-  .llr-player:empty { display: none; }
-  .llr-case .ll-pic { max-width: none; margin: 0; }
-  .llr-name { font-weight: 600; font-size: 17px; }
-  .llr-name small { font-weight: 400; font-size: 13px; color: var(--ink-2); margin-left: 6px; }
-  .llr-alg { font-size: 17px; word-spacing: .35em; line-height: 1.9; margin: 8px 0 2px; }
-  .llr-alg .ll-trig { padding-bottom: 13px; }
-  .llr-more { margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
-  .llr-more summary { cursor: pointer; }
-  .llr-alt { margin: 6px 0 0; }
-  .llr-alt .llr-alg { font-size: 15px; line-height: 1.8; margin: 0; }
-  .llr-alt small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
-  .llr-fav { font: inherit; font-size: 15px; line-height: 1; padding: 2px 5px; border: 0; background: none; color: var(--ink-2); cursor: pointer; vertical-align: middle; word-spacing: normal; }
-  .llr-fav.on { color: #C8930A; }
-  .llr-fav:hover { color: var(--ink); }
-  .llr-hint { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
-  .llr-note { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); line-height: 1.4; resize: vertical; }
-  .llr-note::placeholder { color: var(--ink-2); }
-  .llr-note:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-  .llr-note.has { background: #FFFDF2; border-color: #E4D9A8; }
-  .llr-chain { font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
-  .llr-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 8px; }
-  .llr-foot .llr-tags { flex: 1 1 100%; }
-  .llr-hint b, .llr-chain b { color: var(--ink); font-weight: 600; }
-`;
+export { algHtml };
 
 const TITLE: Record<LLKind, string> = { ocll: 'OCLL', pll: 'PLL' };
 
@@ -102,19 +46,6 @@ function tagLine(f: Features): string {
   return `corners ${f.corners} · edges ${f.edges} · ${sides}`;
 }
 
-/** The alg as HTML with the named triggers bracketed and labelled under their moves. */
-export function algHtml(alg: string): string {
-  const toks = tokens(alg);
-  const trig = triggers(alg);
-  const parts: string[] = [];
-  for (let i = 0; i < toks.length; ) {
-    const g = trig.find((t) => t.at === i);
-    if (g) { parts.push(`<span class="ll-trig">${esc(toks.slice(i, i + g.n).join(' '))}<i>${esc(g.label)}</i></span>`); i += g.n; }
-    else { parts.push(esc(toks[i]!)); i++; }
-  }
-  return parts.join(' ');
-}
-
 /** The chain summary: cases that undo themselves, pairs that undo each other, and one-way chains (an alg that permutes too). */
 export function chainSummary(kind: LLKind): { self: LLCase[]; pairs: [LLCase, LLCase][]; oneWay: [LLCase, LLCase][] } {
   const self: LLCase[] = [], pairs: [LLCase, LLCase][] = [], oneWay: [LLCase, LLCase][] = [];
@@ -135,41 +66,30 @@ export function chainSummary(kind: LLKind): { self: LLCase[]; pairs: [LLCase, LL
  * `changed` when a case's main alg is changed with the star (the drill's case may be showing the old one).
  */
 export function openLLReference(kind: LLKind, drill: (setup: string) => void, changed?: () => void): void {
-  ensureStyle('llr-style', STYLE);
   ensurePicStyle();
-  const panel = document.getElementById('ref-panel');
-  const head = document.querySelector<HTMLElement>('#ref-sheet .zz-sheet-head b');
-  const sub = document.querySelector<HTMLElement>('#ref-sheet .zz-sheet-head .sub');
-  if (!panel || !head || !sub) throw new Error('index.html is missing the reference sheet');
-  head.textContent = `${TITLE[kind]}: the ${CASES[kind].length} cases`;
-  sub.textContent = kind === 'pll'
-    ? 'The arrows show where each piece goes. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.'
-    : 'Each case as it looks from the front, any permutation. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.';
   const feats = () => new Map(CASES[kind].map((c) => [c.id, features(state(inverse(c.alg)))]));
   let feat = feats();
   const active = new Set<string>();
-  // the piece and side chips fold away (user, 2026-09-24: rarely used); open or closed is remembered
-  const FEATS_KEY = 'zz-llr-feats-open';
-  let featsOpen = readStored(FEATS_KEY) === '1';
   let namePat = ''; // the name box: "G", "R*", "Ja Jb"
   const shown = (c: LLCase) => { const f = feat.get(c.id); return matchesName(c, namePat) && (!f || FILTERS.every((x) => !active.has(x.key) || x.test(f))); };
   const filterBar = () => {
-    const nameBox = `<span class="lbl">Name</span><input class="llr-search" id="llr-name" type="search" placeholder="G, R*, Ja Jb" value="${esc(namePat).replace(/"/g, '&quot;')}" autocomplete="off" autocapitalize="off" spellcheck="false">`;
+    const nameBox = nameBoxHtml(namePat, 'G, R*, Ja Jb');
     if (kind !== 'pll') return `<div class="llr-filters">${nameBox}</div>`;
     const count = (x: Filter) => CASES[kind].filter((c) => { const f = feat.get(c.id); return f && matchesName(c, namePat) && x.test(f) && FILTERS.every((y) => y === x || !active.has(y.key) || y.test(f)); }).length;
     let group = '', chips = '';
     for (const x of FILTERS) {
       if (x.group !== group) { chips += `${group ? '<span class="gap"></span>' : ''}<span class="lbl">${x.group}</span>`; group = x.group; }
-      chips += `<button type="button" class="eo-chip${active.has(x.key) ? ' on' : ''}" data-filter="${x.key}">${esc(x.label)}<small>${count(x)}</small></button>`;
+      chips += chipHtml(x.key, x.label, active.has(x.key), count(x));
     }
-    const out = `<div class="llr-filters">${nameBox}<details class="llr-feats" id="llr-feats"${featsOpen ? ' open' : ''}><summary>By corners, edges and sides${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details>`;
+    // the piece and side chips fold away (user, 2026-09-24: rarely used); open or closed is remembered
+    const out = `<div class="llr-filters">${nameBox}<details class="llr-feats llr-fold" id="llr-feats"${foldOpen('llr-feats') ? ' open' : ''}><summary>By corners, edges and sides${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details>`;
     const n = CASES[kind].filter(shown).length;
     return `${out}</div><p class="llr-count">${active.size || namePat ? `${n} of ${CASES[kind].length} cases match${n ? '' : ': nothing has all of that'}.` : 'Type a name (G, R*, Ja Jb) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>`;
   };
   const render = () => {
     const { self, pairs, oneWay } = chainSummary(kind);
     const names = (cs: LLCase[]) => cs.map((c) => `<b>${esc(c.name)}</b>`).join(', ');
-    panel.innerHTML = `
+    return `
       <p class="llr-chains">${[
         pairs.length ? `Chains: ${pairs.map(([a, b]) => `<b>${esc(a.name)}</b> ↔ <b>${esc(b.name)}</b>`).join(', ')}` : '',
         self.length ? `their own inverse: ${names(self)}` : '',
@@ -179,100 +99,35 @@ export function openLLReference(kind: LLKind, drill: (setup: string) => void, ch
       <div class="llr-grid">${CASES[kind].filter(shown).map((c) => {
         const p = chainPartner(kind, c);
         const f = feat.get(c.id);
-        const star = (alg: string, on: boolean) => `<button type="button" class="llr-fav${on ? ' on' : ''}" data-fav="${esc(alg)}" title="${on ? 'This is the alg the drill uses (tap for the standard one)' : 'Make this the alg the drill uses'}">${on ? '★' : '☆'}</button>`;
         const chain = !p ? '' : `<span class="llr-chain" title="${p.id === c.id ? 'The alg again solves it' : 'After the alg, that is the case on the cube'}">${p.id === c.id ? '↻ itself' : `↔ ${esc(p.name)}`}</span>`;
         const alts = c.alts ?? [];
-        // your own note on an alg: what tells it from its twin, how you hold it. One per alg, so an
-        // alternative keeps its own (user, 2026-09-23).
-        const note = (alg: string, what: string) => {
-          const t = noteFor(kind, c.id, alg);
-          return `<textarea class="llr-note${t ? ' has' : ''}" rows="${t ? Math.min(4, Math.ceil(t.length / 46) + (t.match(/\n/g)?.length ?? 0)) : 1}" data-note="${esc(alg)}" placeholder="Your note on ${esc(what)}…">${esc(t)}</textarea>`;
-        };
         return `<div class="llr-case" data-id="${esc(c.id)}">
           <div class="llr-head">
             <div class="ll-pic"><svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${picSvg(state(inverse(c.alg)), kind)}</svg></div>
             <div class="llr-name">${esc(c.name)}<small>${moveCount(c.alg)} moves</small>${isFavourite(kind, c.id) ? '<small>your pick</small>' : ''}</div>
             ${chain}
           </div>
-          <div class="llr-alg">${algHtml(c.alg)}${alts.length ? star(c.alg, true) : ''}</div>
+          <div class="llr-alg">${algHtml(c.alg)}${alts.length ? starHtml(c.alg, true) : ''}</div>
           <div class="llr-hint">${esc(c.hint[0]!.toUpperCase() + c.hint.slice(1))}.${kind === 'pll' ? ` <b>For the alg:</b> ${esc(algAngle(c))}.` : ''}</div>
-          ${note(c.alg, c.name)}
-          ${alts.length ? `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${algHtml(a.alg)}</span>${star(a.alg, false)}<small>${esc(a.note)}</small>${note(a.alg, `this ${c.name}`)}</div>`).join('')}</details>` : ''}
-          <div class="llr-foot"><button type="button" class="llr-drill" data-drill="${esc(c.id)}">Drill this case</button><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
+          ${noteHtml(kind, c.id, c.alg, c.name)}
+          ${altsHtml(kind, c.id, alts, `this ${c.name}`)}
+          <div class="llr-foot"><button type="button" class="llr-drill" data-go="${esc(c.id)}">Drill this case</button><button type="button" class="llr-play" data-play="${esc(c.id)}">▶ play it in 3D</button>${f ? `<span class="llr-tags">${esc(tagLine(f))}</span>` : ''}</div>
           <div class="llr-player"></div>
         </div>`;
       }).join('')}</div>`;
   };
-  // the 3D player: one open at a time, in the case's card; a redraw drops it
-  let player: { destroy(): void; button: HTMLElement } | null = null;
-  const closePlayer = () => { player?.destroy(); player?.button.classList.remove('on'); player = null; };
-  const draw = () => { closePlayer(); render(); };
-  draw();
-  // the chips folded or unfolded: remembered (toggle does not bubble, so it is caught on the way down)
-  panel.addEventListener('toggle', (e) => {
-    const d = e.target as HTMLElement;
-    if (d.id !== 'llr-feats') return;
-    featsOpen = (d as HTMLDetailsElement).open; writeStored(FEATS_KEY, featsOpen ? '1' : '0');
-  }, true);
-  // a note: kept when the field is left (or the sheet closed), and the card is not redrawn under the caret
-  panel.addEventListener('focusout', (e) => {
-    const box = e.target as HTMLTextAreaElement;
-    const alg = box.dataset?.note;
-    if (alg === undefined) return;
-    const id = box.closest<HTMLElement>('.llr-case')!.dataset.id!;
-    setNote(kind, id, alg, box.value);
-    box.classList.toggle('has', !!box.value.trim());
+  const caseOf = (id: string) => CASES[kind].find((x) => x.id === id);
+  openRefSheet({
+    kind,
+    title: `${TITLE[kind]}: the ${CASES[kind].length} cases`,
+    sub: kind === 'pll'
+      ? 'The arrows show where each piece goes. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.'
+      : 'Each case as it looks from the front, any permutation. Drill this case sets the drill on it, a star makes an alg the one the drill uses. A chain is what an alg leaves on a solved cube: those two drill back to back, no scramble.',
+    render,
+    onFilter: (k) => { if (active.has(k)) active.delete(k); else active.add(k); },
+    onName: (v) => { namePat = v; },
+    onGo: (id) => { const c = caseOf(id); if (c) drill(inverse(c.alg)); },
+    playFor: (id) => { const c = caseOf(id); return c ? { alg: c.alg, setup: state(inverse(c.alg)) } : null; },
+    onFavChange: () => { feat = feats(); changed?.(); },
   });
-  // the name box: typed into, the list follows; the redraw replaces the box, so the caret goes back where it was
-  panel.addEventListener('input', (e) => {
-    const box = e.target as HTMLInputElement;
-    if (box.id !== 'llr-name') return;
-    namePat = box.value;
-    const at = box.selectionStart ?? namePat.length;
-    draw();
-    const again = panel.querySelector<HTMLInputElement>('#llr-name');
-    if (again) { again.focus(); again.setSelectionRange(at, at); }
-  });
-  panel.onclick = (e) => {
-    const t = e.target as HTMLElement;
-    const chip = t.closest<HTMLElement>('[data-filter]');
-    if (chip) { const k = chip.dataset.filter!; if (active.has(k)) active.delete(k); else active.add(k); draw(); return; }
-    const play = t.closest<HTMLElement>('[data-play]');
-    if (play) {
-      const wasOpen = player?.button === play;
-      closePlayer();
-      const c = CASES[kind].find((x) => x.id === play.dataset.play);
-      if (wasOpen || !c) return;
-      const host = play.closest('.llr-case')!.querySelector<HTMLElement>('.llr-player')!;
-      const handle = mountPlayer(host, nxnAnimatable(3, c.alg, state(inverse(c.alg))));
-      player = { destroy: () => handle.destroy(), button: play };
-      play.classList.add('on');
-      return;
-    }
-    const fav = t.closest<HTMLElement>('[data-fav]');
-    if (fav) {
-      const id = fav.closest<HTMLElement>('.llr-case')!.dataset.id!;
-      // the star on the main puts the standard alg back; on an alt it makes that one the main
-      if (setFavourite(kind, id, fav.classList.contains('on') ? null : fav.dataset.fav!)) { feat = feats(); draw(); changed?.(); }
-      return;
-    }
-    // Drill this case: everything else in the card (a star, the other-algs fold, the player) is its own control
-    const go = t.closest<HTMLElement>('[data-drill]');
-    if (!go) return;
-    const c = CASES[kind].find((x) => x.id === go.dataset.drill);
-    if (!c) return;
-    closeSheet('ref-sheet');
-    drill(inverse(c.alg));
-  };
-  if (!schemeHooked) { schemeHooked = true; onSchemeChange(() => { if (!document.getElementById('ref-sheet')!.hidden) draw(); }); }
-  // a favourite from another device while the sheet is up: redrawn (the case list is whatever the table says)
-  if (!favsHooked) { favsHooked = true; onFavsChange(() => { if (!document.getElementById('ref-sheet')!.hidden) { feat = feats(); draw(); } }); }
-  // a note from another device: redrawn, unless one is being written here (the caret would jump)
-  if (!notesHooked) { notesHooked = true; onNotesChange(() => { if (!document.getElementById('ref-sheet')!.hidden && !document.activeElement?.classList.contains('llr-note')) draw(); }); }
-  openSheet('ref-sheet');
-  // the name box ready to type into (a phone keyboard would cover the list, so only where there is a mouse)
-  if (matchMedia('(hover: hover) and (pointer: fine)').matches) panel.querySelector<HTMLInputElement>('#llr-name')?.focus();
 }
-let schemeHooked = false;
-let favsHooked = false;
-let notesHooked = false;

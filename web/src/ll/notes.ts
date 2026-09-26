@@ -1,11 +1,10 @@
 // What you wrote about an alg: how you tell the case from its twin, how you
 // hold it, whatever makes it stick. One note per alg (a case's main and each
-// of its alternatives have their own), kept in the store's notes collection -
+// of its alternatives have their own; the F2L finder's cases too), kept in the store's notes collection -
 // IndexedDB always, Firestore when sync is on - and read back here.
 
 import type { Store } from '../store/local';
-import type { NoteRecord } from '../store/types';
-import type { LLKind } from './cases';
+import type { AlgKind, NoteRecord } from '../store/types';
 
 let store: Promise<Store> | null = null;
 let notes = new Map<string, string>();
@@ -14,7 +13,7 @@ const listeners = new Set<() => void>();
 // the id, and so the Firestore document name: no slash (see ll/favs.ts), and the alg in it so a note
 // follows its own alg when a case's algs are reordered by a favourite
 const keyOf = (alg: string): string => alg.replace(/\s+/g, '').replace(/'/g, 'i');
-const idOf = (kind: LLKind, caseId: string, alg: string): string => `${kind}:${caseId}:${keyOf(alg)}`;
+const idOf = (kind: AlgKind, caseId: string, alg: string): string => `${kind}:${caseId}:${keyOf(alg)}`;
 
 async function load(): Promise<boolean> {
   if (!store) return false;
@@ -37,12 +36,12 @@ export async function initNotes(s: Promise<Store>): Promise<void> {
 export function onNotesChange(cb: () => void): () => void { listeners.add(cb); return () => { listeners.delete(cb); }; }
 
 /** The note on this alg, or '' when there is none. */
-export function noteFor(kind: LLKind, caseId: string, alg: string): string {
+export function noteFor(kind: AlgKind, caseId: string, alg: string): string {
   return notes.get(idOf(kind, caseId, alg)) ?? '';
 }
 
 /** Write (or, with empty text, clear) the note on an alg. */
-export function setNote(kind: LLKind, caseId: string, alg: string, text: string): void {
+export function setNote(kind: AlgKind, caseId: string, alg: string, text: string): void {
   const id = idOf(kind, caseId, alg);
   const t = text.trim();
   if ((notes.get(id) ?? '') === t) return;

@@ -87,11 +87,14 @@ export interface AttemptRecord {
   deleted?: boolean;
 }
 
+/** The case tables that keep favourites and notes: the last-layer drills' and the F2L finder's (a case there is `${slot}-${n}`). */
+export type AlgKind = 'ocll' | 'pll' | 'f2l';
+
 /** A case's favourite alg (the one the drill uses instead of the table's standard one); a tombstone puts the standard back. */
 export interface FavRecord {
-  /** `${kind}/${caseId}` */
+  /** `${kind}:${caseId}` */
   id: string;
-  kind: 'ocll' | 'pll';
+  kind: AlgKind;
   caseId: string;
   /** the alg, as written in the case table (its main or one of its alts) */
   alg: string;
@@ -103,7 +106,7 @@ export interface FavRecord {
 export interface NoteRecord {
   /** `${kind}:${caseId}:${alg with the spaces out and ' as i}` */
   id: string;
-  kind: 'ocll' | 'pll';
+  kind: AlgKind;
   caseId: string;
   /** the alg the note is about, as the table writes it */
   alg: string;
