@@ -101,10 +101,14 @@ const STYLE = `
   .f2l .nextbtn { margin-top: 14px; font: inherit; font-size: 15px; font-weight: 600; padding: 10px 16px; border-radius: 8px; border: 0; background: var(--ink); color: #fff; cursor: pointer; }
   .f2l .nextbtn:hover { background: #2c3644; }
   .f2l .nextbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .f2l .pairrow { margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
-  .f2l .pairrow label { font-size: 14px; color: var(--ink-2); }
-  .f2l .bigsel { font: inherit; font-size: 18px; font-weight: 500; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); width: 100%; }
-  .f2l .bigsel:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .f2l .pairrow { margin: 16px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .f2l .pairrow .lbl { font-size: 14px; color: var(--ink-2); }
+  .f2l .pairrow .tracker { margin-top: 0; }
+  .f2l .pairbtns { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+  .f2l .hidecube { font-size: 14px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; }
+  /* the cube hidden: its picture, views, net and legend go, and the result takes the width */
+  .f2l.nocube main { grid-template-columns: 1fr; }
+  .f2l.nocube .stage, .f2l.nocube .views, .f2l.nocube .netwrap, .f2l.nocube .legend { display: none; }
   .f2l .principles { margin-top: 12px; max-width: 62ch; }
   .f2l .principles summary { font-size: 14px; color: var(--ink-2); cursor: pointer; }
   .f2l .principles ol { margin: 8px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
@@ -173,7 +177,6 @@ const MARKUP = `
   <h1>ZZF2L case finder</h1>
   <p>Tap the facelet where the <b>white</b> sticker of your corner is, then tap where the <span id="edgename">green-red</span> edge is. White stays on the bottom.</p>
   <p style="margin-top:8px">All four slots start open, like right after EOCross. A practice scramble keeps EO and the cross solved and is tracked from the moment it is made; on a smart cube the pieces follow your turns. Solve a pair on your cube, press <b>Solved, next pair</b>, and it's marked done.</p>
-  <div class="tracker" id="tracker"></div>
   <details class="principles"><summary>The principles behind the cases</summary>
     <ol>
       <li><b>EO is done, so no F/B quarter turns.</b> Edge orientation stops being a variable: a top-layer edge always has its front/back colour facing up, and a slotted edge always has it facing front/back. You only ever need to know <i>where</i> the edge is.</li>
@@ -199,9 +202,10 @@ const MARKUP = `
   </div>
   <details class="principles" id="f2lpractice"><summary>Practice so far</summary><div id="f2lpracticeBody"></div>
     <div id="f2lpracticeGraphWrap" hidden><p class="note" id="f2lpracticeN"></p><div id="f2lpracticeGraph"></div></div></details>
-  <p class="pairrow"><label for="slotsel">Pair to solve</label>
-    <select id="slotsel" class="bigsel"></select>
-    <button class="btn" type="button" id="allcases">All 83 cases</button></p>
+  <div class="pairrow"><span class="lbl">Pair to solve</span>
+    <div class="tracker" id="tracker"></div>
+    <div class="pairbtns"><button class="btn" type="button" id="allcases">All 83 cases</button>
+      <label class="hidecube"><input type="checkbox" id="hidecube"> Hide the cube</label></div></div>
 </header>
 <main>
   <section>
@@ -241,7 +245,8 @@ export function mountF2L(root: HTMLElement): Stage {
   const svg = $('cube3d') as unknown as SVGSVGElement, netSvg = $('net') as unknown as SVGSVGElement;
   let scrWca = ''; // the scramble on show, WCA letters (the hold it is applied in); '' for none
   let armedSince = false; // a cube reached the scramble on show: solving it through to solved may bring the next one
-  const RESCR_KEY = 'zzf2l-rescramble';
+  const RESCR_KEY = 'zzf2l-rescramble', HIDE_KEY = 'zzf2l-hidecube';
+  const cubeHidden = () => root.classList.contains('nocube');
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
   const advanced = () => (document.getElementById('advanced') as HTMLInputElement | null)?.checked ?? false;
@@ -289,6 +294,7 @@ export function mountF2L(root: HTMLElement): Stage {
     });
   }
   function drawPictures(): void {
+    if (cubeHidden()) return;
     const focused = document.activeElement instanceof Element && root.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.idx : undefined;
     const c = cells();
     render3d(svg, c, view); a11y(svg);
@@ -379,7 +385,7 @@ export function mountF2L(root: HTMLElement): Stage {
       if (c) { const [pos, o] = c.split('-'); if (DATA.slots[slot].cmap[`${pos}-${o}`]) corner = { pos, o: o as CornerOrient }; }
       const e = q.get('e');
       if (e && DATA.slots[slot].emap[e]) edge = e;
-      fillSlotSelect(); updateEdgeName();
+      updateEdgeName();
     } catch (err) { console.error(err); }
     restoring = false;
   }
@@ -401,7 +407,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
-    slot = s; corner = null; edge = null; fillSlotSelect(); updateEdgeName();
+    slot = s; corner = null; edge = null; updateEdgeName();
     if (tracked) syncFromCube(); else render();
   }
   /** The open slots in order, for stepping through them. */
@@ -448,16 +454,6 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!keys?.classList.contains('trackkeys')) { keys = document.createElement('p'); keys.className = 'trackkeys'; t.insertAdjacentElement('afterend', keys); }
     keys.textContent = cards && openSlots().length > 1 ? '← → step through the open pairs' : '';
   }
-  function fillSlotSelect(): void {
-    const sel = $<HTMLSelectElement>('slotsel'); sel.innerHTML = '';
-    for (const s of SLOTS) {
-      if (solvedSlots.has(s)) continue;
-      const o = document.createElement('option'); o.value = s;
-      o.textContent = `white-${faceColorName(s[0])}-${faceColorName(s[1])} (${SLOT_WORD[s]})`;
-      if (s === slot) o.selected = true;
-      sel.appendChild(o);
-    }
-  }
   function updateEdgeName(): void {
     $('edgename').textContent = `${faceColorName(slot[0])}-${faceColorName(slot[1])}`;
   }
@@ -483,7 +479,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const reopened = SLOTS.find((s) => before.has(s) && !solvedSlots.has(s));
     if (reopened) slot = reopened;
     else if (solvedSlots.has(slot)) { const nx = SLOTS.find((s) => !solvedSlots.has(s)); if (nx) slot = nx; }
-    fillSlotSelect(); updateEdgeName();
+    updateEdgeName();
     if (!solvedSlots.has(slot)) { const s = slotState(f, slot); corner = s.corner; edge = s.edge; }
     else { corner = null; edge = null; }
     pairAt = fed.length; // the pair's alg is followed from here
@@ -549,7 +545,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (backToPrevious()) return false;
     const other = otherSlotUnderWay();
     if (other) {
-      slot = other.slot; corner = other.corner; edge = other.edge; fillSlotSelect(); updateEdgeName();
+      slot = other.slot; corner = other.corner; edge = other.edge; updateEdgeName();
       // the move that gave the pair away may be the one that finished it
       if (slotSolved(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); } else render();
       return false;
@@ -579,7 +575,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!back) return false;
     pairsDone.pop();
     slot = prev.slot; corner = prev.corner; edge = prev.edge; pairAt = prev.at; solvedSlots.delete(prev.slot);
-    fillSlotSelect(); updateEdgeName(); render();
+    updateEdgeName(); render();
     return true;
   }
   // DECISION: an alg's first turns are ambiguous between slots (an AUF, an R that lifts either right-hand
@@ -797,7 +793,7 @@ export function mountF2L(root: HTMLElement): Stage {
   function markSolved(): void {
     solvedSlots.add(slot); corner = null; edge = null;
     const next = SLOTS.find((s) => !solvedSlots.has(s));
-    if (next) { slot = next; fillSlotSelect(); updateEdgeName(); }
+    if (next) { slot = next; updateEdgeName(); }
     render();
   }
   const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
@@ -929,18 +925,16 @@ export function mountF2L(root: HTMLElement): Stage {
     if (ok === null) trackMsg('Make a scramble first.', true);
     else if (!ok) trackMsg('Could not read the moves.', true);
   };
-  $<HTMLSelectElement>('slotsel').addEventListener('change', (e) => {
-    const v = (e.target as HTMLSelectElement).value;
-    if (!isSlot(v)) return;
-    slot = v; corner = null; edge = null; updateEdgeName();
-    if (tracked) syncFromCube(); else render();
-  });
+  const hideBox = $<HTMLInputElement>('hidecube');
+  hideBox.checked = readStored(HIDE_KEY) === '1';
+  root.classList.toggle('nocube', hideBox.checked);
+  hideBox.addEventListener('change', () => { writeStored(HIDE_KEY, hideBox.checked ? '1' : '0'); root.classList.toggle('nocube', hideBox.checked); drawPictures(); });
   $('random').onclick = () => { const r = randomCase(slot); corner = r.corner; edge = r.edge; render(); };
   // the case sheet: a case set from it lands on the finder as if tapped in
   $('allcases').onclick = () => openF2LReference(slot, (s, c) => {
     // a case set by hand is not the tracked cube's: tracking stops, as a tapped-in case would have it
     target = null; tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set();
-    slot = s; corner = { pos: c.corner, o: c.co }; edge = c.edge; fillSlotSelect(); updateEdgeName(); render(); window.scrollTo({ top: 0 });
+    slot = s; corner = { pos: c.corner, o: c.co }; edge = c.edge; updateEdgeName(); render(); window.scrollTo({ top: 0 });
   }, render);
   onFavsChange(render); // a favourite from the sheet or another device: the case on show leads with it
   // the whole cube solved from this tab's scramble (the pairs here, the last layer wherever the follow took you):
@@ -960,14 +954,14 @@ export function mountF2L(root: HTMLElement): Stage {
     setTimeout(() => { showTab('f2l'); if (targetMode) newTargetScramble(); else newScramble(); window.scrollTo({ top: 0 }); toast(`Solved ✓ next ${targetMode ? 'picked case' : 'practice scramble'}`); }, 0);
   });
   $('reset').onclick = () => { corner = null; edge = null; render(); };
-  $('restart').onclick = () => { target = null; tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
+  $('restart').onclick = () => { target = null; tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; updateEdgeName(); render(); };
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
   onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
   document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints' || id === 'advanced') render(); });
-  onSchemeChange(() => { fillSlotSelect(); updateEdgeName(); if (tracked) syncFromCube(); else render(); }); // the tracked cube reads differently in the new frame
+  onSchemeChange(() => { updateEdgeName(); if (tracked) syncFromCube(); else render(); }); // the tracked cube reads differently in the new frame
 
-  fillSlotSelect(); updateEdgeName();
+  updateEdgeName();
   loadUrl();
   renderFollow();
   if (tracked) syncFromCube(); else render();

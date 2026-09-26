@@ -22,6 +22,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const replay = async (moves) => { await page.evaluate((t) => window.ZZ.smart.replay(t), capture(moves)); await wait(250); };
 const text = (sel) => page.$eval(sel, (e) => e.textContent).catch(() => null);
 const count = (sel) => page.$$eval(sel, (es) => es.length);
+/** Pick a pair by its chip above the cube (the dropdown is gone). */
+const pickPair = (word) => page.$$eval('#tracker > span', (es, w) => es.find((e) => e.textContent.includes(w))?.click(), word);
 
 await page.goto(`${server.origin}/?tab=f2l`, { waitUntil: 'networkidle0' });
 // a full scramble in the box, EOCross to do: the scramble is the cube's target, the EOCross moves come from the cube
@@ -92,11 +94,11 @@ await replay(`${cube2} ${await cubeOf(algToks[0])} ${await cubeOf(`${wrong} D R2
 check(/Solve EOCross on your cube first/.test(await text('#result .hint') ?? ''), `strayed: read afresh: ${await text('#result .hint')}`);
 // a few moves into another open slot's alg: that slot takes over (its case read at the same state)
 await replay(cube2);
-await page.select('#slotsel', 'FL'); await wait(200);
+await pickPair('front-left'); await wait(200);
 const flTitle = await text('#result .case-title h2');
 const flAlg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg).catch(() => null);
-await page.select('#slotsel', 'FR'); await wait(200);
-if (flAlg && /^FL case/.test(flTitle ?? '')) {
+await pickPair('front-right'); await wait(200);
+if (flAlg && /^front-left case/.test(flTitle ?? '')) {
   const head = flAlg.split(' ').slice(0, 3).join(' ');
   await replay(`${cube2} ${await cubeOf(head)}`);
   const t = await text('#result .case-title h2');
@@ -144,33 +146,33 @@ check((await page.evaluate(() => window.ZZ.f2l.scramble())) !== scrX, 'back on t
 check(/^(front-left|back-left|back-right) case \d+$/.test(await text('#result .case-title h2') ?? ''), `and the open pair read off it: ${await text('#result .case-title h2')} (${await text('#scrmsg')})`);
 
 // the case sheet: one slot's cases, filtered, a star that leads the finder, a case set on the finder
-await page.click('#allcases'); await wait(400);
+await page.$eval('#allcases', (b) => b.click()); await wait(400);
 check(!(await page.$eval('#ref-sheet', (e) => e.hidden)), 'the sheet opens');
 check((await count('#ref-panel .llr-case')) === 83, `one slot's 83 cases (${await count('#ref-panel .llr-case')})`);
 check((await count('#ref-panel .llr-3d svg polygon')) >= 83 * 27, 'every case pictured in 3D (the three faces in view)');
 check((await count('#ref-panel h3.llr-group')) === 9, `the nine groups by where the pieces are (${await count('#ref-panel h3.llr-group')})`);
 await page.evaluate(() => { document.getElementById('f2lr-feats').open = true; });
-await page.click('#ref-panel [data-filter="c-top"]'); await wait(300);
-await page.click('#ref-panel [data-filter="e-top"]'); await wait(300);
+await page.$eval('#ref-panel [data-filter="c-top"]', (b) => b.click()); await wait(300);
+await page.$eval('#ref-panel [data-filter="e-top"]', (b) => b.click()); await wait(300);
 check((await count('#ref-panel .llr-case')) === 12, `corner and edge on top: 12 cases (${await count('#ref-panel .llr-case')})`);
-await page.click('#ref-panel [data-filter="c-top"]'); await wait(300);
-await page.click('#ref-panel [data-filter="e-top"]'); await wait(300);
-await page.click('#ref-panel [data-filter="slot-FL"]'); await wait(300);
+await page.$eval('#ref-panel [data-filter="c-top"]', (b) => b.click()); await wait(300);
+await page.$eval('#ref-panel [data-filter="e-top"]', (b) => b.click()); await wait(300);
+await page.$eval('#ref-panel [data-filter="slot-FL"]', (b) => b.click()); await wait(300);
 check((await page.$eval('#ref-panel .llr-case', (e) => e.dataset.id)).startsWith('FL-'), 'the front-left slot on show');
-await page.click('#ref-panel [data-filter="slot-FR"]'); await wait(300);
+await page.$eval('#ref-panel [data-filter="slot-FR"]', (b) => b.click()); await wait(300);
 // star case 4's first other alg: the card says "your pick", the finder leads with it
 const card4 = '#ref-panel .llr-case[data-id="FR-4"]';
 await page.evaluate((sel) => { document.querySelector(`${sel} .llr-more`).open = true; }, card4);
 const starred = await page.$eval(`${card4} .llr-alt [data-fav]`, (e) => e.dataset.fav);
-await page.click(`${card4} .llr-alt [data-fav]`); await wait(300);
+await page.$eval(`${card4} .llr-alt [data-fav]`, (b) => b.click()); await wait(300);
 check(/your pick/.test(await text(`${card4} .llr-name`)), 'the card says "your pick"');
-await page.click(`${card4} [data-go]`); await wait(300);
+await page.$eval(`${card4} [data-go]`, (b) => b.click()); await wait(300);
 check(await page.$eval('#ref-sheet', (e) => e.hidden), 'Set in finder closes the sheet');
 check((await text('#result .case-title h2')) === 'front-right case 4', `the finder is on case 4, tracking dropped: ${await text('#result .case-title h2')}`);
 check(/your pick/.test(await text('#result .alg .tag')) && (await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg)).replace(/[()]/g, '') === starred.replace(/[()]/g, ''), `the finder leads with the starred alg: ${starred}`);
 // the star put back: the case's standard alg leads again
-await page.click('#allcases'); await wait(400);
-await page.click(`${card4} .llr-alg [data-fav].on`); await wait(300);
+await page.$eval('#allcases', (b) => b.click()); await wait(400);
+await page.$eval(`${card4} .llr-alg [data-fav].on`, (b) => b.click()); await wait(300);
 check(!/your pick/.test(await text(`${card4} .llr-name`)), 'unstarred');
 await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
 
@@ -192,12 +194,14 @@ check(!/^Apply this to a solved cube/.test(await text('#scrmsg')), `box off: no 
 
 // targeted practice: two cases picked in the sheet, a scramble that puts one on its pair, the pair done on the
 // cube filed (timed) and shown in the practice table
-await page.click('#allcases'); await wait(400);
+await page.$eval('#allcases', (b) => b.click()); await wait(400);
 await page.$eval('#ref-panel [data-filter="pick-FR-4"]', (b) => b.click()); await wait(300);
 await page.$eval('#ref-panel [data-filter="pick-FR-40"]', (b) => b.click()); await wait(300);
 check((await count('#ref-panel .llr-drill.on')) === 2, `two cases picked (${await count('#ref-panel .llr-drill.on')})`);
 await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
 check(/2 cases/.test(await text('#target')), `the finder says two are picked: ${await text('#target p')}`);
+// the solve just replayed may still be moving the tabs (the follow): back on this one, settled, before the scramble
+await page.evaluate(() => window.ZZ.showTab('f2l')); await wait(400);
 await page.$eval('#genTarget', (b) => b.click()); await wait(300);
 const now = await text('#target .now');
 check(/front-right.*pair, case (4|40) /.test(now ?? ''), `a targeted scramble, on the front-right pair: ${now}`);
@@ -216,6 +220,12 @@ await page.$eval('#target [data-next]', (b) => b.click()); await wait(300);
 const now2 = await text('#target .now');
 check(/case (4|40) /.test(now2 ?? '') && /case (\d+)/.exec(now2)[1] !== /case (\d+)/.exec(now)[1], `Next case draws the other picked one: ${now2}`);
 
+// the pair picked by its chip above the cube (no dropdown); the cube hidden with its box, the result kept
+check((await count('#slotsel')) === 0 && (await count('.pairrow #tracker')) === 1, 'the pair chips sit above the cube, no dropdown');
+await page.$eval('#hidecube', (b) => b.click()); await wait(200);
+check(await page.$eval('#stage', (e) => getComputedStyle(e).display === 'none') && (await count('#result .case-title')) === 1, 'Hide the cube hides the picture, the case stays');
+await page.$eval('#hidecube', (b) => b.click()); await wait(200);
+check(await page.$eval('#stage', (e) => getComputedStyle(e).display !== 'none') && (await count('#cube3d polygon')) > 0, 'and brings it back, drawn');
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
 process.exit(failed ? 1 : 0);
