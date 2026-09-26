@@ -95,7 +95,10 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      favourite alg per case), pic (the pair pictured on the cube), trainer (on a smart cube: the
                      scramble followed, the cube tracked from it, each pair's case read off it, the alg being done
                      lit and followed; `npm run check:f2l` replays that headlessly), reference (the case sheet: one
-                     slot's 83 cases by section, corner and edge, filtered; stars and notes like the LL sheet's)
+                     slot's 83 cases grouped by where the pieces are, filtered; stars and notes like the LL sheet's, a Practise toggle per
+                     case), target (a scramble with a chosen case on a chosen pair: the state drawn, then a Kociemba
+                     solution backwards), pool (the picked cases; a case's number everywhere is its front-right twin's,
+                     model.twinOf, as the sheet numbers each tab its own way), practice (the targeted pairs' stats table)
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner;
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
                      where the moves done reached the stage; features.ts is its piece-permutation reader), scramble (Kociemba two-phase, best total under a
