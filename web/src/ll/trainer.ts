@@ -486,7 +486,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!recorded) { recorded = true; drill.attempt(''); drill.save({ scramble: setup, moves: '', optimal: stepMoves(sol), caseId: sol.name, assisted, start: settings.from === kind ? undefined : settings.from as 'ocll' | 'pair', quiz: quizOutcome }); }
   }
   onSourceChange(standby);
-  onTabChange(standby);
+  onTabChange(() => { standby(); if (drill.active()) readFirst(); });
   // DECISION: a wrong turn is called this long after it, not at once (user, 2026-09-23): the cube reports a
   // slice as its two outer layers, a few ms apart, and the state between them is off the route - a turn that
   // lands back on it inside this window was never wrong. A hand's two separate turns are far slower than this.
@@ -601,6 +601,16 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let scrRead: string | null = null; // the last thing said about the scramble, so a repeat is not said twice
   let firstRead = false;             // the read of a fresh scramble's first move: queued, not cutting the cue off
   /**
+   * The tracker on the cube's last known state, so the voice reads a fresh scramble's first move before any
+   * turn: when the scramble is ready on this tab, and when this tab comes on screen with one (the Solve tab
+   * coming back from a followed solve loads its scramble into every tab - a read then would be a voice from a
+   * tab not on screen, user 2026-09-25).
+   */
+  function readFirst(): void {
+    if (!belief || !scramble || settings.repeat) return;
+    firstRead = true; watch(belief.facelets, belief.colourOf); firstRead = false;
+  }
+  /**
    * The scramble out loud while it is being applied: its next move, or the moves made, in the WCA letters
    * it is shown in (user, 2026-09-23). Nothing once it is on: from there the alg's own mode has the voice.
    */
@@ -653,7 +663,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       // a cube is connected: the tracker starts now, not at the first turn, so the voice reads the first move
       // (user, 2026-09-25: it was reading from the second, the first being done by the time it heard of it);
       // the read queues behind the "scramble" cue said at New case
-      if (belief) { firstRead = true; watch(belief.facelets, belief.colourOf); firstRead = false; }
+      if (drill.active()) readFirst();
       render();
     });
     drill.begin();

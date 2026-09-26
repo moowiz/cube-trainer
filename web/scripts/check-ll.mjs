@@ -60,7 +60,7 @@ await page.select('#pll-order', 'random');
 check((await page.$eval('#pll-cycle', (e) => e.textContent)) === '', 'at random: no counter');
 // a note written on the drill: under the alg line, kept, back after a reload, and cleared from there too
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
-await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
+await page.$eval('#pll-showSol', (b) => b.click()); await new Promise((r) => setTimeout(r, 200));
 check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'the alg panel offers "add a note"');
 await page.click('#pll-result .ll-notebox .eo-link');
 await page.keyboard.type('bars facing me: T');
@@ -68,7 +68,7 @@ await page.evaluate(() => document.activeElement.blur()); await new Promise((r) 
 check((await page.$eval('#pll-result .ll-note', (e) => e.value)) === 'bars facing me: T', 'the note is in the field after leaving it');
 await page.reload({ waitUntil: 'networkidle0' }); await new Promise((r) => setTimeout(r, 400));
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
-await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
+await page.$eval('#pll-showSol', (b) => b.click()); await new Promise((r) => setTimeout(r, 200));
 check((await page.$eval('#pll-result .ll-note', (e) => e.value)) === 'bars facing me: T', 'the note is back after a reload');
 // the note as a hint: "Show my note" above "Show the alg" shows the note alone
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
@@ -81,7 +81,7 @@ check((await page.$eval('#pll-showNote', (e) => e.textContent)) === 'Hide my not
 await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 500));
 check((await page.$eval('#pll-noteHint', (e) => e.hidden)), 'a new case: the note is hidden again');
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
-await page.click('#pll-showSol'); await new Promise((r) => setTimeout(r, 200));
+await page.$eval('#pll-showSol', (b) => b.click()); await new Promise((r) => setTimeout(r, 200));
 await page.click('#pll-result .ll-note'); await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace');
 await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
 check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'cleared: back to "add a note"');
@@ -96,6 +96,26 @@ const said = await page.evaluate(() => [...window.__said]);
 const first = await page.$eval('#pll-setup .mv', (e) => e.textContent.replace('′', ' prime').replace(/2$/, ' two'));
 console.log('said', JSON.stringify(said), 'first shown move', JSON.stringify(first));
 check(said[0] === 'scramble' && said[1] === first, 'New case: "scramble", then the first move, before any turn');
+// ...but not from a tab that is not on screen: a followed solve from the Solve tab crosses into PLL and the Solve
+// tab comes back with its next scramble, loaded into every tab - the PLL voice must not read it (user, 2026-09-25)
+const SOLVE = `F' U R U' R' R U2 R' U' R U' R' ${T}`; // EOCross, a pair, the anti-Sune, then the T perm
+const [fScr, fSolve] = await page.evaluate((a, b) => [window.ZZ.smart.cubeAlg(a), window.ZZ.smart.cubeAlg(b)], inverse(SOLVE), SOLVE);
+await page.click('.tabs button[data-t="solve"]');
+await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
+await page.evaluate((s) => window.ZZ.solve.load(s), inverse(SOLVE));
+await page.evaluate(() => { window.__said.length = 0; });
+await page.evaluate((t) => window.ZZ.smart.replay(t), capture(`${fScr} ${fSolve}`));
+await new Promise((r) => setTimeout(r, 1500));
+const afterSolve = await page.evaluate(() => ({ tab: window.ZZ.activeTab(), said: [...window.__said] }));
+console.log('after the followed solve', JSON.stringify(afterSolve));
+check(afterSolve.tab === 'solve', 'the Solve tab is back');
+check(afterSolve.said[afterSolve.said.length - 1] === 'T perm, 2.5', `the last thing said is the case and its time, nothing read from the PLL tab: ${JSON.stringify(afterSolve.said.slice(-2))}`);
+// the PLL tab opened by hand with a scramble waiting: now its first move is read
+await page.evaluate(() => { window.__said.length = 0; });
+await page.click('.tabs button[data-t="pll"]'); await new Promise((r) => setTimeout(r, 400));
+const onOpen = await page.evaluate(() => [...window.__said]);
+const firstNow = await page.$eval('#pll-setup .mv', (e) => e.textContent.replace('′', ' prime').replace(/2$/, ' two'));
+check(onOpen[0] === firstNow, `opening the PLL tab reads the waiting scramble's first move (${JSON.stringify(onOpen)} vs ${firstNow})`);
 await page.select('#pll-vscr', 'off');
 await page.select('#pll-order', 'cycle'); await page.click('#pll-next'); await new Promise((r) => setTimeout(r, 400));
 await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
