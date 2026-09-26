@@ -22,7 +22,7 @@ import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type View } f
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { SOLVED, state } from '../cube/state';
 import { stageOf } from '../stage';
-import { onTabChange, shareScramble, showTab, type Stage, stages, toast } from '../shell';
+import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type Stage, stages, toast } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
@@ -32,7 +32,7 @@ import {
 import { caseCells, GREY } from './pic';
 import { openF2LReference } from './reference';
 import { onFavsChange } from '../ll/favs';
-import { ensureStyle, scoped } from '../ui/dom';
+import { ensureStyle, esc, scoped } from '../ui/dom';
 import { readStored, writeStored } from '../ui/settings';
 import { hold as holdOf } from '../app/context';
 import { activeSource, onSourceChange, syncDriver } from '../app/sources';
@@ -81,6 +81,13 @@ const STYLE = `
   .f2l .net rect.hit:hover { stroke: var(--ink-2); stroke-width: 2; }
   .f2l .tracker { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .f2l .tracker > span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; padding: 7px 12px 7px 8px; border-radius: 999px; border: 1.5px solid var(--line); color: var(--ink-2); background: var(--panel); cursor: pointer; }
+  /* tracking: each open pair a card with its case and shortest alg, so the pair to solve next can be chosen by eye */
+  .f2l .tracker.cards > span { flex-direction: column; align-items: flex-start; gap: 4px; border-radius: 12px; padding: 8px 12px; min-width: 150px; }
+  .f2l .tracker.cards > span > b { display: inline-flex; align-items: center; gap: 8px; font-weight: inherit; }
+  .f2l .tracker > span small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); letter-spacing: .02em; line-height: 1.35; }
+  .f2l .tracker > span.cur small { color: var(--ink); }
+  .f2l .tracker > span small b { font-weight: 600; }
+  .f2l .trackkeys { font-size: 12px; color: var(--ink-2); margin: 6px 0 0; }
   .f2l .tracker > span.done { opacity: .45; text-decoration: line-through; cursor: default; }
   .f2l .tracker > span.cur { color: var(--ink); border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); font-weight: 600; }
   .f2l .tracker .sw3 { display: inline-flex; gap: 2px; }
@@ -350,24 +357,54 @@ export function mountF2L(root: HTMLElement): Stage {
   const safe = <T>(fn: () => T): T | null => { try { return fn(); } catch { return null; } };
 
   // ---- the header: tracker chips, slot select, scramble panel ----
+  /** A slot's case on the tracked cube and the alg the finder would lead with: what to expect before picking it. */
+  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number } | null {
+    const st = slotState(f, s);
+    const found = findCase(s, st.corner, st.edge);
+    if (!found) return null;
+    const a = orderedAlgs(s, found.c, advanced())[0]!;
+    const full = fullAlg(found.hit.auf, a);
+    return { n: found.c.n, head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full) };
+  }
+  /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
+  function pickSlot(s: SlotName): void {
+    slot = s; corner = null; edge = null; fillSlotSelect(); updateEdgeName();
+    if (tracked) syncFromCube(); else render();
+  }
+  /** The open slots in order, for stepping through them. */
+  const openSlots = () => SLOTS.filter((s) => !solvedSlots.has(s));
   function renderTracker(): void {
     const t = $('tracker'); t.innerHTML = '';
+    const f = cube();
+    const cards = !!f && !beforeF2L();
+    t.classList.toggle('cards', cards);
     for (const s of SLOTS) {
       const el = document.createElement('span');
+      const head = document.createElement('b');
       const sw = document.createElement('span'); sw.className = 'sw3';
       for (const col of ['#fff', faceHex(s[0]), faceHex(s[1])]) { const i = document.createElement('i'); i.style.background = col; sw.appendChild(i); }
-      el.appendChild(sw); el.appendChild(document.createTextNode(SLOT_WORD[s]));
+      head.appendChild(sw); head.appendChild(document.createTextNode(SLOT_WORD[s]));
+      el.appendChild(head);
       el.setAttribute('aria-label', `white-${faceColorName(s[0])}-${faceColorName(s[1])} ${SLOT_WORD[s]}`);
       if (solvedSlots.has(s)) el.classList.add('done');
       else {
         if (s === slot) el.classList.add('cur');
         el.setAttribute('role', 'button'); el.setAttribute('tabindex', '0');
-        const pick = () => { slot = s; corner = null; edge = null; fillSlotSelect(); updateEdgeName(); if (tracked) syncFromCube(); else render(); };
-        el.addEventListener('click', pick);
-        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+        el.addEventListener('click', () => pickSlot(s));
+        el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickSlot(s); } });
+        // tracking: the case waiting in the slot, so the pair to solve can be chosen by its alg
+        if (cards && f) {
+          const sum = slotSummary(f, s);
+          const small = document.createElement('small');
+          small.innerHTML = sum ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves` : 'no case in the sheet';
+          el.appendChild(small);
+        }
       }
       t.appendChild(el);
     }
+    let keys = t.nextElementSibling as HTMLElement | null;
+    if (!keys?.classList.contains('trackkeys')) { keys = document.createElement('p'); keys.className = 'trackkeys'; t.insertAdjacentElement('afterend', keys); }
+    keys.textContent = cards && openSlots().length > 1 ? '← → step through the open pairs' : '';
   }
   function fillSlotSelect(): void {
     const sel = $<HTMLSelectElement>('slotsel'); sel.innerHTML = '';
@@ -758,6 +795,17 @@ export function mountF2L(root: HTMLElement): Stage {
     if (tracked) trackMsg('Read from your cube as it stands.');
   }
   onTabChange((t) => { if (t === 'f2l') readCube(); });
+  // ← → step through the open pairs (the cases are on the cards, so the next one can be chosen by eye)
+  document.addEventListener('keydown', (e) => {
+    if (activeTab() !== 'f2l' || sheetOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const open = openSlots();
+    if (open.length < 2) return;
+    e.preventDefault();
+    const i = open.indexOf(slot);
+    pickSlot(open[i < 0 ? 0 : (i + (e.key === 'ArrowRight' ? 1 : open.length - 1)) % open.length]!);
+  });
 
   // ---- wiring ----
   $('genF2L').onclick = newScramble;

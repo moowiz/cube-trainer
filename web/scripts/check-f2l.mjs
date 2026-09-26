@@ -53,6 +53,16 @@ const cube2 = await cubeOf(scr2);
 await replay(cube2);
 const title2 = await text('#result .case-title h2');
 check(/^FR case \d+$/.test(title2 ?? ''), `the practice scramble's first pair read: ${title2}`);
+// the pairs as cards: each open one with its case and shortest alg; the arrow keys step through them
+check(await page.$eval('#tracker', (e) => e.classList.contains('cards')), 'tracking: the pairs are cards');
+const cardText = await page.$$eval('#tracker > span:not(.done) small', (es) => es.map((e) => e.textContent));
+check(cardText.length === (await count('#tracker > span:not(.done)')) && cardText.every((t) => /case \d+ · .+ · \d+ moves$/.test(t)), `every open pair shows its case, alg and count (${cardText[0]})`);
+const curBefore = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
+await page.keyboard.press('ArrowRight'); await wait(150);
+const curAfter = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
+check(curAfter !== curBefore && /^(FL|BR|BL) case/.test(await text('#result .case-title h2')), `→ steps to the next open pair: ${await text('#result .case-title h2')}`);
+await page.keyboard.press('ArrowLeft'); await wait(150);
+check((await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'))) === curBefore && (await text('#result .case-title h2')) === title2, '← steps back');
 const alg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
 const algToks = alg.split(' ');
 console.log(`    alg: ${alg}`);
