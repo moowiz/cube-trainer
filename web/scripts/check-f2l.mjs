@@ -219,6 +219,14 @@ check(rows.some((r) => r.startsWith(`${/case (\d+)/.exec(now)[1]} `) && r.split(
 await page.$eval('#target [data-next]', (b) => b.click()); await wait(300);
 const now2 = await text('#target .now');
 check(/case (4|40) /.test(now2 ?? '') && /case (\d+)/.exec(now2)[1] !== /case (\d+)/.exec(now)[1], `Next case draws the other picked one: ${now2}`);
+// the cube is not solved (a pair just done): the next case is a setup from where it is, followed and armed as a scramble
+check(/^From where your cube is now/.test(await text('#scrmsg') ?? ''), `Next case mid-solve: a setup from here (${(await text('#scrmsg'))?.slice(0, 60)})`);
+const setupN = await count('#scrfollow .mv');
+const scrN = (await page.evaluate(() => window.ZZ.f2l.scramble())).split(' ');
+const setupT = scrN.slice(-setupN).join(' ');
+check(setupN > 0 && setupN <= 22, `only the setup's turns are shown (${setupN})`);
+await replay(`${cubeT} ${await cubeOf(algT)} ${await cubeOf(setupT)}`); await wait(300);
+check(/following it/.test(await text('#scrmsg') ?? '') && (await text('#result .case-title h2')) === `front-right case ${/case (\d+)/.exec(now2)[1]}`, `the setup done: armed on the next case (${await text('#result .case-title h2')})`);
 
 // the pair picked by its chip above the cube (no dropdown); the cube hidden with its box, the result kept
 check((await count('#slotsel')) === 0 && (await count('.pairrow #tracker')) === 1, 'the pair chips sit above the cube, no dropdown');

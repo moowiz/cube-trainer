@@ -14,7 +14,7 @@
 // (white up, green front), the way scrambles are applied at a competition,
 // so it is converted on the way in and out.
 
-import { moveCount, tokens } from '../cube/alg';
+import { inverse, moveCount, tokens } from '../cube/alg';
 import { fromWca, toWca, WCA_HOLD } from '../cube/frame';
 import { offList, offRoute, routeProgress, wrongTurns } from '../cube/route';
 import { pieceType, posName, STICKERS, type Sticker } from '../cube/geometry';
@@ -282,6 +282,9 @@ export function mountF2L(root: HTMLElement): Stage {
   let target: (Target & { at: number | null; first: number | null; done: { time: number | null; recognition?: number } | null }) | null = null;
   let lastTarget: Target | null = null;
   let targetMode = false; // the last scramble made here was a targeted one: the next "when solved" one is too
+  // a setup from where the cube stood: the scramble is that state's own scramble and then the setup, and only the
+  // setup (the turns after the first `setupFrom`) is shown and followed - the driver arms on the state, not the path
+  let setupFrom = 0;
 
   // ---- pictures ----
   const cells = () => caseCells(slot, corner, edge, SLOTS.filter((s) => !solvedSlots.has(s)));
@@ -654,15 +657,17 @@ export function mountF2L(root: HTMLElement): Stage {
   /** The scramble on show (WCA letters), the turns a cube has made of it marked, and the line under it while a cube is on. */
   function renderFollow(): void {
     const el = $('scrfollow');
-    const toks = scrWca ? safe(() => tokens(scrWca)) : null;
-    if (!toks) { el.hidden = true; el.innerHTML = ''; return; }
+    const all = scrWca ? safe(() => tokens(scrWca)) : null;
+    if (!all) { el.hidden = true; el.innerHTML = ''; return; }
+    const toks = all.slice(setupFrom);
     el.hidden = false;
     // the cube at the scramble (applied, or loaded from the follow as the cube's own state): the turns are
     // not to be read any more, so the list folds into one line (user, 2026-09-26: the follow's scramble is
     // the whole solve so far, dozens of turns)
     if (activeSource() && (track?.matched || (fedBy && fed.length))) { el.innerHTML = `<small>Scrambled ✓ (${toks.length} turns) · the pairs follow your cube</small>`; return; }
     // once the cube's turns are the solve, the scramble stays done: the solve is not "off the scramble"
-    const t: TrackStatus | null = !activeSource() ? null : fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : track;
+    const shift = (x: TrackStatus | null): TrackStatus | null => (x && setupFrom ? { ...x, applied: Math.max(0, x.applied - setupFrom), total: x.total - setupFrom } : x);
+    const t: TrackStatus | null = !activeSource() ? null : fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : shift(track);
     el.innerHTML = `${scrambleHtml(toks, t)}<small class="${t?.off ? 'off' : ''}">${trackText(t, toks)}</small>`;
   }
   /** The stage's scramble, trainer frame; null with none. */
@@ -678,7 +683,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** Show `alg` (trainer frame) as the scramble, and track it; `tgt` is the case it was made to put on a pair. */
   function putScramble(alg: string, msg: string, tgt: Target | null = null): void {
-    target = tgt ? { ...tgt, at: null, first: null, done: null } : null; targetMode = !!tgt;
+    target = tgt ? { ...tgt, at: null, first: null, done: null } : null; targetMode = !!tgt; setupFrom = 0;
     scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset(); armedSince = false;
     trackMsg(msg); saveUrl();
     if (scrWca) applyScramble();
@@ -699,8 +704,29 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!g) { trackMsg('Could not make that case.', true); return; } // one target always fits: not expected
     lastTarget = t;
     slot = t.slot; corner = null; edge = null;
-    putScramble(g.scramble, `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Solve the ${pairName(t.slot)} pair first: it is one of the cases you picked.${activeSource() ? ' It is timed from the cube at the scramble to that pair in.' : ' Press Did this on the alg you used (or Solved) when it is in.'}`, t);
-    shareScramble(g.scramble, 'f2l');
+    // a cube connected and not solved (the last case's pair just done, say): the next case is set up from where it is
+    const here = setupHere(g.scramble);
+    const scr = here ? `${here.from} ${here.setup}` : g.scramble;
+    const msg = here
+      ? `From where your cube is now (held ${WCA_HOLD}), do these ${tokens(here.setup).length} turns; then hold it ${hold()}. Solve the ${pairName(t.slot)} pair first: it is one of the cases you picked. It is timed from the cube at the setup to that pair in.`
+      : `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Solve the ${pairName(t.slot)} pair first: it is one of the cases you picked.${activeSource() ? ' It is timed from the cube at the scramble to that pair in.' : ' Press Did this on the alg you used (or Solved) when it is in.'}`;
+    putScramble(scr, msg, t);
+    if (here) { setupFrom = tokens(clean(here.from)).length; renderFollow(); trackMsg(msg); } // tracking's own line would hide where to start
+    shareScramble(scr, 'f2l');
+  }
+  /**
+   * The turns from the connected cube as it stands to the state `scramble` (trainer frame) makes, with a scramble
+   * of the cube as it stands (`from`, so the two together are a scramble from solved); null without a cube, or
+   * with the cube solved (the scramble itself is the setup then).
+   */
+  function setupHere(scramble: string): { from: string; setup: string } | null {
+    const src = activeSource(), st = src?.state();
+    if (!src || !st || st === SOLVED) return null;
+    try {
+      const from = trainerScramble({ facelets: st, colourOf: src.colourOf, solution: solveAny(st) }, holdOf());
+      const setup = inverse(solveAny(state(`${inverse(from)} ${scramble}`)));
+      return setup ? { from, setup } : null;
+    } catch { return null; }
   }
   /** The targeted pair is in: its attempt goes to the store (the practice table reads it back). */
   function finishTarget(t: number | null, source: 'cube' | 'camera' | 'typed', moves: string): void {
@@ -868,7 +894,7 @@ export function mountF2L(root: HTMLElement): Stage {
   function loadScramble(scramble: string): void {
     const was = scrWca;
     scrWca = safe(() => clean(toWca(scramble))) ?? ''; track = null; watcher.reset();
-    if (scrWca !== was) target = null; // another scramble (the follow's, another tab's): not the targeted one
+    if (scrWca !== was) { target = null; setupFrom = 0; } // another scramble (the follow's, another tab's): not the targeted one
     saveUrl(); renderFollow();
     applyScramble();
   }
@@ -921,7 +947,8 @@ export function mountF2L(root: HTMLElement): Stage {
   const renderPractice = mountF2LPractice({ body: $('f2lpracticeBody'), graphWrap: $('f2lpracticeGraphWrap'), graph: $('f2lpracticeGraph'), n: $('f2lpracticeN') }, () => { renderTarget(); toast('Picked: press Practise picked cases'); });
   $('f2lpractice').addEventListener('toggle', () => { if ($('f2lpractice').hasAttribute('open')) void renderPractice(); });
   $('scrtricks').onclick = () => {
-    const ok = scrWca ? openFingertricks(scrWca, { title: 'The scramble', hold: WCA_HOLD }) : null;
+    const shown = scrWca ? safe(() => tokens(scrWca).slice(setupFrom).join(' ')) : null;
+    const ok = shown ? openFingertricks(shown, { title: setupFrom ? 'The setup from where the cube was' : 'The scramble', hold: WCA_HOLD }) : null;
     if (ok === null) trackMsg('Make a scramble first.', true);
     else if (!ok) trackMsg('Could not read the moves.', true);
   };
