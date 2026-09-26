@@ -75,6 +75,13 @@ interface Tables {
   pruneEp: Uint8Array; // [ep * 24 + slice]
 }
 let tables: Tables | null = null;
+/** Build once, on the main thread, and say how long it took: the load-time freeze on a phone (2026-09-26) is measured here. */
+function once<T>(name: string, build: () => T): T {
+  const t0 = performance.now();
+  const t = build();
+  console.info(`[ll] Kociemba ${name} tables built in ${(performance.now() - t0).toFixed(0)} ms`);
+  return t;
+}
 
 /** The full piece state: cubejs's cp / co / ep / eo, as one array. */
 type Pieces = Uint8Array; // [cp 0..7, co 8..15, ep 16..27, eo 28..39]
@@ -202,7 +209,7 @@ const shuffled = (n: number, rng: () => number): number[] => {
  * ended on (no U after a U); `order` is the moves tried, in that order (a subset drops faces).
  */
 function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[], slices?: 'none' | 'paired'): number[] | null {
-  const t = (tables ??= buildTables());
+  const t = (tables ??= once('phase 2', buildTables));
   const path: number[] = [];
   const search = (cp: number, ep: number, sl: number, depth: number, last: number): boolean => {
     const h = Math.max(t.pruneCp[cp * N_SLICE + sl]!, t.pruneEp[ep * N_SLICE + sl]!);
@@ -299,8 +306,8 @@ const NODE_BUDGET = 400_000;
 export function solveAny(facelets: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
   const p0 = piecesOf(Cube.fromString(facelets));
   if (inG1(p0)) return solveG1(facelets, rng, opts)!;
-  const t1 = (tables1 ??= buildTables1());
-  tables ??= buildTables();
+  const t1 = (tables1 ??= once('phase 1', buildTables1));
+  tables ??= once('phase 2', buildTables);
   const order1 = moves1Of(opts, rng), order2 = movesOf(opts, rng);
   const first = opts.noLeadingU ? 0 : -1;
   // an exact total: each phase-1 answer gets a phase-2 tail of exactly the rest (the first found), and
