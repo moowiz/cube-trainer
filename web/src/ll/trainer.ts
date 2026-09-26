@@ -33,18 +33,19 @@ import { fromWca, toWca } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
 import { faceHex, onSchemeChange } from '../cube/scheme';
-import { CENTRE, faceTurns, rawFacelets, state } from '../cube/state';
+import { faceTurns, state } from '../cube/state';
+import { foldSlices, offRoute, routeProgress, wrongTurns } from '../cube/route';
 import { hold } from '../app/context';
 import { activeSource, onSourceChange, syncDriver } from '../app/sources';
 import { SLOTS, slotSolved } from '../f2l/model';
 import { trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
 import { carriedSolve, onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
-import { type Mode, MODE_LABEL, MODES, OFF_HOLD_MS, offList, say, ScrambleVoice, spoken } from '../ui/voice';
+import { type Mode, MODE_LABEL, MODES, OFF_HOLD_MS, say, ScrambleVoice, spoken } from '../ui/voice';
 import type { TrackStatus } from '../timer/track';
-import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
+import { makeTrackWatcher, markRouteDone, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
 import type { ColorName } from '../types';
-import { frameMap, relabel, type FaceId } from '../cube/frame';
+import type { FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
@@ -459,28 +460,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let keepNext = false;               // the next move read is queued after what is being said (a name, the hold), not over it
   let lastBad = 0;                    // how many wrong moves were listed last time (an undo shortens it)
   let fedCount = 0;                   // moves fed so far, for the echo
-  /**
-   * The moves done (`text`) after the last of them that left the cube on `route`: the wrong turns, in order,
-   * and `at`, the route index of the state they left from.
-   */
-  function offRoute(route: string[], text: string): { bad: string[]; at: number } {
-    let toks: string[];
-    try { toks = tokens(text); } catch { return { bad: [], at: 0 }; }
-    const onIt = new Map<string, number>();
-    for (let i = route.length; i >= 0; i--) onIt.set(state(`${setup} ${route.slice(0, i).join(' ')}`), i); // the earliest index wins
-    for (let k = toks.length; k >= 0; k--) { const i = onIt.get(state(`${setup} ${toks.slice(0, k).join(' ')}`)); if (i !== undefined) return { bad: toks.slice(k), at: i }; }
-    return { bad: toks, at: 0 };
-  }
-  /**
-   * The cube's fixed letters (what a smart cube reports) as the letters of the frame the alg's rotations
-   * up to route index `at` leave the cube in: an x, and the user's "U" is the cube's F. Identity without rotations.
-   */
-  function inHand(route: string[], at: number, alg: string): string {
-    const rots = route.slice(0, at).filter((m) => /^[xyz]/.test(m));
-    if (!rots.length) return alg;
-    const raw = rawFacelets(rots.join(' '));
-    return relabel(alg, frameMap(raw[CENTRE.D!]! as FaceId, raw[CENTRE.F!]! as FaceId));
-  }
   /** The off-the-alg line in the result panel: the wrong turns and their undo (in the hand's frame); gone when back on. */
   function showOff(bad: string[], undo: string[]): void {
     let el = drill.result.body.querySelector<HTMLElement>('.ll-off');
@@ -488,23 +467,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!el) { el = document.createElement('div'); el.className = 'll-off'; drill.result.body.prepend(el); }
     el.innerHTML = `Off the alg after ${bad.map(moveHtml).join(' ')} — undo with ${undo.map(moveHtml).join(' ')}`;
   }
-  // a middle-slice turn reaches the cube as its two outer layers the other way (M = L' R, the core turning with the
-  // slice), each as quarter turns: the echo gathers L and R turns that arrive close together, merges them, and says
-  // the slice when that is what they make; anything else is said move by move, in order
-  const SLICE_OF_PAIR: Record<string, string> = {
-    "L' R": 'M', "R L'": 'M', "L R'": "M'", "R' L": "M'", 'L2 R2': 'M2', 'R2 L2': 'M2',
-    "F' B": 'S', "B F'": 'S', "F B'": "S'", "B' F": "S'", 'F2 B2': 'S2', 'B2 F2': 'S2',
-    "D' U": 'E', "U D'": 'E', "D U'": "E'", "U' D": "E'", 'D2 U2': 'E2', 'U2 D2': 'E2',
-  };
-  /** Adjacent outer-layer pairs that are a slice (L' R -> M), the rest as they are. */
-  function foldSlices(moves: string[]): string[] {
-    const out: string[] = [];
-    for (let i = 0; i < moves.length; i++) {
-      const pair = i + 1 < moves.length ? SLICE_OF_PAIR[`${moves[i]} ${moves[i + 1]}`] : undefined;
-      if (pair) { out.push(pair); i++; } else out.push(moves[i]!);
-    }
-    return out;
-  }
+  // a middle-slice turn reaches the cube as its two outer layers the other way (M = L' R): the echo gathers L and R
+  // turns that arrive close together, merges them, and says the slice when that is what they make (foldSlices);
+  // anything else is said move by move, in order
   const ECHO_HOLD_MS = 250; // DECISION: a slice's layers arrive within a few ms; a hand's separate L then R rarely inside this
   let pending: string[] = [];
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -513,8 +478,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!pending.length) return;
     const merged = tokens(faceTurns(pending.join(' ')));
     pending = [];
-    const slice = merged.length === 2 ? SLICE_OF_PAIR[merged.join(' ')] : undefined;
-    say(slice ? spoken(slice) : merged.map(spoken).join(', '));
+    say(foldSlices(merged).map(spoken).join(', '));
   }
   function echo(moves: string[]): void {
     for (const m of moves) {
@@ -931,26 +895,13 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     try { cur = state(`${setup} ${tokens(text).join(' ')}`); } catch { cur = null; }
     for (const line of lines) {
       const route = tokens(line.alg);
-      let done = 0, half = false, onRoute = false;
-      if (cur !== null) {
-        const states = [state(setup)];
-        for (let i = 1; i <= route.length; i++) states.push(state(`${setup} ${route.slice(0, i).join(' ')}`));
-        const k = states.indexOf(cur); // the earliest: a rotation changes nothing, so it is not "done" before it is made
-        if (k >= 0) { done = k; onRoute = true; }
-        else for (let i = 0; i < route.length; i++) {
-          const m = route[i]!;
-          if (!m.endsWith('2')) continue;
-          const before = `${setup} ${route.slice(0, i).join(' ')}`;
-          if (state(`${before} ${m[0]}`) === cur || state(`${before} ${m[0]}'`) === cur) { done = i; half = true; onRoute = true; break; }
-        }
-      }
+      const { done, half, onRoute } = routeProgress(setup, route, cur);
       if (line.main) {
         // off the alg: the moves since the last state on it, and how to undo them (shown, and said once per change)
-        const off = onRoute || cur === null ? { bad: [], at: 0 } : offRoute(route, text);
+        const off = onRoute || cur === null ? { bad: [], at: 0 } : offRoute(setup, route, text);
         // the wrong turns and their undo in the letters of the frame the alg has the cube in (after its x, the cube's F is
         // your U), a slice's two layers folded back into the slice (L' R is the M the hand made)
-        const bad = foldSlices(tokens(inHand(route, off.at, offList(off.bad).join(' '))));
-        const undo = bad.length ? foldSlices(tokens(inverse(bad.join(' ')))) : [];
+        const { bad, undo } = wrongTurns(route, off.at, off.bad);
         if (bad.length) {
           // held: the cube's two halves of a slice arrive one after the other, and the state between them is off the alg
           const words = `${bad.length < lastBad ? 'undo' : 'wrong. undo'} ${undo.map(spoken).join(', ')}`;
@@ -978,11 +929,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       }
       if (!line.el) continue;
       const skip = Number(line.el.dataset.skip ?? 0);
-      for (const mv of line.el.querySelectorAll<HTMLElement>('.mv')) {
-        const i = skip + Number(mv.dataset.i);
-        mv.classList.toggle('done', i < done);
-        mv.classList.toggle('half', half && i === done);
-      }
+      markRouteDone(line.el.querySelectorAll<HTMLElement>('.mv'), done, half, skip);
     }
   }
   /** Label the named triggers (sexy, sledge...) on a built alg line: the case's moves start at move `offset` (after a [U] AUF). */

@@ -1,16 +1,22 @@
 // The ZZF2L case finder: tap where the pair's corner and edge are (3D or
 // net) and get the sheet's alg with the AUF adjusted, or track a scrambled
 // cube (from the EO trainer, a scan, or the scramble box) and have the pieces
-// filled in as each pair is done. The logic is model.ts; this file is the
-// markup, the pictures, the result panel, and the URL / localStorage state.
+// filled in as each pair is done. On a smart cube (or the camera reader)
+// nothing is pressed: the scramble is followed as the Solve tab follows
+// one, the cube's turns keep the tracked cube, each pair's case is read
+// off it, and the alg being done lights up and is followed move by move
+// as in the last-layer drills (cube/route.ts). The logic is model.ts; this
+// file is the markup, the pictures, the result panel, and the URL /
+// localStorage state.
 //
 // Frames: the trainer works white down with the chosen colour in front (all
 // algs, the tracked cube, what the shell sees). The scramble BOX is WCA
 // (white up, green front), the way scrambles are applied at a competition,
 // so it is converted on the way in and out.
 
-import { tokens } from '../cube/alg';
+import { moveCount, tokens } from '../cube/alg';
 import { fromWca, toWca, WCA_HOLD } from '../cube/frame';
+import { offList, offRoute, routeProgress, wrongTurns } from '../cube/route';
 import { pieceType, posName, STICKERS, type Sticker } from '../cube/geometry';
 import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
@@ -25,6 +31,11 @@ import {
 } from './model';
 import { ensureStyle, scoped } from '../ui/dom';
 import { readStored, writeStored } from '../ui/settings';
+import { hold as holdOf } from '../app/context';
+import { activeSource, onSourceChange } from '../app/sources';
+import type { TrackStatus } from '../timer/track';
+import { makeTrackWatcher, markRouteDone, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
+import type { ColorName, FaceId } from '../types';
 
 const GREY = '#DDE1E7'; // the page's --grey-ll: SVG fill attributes cannot read a CSS variable
 const STORE_KEY = 'zzf2l-state';
@@ -98,6 +109,13 @@ const STYLE = `
   .f2l .scrbtns { display: flex; gap: 8px; flex-wrap: wrap; }
   .f2l .scrmsg { margin: 0; font-size: 14px; color: var(--ink-2); min-height: 1.2em; }
   .f2l .scrmsg.bad { color: #B3261E; }
+  .f2l .scrfollow { margin: 0; font-size: 15px; letter-spacing: .02em; word-spacing: .12em; line-height: 1.8; }
+  .f2l .scrfollow .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
+  .f2l .scrfollow .mv .p { color: #B3261E; font-weight: 600; } .f2l .scrfollow .mv .d { color: #1A56B8; font-weight: 600; }
+  .f2l .scrfollow .done .p, .f2l .scrfollow .done .d { color: inherit; font-weight: 400; }
+  .f2l .scrfollow small { display: block; font-size: 13px; color: var(--ink-2); letter-spacing: 0; word-spacing: 0; line-height: 1.4; }
+  .f2l .scrfollow small.off, .f2l .offalg { color: #7A4B00; font-weight: 600; }
+  .f2l .offalg { font-size: 14px; margin: 0 0 8px; } .f2l .offalg .mv { padding: 0 2px; }
   .f2l .trackbadge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: #fff; margin-left: 8px; vertical-align: middle; }
   .f2l .result { min-height: 200px; }
   .f2l .hint { color: var(--ink-2); font-size: 15px; line-height: 1.5; max-width: 48ch; }
@@ -108,6 +126,11 @@ const STYLE = `
   .f2l .alg { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
   .f2l .alg .txt { font-size: 17px; font-weight: 500; letter-spacing: .02em; flex: 1; word-spacing: .12em; }
   .f2l .alg .txt .auf { color: var(--ink-2); font-weight: 400; }
+  .f2l .alg .txt .mv.done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
+  .f2l .alg .txt .mv.half { text-decoration: underline dotted; text-underline-offset: 4px; }
+  .f2l .alg .n { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .f2l .alg.on { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
+  .f2l .alg.dim { opacity: .5; }
   .f2l .alg .tag { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
   .f2l .alg a, .f2l .alg button { font: inherit; font-size: 12px; color: var(--ink-2); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; cursor: pointer; text-decoration: none; white-space: nowrap; }
   .f2l .alg a:hover, .f2l .alg button:hover { color: var(--ink); border-color: var(--ink-2); }
@@ -151,6 +174,7 @@ const MARKUP = `
       <div class="scrbtns"><button class="btn" type="button" id="applyscr">Apply to the cube</button>
         <button class="btn" type="button" id="stoptrack">Stop tracking</button>
         <button class="btn" type="button" id="scrtricks" title="Finger by finger: the scramble, or the EOCross moves under it when there are any">✋ Fingertricks</button></div>
+      <p class="scrfollow" id="scrfollow" hidden></p>
       <p class="scrmsg" id="scrmsg"></p>
     </div>
   </details>
@@ -209,6 +233,15 @@ export function mountF2L(root: HTMLElement): Stage {
   let tracked: { scr: string; pre: string; hist: string[] } | null = null;
   const trackedAlg = () => (tracked ? [tracked.scr, tracked.pre, ...tracked.hist].map(fromWca).filter(Boolean).join(' ') : '');
   const cube = (): string | null => (tracked ? state(trackedAlg()) : null);
+  /** Moves made on the tracked cube since the scramble and EOCross (the algs pressed, or the cube's own turns). */
+  const movesDone = () => (tracked ? offList(tracked.hist.flatMap((h) => tokens(h))).length : 0); // a cube's R R is one R2
+  // a cube feeding the tracked cube (app/sources.ts): its turns since the scramble are the whole of hist,
+  // "Did this" is not offered, and the current pair's alg is followed from `pairAt` turns in
+  let fedBy: 'cube' | 'camera' | null = null;
+  let fed: string[] = [];          // the cube's turns since arming, trainer letters
+  let pairAt: number | null = null; // how many of `fed` were done when the current pair's pieces were read
+  const watcher = makeTrackWatcher();
+  let track: TrackStatus | null = null; // where the cube is on the scramble (and the EOCross moves under it)
   const view: View = { ...DEFAULT_VIEW };
   const hold = () => `white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right)`;
 
@@ -374,14 +407,25 @@ export function mountF2L(root: HTMLElement): Stage {
   function trackMsg(t: string, bad = false): void { const m = $('scrmsg'); m.textContent = t; m.className = `scrmsg${bad ? ' bad' : ''}`; }
 
   // ---- tracking ----
+  /** The tracked cube is not at F2L yet (a cube followed from its scramble, EOCross still to do): what is left, or null. */
+  function beforeF2L(): string | null {
+    const f = cube();
+    if (!f) return null;
+    const r = stageOf(f);
+    if (r.eoBad === 0 && r.cross === 4) return null;
+    const parts = [r.eoBad > 0 ? `${r.eoBad} edge${r.eoBad === 1 ? '' : 's'} to flip` : '', r.cross < 4 ? `${4 - r.cross} cross edge${r.cross === 3 ? '' : 's'} to place` : ''].filter(Boolean);
+    return `Solve EOCross on your cube first: ${parts.join(', ')}. The pairs are read off the cube once it is done.`;
+  }
   function syncFromCube(): void {
     const f = cube();
     if (!f) return;
+    if (beforeF2L()) { corner = null; edge = null; pairAt = null; render(); return; }
     for (const s of SLOTS) if (slotSolved(f, s)) solvedSlots.add(s); else solvedSlots.delete(s);
     if (solvedSlots.has(slot)) { const nx = SLOTS.find((s) => !solvedSlots.has(s)); if (nx) slot = nx; }
     fillSlotSelect(); updateEdgeName();
     if (!solvedSlots.has(slot)) { const s = slotState(f, slot); corner = s.corner; edge = s.edge; }
     else { corner = null; edge = null; }
+    pairAt = fed.length; // the pair's alg is followed from here
     render();
   }
   function applyScramble(): void {
@@ -395,9 +439,111 @@ export function mountF2L(root: HTMLElement): Stage {
       trackMsg(r.eoBad > 0 ? 'EO is not solved on this state. Add your EOCross solution below the scramble.' : 'The cross is not solved on this state. Add your EOCross solution below the scramble.', true);
       return;
     }
-    tracked = t; solvedSlots = new Set();
-    trackMsg('Tracking your cube. Pieces are filled in automatically; press "Did this" on the alg you used.');
+    tracked = t; solvedSlots = new Set(); fed = []; fedBy = null; pairAt = null;
+    trackMsg(activeSource() ? 'Tracking your cube: solve the pairs on it and the pieces follow.' : 'Tracking your cube. Pieces are filled in automatically; press "Did this" on the alg you used.');
     syncFromCube();
+  }
+  const boxes = () => safe(() => ({ scr: clean(scrBox.value.trim()), pre: toWca(clean(preBox.value.trim())) }));
+  /** The cube that feeds this stage is at the scramble (and the EOCross moves under it): track it from here without a press. */
+  function armed(): void {
+    const b = boxes();
+    if (!b || !b.scr) return;
+    // the same scramble tracked already (loaded by the follow, or applied by hand): only the turns start over
+    if (!tracked || tracked.scr !== b.scr || tracked.pre !== b.pre) { tracked = { ...b, hist: [] }; solvedSlots = new Set(); }
+    else tracked.hist = [];
+    fed = []; fedBy = 'cube'; pairAt = null; corner = null; edge = null; // the kind is set right by the first feed
+    $<HTMLDetailsElement>('scr').open = true;
+    trackMsg('Your cube is at the scramble: following it.');
+    syncFromCube();
+  }
+  // DECISION: this many wrong turns are shown with their undo, as the last-layer drills do; more than this and the
+  // cube is read afresh - the finder's job is to name the case in front of you, not to insist on the alg it listed
+  const OFF_LIMIT = 4;
+  /**
+   * The cube's turns since the scramble (the driver feeds the whole run each time): the tracked cube is those
+   * turns, the pair on show is followed along its algs, a solved pair moves on to the next, and a cube off every
+   * alg for long is read afresh. True once all four pairs are in.
+   */
+  function feed(text: string, source: 'cube' | 'camera'): boolean {
+    if (!tracked) return false;
+    let toks: string[];
+    try { toks = tokens(text); } catch { return false; }
+    fedBy = source; fed = toks;
+    tracked.hist = toks.length ? [toWca(toks.join(' '))] : [];
+    const f = cube();
+    if (!f) return false;
+    if (pairAt === null || !corner || !edge || slotSolved(f, slot)) { syncFromCube(); return solvedSlots.size === 4; }
+    // mid-pair: on one of the listed algs (or a few turns off one) the case stays and the moves done light up - the
+    // cross is broken halfway through most inserts, so it is not read again until the cube has strayed
+    const p = pairProgress();
+    if (p && (p.on || p.off.bad.length <= OFF_LIMIT)) { render(); return false; }
+    syncFromCube();
+    return solvedSlots.size === 4;
+  }
+  /**
+   * Where the cube is along each alg listed for the pair, from the state the pieces were read at: the routes
+   * (trainer letters, as the rows carry them), each with its progress; `on` is the one the cube is furthest
+   * along (the alg being done), and `off` the wrong turns against the closest route when it is on none.
+   */
+  function pairProgress(): { routes: { el: HTMLElement; done: number; half: boolean; onRoute: boolean }[]; on: HTMLElement | null; off: { bad: string[]; undo: string[] } } | null {
+    if (!tracked || pairAt === null) return null;
+    const rows = [...$('result').querySelectorAll<HTMLElement>('.alg[data-alg]')];
+    if (!rows.length) return null;
+    const setup = [tracked.scr, tracked.pre].map(fromWca).concat(fed.slice(0, pairAt)).filter(Boolean).join(' ');
+    const since = fed.slice(pairAt);
+    let cur: string | null;
+    try { cur = state(`${setup} ${since.join(' ')}`); } catch { cur = null; }
+    const routes = rows.map((el) => ({ el, ...routeProgress(setup, tokens(el.dataset.alg!), cur) }));
+    let on: HTMLElement | null = null, best = 0;
+    for (const r of routes) { const n = r.done + (r.half ? 0.5 : 0); if (r.onRoute && n > best) { best = n; on = r.el; } }
+    let off = { bad: [] as string[], undo: [] as string[] };
+    if (!on && since.length && !routes.some((r) => r.onRoute)) {
+      // the closest route: the one the fewest turns left
+      let bestOff: { route: string[]; bad: string[]; at: number } | null = null;
+      for (const r of routes) { const route = tokens(r.el.dataset.alg!); const o = offRoute(setup, route, since.join(' ')); if (!bestOff || o.bad.length < bestOff.bad.length) bestOff = { route, ...o }; }
+      if (bestOff) off = wrongTurns(bestOff.route, bestOff.at, bestOff.bad);
+    }
+    return { routes, on, off };
+  }
+  /** Light the listed algs with the cube's progress (after the rows are built). */
+  function markFollow(): void {
+    const r = $('result');
+    r.querySelector('.offalg')?.remove();
+    const p = pairProgress();
+    if (!p) return;
+    for (const x of p.routes) {
+      markRouteDone(x.el.querySelectorAll<HTMLElement>('.mv'), x.done, x.half);
+      x.el.classList.toggle('on', x.el === p.on);
+      x.el.classList.toggle('dim', p.on !== null && x.el !== p.on);
+    }
+    if (p.off.bad.length) {
+      const el = document.createElement('p'); el.className = 'offalg';
+      el.innerHTML = `Off the alg after ${p.off.bad.map(moveHtml).join(' ')} — undo with ${p.off.undo.map(moveHtml).join(' ')}`;
+      r.querySelector('.case-title')?.insertAdjacentElement('afterend', el);
+    }
+  }
+  /** The cube's belief moved: where it is on the scramble, shown under the boxes (the Solve tab's line). */
+  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
+    track = watcher.status(stageScramble(), facelets, colourOf, holdOf());
+    renderFollow();
+  }
+  function renderFollow(): void {
+    const el = $('scrfollow');
+    const src = activeSource();
+    const scr = scrBox.value.trim(), pre = preBox.value.trim();
+    if (!src || !scr || !track) { el.hidden = true; el.innerHTML = ''; return; }
+    const toks = safe(() => tokens(scr).concat(tokens(pre)));
+    if (!toks) { el.hidden = true; return; }
+    el.hidden = false;
+    // once the cube's turns are the solve, the scramble stays done: the solve is not "off the scramble"
+    const t: TrackStatus = fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : track;
+    el.innerHTML = `${scrambleHtml(toks, t)}<small class="${t.off ? 'off' : ''}">${trackText(t, toks)}</small>`;
+  }
+  /** The stage's scramble (trainer frame): the box's scramble, then the EOCross moves under it. */
+  function stageScramble(): string | null {
+    const scr = scrBox.value.trim();
+    if (!scr) return null;
+    return safe(() => [fromWca(clean(scr)), clean(preBox.value.trim())].filter(Boolean).join(' '));
   }
   function didThis(full: string): void {
     if (!tracked) return;
@@ -405,23 +551,30 @@ export function mountF2L(root: HTMLElement): Stage {
     syncFromCube();
   }
   function putScramble(alg: string, msg: string): void {
-    scrBox.value = toWca(alg); preBox.value = ''; trackMsg(msg); saveUrl();
+    scrBox.value = toWca(alg); preBox.value = ''; trackMsg(msg); saveUrl(); renderFollow();
   }
   function newScramble(): void {
     const scr = genFull();
-    putScramble(scr, `Apply this to a solved cube held ${WCA_HOLD}. Then turn it ${hold()}, solve EOCross, type the moves you used below, then apply.`);
+    putScramble(scr, activeSource() ? `Apply this to your cube held ${WCA_HOLD}: it is followed as you go. Then solve EOCross on it and the pairs are read off the cube.`
+      : `Apply this to a solved cube held ${WCA_HOLD}. Then turn it ${hold()}, solve EOCross, type the moves you used below, then apply.`);
     shareScramble(scr, 'f2l');
   }
 
   // ---- the result panel ----
   function algRow(a: string, auf: string, tag: string, c: F2LCase | null): HTMLElement {
     const { pre, rest } = withAuf(auf, a); const full = fullAlg(auf, a);
-    const div = document.createElement('div'); div.className = 'alg';
-    const txt = document.createElement('span'); txt.className = 'txt'; txt.innerHTML = (pre ? `<span class="auf">(${pre})</span> ` : '') + rest; div.appendChild(txt);
+    const div = document.createElement('div'); div.className = 'alg'; div.dataset.alg = full;
+    // every move its own numbered span (the AUF in brackets), so the cube's progress can be marked on it
+    const mv = (t: string, i: number) => `<span class="mv" data-i="${i}">${t}</span>`;
+    const preToks = pre ? tokens(pre) : [];
+    const txt = document.createElement('span'); txt.className = 'txt';
+    txt.innerHTML = (preToks.length ? `<span class="auf">(${preToks.map(mv).join(' ')})</span> ` : '') + tokens(rest).map((t, i) => mv(t, preToks.length + i)).join(' ');
+    div.appendChild(txt);
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = `${moveCount(full)} moves`; div.appendChild(n);
     if (tag) { const s = document.createElement('span'); s.className = 'tag'; s.textContent = tag; div.appendChild(s); }
     const ex = document.createElement('button'); ex.type = 'button'; ex.textContent = 'Explain'; div.appendChild(ex);
     const a2 = document.createElement('a'); a2.href = acnUrl(full); a2.target = '_blank'; a2.rel = 'noopener'; a2.textContent = 'Animate'; div.appendChild(a2);
-    if (tracked) {
+    if (tracked && !fedBy) {
       const dd = document.createElement('button'); dd.type = 'button'; dd.textContent = 'Did this'; dd.style.fontWeight = '600'; dd.style.color = 'var(--ink)';
       dd.addEventListener('click', () => didThis(full)); div.appendChild(dd);
     }
@@ -452,7 +605,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const remaining = SLOTS.filter((s) => !solvedSlots.has(s) && s !== slot).length;
     b.textContent = remaining ? 'Solved, next pair' : 'Solved, F2L done';
     b.addEventListener('click', () => {
-      if (tracked && currentHit) { // tracking: the pair is solved by doing the alg shown
+      if (tracked && currentHit && !fedBy) { // tracking: the pair is solved by doing the alg shown
         const c = DATA.slots[slot].cases[currentHit.n];
         if (c) { didThis(fullAlg(currentHit.auf, advanced() ? c.algs[0] : c.simple)); return; }
       }
@@ -471,8 +624,10 @@ export function mountF2L(root: HTMLElement): Stage {
     const r = $('result'); r.innerHTML = '';
     const hint = (t: string) => { const p = document.createElement('p'); p.className = 'hint'; p.textContent = t; r.appendChild(p); };
     const hb = $('hintbox'); hb.hidden = true; hb.innerHTML = '';
+    const left = corner && edge ? null : beforeF2L(); // a pair under way keeps its case through a broken cross
+    if (left) { hint(left); return; }
     if (solvedSlots.size === 4) {
-      hint(tracked ? 'All four pairs solved on the tracked cube. Generate a new scramble or press "Start over".' : 'All four pairs solved. Press "Start over" for the next solve.');
+      hint(tracked ? `All four pairs solved on the tracked cube in ${movesDone()} moves. Generate a new scramble or press "Start over".` : 'All four pairs solved. Press "Start over" for the next solve.');
       if (tracked && stages.ocll) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.style.marginTop = '8px'; b.textContent = 'Continue to OCLL with this cube';
         b.addEventListener('click', () => { shareScramble(trackedAlg(), 'f2l'); showTab('ocll'); window.scrollTo({ top: 0 }); });
@@ -491,7 +646,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!found) { hint('No case in the sheet matches this position.'); return; }
     const { hit, c } = found;
     const t = document.createElement('div'); t.className = 'case-title';
-    t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? '<span class="trackbadge">tracking</span>' : ''}`; r.appendChild(t);
+    t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
     const ex = explain(slot, c, adv ? c.algs[0] : c.simple);
@@ -511,6 +666,7 @@ export function mountF2L(root: HTMLElement): Stage {
     wrap.appendChild(nextButton());
     r.appendChild(wrap);
     if (c.note) { const nn = document.createElement('p'); nn.className = 'note'; nn.textContent = /keyhole/i.test(c.note) ? 'Keyhole case (the sheet lists no other-slot alg).' : c.note; r.appendChild(nn); }
+    if (fedBy) markFollow();
     const s = document.createElement('p'); s.className = 'sheet';
     s.innerHTML = `Row ${c.n} on the ${slot} tab of the <a href="https://docs.google.com/spreadsheets/d/13O15zHAd0rKU9V9VQHw1vLEQh7v5fpWzeajokjz8LgA/edit?gid=${D.gid}" target="_blank" rel="noopener">ZZF2L Cases sheet</a>. The AUF in parentheses is adjusted for the exact position you tapped.`;
     r.appendChild(s);
@@ -527,7 +683,7 @@ export function mountF2L(root: HTMLElement): Stage {
   $('genF2L').onclick = () => putScramble(genF2L(), `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Cross and EO stay solved; only the pairs and top layer are scrambled.`);
   $('genFull').onclick = newScramble;
   $('applyscr').onclick = applyScramble;
-  $('stoptrack').onclick = () => { tracked = null; trackMsg('Tracking stopped.'); render(); };
+  $('stoptrack').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; trackMsg('Tracking stopped.'); render(); };
   // the EOCross moves (trainer frame) when there are any, else the scramble (WCA)
   $('scrtricks').onclick = () => {
     const pre = preBox.value.trim(), scr = scrBox.value.trim();
@@ -551,7 +707,10 @@ export function mountF2L(root: HTMLElement): Stage {
   });
   $('random').onclick = () => { const r = randomCase(slot); corner = r.corner; edge = r.edge; render(); };
   $('reset').onclick = () => { corner = null; edge = null; render(); };
-  $('restart').onclick = () => { tracked = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
+  $('restart').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
+  scrBox.addEventListener('input', renderFollow); preBox.addEventListener('input', renderFollow);
+  // the cube went away: its turns stay on the tracked cube, "Did this" comes back
+  onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
   document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints' || id === 'advanced') render(); });
   onSchemeChange(() => { fillSlotSelect(); updateEdgeName(); if (tracked) syncFromCube(); else render(); }); // the tracked cube reads differently in the new frame
@@ -567,11 +726,10 @@ export function mountF2L(root: HTMLElement): Stage {
       applyScramble();
     },
     render,
-    scramble(): string | null {
-      const scr = scrBox.value.trim();
-      if (!scr) return null;
-      return safe(() => [fromWca(clean(scr)), clean(preBox.value.trim())].filter(Boolean).join(' '));
-    },
+    scramble: stageScramble,
     newScramble,
+    feed: (text, _t, source) => feed(text, source ?? 'cube'),
+    armed,
+    watch,
   };
 }

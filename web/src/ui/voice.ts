@@ -7,7 +7,8 @@
 // from the Solve tab through the drill tabs (shell.carriedSolve): the
 // drill the tabs land on is not being drilled.
 
-import { faceMoves, inverse, mergeMoves, movesStr, tokens } from '../cube/alg';
+import { inverse, tokens } from '../cube/alg';
+import { offList } from '../cube/route';
 import { carriedSolve } from '../shell';
 import type { TrackStatus } from '../timer/track';
 import { shownIndex } from '../timer/track-ui';
@@ -50,11 +51,6 @@ export function say(text: string, keep = false, then?: () => void, thenBy = 8000
 }
 
 /** Wrong turns as a list to undo: same-face turns merged (R F F' is just R), so an undo shortens it. */
-export function offList(turns: readonly string[]): string[] {
-  const fm = faceMoves(turns.join(' '));
-  return fm ? movesStr(mergeMoves(fm)).split(' ').filter(Boolean) : turns.slice();
-}
-
 // DECISION: a wrong turn is called this long after it, not at once (user, 2026-09-23): the cube reports a
 // slice as its two outer layers, a few ms apart, and the state between them is off the route - a turn that
 // lands back on it inside this window was never wrong. A hand's two separate turns are far slower than this.

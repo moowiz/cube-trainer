@@ -19,6 +19,7 @@
     "check:record": "node scripts/check-record.mjs",
     "check:practice": "node scripts/check-practice.mjs",
     "check:ll": "node scripts/check-ll.mjs",
+    "check:f2l": "node scripts/check-f2l.mjs",
     "check:rig": "node scripts/check-record.mjs --rig",
     "check:dead": "knip",
     "check:dup": "jscpd src",

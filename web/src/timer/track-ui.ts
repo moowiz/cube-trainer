@@ -69,3 +69,15 @@ export function makeTrackWatcher(): {
     reset() { tracker = null; key = ''; },
   };
 }
+
+/**
+ * Mark an alg line's `.mv` spans (each numbered `data-i` from 0) with the route's progress: `done` moves
+ * underlined, the one the cube is halfway through dotted; `skip` moves of the route come before the line.
+ */
+export function markRouteDone(mvs: Iterable<HTMLElement>, done: number, half: boolean, skip = 0): void {
+  for (const mv of mvs) {
+    const i = skip + Number(mv.dataset.i);
+    mv.classList.toggle('done', i < done);
+    mv.classList.toggle('half', half && i === done);
+  }
+}

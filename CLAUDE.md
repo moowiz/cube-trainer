@@ -60,7 +60,8 @@ web/
     cube/            THE cube code every trainer shares: alg (one parser for turns/slices/wide/rotations),
                      state (facelets from an alg, rotations undone), geometry (facelet -> 3D), pieces
                      (edge/corner tables, EO bits, the 12-edge move model the solvers and the EOCross
-                     worker use), render (3D + net SVG), scheme (colour setting), frame (trainer / WCA /
+                     worker use), route (following an alg on a cube: the moves done along it, a wrong
+                     turn and its undo; the LL drills and the F2L finder share it), render (3D + net SVG), scheme (colour setting), frame (trainer / WCA /
                      solver letter maps), nxn (the n×n facelet model for the algs sheet's big-cube and 2x2
                      cases: WCA + SiGN notation, commutator brackets; n=3 reproduces cubejs, by test), fto (the
                      face-turning octahedron: stickers as 3D triangles, a move is an axis + angle + cut so no cycle
@@ -91,6 +92,8 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators), trainer
+                     (on a smart cube: the scramble followed, the cube tracked from it, each pair's case read off
+                     it, the alg being done lit and followed; `npm run check:f2l` replays that headlessly)
     ll/              OCLL / PLL drills: cases (algs verified by test), model (identify modulo AUF, chain partner;
                      an earlier start - the last pair, OCLL - for recognition, the route through the standard algs,
                      where the moves done reached the stage; features.ts is its piece-permutation reader), scramble (Kociemba two-phase, best total under a
