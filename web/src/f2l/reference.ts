@@ -121,7 +121,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     const needs = x.needs.map((z) => SLOT_WORD[z]).join(' and ');
     const own = ownSideWords(shownSlot);
     return [
-      x.from === 'sheet' ? 'from the sheet' : x.from === 'shortcut' ? "the sheet's shortcut" : x.from === 'own' ? `${own.moves} only, never lifts the ${own.neighbour} pair` : 'found by search (not in the sheet)',
+      x.from === 'sheet' ? 'from the sheet' : x.from === 'shortcut' ? "the sheet's shortcut" : x.from === 'own' ? `${own.moves} only, never lifts the ${own.neighbour} pair` : '',
       needs ? `goes through the ${needs} slot${x.needs.length > 1 ? 's' : ''}, which must still be open` : '',
     ].filter(Boolean).join('; ');
   };

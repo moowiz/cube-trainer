@@ -895,7 +895,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const needs = x.needs.map((z) => SLOT_WORD[z]).join(' and ');
     const parts = [
       lead && f2lIsFavourite(caseId(slot, c.n)) ? 'your pick' : '',
-      x.from === 'own' ? `${ownSideWords(slot).moves} only, never lifts the ${ownSideWords(slot).neighbour} pair` : x.from === 'search' ? 'found by search' : x.from === 'shortcut' ? "the sheet's shortcut" : '',
+      x.from === 'own' ? `${ownSideWords(slot).moves} only, never lifts the ${ownSideWords(slot).neighbour} pair` : x.from === 'shortcut' ? "the sheet's shortcut" : '',
       needs ? (x.usable ? `goes through the open ${needs} slot${x.needs.length > 1 ? 's' : ''}` : `needs the ${needs} slot${x.needs.length > 1 ? 's' : ''} open, and ${x.needs.length > 1 ? 'one is' : 'it is'} solved`) : '',
     ];
     return parts.filter(Boolean).join(' · ');
