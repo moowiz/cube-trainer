@@ -373,10 +373,15 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** The open slots in order, for stepping through them. */
   const openSlots = () => SLOTS.filter((s) => !solvedSlots.has(s));
+  /** The state the cards read their cases off: where the pairs were last read (mid-alg the cube itself is between cases), else the cube. */
+  function cardState(): string | null {
+    if (tracked && pairAt !== null && corner && edge) { try { return state(pairSetup()); } catch { return null; } }
+    return beforeF2L() ? null : cube();
+  }
   function renderTracker(): void {
     const t = $('tracker'); t.innerHTML = '';
-    const f = cube();
-    const cards = !!f && !beforeF2L();
+    const f = cardState();
+    const cards = !!f;
     t.classList.toggle('cards', cards);
     for (const s of SLOTS) {
       const el = document.createElement('span');

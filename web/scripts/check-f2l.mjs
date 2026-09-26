@@ -78,6 +78,7 @@ await replay(`${cube2} ${await cubeOf(algToks[0])}`);
 check((await count('#result .alg.on')) === 1, 'one turn in: the alg being done is lit');
 check((await page.$eval('#result .alg.on', (e) => e.dataset.alg)) === alg, 'and it is the one whose first move was made');
 check((await count('#result .alg.on .mv.done')) === 1, `its first move underlined (${await count('#result .alg.on .mv.done')})`);
+check(await page.$eval('#tracker', (e) => e.classList.contains('cards')) && (await count('#tracker > span:not(.done) small')) === (await count('#tracker > span:not(.done)')), 'mid-alg (cross broken) the other pairs keep their cards');
 check((await text('#result .case-title h2')) === title2, 'the case stays while the alg is under way');
 // a wrong turn (one no listed alg makes next): called with its undo, the case kept even though the cross is broken
 // a face no listed alg turns first or second, and not the face just turned (that would merge with it)
