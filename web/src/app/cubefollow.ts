@@ -56,6 +56,7 @@ let startIndex = 0;          // the item index this solve started at (for the so
 let lastMoveT = 0;           // host time of the last turn consumed, or of the engagement
 let base: ScannedCube | null = null;
 let baseCursor = 0;          // the item index `base.facelets` is the state at
+let solveFrom: Tab | null = null;   // the tab whose scramble the solve started from (matched), or null: picked up after a pause (a hand scramble)
 let solving: string | null = null;  // the state a base is being solved for
 let failed: string | null = null;   // the state cubejs refused (a garbage report): not retried until it changes
 
@@ -177,7 +178,7 @@ function consume(): void {
   // on the open tab's scramble: being applied (not a solve), or reached - a solve starts from here (the drill arms on this same item)
   const path = pathStatus(src, state);
   if (path?.matched) {
-    follower.restart(followReport(scr).stage); startIndex = cursor;
+    follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab();
     // the Solve tab's scramble reached: the timer armed on this item, and its solve is the one followed
     if (activeTab() === 'solve') setTiming(true);
     return;
@@ -189,7 +190,12 @@ function consume(): void {
     base = { facelets: SOLVED, colourOf: src.colourOf, solution: '' }; baseCursor = cursor;
     // the timer stopped on this same turn (its stage heard it first): back to it for the time and the next scramble
     if (timing) { setTiming(false); console.log('CUBE FOLLOW solved: back to the Solve tab'); if (activeTab() !== 'solve') { showTab('solve'); window.scrollTo({ top: 0 }); } }
-    else announceSolved(src);
+    else {
+      announceSolved(src);
+      // a solve picked up after a pause (scrambled by hand, or the timer never armed) ends on the Solve tab too, ready for
+      // the next scramble (user, 2026-09-25); a drill's own case, solved, stays where it is with its result
+      if (solveFrom === null || solveFrom === 'solve') { console.log('CUBE FOLLOW solved: to the Solve tab'); if (activeTab() !== 'solve') { showTab('solve'); window.scrollTo({ top: 0 }); } }
+    }
     return;
   }
   // the open tab's drill is on this solve from its own scramble and crossed into its own stage (a PLL drill
@@ -212,13 +218,13 @@ function poll(): void {
   const scr = scramble(src);
   if (scr === null) return;
   const path = pathStatus(src, state);
-  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; if (activeTab() === 'solve') setTiming(true); return; }
+  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab(); if (activeTab() === 'solve') setTiming(true); return; }
   if (path && !path.off) return;
   // the Solve tab between solves: a cube off its scramble is a mis-scramble to undo, not a solve to pick up
   if (activeTab() === 'solve' && !timing) return;
   const restart = follower.paused(followReport(scr).stage);
   if (!restart) return;
-  startIndex = cursor;
+  startIndex = cursor; solveFrom = null;
   if (restart === 'solved') return;
   open(src, restart, scr, 'a pause behind the mark');
 }
@@ -237,7 +243,7 @@ function refresh(): void {
   cursor = src.items().length;
   startIndex = cursor;
   lastMoveT = performance.now();
-  base = null; solving = null; failed = null; matchedKey = null;
+  base = null; solving = null; failed = null; matchedKey = null; solveFrom = null;
   follower.restart(null);
   warmSolver();
   rebase(src);

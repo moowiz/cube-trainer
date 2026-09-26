@@ -12,7 +12,7 @@ import { tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { SOLVED, state } from '../cube/state';
 import { relabelTurns, type Hold } from '../handoff';
-import { openSheet, shareScramble, sheetOpen, toast, type Stage } from '../shell';
+import { onTabChange, openSheet, shareScramble, sheetOpen, toast, type Stage } from '../shell';
 import { solveState, validateState, warmSolver } from '../state';
 import type { Store } from '../store/local';
 import { effectiveTime, newId, type Penalty, type SessionRecord, type SolveMove, type SolveRecord } from '../store/types';
@@ -27,11 +27,12 @@ import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from './track-ui'
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
 import { persisted } from '../ui/settings';
+import { type Mode, MODES, ScrambleVoice } from '../ui/voice';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
 // still recorded on the solve for later.
-interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on' }
+interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on'; /** the scramble voice (ui/voice.ts), as the PLL drill's */ voice: Mode }
 const SETTINGS_KEY = 'zz-timer-settings';
 const SESSION_META = 'timer/session';
 // DECISION (user, 2026-09-20): a session is a sitting. It can run for hours, but a solve that comes
@@ -101,7 +102,7 @@ const STYLE = `
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   ensureStyle('timer-style', STYLE);
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on' });
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on', voice: 'off' });
 
   root.innerHTML = `
     <div class="tm">
@@ -137,11 +138,13 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   /** Show `s` (WCA); `share` hands it to every other tab (false when it came from another tab). */
   function setScramble(s: string, share = true): void {
     scramble = s.trim();
-    watcher.reset();
+    watcher.reset(); voice.reset();
     resetAttempt();
     render();
     nextScramble = genScramble().catch(() => genScramble());
     if (share) shareScramble(fromWca(scramble), 'solve');
+    // a cube connected and this tab on screen: the tracker starts now, so the voice reads the first move
+    if (cubeFacelets && cubeColours && active()) { firstRead = true; watch(cubeFacelets, cubeColours); firstRead = false; }
   }
   function newScramble(): void {
     const gen = ++generation;
@@ -157,11 +160,16 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let track: TrackStatus | null = null;
   let cubeFacelets: string | null = null;                       // the source's belief, its own letters
   let cubeColours: Record<FaceId, ColorName> | null = null;     // the colour of each of those letters
-  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>): void {
+  /** The scramble out loud while it is being applied (ui/voice.ts), in the WCA letters it is shown in; quiet once the solve is on. */
+  const voice = new ScrambleVoice({ mode: () => settings.voice, shown: () => ({ toks: scramble.split(' ').filter(Boolean) }), wca: toWca });
+  let firstRead = false; // a fresh scramble's first move: read behind whatever is being said
+  function watch(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void {
     cubeFacelets = facelets; cubeColours = colourOf;
     if (solutionOpen) void showSolution();
+    const was = track;
     track = scramble ? watcher.status(fromWca(scramble), facelets, colourOf, deps.hold()) : null;
     if (!scramble) return;
+    voice.update(was, track, turn, phase !== 'idle', firstRead);
     renderScramble();
   }
 
@@ -318,6 +326,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   pad.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
   const active = () => !root.hidden && !sheetOpen();
+  // the tab opened with a scramble waiting and a cube connected: its first move is read now, not at the first turn
+  onTabChange(() => { if (active() && scramble && cubeFacelets && cubeColours) { firstRead = true; watch(cubeFacelets, cubeColours); firstRead = false; } });
   const keyable = (ev: KeyboardEvent) => active() && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes((ev.target as HTMLElement).tagName);
   document.addEventListener('keydown', (ev) => {
     if (!keyable(ev)) return;
@@ -477,6 +487,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
       if (!b) return;
       (settings as unknown as Record<string, string>)[key] = b.dataset.v!;
+      if (!MODES.includes(settings.voice)) settings.voice = 'off';
       saveSettings(); paint(); render();
     });
   });
@@ -501,7 +512,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const toks = scramble.split(' ');
     el.innerHTML = scrambleHtml(toks, track);
     const tr = $('track');
-    tr.textContent = trackText(track, toks);
+    tr.textContent = trackText(track, toks, voice.offText());
     tr.className = track?.off ? 'tm-track off' : 'tm-track';
   }
   function renderTime(): void {

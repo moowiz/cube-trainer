@@ -28,7 +28,7 @@
 // state (not an alg backwards, which would give the case away) and is
 // followed on a smart cube like the Solve tab's: turns done are underlined.
 
-import { faceMoves, inverse, mergeMoves, moveCount, movesStr, tokens } from '../cube/alg';
+import { inverse, moveCount, tokens } from '../cube/alg';
 import { fromWca, toWca } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, type View } from '../cube/render';
@@ -39,9 +39,10 @@ import { activeSource, onSourceChange, syncDriver } from '../app/sources';
 import { SLOTS, slotSolved } from '../f2l/model';
 import { trainerScramble } from '../handoff';
 import { stageOf } from '../stage';
-import { onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
+import { carriedSolve, onTabChange, shareScramble, showTab, type Stage, stages } from '../shell';
+import { type Mode, MODE_LABEL, MODES, OFF_HOLD_MS, offList, say, ScrambleVoice, spoken } from '../ui/voice';
 import type { TrackStatus } from '../timer/track';
-import { makeTrackWatcher, moveHtml, scrambleHtml, shownIndex, trackText } from '../timer/track-ui';
+import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
 import type { ColorName } from '../types';
 import { frameMap, relabel, type FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
@@ -164,18 +165,7 @@ interface Settings {
   /** the one dropdown this replaced (2026-09-23), read once and dropped */
   voice?: string;
 }
-/**
- * What the voice does with a set of moves - the scramble, or the alg (user, 2026-09-23: the two are the
- * same job, so they take the same modes and are set separately). Every mode but 'off' calls a wrong turn.
- */
-type Mode = 'off' | 'read' | 'echo' | 'watch';
-const MODE_LABEL: Record<Mode, string> = {
-  off: 'nothing',
-  read: 'reads me the next move',
-  echo: 'says the moves I make',
-  watch: 'only when I go wrong',
-};
-const MODES = Object.keys(MODE_LABEL) as Mode[];
+// the voice's modes (ui/voice.ts): the scramble and the alg are the same job, so they take the same modes, set separately (user, 2026-09-23)
 /**
  * The words the quiz's ear takes (hear.ts), by letter, for the note by the voice setting: the case's
  * letter, then a/b/c/d; any word listed for a letter says it, and a surrender ends the wait.
@@ -195,20 +185,8 @@ function sayNote(kind: LLKind): string {
 // servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
 interface Recognizer { lang: string; continuous: boolean; maxAlternatives: number; interimResults: boolean; start(): void; abort(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null }
 const recognizerCtor = (): (new () => Recognizer) | null => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
-// what the voice says for a move: the letter, then prime / two; a wide move and a rotation by name
-const SPOKEN: Record<string, string> = { x: 'x', y: 'y', z: 'z', M: 'M', E: 'E', S: 'S' };
-function spoken(m: string): string {
-  const base = m[0]!, suf = m.slice(1);
-  const name = SPOKEN[base] ?? (base === base.toLowerCase() ? `wide ${base.toUpperCase()}` : base);
-  return `${name}${suf === "'" ? ' prime' : suf === '2' ? ' two' : ''}`;
-}
 /** A case name as the voice should say it: the PLL ids letter by letter ("N A", not "nah"), the OCLL names as words. */
 const spokenName = (kind: LLKind, c: { id: string; name: string }): string => (kind === 'pll' ? `${c.id.split('').join(' ')} perm` : c.name);
-/** Wrong turns as a list to undo: same-face turns merged (R F F' is just R), so an undo shortens it. */
-function offList(turns: readonly string[]): string[] {
-  const fm = faceMoves(turns.join(' '));
-  return fm ? movesStr(mergeMoves(fm)).split(' ').filter(Boolean) : turns.slice();
-}
 /**
  * A chunk label as words: the move letters in it said as moves ("sexy R prime in F"); a commutator
  * [A, B] as "commutator A, with B" (A, B, A undone, B undone); a conjugate Y [X] Y' as "Y, then X,
@@ -224,20 +202,6 @@ function spokenLabel(label: string): string {
     return `${before ? `${moves(before)}, then ` : ''}commutator ${moves(a!)}, with ${moves(b!)}${after ? `, then ${moves(after)}` : ''}`;
   }
   return `${before ? `${moves(before)}, then ` : ''}${moves(inner)}${after ? `, then ${moves(after)}` : ''}`;
-}
-/** Speak; `keep` queues it after what is being said instead of cutting that off; `then` runs once it has been said (or after `thenBy` ms if the browser never says so). */
-function say(text: string, keep = false, then?: () => void, thenBy = 8000): void {
-  if (typeof speechSynthesis === 'undefined') { then?.(); return; }
-  if (!keep) speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.rate = 1.2; u.lang = 'en-US';
-  if (then) {
-    let fired = false;
-    const once = () => { if (fired) return; fired = true; then(); };
-    u.onend = once; u.onerror = once;
-    setTimeout(once, thenBy);
-  }
-  speechSynthesis.speak(u);
 }
 // DECISION: the result stays up this long before the next case replaces it (the time and the case's name)
 const NEXT_AFTER_MS = 1500;
@@ -376,11 +340,10 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     su.innerHTML = `Scramble WCA style: ${scrambleHtml(toks, track, spans)}`;
     tr.className = track?.off ? 'll-track off' : 'll-track';
     // off the scramble with the turns since known: the undo of those, not "back to turn n"
-    tr.textContent = trackText(track, toks, offTurns.length ? `Off the scramble after ${toWca(offTurns.join(' '))}: undo with ${toWca(inverse(offTurns.join(' ')))}` : undefined, spans);
+    tr.textContent = trackText(track, toks, scrVoice.offText(), spans);
   }
   const watcher = makeTrackWatcher();
   let track: TrackStatus | null = null;
-  let offTurns: string[] = []; // the turns made since the cube left the scramble path, trainer letters
   let armedNow = false;        // the cube is at the scramble: the voice reads the alg only then
   let quizOpen = false;        // the case was asked and not yet answered: nothing is read until it is
   let quizSaid: string | null = null; // what the quiz heard, for the result
@@ -487,10 +450,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   }
   onSourceChange(standby);
   onTabChange(() => { standby(); if (drill.active()) readFirst(); });
-  // DECISION: a wrong turn is called this long after it, not at once (user, 2026-09-23): the cube reports a
-  // slice as its two outer layers, a few ms apart, and the state between them is off the route - a turn that
-  // lands back on it inside this window was never wrong. A hand's two separate turns are far slower than this.
-  const OFF_HOLD_MS = 300;
   let offTimer: ReturnType<typeof setTimeout> | undefined;
   /** Say it unless the cube lands back on the route first. */
   function holdOff(fn: () => void): void { clearTimeout(offTimer); offTimer = setTimeout(fn, OFF_HOLD_MS); }
@@ -583,22 +542,12 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     if (!scramble || settings.repeat) { track = null; return; }
     const was = track;
     track = watcher.status(scramble, facelets, colourOf, hold());
-    // off the scramble: keep the turns since (a turn back onto it clears them) and say so once per turn
-    if (track?.off && !armedNow) {
-      if (turn) {
-        const before = offTurns.length;
-        offTurns = offList([...offTurns, turn]);
-        // the scramble is read in WCA letters, so is its undo; an undoing turn gets the rest to undo, not "wrong"
-        const words = `${offTurns.length < before ? 'undo' : 'wrong. undo'} ${tokens(toWca(inverse(offTurns.join(' ')))).map(spoken).join(', ')}`;
-        if (settings.say.scramble !== 'off') holdOff(() => say(words));
-      }
-    } else if (was?.off && !track?.off) { clearOff(); offTurns = []; if (settings.say.scramble !== 'off' && track && !track.matched) say('back on'); }
-    else { clearOff(); offTurns = []; }
-    sayScramble(turn);
+    scrVoice.update(was, track, turn, armedNow, firstRead);
     renderScramble();
   }
 
-  let scrRead: string | null = null; // the last thing said about the scramble, so a repeat is not said twice
+  /** The scramble out loud (ui/voice.ts), in the WCA letters it is shown in (user, 2026-09-23). */
+  const scrVoice = new ScrambleVoice({ mode: () => settings.say.scramble, shown: shownScramble, wca: toWca });
   let firstRead = false;             // the read of a fresh scramble's first move: queued, not cutting the cue off
   /**
    * The tracker on the cube's last known state, so the voice reads a fresh scramble's first move before any
@@ -609,22 +558,6 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function readFirst(): void {
     if (!belief || !scramble || settings.repeat) return;
     firstRead = true; watch(belief.facelets, belief.colourOf); firstRead = false;
-  }
-  /**
-   * The scramble out loud while it is being applied: its next move, or the moves made, in the WCA letters
-   * it is shown in (user, 2026-09-23). Nothing once it is on: from there the alg's own mode has the voice.
-   */
-  function sayScramble(turn?: string): void {
-    const mode = settings.say.scramble;
-    if (mode === 'off' || mode === 'watch' || !track || armedNow) { scrRead = null; return; }
-    if (mode === 'echo') { if (turn && !track.off) say(spoken(tokens(toWca(turn))[0] ?? turn)); return; }
-    if (track.matched) { if (scrRead !== 'done') { scrRead = 'done'; say('scrambled'); } return; }
-    if (track.off || track.half) return; // off it, or mid-double-turn: the rest of that turn is under way
-    const { toks, spans } = shownScramble();
-    const next = toks[shownIndex(spans, track.applied)];
-    if (!next || next === scrRead) return;
-    scrRead = next;
-    say(spoken(next), firstRead);
   }
 
   /**
@@ -644,7 +577,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // the setup is an alg backwards (an N perm, then the OCLL case): the drill shows a short
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
-    scramble = null; track = null; lastRead = null; scrRead = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    scramble = null; track = null; lastRead = null; scrVoice.reset(); lastBad = 0; fedCount = 0; armedNow = false;
     quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     const gen = ++scrambleGen;
     setTimeout(() => {
@@ -714,7 +647,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     sol = { stage: kind, name: c.name, hint: c.hint, pre: '', alg: c.alg, post: '', case: c }; lead = [];
     shown = null; assisted = false; recorded = false; cameUp = null; held = false;
     view.rx = TOP_VIEW.rx; view.ry = TOP_VIEW.ry;
-    scramble = setup; track = null; lastBad = 0; fedCount = 0; offTurns = []; armedNow = false;
+    scramble = setup; track = null; lastBad = 0; fedCount = 0; scrVoice.reset(); armedNow = false;
     if (!lined) lastRead = null; // lined up: the first move was read already, and is the same
     quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
     scrambleGen++;
@@ -1218,6 +1151,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       return r;
     },
     // the cube is at the scramble: the voice reads the first move of the alg on show
-    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; offTurns = []; if (settings.ask && !settings.repeat) askCase(); else followAlg(''); },
+    // (a solve carried from the Solve tab is not a drill: no quiz, no mic)
+    armed: (t) => { drill.armed(t); fedCount = 0; armedNow = true; scrVoice.reset(); if (settings.ask && !settings.repeat && !carriedSolve()) askCase(); else followAlg(''); },
   };
 }

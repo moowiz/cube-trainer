@@ -15,14 +15,18 @@ const server = await serveDist();
 const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const inverse = (alg) => alg.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m.slice(0, -1) : m.endsWith('2') ? m : m + "'")).join(' ');
 /** A capture in which the cube goes from solved through `scrambleAlg` (the cube's letters) and then `solveAlg`, 180 ms a turn. */
-function capture(scrambleAlg, solveAlg) {
+function capture(scrambleAlg, solveAlg, gapMs = 0) {
   const lines = [JSON.stringify({ header: { version: 1, startedAt: Date.now(), t0: 0, scheme: { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' }, note: 'check-smart' } })];
   let t = 1000;
   lines.push(JSON.stringify({ kind: 'connect', t, name: 'GAN-check', mac: '00:00:00:00:00:00', protocol: 'synthetic', caps: { gyroscope: false, battery: true, facelets: true, hardware: false, reset: true } }));
   lines.push(JSON.stringify({ kind: 'facelets', t: (t += 100), facelets: SOLVED }));
   const turns = [];
-  for (const m of `${scrambleAlg} ${solveAlg}`.split(/\s+/).filter(Boolean)) turns.push(...(m.endsWith('2') ? [m[0], m[0]] : [m]));
-  for (const m of turns) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
+  const split = (alg) => alg.split(/\s+/).filter(Boolean).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m]));
+  const scr = split(scrambleAlg), sol = split(solveAlg);
+  turns.push(...scr, ...sol);
+  for (const m of scr) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
+  t += gapMs; // a pause between the scramble and the solve, when asked
+  for (const m of sol) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
   return { text: lines.join('\n') + '\n', turns: turns.length, span: (turns.length - 1) * 180 };
 }
 
@@ -124,6 +128,21 @@ const handOpened = await page.evaluate(async (text) => {
 console.log(JSON.stringify(handOpened));
 check(handOpened.tab === 'eo', `the pause after a hand scramble opens the EO tab (${handOpened.tab})`);
 check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scrambled cube: ${handOpened.eo}`);
+// ...and that picked-up solve, done, ends on the Solve tab, ready for the next scramble (user, 2026-09-25); real time,
+// with the pause inside the capture, because each replay is a fresh connection
+const HAND2 = "L D' R2 F U"; // not the scramble the EO tab now holds: that would read as the drill's own case
+const hand2Cube = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), HAND2);
+const capPick = capture(hand2Cube, inverse(hand2Cube), 16_000);
+const picked = await page.evaluate(async (text) => {
+  const lines = [];
+  const orig = console.log; console.log = (...a) => { const t = a.join(' '); if (t.startsWith('CUBE FOLLOW')) lines.push(t); orig(...a); };
+  await window.ZZ.smart.replay(text, 1);
+  await new Promise((r) => setTimeout(r, 1000));
+  console.log = orig;
+  return { tab: window.ZZ.activeTab(), lines };
+}, capPick.text);
+console.log(JSON.stringify(picked));
+check(picked.lines.some((l) => /a pause behind the mark/.test(l)) && picked.tab === 'solve', `a hand-scrambled cube picked up and solved lands on the Solve tab (${picked.tab}): ${picked.lines.join(' | ')}`);
 // the same on the Solve tab does nothing: a cube off its scramble there is a mis-scramble, not a solve to pick up
 await page.click('.tabs button[data-t="solve"]');
 const solveTabStill = await page.evaluate(async (text) => {

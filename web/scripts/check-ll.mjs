@@ -109,7 +109,7 @@ await new Promise((r) => setTimeout(r, 1500));
 const afterSolve = await page.evaluate(() => ({ tab: window.ZZ.activeTab(), said: [...window.__said] }));
 console.log('after the followed solve', JSON.stringify(afterSolve));
 check(afterSolve.tab === 'solve', 'the Solve tab is back');
-check(afterSolve.said[afterSolve.said.length - 1] === 'T perm, 2.5', `the last thing said is the case and its time, nothing read from the PLL tab: ${JSON.stringify(afterSolve.said.slice(-2))}`);
+check(afterSolve.said.length === 0, `a solve carried from the Solve tab is not a drill: the PLL voice says nothing at all, not even the case at the end (${JSON.stringify(afterSolve.said)})`);
 // the PLL tab opened by hand with a scramble waiting: now its first move is read
 await page.evaluate(() => { window.__said.length = 0; });
 await page.click('.tabs button[data-t="pll"]'); await new Promise((r) => setTimeout(r, 400));

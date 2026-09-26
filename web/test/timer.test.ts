@@ -3,7 +3,7 @@
 // both ways, scramble following, and records that survive a reopen and
 // merge by the later edit.
 import 'fake-indexeddb/auto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { tokens } from '../src/cube/alg';
 import { fromWca, toWca } from '../src/cube/frame';
 import { faceColorName } from '../src/cube/scheme';
@@ -296,5 +296,47 @@ describe('the sync warning', () => {
     expect(syncWarning({ ...base, status: 'error', error: 'permission-denied' }, t)).toBe('Sync failed: permission-denied');
     expect(syncWarning({ ...base, status: 'synced', pending: 2, pendingSince: t - 90_000 }, t)).toMatch(/^2 records not synced yet\./);
     expect(syncWarning({ ...base, status: 'synced', pending: 1, pendingSince: t - 5_000 }, t, false)).toMatch(/1 record not synced yet \(offline\)/);
+  });
+});
+
+describe('the scramble voice (ui/voice.ts): the Solve tab and the PLL drill share it', () => {
+  it('reads the next move, calls a wrong turn with its undo after the hold, says back on, and scrambled once; quiet once armed', async () => {
+    const { ScrambleVoice, OFF_HOLD_MS } = await import('../src/ui/voice');
+    vi.useFakeTimers();
+    const said: string[] = [];
+    let mode: 'off' | 'read' | 'echo' | 'watch' = 'read';
+    const v = new ScrambleVoice({ mode: () => mode, shown: () => ({ toks: ["R", "U'", 'F2'] }), wca: (a) => a, say: (t, keep) => said.push(keep ? `+${t}` : t) });
+    const st = (applied: number, o: Partial<import('../src/timer/track').TrackStatus> = {}) => ({ applied, total: 3, off: false, matched: false, half: false, ...o });
+    v.update(null, st(0), undefined, false, true);
+    expect(said).toEqual(['+R']); // the first read queued behind the cue
+    v.update(st(0), st(0), undefined, false); // a re-render: not repeated
+    v.update(st(0), st(1), 'R', false);
+    expect(said).toEqual(['+R', 'U prime']);
+    v.update(st(1), st(1, { half: true }), 'F', false); // halfway through the F2: nothing yet
+    expect(said).toHaveLength(2);
+    // a wrong turn: called after the hold, with the undo; a second wrong turn lists both; an undoing turn shortens it
+    v.update(st(1), st(1, { off: true }), 'L', false);
+    expect(said).toHaveLength(2);
+    vi.advanceTimersByTime(OFF_HOLD_MS);
+    expect(said[2]).toBe('wrong. undo L prime');
+    expect(v.offText()).toBe("Off the scramble after L: undo with L'");
+    v.update(st(1, { off: true }), st(1, { off: true }), 'D', false); vi.advanceTimersByTime(OFF_HOLD_MS);
+    expect(said[3]).toBe('wrong. undo D prime, L prime');
+    v.update(st(1, { off: true }), st(1, { off: true }), "D'", false); vi.advanceTimersByTime(OFF_HOLD_MS);
+    expect(said[4]).toBe('undo L prime');
+    v.update(st(1, { off: true }), st(1), "L'", false);
+    expect(said[5]).toBe('back on'); expect(said).toHaveLength(6); expect(v.offText()).toBeUndefined(); // the next move was read already: not again
+    v.update(st(1), st(2), "U'", false); expect(said[6]).toBe('F two');
+    v.update(st(2), st(3, { matched: true }), 'F', false); v.update(st(3, { matched: true }), st(3, { matched: true }), undefined, false);
+    expect(said.slice(7)).toEqual(['scrambled']);
+    // armed (the solve under way): off the scramble is not wrong, and nothing is read
+    v.update(st(3, { matched: true }), st(2, { off: true }), 'R', true); vi.advanceTimersByTime(OFF_HOLD_MS);
+    expect(said).toHaveLength(8);
+    // echo says the move made; watch says only the wrong turn; off says nothing at all
+    mode = 'echo'; v.update(st(0), st(1), "R", false); expect(said[8]).toBe('R');
+    mode = 'watch'; v.update(st(1), st(2), "U'", false); expect(said).toHaveLength(9);
+    v.update(st(2), st(2, { off: true }), 'B', false); vi.advanceTimersByTime(OFF_HOLD_MS); expect(said[9]).toBe('wrong. undo B prime');
+    mode = 'off'; v.reset(); v.update(st(2), st(2, { off: true }), 'B', false); vi.advanceTimersByTime(OFF_HOLD_MS); expect(said).toHaveLength(10);
+    vi.useRealTimers();
   });
 });
