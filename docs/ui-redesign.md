@@ -902,7 +902,7 @@ pool", "switch mode"): both built the recommended way, to be judged by use.
 
 - **The cube rail**, beside the stage on a desktop and above it on a phone.
   It holds the stage strip (EOCross, F2L with four pips, OCLL, PLL), the
-  scramble (the next turn boxed; a wrong turn replaced by its undo in big
+  scramble (the turns done greyed; a wrong turn replaced by its undo in big
   type; folded to one line once the cube is at it or the clock runs), the
   clock (the Solve tab's press rule for every mode, Space included), the
   cube as the app believes it (net, 3D or hidden, remembered per mode), and
@@ -1091,8 +1091,10 @@ check:practice pass unchanged.
   with the front toward you: back-left and back-right over front-left and
   front-right. That applies to the cards while tracking and to the chips
   when tapping a case in. It fits a phone, with the algs wrapping.
-- **Halfway through a double turn of the scramble**, the move stays boxed
-  in the rail and gets a dotted underline, as the alg rows already mark a
-  half turn. The box used to disappear until the turn was finished, which
-  looked like lost progress.
+- **Halfway through a double turn of the scramble**, the move gets a dotted
+  underline in the rail, as the alg rows already mark a half turn. Before,
+  nothing marked it until the turn was finished, which looked like lost
+  progress.
+- **No box around the next move**, which you found too much: the greyed,
+  underlined moves already say which one is next.
 

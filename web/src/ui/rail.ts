@@ -1,7 +1,7 @@
 // The cube rail (docs/ui-redesign.md 6.2 and 6.4): the one column every mode
 // shares - the stage strip (the mode's range, where the cube is, the splits),
-// the scramble as the owning stage shows it (tracked on the cube, the next
-// turn boxed, a wrong turn replaced by its undo in big type, folded to one
+// the scramble as the owning stage shows it (tracked on the cube, the turns
+// done greyed, a wrong turn replaced by its undo in big type, folded to one
 // line once the cube is at it), the clock (the same press rule everywhere:
 // down arms, up starts, a press stops), the cube as the app believes it (a
 // net, 3D, or nothing, per mode), and the tools: New, the voice's switch,
@@ -82,7 +82,6 @@ const STYLE = `
   .rl-scr .mv .p { color: #B3261E; font-size: 1.1em; line-height: 1; } .rl-scr .mv .d { color: #1A56B8; }
   .rl-scr .done { color: #9AA3AF; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
   .rl-scr .done .p, .rl-scr .done .d { color: inherit; }
-  .rl-scr .nx { outline: 3px solid #E0A100; outline-offset: 2px; border-radius: 6px; }
   .rl-scr .half { text-decoration: underline dotted; text-decoration-thickness: 3px; text-underline-offset: 5px; }
   .rl-scr.folded { font-size: 14px; font-weight: 400; color: var(--ink-2); justify-content: flex-start; min-height: 0; gap: 8px; text-align: left; }
   .rl-scr.folded .ok { color: var(--good); font-weight: 600; }
@@ -325,9 +324,9 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       cls = '';
     } else {
       const k = t ? shownIndex(v.spans, t.applied) : -1;
-      // the move under way stays boxed, halfway through a double turn too (dotted: one quarter of it done; user,
-      // 2026-09-26: the box went and the progress with it)
-      html = v.toks.map((m, j) => `<span class="${t && j < k ? 'done' : ''}${t && j === k && t.half ? ' half nx' : t && j === k && t.applied > 0 ? ' nx' : ''}">${moveHtml(m)}</span>`).join('');
+      // the moves done greyed and underlined; halfway through a double turn it is dotted (one quarter of it done). No box
+      // around the next move (user, 2026-09-26: too much - the greying says which move is next)
+      html = v.toks.map((m, j) => `<span class="${t && j < k ? 'done' : ''}${t && j === k && t.half ? ' half' : ''}">${moveHtml(m)}</span>`).join('');
       if (t) ln = t.half ? `${t.applied} of ${t.total} · halfway through ${v.toks[k] ?? ''}` : t.applied ? `${t.applied} of ${t.total} applied` : '';
     }
     const sig = `${cls}|${html}|${ln}`;
