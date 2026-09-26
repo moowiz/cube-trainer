@@ -96,6 +96,10 @@ the sheet.** Of those shorter algs, 92 work both sides at once, 30 use the own s
    case and every set of open slots. The finder now offers the shortest through the slots still open when it
    beats every row. This is ZZ's own view of F2L: a side's two slots are one 1x2x3 block, and the other side
    is scratch space until it is built.
+   Open slots also change which tools pay. D barely helps with every slot kept (front-left: shorter than
+   R/L/U in 8 of 83 cases, by 1.1 on average), but with a neighbour open D swings the target slot under it
+   (the keyhole): 7-9 cases per open-slot set, saving 1.3-1.7. On front-left with front-right open, `D R U' R' D'`
+   (5) where R/L/U needs 7, and `U D' L' U' L D` (6) where it needs 9. The finder's open-slot search tries D too.
 
 ## Not covered at all (by the sheet or the app)
 

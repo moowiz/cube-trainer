@@ -34,6 +34,13 @@ describe('the shortest R/L/U alg', () => {
       }
     });
   }
+  it('with a neighbouring slot open, D swings the target slot under it: front-left, front-right open, D R U\' R\' D\'', () => {
+    const c = DATA.slots.FL.cases['18']!;
+    const o = openSlotShortcut('FL', c, ['BR', 'BL'])!;
+    expect(o).toEqual({ alg: "D R U' R' D'", free: ['FR'] });
+    expect(slotSolved(state(`${invert(fullAlg('', shortestFor('FL', c)!))} ${o.alg}`), 'FL')).toBe(true);
+    expect(leftBroken('FL', c, o.alg).cross).toBe(true);
+  });
   it('a shortcut through open slots names the slots it leaves disturbed, and is shorter than keeping them', () => {
     let seen = 0;
     for (const slot of SLOTS) for (const c of Object.values(DATA.slots[slot].cases)) {

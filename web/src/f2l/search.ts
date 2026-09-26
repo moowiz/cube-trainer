@@ -108,8 +108,6 @@ export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { mo
   for (let bound = h(cur); bound <= maxDepth; bound++) { dfs(cur, 0, bound, -1); if (out.length) return out; }
   return [];
 }
-/** The first of the shortest R/L/U algs (shortestAlgs), or null. */
-export const shortestRLU = (pair: Placed, keep: readonly SlotName[], maxDepth = 14): string | null => shortestAlgs(pair, keep, { maxDepth })[0] ?? null;
 
 /** The shortest alg in the form the sheet writes them: leading U turns as the AUF in brackets ('(U) R U R''). */
 export function asSheetAlg(alg: string): string {
@@ -141,11 +139,11 @@ const CACHE = new Map<string, string | null>();
  * A case's shortest R/L/U alg from its picture (the sheet's AUF) with the cross and the pairs in `keep` kept (all the
  * others it is not in, by default), in sheet form. Cached.
  */
-export function shortestFor(slot: SlotName, c: F2LCase, keep: readonly SlotName[] = others(slot, c)): string | null {
+export function shortestFor(slot: SlotName, c: F2LCase, keep: readonly SlotName[] = others(slot, c), moves: readonly string[] = RLU, maxDepth = 14): string | null {
   const kept = keep.filter((s) => others(slot, c).includes(s));
-  const k = `${slot}-${c.n}-${[...kept].sort().join('')}`;
+  const k = `${slot}-${c.n}-${[...kept].sort().join('')}-${moves.join(' ')}-${maxDepth}`;
   if (!CACHE.has(k)) {
-    const found = shortestRLU(casePair(slot, c), kept);
+    const found = shortestAlgs(casePair(slot, c), kept, { moves, maxDepth })[0] ?? null;
     CACHE.set(k, found === null ? null : asSheetAlg(found));
   }
   return CACHE.get(k)!;
@@ -168,15 +166,23 @@ export function leftBroken(slot: SlotName, c: F2LCase, alg: string): { slots: Sl
   return { slots: others(slot, c).filter((s) => !slotSolved(end, s)), cross: crossSolved(edgeState(end)) };
 }
 
+/** R/L/U and D: with a slot open, D can swing the target slot under it (the keyhole) - shorter than R/L/U alone there. */
+export const RLUD = [...RLU, 'D', "D'", 'D2'] as const;
+
 /**
- * The fewest R/L/U turns for a case keeping only the pairs in `keep` (the solved ones), when that is shorter than
- * keeping every pair: a shortcut through the open slots, with the slots it leaves disturbed (from the case's
- * picture: what it does to the pieces really in them is theirs to be moved, they are not solved). Null when
- * keeping everything costs nothing more.
+ * The fewest turns for a case keeping only the pairs in `keep` (the solved ones), when that is shorter than keeping
+ * every pair: a shortcut through the open slots, with the slots it leaves disturbed (from the case's picture: what it
+ * does to the pieces really in them is theirs to be moved, they are not solved). R/L/U first, then with D when that is
+ * shorter still: an open neighbour lets D bring the target slot under it and back (user, 2026-09-26; on front-left
+ * with front-right open, D R U' R' D' where R/L/U needs 7). Null when keeping everything costs nothing more.
  */
 export function openSlotShortcut(slot: SlotName, c: F2LCase, keep: readonly SlotName[]): { alg: string; free: SlotName[] } | null {
-  const open = shortestFor(slot, c, keep), all = shortestFor(slot, c);
-  if (!open || (all && moveCount(fullAlg('', all)) <= moveCount(fullAlg('', open)))) return null;
+  const n = (a: string | null) => (a ? moveCount(fullAlg('', a)) : Infinity);
+  const all = shortestFor(slot, c);
+  let open = shortestFor(slot, c, keep);
+  const withD = shortestFor(slot, c, keep, RLUD, Math.min(n(open), n(all)) - 1);
+  if (withD) open = withD;
+  if (!open || n(all) <= n(open)) return null;
   const free = leftBroken(slot, c, open).slots;
   return free.length ? { alg: open, free } : null;
 }
