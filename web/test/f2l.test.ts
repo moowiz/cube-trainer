@@ -208,29 +208,53 @@ describe('explanations', () => {
 });
 
 describe('the favourite alg (the case sheet\'s star)', () => {
-  it('leads the list once starred, and the standard comes back on null', async () => {
-    const { allAlgs, byLength, caseAlgs, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, orderedAlgs, simpleAlg } = await import('../src/f2l/model');
+  it('leads the list once starred, where it can be done, and the standard comes back on null', async () => {
+    const { allAlgs, byLength, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, f2lStandardAlg, fullAlg, listFor, orderedAlgs, positionAlgs, shownAlg, SLOTS } = await import('../src/f2l/model');
+    const { moveCount } = await import('../src/cube/alg');
     const { DATA } = await import('../src/f2l/data');
     const c = DATA.slots.FR.cases['4']!; // three sheet algs and two slot shortcuts
     const id = caseId('FR', c.n);
     expect(caseOf(id)).toEqual({ slot: 'FR', c });
     expect(caseOf('FR-999')).toBeNull();
-    expect(f2lMainAlg(id)).toBe(byLength(caseAlgs('FR', c))[0]);
-    expect(caseAlgs('FR', c)).toEqual([...c.algs, "R U' R U2 R2 U' R2 U' R2"]); // the sheet's best is 11, R/L/U does it in 9
+    // the standard: the shortest solution the filter shows that needs no slot open
+    const std = f2lStandardAlg(id)!;
+    expect(f2lMainAlg(id)).toBe(std);
+    const ok = positionAlgs('FR', c, '').filter((x) => shownAlg(x) && !x.needs.length);
+    expect(moveCount(fullAlg('', std))).toBe(Math.min(...ok.map((x) => x.n)));
+    expect(moveCount(fullAlg('', std))).toBeLessThan(Math.min(...c.algs.map((a) => moveCount(fullAlg('', a))))); // the sheet's best is 11
     expect(byLength(["(U2) R U R' U R' D' R U' R' D R", "R U' R'", "R U R' U2 R U' R' U R U' R'"])).toEqual(["R U' R'", "R U R' U2 R U' R' U R U' R'", "(U2) R U R' U R' D' R U' R' D R"]);
     // the position's AUF folded in: (U') R U' R' from a U-away position is three moves, the bare alg becomes four
     expect(byLength(["R U R' U'", "(U') R U' R'"], 'U')).toEqual(["(U') R U' R'", "R U R' U'"]);
-    expect(orderedAlgs('FR', DATA.slots.FR.cases['1']!, true, "U'")[0]).toBe("(U) R U' R'");
+    expect(orderedAlgs('FR', DATA.slots.FR.cases['1']!, "U'")[0]).toBe("(U) R U' R'");
     expect(f2lSetMainAlg(id, "R U R' U'")).toBe(false); // not one of its algs
-    const pick = c.others[0]!.alg;
+    const pick = c.others[0]!.alg; // a shortcut: it needs a slot open
     expect(allAlgs('FR', c)).toContain(pick);
     expect(f2lSetMainAlg(id, pick)).toBe(true);
     expect([f2lMainAlg(id), f2lIsFavourite(id)]).toEqual([pick, true]);
-    expect(orderedAlgs('FR', c, true)).toEqual([pick, ...byLength(caseAlgs('FR', c))]);
-    expect(orderedAlgs('FR', c, false)).toEqual([pick]); // simple mode: the pick alone
+    expect(listFor('FR', c, '', new Set()).lead?.alg).toBe(pick); // every slot open: the pick leads
+    const allSolved = listFor('FR', c, '', new Set(SLOTS));
+    expect(allSolved.lead?.alg).toBe(std); // its slot solved: it cannot lead, and it is listed greyed
+    expect(allSolved.rows.find((x) => x.alg === pick)?.usable).toBe(false);
     expect(f2lSetMainAlg(id, null)).toBe(true);
-    expect([f2lMainAlg(id), f2lIsFavourite(id), orderedAlgs('FR', c, false)]).toEqual([byLength(caseAlgs('FR', c))[0], false, [simpleAlg('FR', c)]]);
-    expect(f2lSetMainAlg(id, byLength(caseAlgs('FR', c))[0]!)).toBe(true); // the standard starred is no favourite
+    expect([f2lMainAlg(id), f2lIsFavourite(id)]).toEqual([std, false]);
+    expect(f2lSetMainAlg(id, std)).toBe(true); // the standard starred is no favourite
     expect(f2lIsFavourite(id)).toBe(false);
+  });
+  it('the move filter: a hidden kind of move takes its algs out of every list', async () => {
+    const { algTools, listFor, positionAlgs, setHiddenTools, SLOTS } = await import('../src/f2l/model');
+    const { DATA } = await import('../src/f2l/data');
+    expect(algTools("R L' U R' L")).toEqual(['LR']);
+    expect(algTools("R U R'")).toEqual([]);
+    expect(algTools("R U R' U' L' U L")).toEqual([]); // one side, then the other: not at once
+    expect(algTools("F2 U F2 U' F2")).toEqual(['F2']);
+    expect(algTools("R' F R F'")).toEqual(['FB']);
+    expect(algTools("r U R' U' M")).toEqual(['wide']);
+    const c = DATA.slots.FR.cases['39']!;
+    expect(positionAlgs('FR', c, '').some((x) => x.tools.includes('F2'))).toBe(true);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.includes('F2'))).toBe(false); // hidden to begin with
+    setHiddenTools(['D', 'LR']);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.includes('F2'))).toBe(true);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.some((t) => t === 'D' || t === 'LR'))).toBe(false);
+    setHiddenTools(['F2']);
   });
 });

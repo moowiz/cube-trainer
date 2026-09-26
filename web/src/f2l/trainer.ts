@@ -26,12 +26,13 @@ import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type RailClo
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
-  acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, normalizeAlg, notInSheet, openSlotShortcut, orderedAlgs, randomCase, simpleAlg, slotSolved, slotState,
-  SLOT_WORD, SLOTS, trace, twinOf, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
+  acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, listFor, normalizeAlg, randomCase, slotSolved, slotState,
+  SLOT_WORD, SLOTS, trace, twinOf, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName, type Solution, type AlgTool,
 } from './model';
 import { caseCells, GREY } from './pic';
 import { drawTarget, pool, poolTargets, savePool } from './pool';
-import { ownSideFor, ownSideWords } from './ownside';
+import { ownSideWords } from './ownside';
+import { loadAlgFilter, onAlgFilterChange, toggleTool, toolChipsHtml } from './algfilter';
 import { mountF2LPractice } from './practice';
 import { genTargeted, type Target } from './target';
 import { secs } from '../ll/practice';
@@ -157,7 +158,10 @@ const STYLE = `
   .f2l .alg .n { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
   .f2l .alg.on { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
   .f2l .alg.dim { opacity: .5; }
-  .f2l .alg .tag { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .f2l .alg .tag { font-size: 12px; color: var(--ink-2); max-width: 17em; }
+  .f2l .alg.na { opacity: .55; background: transparent; border-style: dashed; }
+  .f2l-tools { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+  .f2l-tools .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
   .f2l .alg a, .f2l .alg button { font: inherit; font-size: 12px; color: var(--ink-2); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 4px 8px; cursor: pointer; text-decoration: none; white-space: nowrap; }
   .f2l .alg a:hover, .f2l .alg button:hover { color: var(--ink); border-color: var(--ink-2); }
   .f2l .alg a:focus-visible, .f2l .alg button:focus-visible { outline: 2px solid var(--ink); }
@@ -260,7 +264,6 @@ export function mountF2L(root: HTMLElement): Stage {
   const cubeHidden = () => root.classList.contains('nocube');
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
-  const advanced = () => (document.getElementById('advanced') as HTMLInputElement | null)?.checked ?? false;
 
   // ---- state ----
   let slot: SlotName = 'FR';
@@ -362,7 +365,6 @@ export function mountF2L(root: HTMLElement): Stage {
     if (corner) q.set('c', `${corner.pos}-${corner.o}`);
     if (edge) q.set('e', edge);
     if (!showHints()) q.set('h', '0');
-    if (advanced()) q.set('a', '1');
     if (scrWca) { q.set('scr', scrWca); q.set('w', '1'); } // w: the scramble is WCA (old links stored the trainer frame)
     if (tracked) { q.set('t', '1'); if (tracked.hist.length) q.set('hist', tracked.hist.join('|')); } // hist is WCA too (under w=1)
     const s = q.toString();
@@ -379,9 +381,8 @@ export function mountF2L(root: HTMLElement): Stage {
     restoring = true;
     try {
       // 'f' (the colour scheme) is scheme.ts's now: not read here, not written
-      const sh = document.getElementById('showhints') as HTMLInputElement | null, ad = document.getElementById('advanced') as HTMLInputElement | null;
+      const sh = document.getElementById('showhints') as HTMLInputElement | null;
       if (q.get('h') === '0' && sh) sh.checked = false;
-      if (q.get('a') === '1' && ad) ad.checked = true;
       const s = q.get('s');
       if (s && isSlot(s)) slot = s;
       if (q.get('d')) solvedSlots = new Set(q.get('d')!.split(',').filter(isSlot));
@@ -413,17 +414,13 @@ export function mountF2L(root: HTMLElement): Stage {
 
   // ---- the header: tracker chips, slot select, scramble panel ----
   /** A slot's case on the tracked cube and the alg the finder would lead with: what to expect before picking it. */
-  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number; shortcut: { alg: string; moves: number; free: string } | null } | null {
+  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number; through: string } | null {
     const st = slotState(f, s);
     const found = findCase(s, st.corner, st.edge);
     if (!found) return null;
-    const { algs, usable } = algsFor(s, found.c, advanced(), found.hit.auf);
-    const a = algs[0]!;
-    const full = fullAlg(found.hit.auf, a);
-    // the shortest shortcut through a slot still open, when it beats the alg (user, 2026-09-26)
-    const cuts = usable.map((o) => { const x = fullAlg(found.hit.auf, o.alg); return { alg: x, moves: moveCount(x), free: o.free.map((z) => SLOT_WORD[z]).join(' + ') }; }).sort((x, y) => x.moves - y.moves);
-    const shortcut = cuts[0] && cuts[0].moves < moveCount(full) ? cuts[0] : null;
-    return { n: twinOf(s, found.c.n), head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full), shortcut };
+    const lead = rowsFor(s, found.c, found.hit.auf).lead;
+    if (!lead) return null;
+    return { n: twinOf(s, found.c.n), head: explain(s, found.c, lead.alg).head.replace(/\.$/, ''), alg: lead.full, moves: lead.n, through: lead.needs.map((z) => SLOT_WORD[z]).join(' + ') };
   }
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
@@ -464,7 +461,7 @@ export function mountF2L(root: HTMLElement): Stage {
           const sum = slotSummary(f, s);
           const small = document.createElement('small');
           small.innerHTML = sum
-            ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves${sum.shortcut ? `<br>(<b>${esc(sum.shortcut.alg)}</b> · ${sum.shortcut.moves} moves, ${esc(sum.shortcut.free)} free)` : ''}`
+            ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves${sum.through ? ` (through the open ${esc(sum.through)})` : ''}`
             : 'no case in the sheet';
           el.appendChild(small);
         }
@@ -591,10 +588,12 @@ export function mountF2L(root: HTMLElement): Stage {
     // mid-pair: on one of the listed algs (or a few turns off one) the case stays and the moves done light up - the
     // cross is broken halfway through most inserts, so it is not read again until the cube has strayed
     const p = pairProgress();
+    // back into the pair just done (undone to do it over) when the cube is further along one of its algs than along
+    // any of this pair's: its last move undone may also be the first move of one of this pair's many algs
+    const along = Math.max(0, ...(p?.routes ?? []).filter((r) => r.onRoute).map((r) => r.done + (r.half ? 0.5 : 0)));
+    if (backToPrevious(along)) return false;
     if (p?.on) { render(); return false; }
-    // off every alg of this pair: back into the pair just done (undone to do it over), or a few moves into
-    // another open pair's alg (that is the pair being solved)
-    if (backToPrevious()) return false;
+    // off every alg of this pair: a few moves into another open pair's alg (that is the pair being solved)
     const other = otherSlotUnderWay();
     if (other) {
       slot = other.slot; corner = other.corner; edge = other.edge; updateEdgeName();
@@ -610,20 +609,20 @@ export function mountF2L(root: HTMLElement): Stage {
   function routesFor(s: SlotName, c: CornerState, e: string): string[][] {
     const found = findCase(s, c, e);
     if (!found) return [];
-    const { algs, searched, usable, own } = algsFor(s, found.c, advanced(), found.hit.auf);
-    return [...[...algs, ...(searched ? [searched] : []), ...usable.map((o) => o.alg)].map((a) => fullAlg(found.hit.auf, a)), ...(own ? [own] : [])].map((a) => tokens(a));
+    return rowsFor(s, found.c, found.hit.auf).rows.filter((x) => x.usable).map((x) => tokens(x.full));
   }
   /**
    * The cube stepped back into the alg of the pair solved last (short of its end): that pair is up again, with
-   * its progress, the slot open. False when the cube is nowhere on those algs.
+   * its progress, the slot open. False when the cube is nowhere on those algs, or no further along them than `than`
+   * (moves along the current pair's algs).
    */
-  function backToPrevious(): boolean {
+  function backToPrevious(than = 0): boolean {
     const prev = pairsDone.at(-1);
     if (!prev || !tracked) return false;
     const setup = [tracked.scr, tracked.pre].map(fromWca).concat(fed.slice(0, prev.at)).filter(Boolean).join(' ');
     let cur: string;
     try { cur = state(`${setup} ${fed.slice(prev.at).join(' ')}`); } catch { return false; }
-    const back = routesFor(prev.slot, prev.corner, prev.edge).some((route) => { const r = routeProgress(setup, route, cur); return r.onRoute && (r.half || r.done < route.length); });
+    const back = routesFor(prev.slot, prev.corner, prev.edge).some((route) => { const r = routeProgress(setup, route, cur); return r.onRoute && (r.half || r.done < route.length) && r.done + (r.half ? 0.5 : 0) > than; });
     if (!back) return false;
     pairsDone.pop();
     slot = prev.slot; corner = prev.corner; edge = prev.edge; pairAt = prev.at; solvedSlots.delete(prev.slot);
@@ -821,9 +820,10 @@ export function mountF2L(root: HTMLElement): Stage {
   // the explanations open, by pair and alg: the panel is rebuilt on every turn, and one being watched along stays open
   // (user, 2026-09-26), its table marking the moves done and the one to do next (markFollow)
   const explaining = new Set<string>();
-  function algRow(a: string, auf: string, tag: string, c: F2LCase | null): HTMLElement {
+  function algRow(a: string, auf: string, tag: string, c: F2LCase | null, usable = true): HTMLElement {
     const { pre, rest } = withAuf(auf, a); const full = fullAlg(auf, a);
-    const div = document.createElement('div'); div.className = 'alg'; div.dataset.alg = full;
+    // a row the cube cannot take (it needs a solved slot) is greyed and carries no route: nothing follows it
+    const div = document.createElement('div'); div.className = usable ? 'alg' : 'alg na'; if (usable) div.dataset.alg = full;
     // every move its own numbered span (the AUF in brackets), so the cube's progress can be marked on it
     const mv = (t: string, i: number) => `<span class="mv" data-i="${i}">${t}</span>`;
     const preToks = pre ? tokens(pre) : [];
@@ -834,7 +834,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (tag) { const s = document.createElement('span'); s.className = 'tag'; s.textContent = tag; div.appendChild(s); }
     const ex = document.createElement('button'); ex.type = 'button'; ex.textContent = 'Explain'; div.appendChild(ex);
     const a2 = document.createElement('a'); a2.href = acnUrl(full); a2.target = '_blank'; a2.rel = 'noopener'; a2.textContent = 'Animate'; div.appendChild(a2);
-    if (tracked && !fedBy) {
+    if (tracked && !fedBy && usable) {
       const dd = document.createElement('button'); dd.type = 'button'; dd.textContent = 'Did this'; dd.style.fontWeight = '600'; dd.style.color = 'var(--ink)';
       dd.addEventListener('click', () => didThis(full)); div.appendChild(dd);
     }
@@ -872,7 +872,8 @@ export function mountF2L(root: HTMLElement): Stage {
     b.addEventListener('click', () => {
       if (tracked && currentHit && !fedBy) { // tracking: the pair is solved by doing the alg shown
         const c = DATA.slots[slot].cases[currentHit.n];
-        if (c) { didThis(fullAlg(currentHit.auf, orderedAlgs(slot, c, advanced(), currentHit.auf)[0]!)); return; }
+        const lead = c && rowsFor(slot, c, currentHit.auf).lead;
+        if (lead) { didThis(lead.full); return; }
       }
       markSolved();
     });
@@ -884,24 +885,20 @@ export function mountF2L(root: HTMLElement): Stage {
     if (next) { slot = next; updateEdgeName(); }
     render();
   }
-  const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
   /**
-   * The algs the panel lists for a slot's case: the main ones, the searched R/L/U one when it is not among them, the
-   * usable slot shortcuts - the sheet's, and the fewest turns through the open slots when that beats every row.
+   * The finder's rows for a slot's case: every solution the move filter lets through (the sheet's, its slot shortcuts,
+   * the searched ones), `usable` unless it needs a slot that is solved; the lead is the favourite or the shortest usable.
    */
-  function algsFor(s: SlotName, c: F2LCase, adv: boolean, auf = ''): { algs: string[]; searched: string | null; usable: F2LCase['others']; own: string | null } {
-    const algs = orderedAlgs(s, c, adv, auf);
-    const simple = simpleAlg(s, c, auf);
-    const searched = adv && notInSheet(c, simple) && !algs.includes(simple) ? simple : null;
-    const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((x) => !solvedSlots.has(x)) && (adv || isSimple(o.alg)));
-    const listed = () => new Set([...algs, ...(searched ? [searched] : []), ...usable.map((o) => o.alg)].map((a) => fullAlg(auf, a)));
-    const open = openSlotShortcut(s, c, auf, SLOTS.filter((x) => x !== s && solvedSlots.has(x)));
-    const n = (a: string) => moveCount(fullAlg(auf, a));
-    if (open && [...listed()].every((a) => n(open.alg) < moveCount(a))) usable.unshift(open);
-    // the shortest own-side alg that never lifts the neighbouring pair, when no row already is it: what a
-    // borrowing alg saves is then there to see (user, 2026-09-26); it is from the position, AUF included
-    const o = ownSideFor(s, c, auf);
-    return { algs, searched, usable, own: o && o.alg && !listed().has(o.alg) ? o.alg : null };
+  const rowsFor = (s: SlotName, c: F2LCase, auf: string) => listFor(s, c, auf, new Set([...solvedSlots].filter((x) => x !== s)));
+  /** A row's note: where the alg is from, and the open slots it needs (why it is greyed when one is solved). */
+  function rowTag(x: Solution & { usable: boolean }, c: F2LCase, lead: boolean): string {
+    const needs = x.needs.map((z) => SLOT_WORD[z]).join(' and ');
+    const parts = [
+      lead && f2lIsFavourite(caseId(slot, c.n)) ? 'your pick' : '',
+      x.from === 'own' ? `${ownSideWords(slot).moves} only, never lifts the ${ownSideWords(slot).neighbour} pair` : x.from === 'search' ? 'found by search' : x.from === 'shortcut' ? "the sheet's shortcut" : '',
+      needs ? (x.usable ? `goes through the open ${needs} slot${x.needs.length > 1 ? 's' : ''}` : `needs the ${needs} slot${x.needs.length > 1 ? 's' : ''} open, and ${x.needs.length > 1 ? 'one is' : 'it is'} solved`) : '',
+    ];
+    return parts.filter(Boolean).join(' · ');
   }
   function showResult(): void {
     const D = DATA.slots[slot];
@@ -932,21 +929,19 @@ export function mountF2L(root: HTMLElement): Stage {
     const t = document.createElement('div'); t.className = 'case-title';
     t.innerHTML = `<h2>${SLOT_WORD[slot]} case ${twinOf(slot, c.n)}</h2><span>${GROUP_WORD[caseGroup(slot, c)].toLowerCase()}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
-    const adv = advanced();
-    const { algs, searched, usable, own } = algsFor(slot, c, adv, hit.auf);
-    const fav = f2lIsFavourite(caseId(slot, c.n));
-    const ex = explain(slot, c, algs[0]!);
+    const { lead, rows } = rowsFor(slot, c, hit.auf);
+    const ex = explain(slot, c, (lead ?? rows[0])?.alg ?? c.algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
     hb.hidden = !showHints();
     const wrap = document.createElement('div');
-    // the favourite leads (the sheet's star); then the sheet's algs (advanced) or the R/L/U one alone
-    algs.forEach((a, i) => wrap.appendChild(algRow(a, hit.auf, i === 0 && fav ? 'your pick' : notInSheet(c, a) ? (adv ? 'R/L/U only, found by search (not in the sheet)' : 'found by search (not in the sheet)') : '', c)));
-    if (searched) wrap.appendChild(algRow(searched, hit.auf, 'R/L/U only, found by search (not in the sheet)', c));
-    if (own) { const w = ownSideWords(slot); wrap.appendChild(algRow(own, '', `${w.moves} only, never lifts the ${w.neighbour} pair`, c)); }
-    if (usable.length) {
-      const h3 = document.createElement('h3'); h3.textContent = 'Shortcuts using slots that are still open'; wrap.appendChild(h3);
-      for (const o of usable) wrap.appendChild(algRow(o.alg, hit.auf, `uses ${o.free.map((s) => SLOT_WORD[s]).join(' + ')}${notInSheet(c, o.alg) ? ', found by search' : ''}`, c));
+    // every solution the filter lets through, fewest moves first after the lead; one that needs a solved slot greyed
+    for (const x of rows.filter((r) => r.usable)) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, x === lead), c));
+    const off = rows.filter((r) => !r.usable);
+    if (off.length) {
+      const h3 = document.createElement('h3'); h3.textContent = 'Through slots you have solved (for learning the case)'; wrap.appendChild(h3);
+      for (const x of off) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, false), c, false));
     }
+    if (!rows.length) { const p = document.createElement('p'); p.className = 'note'; p.textContent = 'The move filter hides every alg for this case: turn a kind of move back on in the settings.'; wrap.appendChild(p); }
     wrap.appendChild(nextButton());
     r.appendChild(wrap);
     if (c.note) { const nn = document.createElement('p'); nn.className = 'note'; nn.textContent = /keyhole/i.test(c.note) ? 'Keyhole case (the sheet lists no other-slot alg).' : c.note; r.appendChild(nn); }
@@ -1074,7 +1069,13 @@ export function mountF2L(root: HTMLElement): Stage {
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
   onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
-  document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints' || id === 'advanced') render(); });
+  document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints') render(); });
+  // the move filter: its chips in the settings, and the list redrawn when it (or the case sheet's copy) changes
+  loadAlgFilter();
+  const drawTools = () => { const el = document.getElementById('f2l-tools'); if (el) el.innerHTML = toolChipsHtml('data-tool'); };
+  drawTools();
+  document.getElementById('f2l-tools')?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-tool]'); if (b) toggleTool(b.dataset.tool as AlgTool); });
+  onAlgFilterChange(() => { drawTools(); render(); });
   onSchemeChange(() => { updateEdgeName(); if (tracked) syncFromCube(); else render(); }); // the tracked cube reads differently in the new frame
 
   updateEdgeName();

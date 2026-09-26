@@ -60,7 +60,7 @@ check(/^front-right case \d+$/.test(title2 ?? ''), `the practice scramble's firs
 // the pairs as cards: each open one with its case and shortest alg; the arrow keys step through them
 check(await page.$eval('#tracker', (e) => e.classList.contains('cards')), 'tracking: the pairs are cards');
 const cardText = await page.$$eval('#tracker > span:not(.done) small', (es) => es.map((e) => e.textContent));
-check(cardText.length === (await count('#tracker > span:not(.done)')) && cardText.every((t) => /case \d+ · .+ · \d+ moves(\(.+ · \d+ moves, .+ free\))?$/.test(t)), `every open pair shows its case, alg and count, a shorter slot shortcut in brackets (${cardText[0]})`);
+check(cardText.length === (await count('#tracker > span:not(.done)')) && cardText.every((t) => /case \d+ · .+ · \d+ moves( \(through the open [a-z +-]+\))?$/.test(t)), `every open pair shows its case, its lead alg and count, and the open slots it goes through (${cardText[0]})`);
 const curBefore = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
 await page.keyboard.press('ArrowRight'); await wait(150);
 const curAfter = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
@@ -185,9 +185,9 @@ await page.$eval('#ref-panel [data-filter="e-top"]', (b) => b.click()); await wa
 await page.$eval('#ref-panel [data-filter="slot-FL"]', (b) => b.click()); await wait(300);
 check((await page.$eval('#ref-panel .llr-case', (e) => e.dataset.id)).startsWith('FL-'), 'the front-left slot on show');
 await page.$eval('#ref-panel [data-filter="slot-BR"]', (b) => b.click()); await wait(300);
-// the back-right pair white up at UFL, edge at UF (case 5): the sheet borrows the front-right slot; the own-side alg is shown with its count
-const own5 = await page.$eval('#ref-panel .llr-case[data-id="BR-12"] .llr-own', (e) => e.textContent).catch(() => null);
-check(/^R and U only, never lifting the front-right pair: R' .* 11 moves$/.test(own5 ?? ''), `back-right case 5 shows its own-side alg: ${own5}`);
+// the back-right pair white up at UFL, edge at UF (case 5): the sheet borrows the front-right slot; the own-side alg is among its algs, noted
+const own5 = await page.$eval('#ref-panel .llr-case[data-id="BR-12"]', (e) => e.textContent).catch(() => null);
+check(/R and U only, never lifts the front-right pair/.test(own5 ?? ''), `back-right case 5 lists its own-side alg: ${own5?.slice(0, 120)}`);
 await page.$eval('#ref-panel .llr-case[data-id="BR-12"] [data-go]', (b) => b.click()); await wait(300);
 const ownRow = await page.$$eval('#result .alg .tag', (es) => es.map((e) => e.textContent));
 check(ownRow.some((t) => /R and U only, never lifts the front-right pair/.test(t ?? '')), `the finder lists it too: ${ownRow.join(' | ')}`);

@@ -5,7 +5,7 @@ import { moveCount, tokens } from '../src/cube/alg';
 import { crossSolved, edgeState } from '../src/cube/pieces';
 import { state, stepStates } from '../src/cube/state';
 import { DATA } from '../src/f2l/data';
-import { caseAlgs, fullAlg, invert, orderedAlgs, SLOTS, slotSolved } from '../src/f2l/model';
+import { fullAlg, invert, orderedAlgs, SLOTS, slotSolved } from '../src/f2l/model';
 import { casePair, casePicture, leftBroken, occupiedSlots, openSlotShortcut, shortestAlgs, shortestFor } from '../src/f2l/search';
 import type { SlotName } from '../src/f2l/data';
 
@@ -21,9 +21,7 @@ describe('the shortest R/L/U alg', () => {
   it('finds R L\' U R\' L for front-left case 31 (sheet row 32), shorter than the sheet\'s 7 and leading the list', () => {
     const c = DATA.slots.FL.cases['32']!;
     expect(shortestFor('FL', c)).toBe("R L' U R' L");
-    expect(caseAlgs('FL', c)).toContain("R L' U R' L");
-    expect(orderedAlgs('FL', c, true)[0]).toBe("R L' U R' L");
-    expect(orderedAlgs('FL', c, false)[0]).toBe("R L' U R' L");
+    expect(orderedAlgs('FL', c)[0]).toBe("R L' U R' L");
   });
   for (const slot of SLOTS) {
     it(`solves every ${slot} case, keeps the cross and the other pairs, and no R/L/U alg of the case is shorter`, () => {

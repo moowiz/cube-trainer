@@ -569,6 +569,24 @@ export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
   const slot = m[1] as SlotName, c = DATA.slots[slot].cases[m[2]!];
   return c ? { slot, c } : null;
 }
+// ---- what an alg is made of: the kinds of move the finder's filter can hide ------------------------------------------
+
+/** A kind of move beyond one side at a time and U: R and L at once (one side's slot open while the other turns), D, F2/B2 (keep EO), F/B quarter turns (flip edges), wide/slice. */
+export type AlgTool = 'LR' | 'D' | 'F2' | 'FB' | 'wide';
+export const ALG_TOOLS: readonly AlgTool[] = ['LR', 'D', 'F2', 'FB', 'wide'];
+export const TOOL_WORD: Record<AlgTool, string> = { LR: 'R and L at once', D: 'D turns', F2: 'F2 / B2', FB: 'F / B quarter turns', wide: 'wide, slice, rotation' };
+/** The kinds of move in an alg; [] for U and one side at a time (a pop on one side, then the insert on the other, is []). */
+export function algTools(alg: string): AlgTool[] {
+  const t = tokens(normalizeAlg(alg)), has = (re: RegExp) => t.some((x) => re.test(x));
+  const out: AlgTool[] = [];
+  if (overlaps(t)) out.push('LR');
+  if (has(/^D/)) out.push('D');
+  if (has(/^[FB]2$/)) out.push('F2');
+  if (has(/^[FB]'?$/)) out.push('FB');
+  if (has(/^[rludfbMESxyz]/)) out.push('wide');
+  return out;
+}
+
 // ---- the searched algs: computed once by scripts/f2l-searched.ts (search.ts), looked up here -----------------------
 
 /** A searched alg, as done from the position, in the sheet's form for the lookup's `auf`: fullAlg(auf, it) gives it back. */
@@ -579,56 +597,91 @@ function sheetForm(from: string, auf: string): string {
   return pre ? `(${pre}) ${rest}` : rest;
 }
 const searchKey = (slot: SlotName, c: F2LCase, auf: string) => `${slot}${c.n}|${auf}`;
-/** The fewest R/L/U turns from the position (`auf` the lookup's) keeping the cross and every slot the pair is not in. */
-export function searchedAlg(slot: SlotName, c: F2LCase, auf = ''): string | null {
-  const v = SEARCHED[searchKey(slot, c, auf)];
-  return v ? sheetForm(v, auf) : null;
+
+/** One way to solve a case from a position: the alg, what it is made of, and the slots it needs open. */
+export interface Solution {
+  /** in the sheet's form for the position's AUF: fullAlg(auf, alg) is `full` */
+  alg: string;
+  /** as done from the position, AUF included */
+  full: string;
+  n: number;
+  tools: AlgTool[];
+  /** the other slots it leaves changed: they must still be open (unsolved) */
+  needs: SlotName[];
+  /** the sheet's alg, the sheet's slot shortcut, found by search, or the own-side alg (never lifts the neighbour) */
+  from: 'sheet' | 'shortcut' | 'search' | 'own';
 }
+const FROM_ORDER = { sheet: 0, shortcut: 1, search: 2, own: 3 } as const;
+const within = <T>(a: readonly T[], b: readonly T[]) => a.every((x) => b.includes(x));
+const POS = new Map<string, Solution[]>();
 /**
- * The fewest turns from the position keeping only the slots in `keep` (the solved ones; the others are open), when
- * that is shorter than keeping every slot: R/L/U, or with D where an open neighbour lets D swing the target slot under
- * it (user, 2026-09-26). `free` is the open slots it leaves changed. Null when going through them saves nothing.
+ * Every way to solve the case from the position (`auf` the lookup's), shortest first: the sheet's algs and slot
+ * shortcuts, and the searched ones (scripts/f2l-searched.ts: the shortest in R/L/U, + D, + F2/B2 for every set of open
+ * slots, and the own-side alg). A searched alg that a listed one beats - as short, no more kinds of move, no more
+ * slots needed open - is left out; the sheet's are always there. The filter and the solved slots are the caller's.
  */
-export function openSlotShortcut(slot: SlotName, c: F2LCase, auf: string, keep: readonly SlotName[]): { alg: string; free: SlotName[] } | null {
-  const inCase = new Set([c.corner.slice(1), c.edge]);
-  const kept = keep.filter((s) => s !== slot && !inCase.has(s)).sort().join('.');
-  const v = SEARCHED[`${searchKey(slot, c, auf)}|${kept}`];
-  if (!v) return null;
-  const [alg, free] = v.split(';') as [string, string];
-  return { alg: sheetForm(alg, auf), free: free.split('.') as SlotName[] };
+export function positionAlgs(slot: SlotName, c: F2LCase, auf = ''): Solution[] {
+  const key = searchKey(slot, c, auf);
+  let list = POS.get(key);
+  if (list) return list;
+  const mk = (alg: string, needs: SlotName[], from: Solution['from']): Solution => {
+    const full = fullAlg(auf, alg);
+    return { alg, full, n: moveCount(full), tools: algTools(full), needs, from };
+  };
+  const all: Solution[] = [
+    ...c.algs.map((a) => mk(a, [], 'sheet')),
+    ...c.others.map((o) => mk(o.alg, [...o.free], 'shortcut')),
+    ...(c.simple_src === 'search' ? [mk(c.simple, [], 'search')] : []),
+    ...(SEARCHED[key] ?? '').split('|').filter(Boolean).map((e) => { const [a, br] = e.split(';') as [string, string]; return mk(sheetForm(a, auf), br ? (br.split('.') as SlotName[]) : [], 'search'); }),
+  ];
+  const own = SEARCHED[`${key}|own`];
+  if (own) all.push(mk(sheetForm(own, auf), [], 'own'));
+  const seen = new Set<string>();
+  const uniq = all.filter((x) => (seen.has(x.full) ? false : (seen.add(x.full), true)));
+  const beaten = (x: Solution) => x.from === 'search' && uniq.some((y) => y !== x && y.n <= x.n && within(y.tools, x.tools) && within(y.needs, x.needs) && (y.from !== 'search' || y.n < x.n || y.tools.length < x.tools.length || y.needs.length < x.needs.length || uniq.indexOf(y) < uniq.indexOf(x)));
+  list = uniq.filter((x) => !beaten(x)).sort((x, y) => x.n - y.n || FROM_ORDER[x.from] - FROM_ORDER[y.from]);
+  POS.set(key, list);
+  return list;
 }
+
+// the kinds of move the finder and the case sheet leave out (the settings' filter; F2/B2 hidden to begin with)
+let HIDDEN = new Set<AlgTool>(['F2']);
+export const hiddenTools = (): ReadonlySet<AlgTool> => HIDDEN;
+export function setHiddenTools(t: Iterable<AlgTool>): void { HIDDEN = new Set([...t].filter((x) => ALG_TOOLS.includes(x))); }
+/** A solution the filter lets through. */
+export const shownAlg = (s: Pick<Solution, 'tools'>): boolean => s.tools.every((t) => !HIDDEN.has(t));
+
+/**
+ * The finder's list for a position: every solution the filter lets through, `usable` when no slot it needs is solved.
+ * The lead is the favourite when it is usable and let through, else the shortest usable one (fewest moves lead).
+ */
+export function listFor(slot: SlotName, c: F2LCase, auf: string, solved: ReadonlySet<SlotName>): { lead: Solution | null; rows: (Solution & { usable: boolean })[] } {
+  let list = positionAlgs(slot, c, auf);
+  const fav = FAV.get(caseId(slot, c.n));
+  if (fav && !list.some((x) => x.full === fullAlg(auf, fav))) {
+    // the favourite from the canonical position, its AUF folded in here
+    const at0 = positionAlgs(slot, c, '').find((x) => x.alg === fav);
+    const full = fullAlg(auf, fav);
+    list = [...list, { alg: fav, full, n: moveCount(full), tools: algTools(full), needs: at0?.needs ?? [], from: at0?.from ?? 'sheet' }];
+  }
+  const rows = list.filter(shownAlg).map((x) => ({ ...x, usable: x.needs.every((s) => !solved.has(s)) }));
+  const lead = rows.find((x) => x.usable && fav !== undefined && x.full === fullAlg(auf, fav)) ?? rows.find((x) => x.usable) ?? null;
+  return { lead, rows: lead ? [lead, ...rows.filter((x) => x !== lead)] : rows };
+}
+
 /** The own-side alg from the position (ownside.ts): R/U or L/U only, never lifting the neighbouring pair; as done, AUF included. */
 export const searchedOwnSide = (slot: SlotName, c: F2LCase, auf = ''): string | null => SEARCHED[`${searchKey(slot, c, auf)}|own`] ?? null;
 
-/**
- * A case's algs from the position at hand (`auf` the lookup's): the sheet's, and the fewest-turns R/L/U alg found by
- * search when none of the sheet's is as short - the sheet is a list of good algs, not a proof that none is shorter
- * (user, 2026-09-26: front-left case 31 had only R U R' U' L' U L; R L' U R' L is 5). Searched from each AUF's own
- * position: the canonical one's alg with the AUF folded in is not always the shortest from the others.
- */
-export function caseAlgs(slot: SlotName, c: F2LCase, auf = ''): string[] {
-  const s = searchedAlg(slot, c, auf);
-  const n = (a: string) => moveCount(fullAlg(auf, a));
-  return s && c.algs.every((a) => n(s) < n(a)) ? [...c.algs, s] : c.algs;
-}
-/** The R/L/U-only alg: the case's own (the sheet's, or one searched offline), or the fewest-turns one when that is shorter. */
-export function simpleAlg(slot: SlotName, c: F2LCase, auf = ''): string {
-  const s = searchedAlg(slot, c, auf);
-  return s && moveCount(fullAlg(auf, s)) < moveCount(fullAlg(auf, c.simple)) ? s : c.simple;
-}
 /** True for an alg of a case that the sheet does not list: found by search, offline or here. */
 export const notInSheet = (c: F2LCase, a: string): boolean =>
   !c.algs.includes(a) && !c.others.some((o) => o.alg === a) && !(a === c.simple && c.simple_src === 'sheet');
-/** Every alg a case has: the sheet's, then the slot shortcuts, then the searched R/L/U ones when there are any. */
+/** Every alg a case has (its solutions from the sheet's picture, whatever the filter), and its sheet R/L/U one. */
 export function allAlgs(slot: SlotName, c: F2LCase): string[] {
-  const out = [...caseAlgs(slot, c), ...c.others.map((o) => o.alg)];
-  if (c.simple_src === 'search') out.push(c.simple);
-  out.push(simpleAlg(slot, c));
-  return [...new Set(out)];
+  return [...new Set([...positionAlgs(slot, c, '').map((x) => x.alg), c.simple])];
 }
 export function f2lCaseIds(): string[] { return SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).map((c) => caseId(s, c.n))); }
-/** The table's own main: the shortest of the case's algs (the searched one only when it beats the sheet's). */
-export function f2lStandardAlg(id: string): string | undefined { const h = caseOf(id); return h ? byLength(caseAlgs(h.slot, h.c))[0] : undefined; }
+/** The table's own main: the shortest solution from the sheet's picture that needs no slot open and the filter lets through. */
+export function f2lStandardAlg(id: string): string | undefined { const h = caseOf(id); return h ? listFor(h.slot, h.c, '', new Set(SLOTS)).lead?.alg ?? h.c.algs[0] : undefined; }
 /** The alg the finder leads with: the favourite, else the standard. */
 export function f2lMainAlg(id: string): string | undefined { return FAV.get(id) ?? f2lStandardAlg(id); }
 export function f2lIsFavourite(id: string): boolean { return FAV.has(id); }
@@ -640,16 +693,9 @@ export function f2lSetMainAlg(id: string, alg: string | null): boolean {
   if (alg === null || alg === f2lStandardAlg(id)) FAV.delete(id); else FAV.set(id, alg);
   return true;
 }
-/**
- * The algs to list for a case, main first: the favourite when there is one, else the shortest of the case's algs
- * from the position at hand (`auf` the lookup's; advanced) or the R/L/U-only one (simple). The rest of the
- * case's algs follow, shortest first; the slot shortcuts are the caller's to add (they need free slots).
- */
-export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean, auf = ''): string[] {
-  const fav = FAV.get(caseId(slot, c.n));
-  const rest = advanced ? byLength(caseAlgs(slot, c, auf), auf) : [];
-  const main = fav ?? (advanced ? rest[0]! : simpleAlg(slot, c, auf));
-  return [main, ...rest.filter((a) => a !== main)];
+/** The algs to list for a case from the position (`auf` the lookup's), every other slot solved: the lead first. */
+export function orderedAlgs(slot: SlotName, c: F2LCase, auf = ''): string[] {
+  return listFor(slot, c, auf, new Set(SLOTS)).rows.filter((x) => x.usable).map((x) => x.alg);
 }
 /**
  * Algs shortest first as they will be done from the position at hand - `auf` (the lookup's) folded into each

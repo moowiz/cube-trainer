@@ -89,9 +89,9 @@ export interface Placed { slot: SlotName; corner: number; edge: number }
 /**
  * The fewest turns of `moves` (R/L/U by default) that put `pair`'s pieces home with the whole cross and every pair in
  * `keep` home at the end, those starting home (a kept pair may be lifted on the way; the other slots are free). Up
- * to `limit` of the shortest (all of one length, the first found first); [] past `maxDepth`.
+ * to `limit` of the shortest (all of one length, the first found first) that `accept` lets through; [] past `maxDepth`.
  */
-export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { moves?: readonly string[]; maxDepth?: number; limit?: number; eo?: boolean } = {}): string[] {
+export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { moves?: readonly string[]; maxDepth?: number; limit?: number; eo?: boolean; accept?: (alg: string) => boolean } = {}): string[] {
   const moves = opts.moves ?? RLU, maxDepth = opts.maxDepth ?? 14, limit = opts.limit ?? 1;
   const [good, eoRefs] = eoTables(), nEo = opts.eo ? 12 : 0;
   const [c, e] = indices(), p = P(moves);
@@ -114,7 +114,7 @@ export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { mo
   const dfs = (s: number[], g: number, bound: number, last: number): boolean => {
     const hs = h(s);
     if (g + hs > bound) return false;
-    if (g === bound) { if (done(s)) out.push(path.map((m) => moves[m]).join(' ')); return out.length >= limit; }
+    if (g === bound) { if (done(s)) { const a = path.map((m) => moves[m]).join(' '); if (!opts.accept || opts.accept(a)) out.push(a); } return out.length >= limit; }
     for (let m = 0; m < moves.length; m++) {
       const f = faces[m]!, lf = last < 0 ? '' : faces[last]!;
       if (f === lf || (OPP[f] === lf && f > lf)) continue; // no face twice; opposite faces commute, so one order only (R before L)

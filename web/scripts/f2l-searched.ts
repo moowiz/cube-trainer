@@ -1,17 +1,23 @@
 // Writes src/f2l/searched.ts: every alg the F2L finder's search could give, computed once (search.ts, ownside.ts) so the
-// app only looks them up. For every slot, case and AUF the finder can show (the lookup's), the fewest R/L/U turns
-// keeping every slot the pair is not in; for every set of those slots left open, the fewest turns through them
-// (R/L/U, or with D when that is shorter) when that beats keeping them; and the own-side alg (R/U or L/U only, never
-// lifting the neighbouring pair). Algs are as done from the position, AUF included.
+// app only looks them up. For every slot, case and AUF the finder can show (the lookup's): the shortest in each move
+// set (R/L/U, + D, + F2/B2) for each set of open slots, kept when nothing else is as short with no more kinds of move
+// and no more slots needed open; and the own-side alg (R/U or L/U only, never lifting the neighbouring pair). Algs are
+// as done from the position, AUF included. The finder lists them all, greying the ones a solved slot rules out.
 //
-//   npx vite-node scripts/f2l-searched.ts        (~10 s; rerun when search.ts, ownside.ts or data.ts change)
+//   npx vite-node scripts/f2l-searched.ts        (~30 s; rerun when search.ts, ownside.ts or data.ts change)
 import { writeFileSync } from 'node:fs';
-import { moveCount } from '../src/cube/alg';
+import { moveCount, tokens } from '../src/cube/alg';
 import { state } from '../src/cube/state';
 import { DATA } from '../src/f2l/data';
-import { fullAlg, invert, SLOTS, slotSolved } from '../src/f2l/model';
+import type { SlotName } from '../src/f2l/data';
+import { algTools, fullAlg, invert, overlaps, SLOTS, slotSolved } from '../src/f2l/model';
 import { ownSideAlg } from '../src/f2l/ownside';
-import { occupiedSlots, placedIn, RLUD, shortestAlgs } from '../src/f2l/search';
+import { occupiedSlots, placedIn, RLU, RLUD, shortestAlgs } from '../src/f2l/search';
+
+/** The move sets searched, smallest first: R/L/U, then D, then F2 and B2 (every one keeps EO). */
+const SETS = [RLU, RLUD, [...RLUD, 'F2', 'B2']] as const;
+const within = (a: readonly string[], b: readonly string[]) => a.every((x) => b.includes(x));
+interface Cand { alg: string; n: number; tools: string[]; broken: SlotName[] }
 
 const t0 = performance.now();
 const out: Record<string, string> = {};
@@ -25,28 +31,42 @@ for (const slot of SLOTS) {
     const pair = placedIn(state(invert(fullAlg(hit.auf, c.algs[0]!))), slot);
     const others = SLOTS.filter((s) => s !== slot && !occupiedSlots(slot, c).includes(s));
     const all = shortestAlgs(pair, others)[0]!;
-    out[key] = all;
     const picture = invert(all);
     const own = ownSideAlg(state(picture), slot);
     if (own?.alg) out[`${key}|own`] = own.alg;
-    for (let m = 1; m < 1 << others.length; m++) {
-      const open = others.filter((_, i) => m & (1 << i)), keep = others.filter((s) => !open.includes(s));
-      const n = moveCount(all);
-      const rlu = shortestAlgs(pair, keep, { maxDepth: n - 1 })[0];
-      const d = shortestAlgs(pair, keep, { moves: RLUD, maxDepth: (rlu ? moveCount(rlu) : n) - 1 })[0];
-      const best = d ?? rlu;
-      if (!best) continue;
-      const end = state(`${picture} ${best}`);
-      const free = open.filter((s) => !slotSolved(end, s));
-      if (free.length) out[`${key}|${[...keep].sort().join('.')}`] = `${best};${free.join('.')}`;
+    // every open set (fewest open first) in every move set: the shortest there, capped by what a smaller search found
+    const subsets = Array.from({ length: 1 << others.length }, (_, m) => others.filter((_, i) => m & (1 << i))).sort((x, y) => x.length - y.length);
+    const found: (Cand & { open: SlotName[]; set: number })[] = [];
+    for (const open of subsets) {
+      const keep = others.filter((s) => !open.includes(s));
+      for (let k = 0; k < SETS.length; k++) {
+        // twice: any alg, and one that never works R and L at once (hide that in the filter and its best is there)
+        for (const oneAtATime of [false, true]) {
+          const cap = Math.min(15, ...found.filter((f) => f.set <= k && within(f.open, open) && (!oneAtATime || !f.tools.includes('LR'))).map((f) => f.n));
+          // every shortest one (up to 200), one kept per mix of move kinds
+          const byTools = new Map<string, string>();
+          const algs = shortestAlgs(pair, keep, { moves: SETS[k], maxDepth: cap - 1, limit: 200, accept: oneAtATime ? (a) => !overlaps(tokens(a)) : undefined });
+          for (const alg of algs) { const t = algTools(alg).join(); if (!byTools.has(t)) byTools.set(t, alg); }
+          for (const alg of byTools.values()) {
+            const end = state(`${picture} ${alg}`);
+            found.push({ alg, n: moveCount(alg), tools: algTools(alg), broken: open.filter((s) => !slotSolved(end, s)), open, set: k });
+          }
+        }
+      }
     }
+    // the ones nothing beats: no other is as short with no more kinds of move and no more slots needed open
+    const beats = (y: Cand, x: Cand) => y !== x && y.n <= x.n && within(y.tools, x.tools) && within(y.broken, x.broken) && (y.n < x.n || y.tools.length < x.tools.length || y.broken.length < x.broken.length || found.indexOf(y as never) < found.indexOf(x as never));
+    const keepers = found.filter((x) => !found.some((y) => beats(y, x)));
+    const list = [{ alg: all, broken: [] as SlotName[] }, ...keepers.filter((x) => x.alg !== all)];
+    out[key] = list.map((x) => `${x.alg};${x.broken.join('.')}`).join('|');
   }
 }
 const lines = Object.entries(out).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)},`);
 writeFileSync(new URL('../src/f2l/searched.ts', import.meta.url), `// Generated by scripts/f2l-searched.ts from search.ts and ownside.ts - do not edit; regenerate.
-// Key: slot + case number | the lookup's AUF [| the solved slots kept, sorted, '.'-joined, for a shortcut through the
-// rest | own]. Value: the alg as done from the position, AUF included; a shortcut adds ';' and the slots it leaves
-// changed. A bare key is the fewest R/L/U turns keeping every slot the pair is not in.
+// Key: slot + case number | the lookup's AUF [| own]. Value: '|'-separated algs, each as done from the position (AUF
+// included), ';', and the slots it leaves changed ('.'-joined; they must be open). The first is the fewest R/L/U
+// turns keeping every slot the pair is not in; the rest are the ones nothing beats (shorter, or fewer kinds of move,
+// or fewer slots needed open) over R/L/U, + D, + F2/B2 and every set of open slots. '|own': the own-side alg.
 export const SEARCHED: Record<string, string> = {
 ${lines.join('\n')}
 };

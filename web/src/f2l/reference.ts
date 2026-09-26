@@ -19,11 +19,12 @@ import { ensureStyle, esc } from '../ui/dom';
 import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 import { DATA } from './data';
 import {
-  allAlgs, byLength, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, notInSheet, pairShape,
-  SLOT_WORD, SLOTS, type SlotName, twinOf, withAuf,
+  type AlgTool, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
+  positionAlgs, shownAlg, SLOT_WORD, SLOTS, type SlotName, type Solution, twinOf, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
-import { ownSideFor, ownSideWords } from './ownside';
+import { ownSideWords } from './ownside';
+import { toggleTool, toolChipsHtml } from './algfilter';
 import { isPicked, pool, setPicks, togglePick } from './pool';
 
 /** Where a case's pieces are: on top, in the pair's own slot, or in another one. */
@@ -111,26 +112,25 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     const n = cases().filter(shown).length;
     const picks = pool.ids.length;
     const pickRow = `<p class="llr-count">Practice: <b>${picks ? `${picks} case${picks === 1 ? '' : 's'} picked` : 'none picked'}</b>${pool.mirrors ? ' (and their mirrors on the other slots)' : ''}. <button type="button" class="eo-link" data-filter="pick-shown">pick the ${n} shown</button>${picks ? ' <button type="button" class="eo-link" data-filter="pick-none">clear</button>' : ''} · the finder's <b>Practice picked cases</b> puts one on its pair.</p>`;
-    return `<div class="llr-filters"><span class="lbl">Slot</span>${slots}<span class="gap"></span>${nameBoxHtml(namePat, '4 12, keyhole, UB')}
+    return `<div class="llr-filters"><span class="lbl">Slot</span>${slots}<span class="gap"></span><span class="lbl">Algs with</span>${toolChipsHtml('data-filter', (t) => `tool-${t}`)}<span class="gap"></span>${nameBoxHtml(namePat, '4 12, keyhole, UB')}
       <details class="llr-feats llr-fold" id="f2lr-feats"${foldOpen('f2lr-feats') ? ' open' : ''}><summary>By corner, edge, which sticker is up, and alg${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details></div>
       <p class="llr-count">${active.size || namePat ? `${n} of ${cases().length} cases match${n ? '' : ': nothing has all of that'}.` : 'The four slots are mirrors of each other, and a case has the same number on all four: pick the slot you are solving. Type a case number or a word (keyhole, UB) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>${pickRow}`;
   };
-  // the shortest own-side alg that never lifts the neighbouring pair, when the main alg is not it: the saving shows
-  const ownLine = (c: F2LCase, main: string): string => {
-    const o = ownSideFor(shownSlot, c);
-    if (!o || !o.alg || o.alg === fullAlg('', main)) return '';
-    const w = ownSideWords(shownSlot);
-    return `<p class="llr-own">${esc(w.moves)} only, never lifting the ${esc(w.neighbour)} pair: <b>${algHtml(o.alg)}</b> <small>${o.moves} moves</small></p>`;
+  /** Where a solution is from, and the slots it needs open (a shortcut: use it only while they are unsolved). */
+  const solNote = (x: Solution): string => {
+    const needs = x.needs.map((z) => SLOT_WORD[z]).join(' and ');
+    const own = ownSideWords(shownSlot);
+    return [
+      x.from === 'sheet' ? 'from the sheet' : x.from === 'shortcut' ? "the sheet's shortcut" : x.from === 'own' ? `${own.moves} only, never lifts the ${own.neighbour} pair` : 'found by search (not in the sheet)',
+      needs ? `goes through the ${needs} slot${x.needs.length > 1 ? 's' : ''}, which must still be open` : '',
+    ].filter(Boolean).join('; ');
   };
   const card = (c: F2LCase): string => {
     const id = caseId(shownSlot, c.n);
     const main = f2lMainAlg(id) ?? c.algs[0]!;
     const fav = f2lIsFavourite(id);
-    const alts = byLength(allAlgs(shownSlot, c).filter((a) => a !== main)).map((a) => {
-      const o = c.others.find((x) => x.alg === a);
-      // a shortcut goes through the other slot and leaves it changed: that slot must still be open (unsolved)
-      return { alg: a, note: o ? `goes through the ${o.free.map((s) => SLOT_WORD[s]).join(' and ')} slot${o.free.length > 1 ? 's' : ''}, which must still be open` : notInSheet(c, a) ? 'R/L/U only, found by search (not in the sheet)' : c.algs.includes(a) ? 'from the sheet' : '' };
-    });
+    // every solution the move filter lets through, shortest first: the sheet's, its slot shortcuts, the searched ones
+    const alts = positionAlgs(shownSlot, c, '').filter((x) => shownAlg(x) && x.alg !== main).map((x) => ({ alg: x.alg, note: solNote(x) }));
     const num = twinOf(shownSlot, c.n);
     const altsBox = altsHtml('f2l', id, alts, `case ${num}`, f2lAlgHtml);
     const shape = pairShape(shownSlot, c);
@@ -145,7 +145,6 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
         </div>
       </div>
       <div class="llr-alg">${f2lAlgHtml(main)}${alts.length ? starHtml(main, true) : ''}</div>
-      ${ownLine(c, main)}
       ${noteHtml('f2l', id, main, `case ${num}`)}
       ${altsBox}
       <div class="llr-foot"><button type="button" class="llr-drill" data-go="${esc(id)}">Set in finder</button><button type="button" class="llr-play" data-play="${esc(id)}">▶ play it in 3D</button><button type="button" class="llr-drill${picked ? ' on' : ''}" data-filter="pick-${esc(id)}" aria-pressed="${picked}">${picked ? '✓ Practicing' : 'Practice'}</button><span class="llr-tags">${esc(tags)}</span></div>
@@ -185,6 +184,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     },
     onFilter: (k) => {
       if (k.startsWith('slot-')) { const s = k.slice(5); if (isSlot(s)) shownSlot = s; return; }
+      if (k.startsWith('tool-')) { toggleTool(k.slice(5) as AlgTool); return; }
       // the practice picks ride on the chip plumbing (a tap redraws the sheet)
       if (k === 'pick-shown') { setPicks([...pool.ids, ...cases().filter(shown).map((c) => caseId(shownSlot, c.n))]); changed?.(); return; }
       if (k === 'pick-none') { setPicks([]); changed?.(); return; }
