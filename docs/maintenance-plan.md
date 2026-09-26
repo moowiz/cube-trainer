@@ -47,6 +47,30 @@ passed in as functions). 1508 -> 1446 lines. The MediaRecorder capture and
 the debug exports are the next two. Guards run: `check:smart`,
 `check:record`.
 
+## Status 2026-09-25, later: puppeteer 25, and 2.4 was already done
+
+**puppeteer 23 -> 25.12.0** in `web` (the four `extract-zip` advisories
+go with it; `npm audit` clean without `--omit=dev`). The Chrome shell
+download that blocked this on the 23rd works from the sandbox when the
+command allows `storage.googleapis.com` and `googlechromelabs.github.io`;
+all five headless checks pass on the new shell (154). `model/gen` keeps
+its own puppeteer 23 for the generator, a separate bump when that is next
+touched.
+
+**2.4 is done, and was before the audit's pass counted it open:** the
+model files are Git LFS pointers in `HEAD` (`.gitattributes` rule at the
+root, `git lfs ls-files` lists both `.onnx`), and `deploy.yml` checks out
+with LFS so Pages serves the real file. What the drift number measures
+(pack 232 MB) is the fifteen pre-LFS versions still in history; it will
+not move without a history rewrite (`git lfs migrate import
+--everything`), which is the user's call and forces every clone to
+re-fetch. Left as is.
+
+**typescript 7:** typescript-eslint 8.70.1 declares `typescript <6.1.0`
+and its tracking issue (#10940) is open with three blockers named by the
+maintainers (ESLint has no async parsers; tsgo not yet stable; the Go/JS
+AST bridge is undesigned). Nothing to do here but wait; TS 6.0.3 is fine.
+
 ## Status 2026-09-25: vitest 5.0.2
 
 Gates green before and after on a `main` that gained three commits
