@@ -217,6 +217,15 @@ describe('cube follow: a pause', () => {
     expect(opened()).toEqual(['eo']);
   });
 
+  it('mid-solve from the tab\'s own scramble, a rest is the learner\'s: nothing is loaded however long it lasts', async () => {
+    const { src, shared, opened } = await setup('f2l', { f2l: "F R" });
+    src.turn(...onCube("F R")); // the scramble applied: the drill arms
+    src.turn(...onCube('D')); // one turn into an alg breaks the cross: behind the mark
+    tick(15_500); tick(60_000);
+    expect(opened()).toEqual([]);
+    expect(shared).toEqual([]);
+  });
+
   it('after the cube\'s own report the loaded state is the reported one plus the turns since, not the old base', async () => {
     const { src, state, shared, opened } = await setup('eo');
     src.turn('D');

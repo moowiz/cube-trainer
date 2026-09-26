@@ -222,6 +222,9 @@ function poll(): void {
   if (path && !path.off) return;
   // the Solve tab between solves: a cube off its scramble is a mis-scramble to undo, not a solve to pick up
   if (activeTab() === 'solve' && !timing) return;
+  // the open tab's drill is on a solve from its own scramble: a rest mid-alg (slow, learning it, the cross
+  // broken by it) is the learner's think, not a cube scrambled by hand (user, 2026-09-26)
+  if (driverArmed()) return;
   const restart = follower.paused(followReport(scr).stage);
   if (!restart) return;
   startIndex = cursor; solveFrom = null;
