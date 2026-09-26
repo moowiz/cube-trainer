@@ -771,7 +771,7 @@ on the gear · Settings (s) → the gear.
 
 ## 9. How to get there
 
-Sizes as in `docs/ll-drill-next-steps.md`: S / M / L = an hour / half
+Sizes: S / M / L = an hour / half
 a day / a day. Every phase ends with something that runs on the phone.
 The headless checks (`check:smart`, `check:ll`, `check:f2l`,
 `check:practice`, `check:record`) are the net: most of them select by

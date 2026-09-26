@@ -940,7 +940,7 @@ but never listed, and (d) docs that describe the app of two weeks ago.
 24. **Coverage gaps that are logic, not DOM (M).** `ll/trainer.ts`:
     `spokenLabel :195`, `offRoute :466`, `inHand :478`, `foldSlices` +
     `SLICE_OF_PAIR :494-507`, `repDone :627`, `absorbAuf :666` (the
-    AUF-tolerant wrong-turn watcher, `docs/ll-drill-next-steps.md`);
+    AUF-tolerant wrong-turn watcher);
     `timer/trainer.ts` `armed`/`feed`/`finish` (`:248-300`) and
     `rollSession :386`; `f2l/trainer.ts` `saveUrl`/`loadUrl` (`:279-334`,
     incl. old `w=1` links); `ui/cubeview.ts` `rotationToHold`/`beliefCells`
@@ -1218,8 +1218,7 @@ but never listed, and (d) docs that describe the app of two weeks ago.
     does) and `:133` says every launch is `headless: 'shell'` (gated on
     `PUPPETEER_SHELL`, `headless.mjs:27`). Then a `docs/README.md` with
     one line per doc and its status, and an archive index with the reason
-    each file moved. CLAUDE.md's "Prior art" lists 4 of 15 docs and files
-    `ll-drill-next-steps.md` (a live work list) under it.
+    each file moved. CLAUDE.md's "Prior art" lists 3 of 14 docs.
 49. **Design docs vs code (S-M).** `colour-pipeline-design.md` §5 names
     parameters in SCREAMING_CASE with no values (`N_SAT`…) against
     `DEFAULT_PARAMS` (`nSat` 12, `nMin` 6, `kMax` 9, `deltaMin` 3,

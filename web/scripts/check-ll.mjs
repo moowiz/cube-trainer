@@ -1,4 +1,4 @@
-// Headless checks of the LL drill on a replayed smart cube (docs/ll-drill-next-steps.md 1):
+// Headless checks of the LL drill on a replayed smart cube:
 // the alg on show surviving an undo of the first move back to the scramble (user, 2026-09-24:
 // the scaffold's empty box cleared the panel), the cycle order's counter, and a note written
 // under the alg on the drill. Each replay() is

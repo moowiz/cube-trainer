@@ -57,8 +57,7 @@ the F2L finder, case sheet and targeted practice (`web/src/f2l/`, off the
 plan like M10b), the PLL scramble rules, the voice modes, the smart cube's
 auto-reconnect, and the second maintenance audit. The UI redesign
 (`docs/ui-redesign.md`) is its own track. **Current milestone: M11**
-(`web/src/analysis/`, which still does not exist), with M12 behind it;
-`docs/ll-drill-next-steps.md` 2-6 are the loose ends worth clearing first.
+(`web/src/analysis/`, which still does not exist), with M12 behind it.
 
 ---
 
