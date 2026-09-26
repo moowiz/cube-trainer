@@ -1042,3 +1042,32 @@ check:practice pass unchanged.
   a timed solve's inspection is its own.
 - The picker is the only place that sets a stop. Each mode's settings
   sheet could carry the same cells.
+
+**Third round (the same evening), from playing with it:**
+
+- **EOCross on to solved is the Solve.** You pointed out it is just solving
+  the cube. The picker greys that cell out ("= Solve"), and a stored
+  EOCross → solved opens as the Solve. The Solve's coach now starts at
+  EOCross: when the cube reaches the Solve's scramble, the EO help (the
+  hints, the plan) comes up while you inspect and solve, then F2L, OCLL
+  and PLL as before. The timer is unchanged underneath. The stretches that
+  stop earlier (EOCross → F2L or → OCLL) stay.
+- **A finished attempt is not "off the scramble".** EOCross done and the
+  cube left there read as off the scramble, which was true but useless. The
+  rail now treats a scramble the cube has reached as used. The turns after
+  it are the attempt until the cube is back at the scramble's start
+  (solved, to do it again) or the scramble changes.
+- **A wrong turn while scrambling gives its undo moves on every stage.**
+  EO and F2L keep no list of wrong turns (the Solve's and the last layer's
+  voices do), so the rail said only "undo back to the underline". The rail
+  now keeps the list itself for those stages.
+- **F2L's Explain stays open while you turn.** The panel is rebuilt on
+  every turn, which closed it. It now stays open per pair and alg. Its move
+  table marks the moves done (✓) and the one to do next.
+- Checks: `check:smart` covers the wrong turn's undo, EOCross alone left
+  done, EOCross → OCLL, and the coach starting at EO. `check:f2l` covers
+  Explain through a turn. Each was run against the build without its fix
+  and failed there. `check:f2l`'s alg-order check now skips the own-side
+  row (added after the sheet's algs on purpose), which failed about one run
+  in six depending on the scramble.
+

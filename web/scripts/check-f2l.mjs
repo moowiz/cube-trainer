@@ -71,13 +71,21 @@ console.log(`    alg: ${alg}`);
 check(/^\d+ moves$/.test(await text('#result .alg .n')) && (await text('#result .alg .n')) === `${algToks.length} moves`, `the row carries its move count: ${await text('#result .alg .n')}`);
 check((await count('#result .alg button')) === (await count('#result .alg')), 'no "Did this" on a cube (Explain only)');
 await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && !b.checked) b.click(); }); await wait(200);
-// the case's own rows (the slot shortcuts under their heading are their own list)
-const counts = await page.$$eval('#result .alg', (es) => es.filter((e) => !/^uses/.test(e.querySelector('.tag')?.textContent ?? '')).map((e) => Number.parseInt(e.querySelector('.n').textContent, 10)));
+// the case's own rows (the slot shortcuts under their heading are their own list, and the own-side alg that never
+// lifts the neighbouring pair comes after the sheet's on purpose, shorter or not)
+const counts = await page.$$eval('#result .alg', (es) => es.filter((e) => !/^uses|never lifts/.test(e.querySelector('.tag')?.textContent ?? '')).map((e) => Number.parseInt(e.querySelector('.n').textContent, 10)));
 check(counts.length > 0 && counts.every((n, i) => i === 0 || counts[i - 1] <= n), `advanced: the algs come fewest moves first (${counts.join(', ')})`);
 await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && b.checked) b.click(); }); await wait(200);
 check((await count('#result .alg.on')) === 0, 'no alg lit before a turn');
+// Explain open on the first alg, then a turn: it stays open to watch along, its table marking the move done and the
+// one to do next (user, 2026-09-26: a turn closed it)
+await page.$eval('#result .alg[data-alg] button', (b) => b.click()); await wait(100);
+check((await count('#result table.trace')) === 1, 'Explain opens the move table');
 await replay(`${cube2} ${await cubeOf(algToks[0])}`);
 check((await count('#result .alg.on')) === 1, 'one turn in: the alg being done is lit');
+check((await count('#result table.trace')) === 1, 'a turn later the explanation is still open');
+const marks = await page.$$eval('#result table.trace tbody tr', (rs) => rs.map((r) => r.className));
+check(marks.length === algToks.length && marks[0] === 'done' && marks[1] === 'at' && marks.slice(2).every((c) => c === ''), `its table: the move done, the next one lit (${marks.join(',')})`);
 check((await page.$eval('#result .alg.on', (e) => e.dataset.alg)) === alg, 'and it is the one whose first move was made');
 check((await count('#result .alg.on .mv.done')) === 1, `its first move underlined (${await count('#result .alg.on .mv.done')})`);
 check(await page.$eval('#tracker', (e) => e.classList.contains('cards')) && (await count('#tracker > span:not(.done) small')) === (await count('#tracker > span:not(.done)')), 'mid-alg (cross broken) the other pairs keep their cards');

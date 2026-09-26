@@ -13,21 +13,23 @@
 // solve through the stage tabs (shell.ownerTab), so the timer never leaves
 // the screen.
 
-import { WCA_HOLD } from '../cube/frame';
+import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
 import { faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
-import { beliefInTrainer, type Hold } from '../handoff';
+import { beliefInTrainer, relabelTurns, type Hold } from '../handoff';
 import type { MoveSource } from '../moves/source';
 import type { RailView, Stage, Tab } from '../shell';
 import { stageOf, type Stage as CubeStage, type StageReport } from '../stage';
 import { SPLIT_STAGES, SplitClock, splitText, type SplitStage } from '../timer/splits';
 import { formatTime } from '../timer/stats';
+import type { TrackStatus } from '../timer/track';
 import { moveHtml, shownIndex } from '../timer/track-ui';
 import { ensureStyle } from './dom';
 import { openFingertricks } from './fingertricks';
 import { readStoredJson, writeStored } from './settings';
+import { ScrambleVoice } from './voice';
 
 export type CubeView = 'net' | '3d' | 'off';
 
@@ -266,7 +268,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     const it = src?.items().at(-1);
     const t = it?.kind === 'move' ? it.t : performance.now();
     const v = host.owner()?.rail?.();
-    if (v) syncAttempt(v, t);
+    if (v) { syncAttempt(v, t); noteUsed(v); noteOff(v, src, it?.kind === 'move' ? it.move : undefined); }
     if (attempt && !attempt.done && src) {
       const rep = reportNow();
       if (rep) attempt.clock.turned(rep.stage, Math.max(0, t - attempt.t0));
@@ -277,20 +279,44 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   });
 
   // ---- the scramble ----
+  // a scramble the cube has reached is used: the turns after it are the attempt, never "off the scramble", also once
+  // its clock has stopped (EOCross done, the cube left there) - until the cube is back at the scramble's start (solved:
+  // the same scramble again) or the scramble changes
+  let usedKey: string | null = null;
+  function noteUsed(v: RailView): void {
+    const key = v.toks ? `${host.ownerTab()}|${v.toks.join(' ')}` : null;
+    const t = v.track;
+    if (key !== null && (t?.matched || v.clock.phase === 'ready' || v.clock.phase === 'running')) usedKey = key;
+    else if (key !== null && key === usedKey && t && t.applied === 0 && !t.half && !t.off) usedKey = null;
+  }
+  // the wrong turns since the cube left the scramble, for a stage that does not keep them itself (EO, F2L: the Solve
+  // and the last layer say theirs, `offText`): the scramble voice's own list, silent, in the letters the scramble is
+  // shown in - so the undo is always the turns to make, not "back to the underline" (user, 2026-09-26)
+  const offVoice = new ScrambleVoice({ mode: () => 'off', shown: () => ({ toks: [] }), wca: (alg) => toWca(alg).trim() });
+  let offKey: string | null = null, offWas: TrackStatus | null = null;
+  function noteOff(v: RailView, src: MoveSource | null, move: Parameters<typeof relabelTurns>[1][number] | undefined): void {
+    const key = v.toks ? `${host.ownerTab()}|${v.toks.join(' ')}` : null;
+    if (key !== offKey) { offVoice.reset(); offKey = key; offWas = null; }
+    let turn: string | undefined;
+    if (move !== undefined && src) { try { turn = relabelTurns(src.colourOf, [move], host.hold()); } catch { turn = undefined; } }
+    offVoice.update(offWas, v.track, turn, key !== null && key === usedKey);
+    offWas = v.track;
+  }
   let drawnScr = '';
   function drawScramble(v: RailView): void {
     const el = $('rail-scr'), line = $('rail-line');
     let html: string, cls = 'rl-scr', ln = '';
     const t = v.track;
+    const used = !!v.toks && usedKey === `${host.ownerTab()}|${v.toks.join(' ')}`;
     if (v.note && !v.toks) { cls += ' note'; html = v.note; }
     else if (!v.toks) html = '';
     // at the scramble, or past it: the turns now are the solve, never "off the scramble" (the tracker keeps judging them)
-    else if (t?.matched || v.clock.phase === 'ready' || v.clock.phase === 'running') {
+    else if (used || t?.matched || v.clock.phase === 'ready' || v.clock.phase === 'running') {
       cls += ' folded';
       html = `<span class="ok">✓ scrambled</span><span class="rest">${v.toks.length} turns · ${v.toks.slice(0, 8).join(' ')}${v.toks.length > 8 ? ' …' : ''}</span>`;
     } else if (t?.off) {
       // the undo, big: what the voice says, read from its line ("... undo with U' R'"), or back to the underline
-      const undo = /undo with (.+)$/.exec(v.offText ?? '')?.[1];
+      const undo = /undo with (.+)$/.exec(v.offText ?? offVoice.offText() ?? '')?.[1];
       html = undo
         ? `<div class="rl-off"><div class="lbl">Off the scramble · undo</div><div class="undo">${undo.split(/\s+/).map((m) => moveHtml(m.replace('′', "'"))).join(' ')}</div></div>`
         : `<div class="rl-off"><div class="lbl">Off the scramble · undo back to the underline</div></div>`;
@@ -350,6 +376,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     const v: RailView = owner?.rail?.() ?? { toks: null, track: null, clock: { ms: null, phase: 'idle' } };
     const now = performance.now();
     if (syncAttempt(v)) force = true;
+    noteUsed(v);
     drawClock({ ...v, clock: shownClock(v) });
     if (force || now - lastSlow > 150) {
       lastSlow = now;

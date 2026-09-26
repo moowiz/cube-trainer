@@ -207,6 +207,7 @@ console.log(JSON.stringify({ ...fol, log: followLog }));
 const wantTime = ((solveTurns2 - 1) * 180 / 1000).toFixed(2);
 const opened = followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+) (.*)$/)).filter(Boolean);
 check(opened.map((m) => m[1]).join(' ') === 'f2l ocll' && followLog.some((l) => /back to the Solve tab/.test(l)), `the tabs followed the solve (F2L, then OCLL) and the Solve tab came back: ${followLog.join(' | ') || '(nothing)'}`);
+check(/the solve starts at EO: stage=eo/.test(followLog[0] ?? ''), `the coach started at EOCross, with the scramble reached: ${followLog[0]}`);
 check(fol.tab === 'solve', `the Solve tab is open at solved (${fol.tab})`);
 check(opened[1] && stateOf(opened[1][2]) === stateOf("R U R' U R U2 R'"), `the OCLL tab was opened with the cube as it stood when F2L was done (${opened[1]?.[2]})`);
 check(fol.rows === rowsBefore + 1 && fol.top === wantTime, `the timer kept timing under the other tabs and saved the solve: ${fol.top} s (want ${wantTime})`);
@@ -242,29 +243,49 @@ const stopped = await page.evaluate(() => ({ state: document.getElementById('tm-
 check(stopped.rows === padBefore + 1 && !/Solving/.test(stopped.state), `a tap stops and saves the solve (${stopped.rows} rows): "${stopped.state}"`);
 check(stopped.top && Number(stopped.top) >= 0.4 && Number(stopped.top) < 0.7, `the tapped solve's time is its press-to-tap span: ${stopped.top} s`);
 
-// ---- a stretch (docs/ui-redesign.md 12): EOCross on to solved - each stage opens as the cube reaches it, one clock
-// and the four splits on the rail, and the cube solved brings the next EO scramble ----
+// ---- a stretch (docs/ui-redesign.md 12-13): EOCross on to OCLL - each stage opens as the cube reaches it, one
+// clock and the splits on the rail up to the stop, and the cube solved brings the next EO scramble ----
 const PARTS = ["D F' D'", "U R U' R'", "U R U R' U R U2 R'", "U R U R' U' R' F R2 U' R' U' R U R' F'"]; // EOCross, the pair, a Sune, a T perm
 const STRETCH = PARTS.join(' ');
-await page.evaluate(() => window.ZZ.modes.pick('eo', 'pll'));
-await page.evaluate((s) => window.ZZ.eo.load(s), inverse(STRETCH));
 const cubeParts = await page.evaluate((ps) => ps.map((p) => window.ZZ.smart.cubeAlg(p)), PARTS);
 const quarter = (alg) => alg.split(/\s+/).filter(Boolean).flatMap((m) => (m.endsWith('2') ? [m, m] : [m])).length;
+const railNow = () => page.evaluate(() => ({ tab: window.ZZ.activeTab(), time: document.getElementById('rail-time').textContent, strip: document.getElementById('rail-strip').innerText.replace(/\s+/g, ' ').trim(), scr: document.getElementById('rail-scr').innerText.replace(/\s+/g, ' ').trim(), off: !!document.querySelector('#rail-scr .rl-off'), eo: window.ZZ.eo.scramble(), chip: document.getElementById('mode-name').textContent }));
+// a wrong turn while scrambling, on a stage that keeps no list of its own (EO): the rail gives the turns to undo it,
+// not just "undo" (user, 2026-09-26)
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
+await page.evaluate((s) => window.ZZ.eo.load(s), inverse(STRETCH));
+const scrQ = inverse(cubeParts.join(' ')).split(/\s+/).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m]));
+const wrongTurn = ['U', 'D', 'L', 'R', 'F', 'B'].find((f) => f !== scrQ[2][0] && f !== scrQ[3][0]);
+await page.evaluate((text) => window.ZZ.smart.replay(text), capture(`${scrQ.slice(0, 3).join(' ')} ${wrongTurn}`, '').text);
+await new Promise((r) => setTimeout(r, 300));
+const offUndo = await page.evaluate(() => document.querySelector('#rail-scr .rl-off .undo')?.textContent.replace(/′/g, "'").replace(/\s+/g, ' ').trim() ?? null);
+check(offUndo === `${wrongTurn}'`, `a wrong turn while scrambling: the rail says to undo it with ${wrongTurn}' (${offUndo})`);
+// EOCross alone, done and left there: the rail's scramble is the one just done, not "off the scramble" (user, 2026-09-26)
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
+await page.evaluate((s) => window.ZZ.eo.load(s), inverse(STRETCH));
+await page.evaluate((text) => window.ZZ.smart.replay(text), capture(inverse(cubeParts.join(' ')), cubeParts[0]).text);
+await new Promise((r) => setTimeout(r, 300));
+const eoAlone = await railNow();
+console.log(JSON.stringify(eoAlone));
+check(!eoAlone.off && /✓ scrambled/.test(eoAlone.scr), `EOCross done and the cube left there: the rail folds the scramble, no "off the scramble" ("${eoAlone.scr.slice(0, 40)}")`);
+// EOCross on to OCLL
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'ocll'));
+await page.evaluate((s) => window.ZZ.eo.load(s), inverse(STRETCH));
 const LOOK = 700, looks = {};
 let at = 0;
 for (const p of cubeParts.slice(0, -1)) { at += quarter(p); looks[at] = LOOK; }
-const nStretch = quarter(cubeParts.join(' '));
+const nStretch = quarter(cubeParts.slice(0, 3).join(' '));
 followLog.length = 0;
 const eoBefore = await page.evaluate(() => window.ZZ.eo.scramble());
 await page.evaluate((text) => window.ZZ.smart.replay(text), capture(inverse(cubeParts.join(' ')), cubeParts.join(' '), 0, looks).text);
 await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-const stretch = await page.evaluate(() => ({ tab: window.ZZ.activeTab(), time: document.getElementById('rail-time').textContent, strip: document.getElementById('rail-strip').innerText.replace(/\s+/g, ' ').trim(), eo: window.ZZ.eo.scramble(), chip: document.getElementById('mode-name').textContent }));
+const stretch = await railNow();
 console.log(JSON.stringify({ ...stretch, log: followLog }));
-check(followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+)/)[1]).join(' ') === 'f2l ocll pll', `EOCross → solved opened F2L, OCLL and PLL as the cube got there: ${followLog.join(' | ')}`);
-const stretchTime = (((nStretch - 1) * 180 + LOOK * (PARTS.length - 1)) / 1000).toFixed(2);
-check(stretch.time === stretchTime, `one clock for the stretch, its first turn to its last: ${stretch.time} (want ${stretchTime})`);
-check(/^EOCross [\d.]+ F2L [\d.]+ OCLL [\d.]+ PLL [\d.]+$/.test(stretch.strip), `the rail's strip has every stage's split: "${stretch.strip}"`);
-check(stretch.tab === 'eo' && stretch.eo !== eoBefore && /→ solved/.test(stretch.chip), `solved: back to EOCross with the next scramble (${stretch.tab}, "${stretch.chip}")`);
+check(followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+)/)[1]).join(' ') === 'f2l ocll', `EOCross → OCLL opened F2L and OCLL as the cube got there, and not PLL: ${followLog.join(' | ')}`);
+const stretchTime = (((nStretch - 1) * 180 + LOOK * 2) / 1000).toFixed(2);
+check(stretch.time === stretchTime, `one clock for the stretch, its first turn to the one that finished OCLL: ${stretch.time} (want ${stretchTime})`);
+check(/^EOCross [\d.]+ F2L [\d.]+ OCLL [\d.]+ PLL$/.test(stretch.strip), `the rail's strip has each split up to the stop: "${stretch.strip}"`);
+check(stretch.tab === 'eo' && stretch.eo !== eoBefore && /→ OCLL/.test(stretch.chip), `solved: back to EOCross with the next scramble (${stretch.tab}, "${stretch.chip}")`);
 await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
 
 // ---- installable: the manifest the page links to resolves and has what Chrome asks for ----

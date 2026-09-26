@@ -121,6 +121,8 @@ const STYLE = `
   .f2l .trace th { text-align: left; font-weight: 600; color: var(--ink-2); padding: 4px 8px; border-bottom: 1px solid var(--line); }
   .f2l .trace td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
   .f2l .trace td:first-child { font-weight: 600; white-space: nowrap; }
+  .f2l .trace tr.done td { color: var(--ink-2); } .f2l .trace tr.done td:first-child::after { content: ' ✓'; color: var(--good); }
+  .f2l .trace tr.at td { background: #FFF4D6; } .f2l .trace tr.at td:first-child { box-shadow: inset 3px 0 0 #E0A100; }
   .f2l .why { background: var(--panel); border-left: 3px solid var(--ink); padding: 10px 12px; margin: -4px 0 8px; font-size: 14px; line-height: 1.5; color: var(--ink); border-radius: 0 6px 6px 0; }
   .f2l .why b { font-weight: 600; }
   .f2l .scr { margin-top: 12px; max-width: 520px; display: flex; flex-direction: column; gap: 6px; }
@@ -672,6 +674,11 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!p) return;
     for (const x of p.routes) {
       markRouteDone(x.el.querySelectorAll<HTMLElement>('.mv'), x.done, x.half);
+      // an open explanation's table: a row per move of the alg, the same moves
+      x.el.parentElement?.querySelectorAll<HTMLElement>('table.trace tbody tr').forEach((row, i) => {
+        row.classList.toggle('done', x.onRoute && i < x.done);
+        row.classList.toggle('at', x.onRoute && i === x.done);
+      });
       x.el.classList.toggle('on', x.el === p.on);
       x.el.classList.toggle('dim', p.on !== null && x.el !== p.on);
     }
@@ -796,6 +803,9 @@ export function mountF2L(root: HTMLElement): Stage {
   }
 
   // ---- the result panel ----
+  // the explanations open, by pair and alg: the panel is rebuilt on every turn, and one being watched along stays open
+  // (user, 2026-09-26), its table marking the moves done and the one to do next (markFollow)
+  const explaining = new Set<string>();
   function algRow(a: string, auf: string, tag: string, c: F2LCase | null): HTMLElement {
     const { pre, rest } = withAuf(auf, a); const full = fullAlg(auf, a);
     const div = document.createElement('div'); div.className = 'alg'; div.dataset.alg = full;
@@ -815,12 +825,17 @@ export function mountF2L(root: HTMLElement): Stage {
     }
     const outer = document.createElement('div'); outer.appendChild(div);
     let tr: HTMLElement | null = null;
-    ex.addEventListener('click', () => {
-      if (tr) { tr.remove(); tr = null; ex.textContent = 'Explain'; return; }
+    const key = `${slot}|${full}`;
+    const open = () => {
       tr = document.createElement('div');
       if (c) { const e = explain(slot, c, a); const w = document.createElement('div'); w.className = 'why'; w.innerHTML = `<b>${e.head}</b> ${e.body}`; tr.appendChild(w); }
       tr.appendChild(traceTable(full)); outer.appendChild(tr); ex.textContent = 'Hide';
+    };
+    ex.addEventListener('click', () => {
+      if (tr) { tr.remove(); tr = null; ex.textContent = 'Explain'; explaining.delete(key); return; }
+      explaining.add(key); open();
     });
+    if (explaining.has(key)) open();
     return outer;
   }
   function traceTable(full: string): HTMLElement {

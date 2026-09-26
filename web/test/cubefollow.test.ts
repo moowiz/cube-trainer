@@ -251,9 +251,11 @@ describe('cube follow: the Solve tab', () => {
     src.turn(...onCube(SCRAMBLE));
     expect(stages.solve.armed).toHaveBeenCalledTimes(1);
     expect(shell.keepScramble).toHaveBeenLastCalledWith('solve');
+    // the coach starts at the first stage: the scramble reached, EOCross's help comes up (user, 2026-09-26)
+    expect(opened()).toEqual(['eo']);
     const solve = undoOnCube(SCRAMBLE);
     src.turn(...solve);
-    expect(opened()).toEqual(['f2l', 'ocll', 'pll', 'solve']);
+    expect(opened()).toEqual(['eo', 'f2l', 'ocll', 'pll', 'solve']);
     // the timer heard every turn of the solve while the drill tabs were open, and its scramble was never replaced
     expect(stages.solve.feed).toHaveBeenCalledTimes(solve.length);
     expect(stages.solve.feed).toHaveBeenLastCalledWith(relabelTurns(COLOURS, solve, HOLD), expect.any(Number), 'cube');

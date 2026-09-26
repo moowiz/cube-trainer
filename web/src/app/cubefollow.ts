@@ -145,8 +145,8 @@ function pathStatus(src: MoveSource, state: string): TrackStatus | null {
   return status;
 }
 
-/** Open `stage` with the cube's state loaded (the whole tab set gets it), and arm the drill there. */
-function open(src: MoveSource, stage: Exclude<Stage, 'solved'>, scr: string, why: string): void {
+/** Open `stage` with the cube's state loaded (the whole tab set gets it), and arm the drill there (`quiet`: no toast). */
+function open(src: MoveSource, stage: Exclude<Stage, 'solved'>, scr: string, why: string, quiet = false): void {
   console.log(`CUBE FOLLOW ${why}: stage=${stage} ${scr}`); // the trace scripts/check-smart.mjs asserts on
   shareScramble(scr, null);
   showTab(stage);
@@ -154,8 +154,18 @@ function open(src: MoveSource, stage: Exclude<Stage, 'solved'>, scr: string, why
   // the cube is at this tab's scramble already: what follows is the solve
   const state = src.state();
   if (state !== null) pathStatus(src, state);
-  toast(describeStage(followReport(scr)));
+  if (!quiet) toast(describeStage(followReport(scr)));
   window.scrollTo({ top: 0 });
+}
+
+/**
+ * The Solve tab's scramble reached: its timer is armed on this item and its solve is the one carried. The coach
+ * starts at the first stage: EOCross's help (the hints, the plan) is up while you look and do it (user,
+ * 2026-09-26: EOCross on to solved is the Solve, so the Solve's coach covers EOCross too).
+ */
+function solveReached(src: MoveSource, scr: string): void {
+  setTiming(true);
+  if (openable('eo') && followReport(scr).stage === 'eo') open(src, 'eo', scr, 'the solve starts at EO', true);
 }
 
 function announceSolved(src: MoveSource): void {
@@ -194,7 +204,7 @@ function consume(): void {
   if (path?.matched) {
     follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab();
     // the Solve tab's scramble reached: the timer armed on this item, and its solve is the one followed
-    if (activeTab() === 'solve') setTiming(true);
+    if (activeTab() === 'solve') solveReached(src, scr);
     return;
   }
   // (at its start, applied 0, is the cube solved: the turn that solved it, not a scramble begun)
@@ -237,7 +247,7 @@ function poll(): void {
   const scr = scramble(src);
   if (scr === null) return;
   const path = pathStatus(src, state);
-  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab(); if (activeTab() === 'solve') setTiming(true); return; }
+  if (path?.matched) { follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab(); if (activeTab() === 'solve') solveReached(src, scr); return; }
   if (path && !path.off) return;
   // the Solve tab between solves: a cube off its scramble is a mis-scramble to undo, not a solve to pick up
   if (activeTab() === 'solve' && !timing) return;

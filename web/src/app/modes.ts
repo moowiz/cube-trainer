@@ -61,7 +61,7 @@ const STOP_DEFAULT: Record<StopStart, SplitStage> = { eo: 'eo', f2l: 'f2l', ocll
 function stopOf(start: StopStart): SplitStage {
   const st = readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null;
   const s = st?.[start];
-  return s && ALL.includes(s) && rank(s) >= rank(start) ? s : STOP_DEFAULT[start];
+  return s && ALL.includes(s) && rank(s) >= rank(start) && !(start === 'eo' && s === 'pll') ? s : STOP_DEFAULT[start];
 }
 function setStop(start: StopStart, stop: SplitStage): void {
   const st = (readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null) ?? {};
@@ -180,7 +180,7 @@ function render(): void {
 
 // ---- the picker: the Solve, the stretches (a row per stage one starts at, a cell per stage it can stop after), the finder ----
 const ROW_WHAT: Record<RowId, () => string> = {
-  solve: () => 'scrambled → solved, timed and kept in your session; the coach shows each stage\'s help as you get there',
+  solve: () => 'scrambled → solved, timed and kept in your session; the coach shows each stage\'s help as you get there, EOCross first',
   eo: () => 'from a scramble',
   f2l: () => (f2lKind() === 'picked' ? 'cross done, a picked case' : 'cross done'),
   ocll: () => (readStoredJson('zz-ocll-settings') as { from?: string } | null)?.from === 'pair' ? 'from the last pair' : 'an OCLL case',
@@ -196,13 +196,15 @@ function renderPicker(): void {
     const stop = r === 'pll' ? 'pll' : stopOf(r);
     const cells = ALL.map((s) => {
       if (rank(s) < rank(r)) return '<i class="mp-gap"></i>';
+      // (user, 2026-09-26) EOCross on to solved is a whole solve: the Solve row, whose coach helps from EOCross on
+      if (r === 'eo' && s === 'pll') return '<span class="mp-cell same" title="From a scramble to solved is a whole solve: the Solve row, with the coach on for each stage\'s help">= Solve</span>';
       const title = s === r ? `${STAGE_NAME[r]} alone` : `${STAGE_NAME[r]}, then on through ${s === 'pll' ? 'PLL to solved' : STAGE_NAME[s]}`;
       return `<button type="button" class="mp-cell${rank(s) <= rank(stop) ? ' in' : ''}${s === stop ? ' end' : ''}" data-row="${r}" data-stop="${s}" title="${title}">${STAGE_NAME[s]}</button>`;
     }).join('');
     return `<button type="button" class="mp-name${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>${cells}`;
   }).join('');
   document.getElementById('mp-list')!.innerHTML = `${whole('solve')}
-    <div class="mp-cap"><b>Practice a stretch.</b> A row is where the scramble leaves the cube; tap the stage to stop after. The help follows your cube up to there, and when the cube is solved the next scramble comes.</div>
+    <div class="mp-cap"><b>Practice a stretch.</b> A row is where the scramble leaves the cube; tap the stage to stop after. The help follows your cube up to there, and when the cube is solved the next scramble comes. All the way from a scramble is the Solve.</div>
     <div class="mp-grid">${rows}</div>${whole('find')}`;
 }
 /** A picker row (and a stop, from its cells): the mode it is, with its case. */
@@ -359,6 +361,8 @@ export function initModes(): void {
   let m = readStored(MODE_KEY) as ModeId | 'f2lll' | null;
   // F2L into the last layer was its own mode until the stretches (2026-09-26): F2L, stopping after PLL
   if (m === 'f2lll') { setStop('f2l', 'pll'); m = 'f2l'; }
+  // and EOCross on to solved, for an evening: the Solve
+  if (m === 'eo' && (readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null)?.eo === 'pll') { setStop('eo', 'eo'); m = 'solve'; }
   if (want && tabs.includes(want)) m = modeForTab(want as Tab);
   else if (!m || !MODES.some((d) => d.id === m)) m = modeForTab((readStored('zz-tab') as Tab | null) ?? 'solve');
   // the first case is the one the stage made at mount (or the page address asked for): kept
