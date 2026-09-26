@@ -220,11 +220,16 @@ export async function permittedDevices(): Promise<BluetoothDevice[]> {
   try { return await bt.getDevices(); } catch { return []; }
 }
 
-/** Whether this browser can reconnect without the chooser: the permitted-device list plus advertisements. */
-export function canAutoConnect(): boolean {
-  if (!bluetoothAvailable()) return false;
+/**
+ * Whether this browser can reconnect without the chooser, and how: `getDevices` (the permitted-device list)
+ * is the must; `watchAdvertisements` (experimental flag) lets the page wait for the cube instead of polling.
+ */
+export function autoConnectSupport(): { ok: true; watch: boolean } | { ok: false; why: string } {
+  if (!bluetoothAvailable()) return { ok: false, why: 'this browser has no Web Bluetooth' };
   const bt = navigator.bluetooth as Bluetooth & { getDevices?: unknown };
-  return typeof bt.getDevices === 'function' && typeof (globalThis as { BluetoothDevice?: { prototype?: { watchAdvertisements?: unknown } } }).BluetoothDevice?.prototype?.watchAdvertisements === 'function';
+  if (typeof bt.getDevices !== 'function') return { ok: false, why: 'this Chrome has no getDevices API: turn on chrome://flags/#enable-web-bluetooth-new-permissions-backend and relaunch' };
+  const watch = typeof (globalThis as { BluetoothDevice?: { prototype?: { watchAdvertisements?: unknown } } }).BluetoothDevice?.prototype?.watchAdvertisements === 'function';
+  return { ok: true, watch };
 }
 
 /**
@@ -288,8 +293,8 @@ async function attachKnown(device: BluetoothDevice, opts: ConnectOpts, log: Log,
   const gatt = device.gatt;
   if (!gatt) throw new Error('GATT unavailable on this device');
   log(`Connecting to ${device.name ?? 'the cube'}…`);
-  // DECISION: one connect with a 20 s timeout; the library retries twice more, but here the next
-  // advertisement is the retry (the caller listens again).
+  // DECISION: one connect with a 20 s timeout; the library retries twice more, but here the caller's
+  // next attempt is the retry.
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
@@ -320,6 +325,8 @@ async function attachKnown(device: BluetoothDevice, opts: ConnectOpts, log: Log,
 export interface AutoConnectOpts extends ConnectOpts {
   /** the device to wait for (the caller picked it, `pickKnownDevice`) */
   device: BluetoothDevice;
+  /** wait for the cube's advertisement before connecting (needs watchAdvertisements); false connects straight away */
+  watch?: boolean;
   /** stop waiting (the user tapped Connect or Disconnect, or the page is going away) */
   signal: AbortSignal;
   /** the attach step, injectable for the test; defaults to the GATT path above */
@@ -327,13 +334,21 @@ export interface AutoConnectOpts extends ConnectOpts {
 }
 
 /**
- * Wait for the device's advertisement, then connect it without the chooser. Rejects with AbortError on the
- * signal, or with the connect failure (the caller decides whether to listen again).
+ * Connect a permitted device without the chooser: wait for its advertisement when the browser can
+ * (`watch`), else try the GATT connection straight away (Chrome scans for a permitted device itself;
+ * it fails after its own timeout when the cube is not around, and the caller tries again). Rejects with
+ * AbortError on the signal, or with the connect failure.
  */
 export async function autoConnect(opts: AutoConnectOpts): Promise<CubeLink> {
   const log: Log = (msg) => { console.info(`[smart] ${msg}`); opts.onStatus?.(msg); };
-  log(`Listening for ${opts.device.name ?? 'the cube'}…`);
-  const heard = await hearAdvertisement(opts.device, opts.signal);
+  const name = opts.device.name ?? 'the cube';
+  let heard: BluetoothManufacturerData | null = null;
+  if (opts.watch ?? true) {
+    log(`Listening for ${name}…`);
+    heard = await hearAdvertisement(opts.device, opts.signal);
+  } else {
+    log(`Trying ${name}…`);
+  }
   if (opts.signal.aborted) throw new DOMException('Aborted', 'AbortError');
   const conn = await (opts.attach ?? ((d, h) => attachKnown(d, opts, log, h)))(opts.device, heard);
   rememberDevice({ id: opts.device.id, name: conn.deviceName });

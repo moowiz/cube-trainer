@@ -8,7 +8,7 @@ import { invertMap } from '../cube/frame';
 import { SOLVED } from '../cube/state';
 import { expectedFacelets, frameMap, relabelMoves, trainerScramble } from '../handoff';
 import { toast } from '../shell';
-import { autoConnect, bluetoothAvailable, canAutoConnect, connectCube, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
+import { autoConnect, autoConnectSupport, bluetoothAvailable, connectCube, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
 import { Capture, replay } from '../smart/capture';
 import { CubeSource } from '../smart/source';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
@@ -92,39 +92,58 @@ function connected(src: CubeSource, link: CubeLink): void {
   toast(`${link.name} connected`);
 }
 
-// The auto-connect (docs/smart-cube-design.md, "Reconnecting"): while the page wants a cube and none is
+// The auto-connect (docs/smart-cube-design.md 3.7): while the page wants a cube and none is
 // connected, the remembered cube is listened for and connected the moment it advertises. `wantCube`
 // is off only after the user's own Disconnect, so a dropped link comes back and a dismissed one stays away.
 let wantCube = true;
 let listening: AbortController | null = null;
-let retried = false;
+let attempts = 0;
+// DECISION: without watchAdvertisements the page can only try the connection and wait for Chrome's own
+// timeout; 12 tries a few seconds apart (several minutes) then the Connect button is left alone. With
+// it, an attempt is one heard advertisement, so a cube in a bad state gets the same cap.
+const MAX_ATTEMPTS = 12;
 
 function stopListening(): void {
   listening?.abort();
   listening = null;
 }
 
+/** Why the auto-connect is not happening, on the chip's status line and the console; nothing when it can run. */
+function explain(why: string): void {
+  console.info(`[smart] no auto-connect: ${why}`);
+  view.setBusy(`No auto-connect: ${why}`);
+}
+
 async function listenForCube(): Promise<void> {
-  if (cubeLink || listening || !wantCube || !canAutoConnect()) return;
-  const device = pickKnownDevice(await permittedDevices(), rememberedDevice());
-  if (!device || cubeLink || listening) return;
+  if (cubeLink || listening || !wantCube) return;
+  const support = autoConnectSupport();
+  if (!support.ok) { explain(support.why); return; }
+  const devices = await permittedDevices();
+  const remembered = rememberedDevice();
+  const device = pickKnownDevice(devices, remembered);
+  if (!device) {
+    const names = devices.map((d) => d.name ?? '?').join(', ');
+    explain(devices.length === 0 ? 'no permitted device yet (connect once with the button, then reload)' : `none of the permitted devices [${names}] is the remembered cube${remembered ? ` ${remembered.name}` : ''}`);
+    return;
+  }
+  if (cubeLink || listening) return;
+  if (attempts >= MAX_ATTEMPTS) { explain(`gave up on ${device.name ?? 'the cube'} after ${attempts} tries; tap Connect`); return; }
+  attempts++;
   const ctl = new AbortController();
   listening = ctl;
   const src = new CubeSource(CUBE_COLOURS);
   try {
-    const link = await autoConnect({ ...connectOpts(src), device, signal: ctl.signal });
+    const link = await autoConnect({ ...connectOpts(src), device, signal: ctl.signal, watch: support.watch });
     if (listening === ctl) listening = null;
+    attempts = 0;
     connected(src, link);
   } catch (err) {
     if (listening === ctl) listening = null;
     if (err instanceof DOMException && err.name === 'AbortError') return;
-    view.setBusy(null);
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[smart] auto-connect failed', err);
-    toast(`${device.name ?? 'The cube'} did not connect: ${msg}`);
-    // DECISION: one retry after a failed attach (the cube advertises again in a second or two); a
-    // second failure leaves the Connect button, so a cube in a bad state cannot loop the page.
-    if (wantCube && !retried) { retried = true; setTimeout(() => void listenForCube(), 2000); }
+    view.setBusy(`${device.name ?? 'The cube'} did not connect (${msg}); trying again…`);
+    if (wantCube) setTimeout(() => void listenForCube(), 3000);
   }
 }
 
@@ -133,7 +152,7 @@ async function connectSmartCube(): Promise<void> {
   if (cubeLink) return;
   stopListening();
   wantCube = true;
-  retried = false;
+  attempts = 0;
   const src = new CubeSource(CUBE_COLOURS);
   view.setBusy('Pick your cube in the browser dialog…');
   let link: CubeLink;

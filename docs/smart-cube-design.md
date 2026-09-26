@@ -248,10 +248,15 @@ from it, so the MAC step is skipped too).
 Rules: a dropped link listens again after a second; the user's own
 Disconnect stops the listening until they tap Connect or reload; a failed
 attach is retried once, then the Connect button is left alone so a cube in a
-bad state cannot loop the page; Connect (the chooser) always works for a
-different cube and aborts the listening. Where the API is missing
-(`canAutoConnect` false: no `getDevices`, or no `watchAdvertisements`) the
-page behaves as before. The test is `test/smart-autoconnect.test.ts`, on a
+bad state cannot loop the page (12 attempts, then the Connect button is
+left alone); Connect (the chooser) always works for a different cube and
+aborts the listening. Without `watchAdvertisements` (the experimental flag
+off) the page tries the GATT connection directly every few seconds instead:
+Chrome scans for a permitted device itself and fails after its own timeout
+when the cube is away. Without `getDevices` (`autoConnectSupport`) there is
+no auto-connect, and the chip's status line says so - as it says every other
+reason it is not happening (no permitted device yet, the remembered cube
+not among them, the attempt that failed). The test is `test/smart-autoconnect.test.ts`, on a
 fake device; the attach step is injectable so the flow runs without a
 radio.
 

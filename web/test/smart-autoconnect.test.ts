@@ -121,6 +121,16 @@ describe('autoConnect', () => {
     expect(got[1]).toMatchObject({ kind: 'move', move: "R'", t: 1020 });
   });
 
+  it('without watchAdvertisements (watch: false) it attaches straight away, with no advertisement in hand', async () => {
+    const d = fakeDevice('GAN12345', 'x', false);
+    const conn = fakeConn('GAN12345');
+    const attach = vi.fn(async () => conn);
+    const link = await autoConnect({ device: d, watch: false, signal: new AbortController().signal, attach, onEvent: () => undefined, askMac: async () => null });
+    expect(attach).toHaveBeenCalledTimes(1);
+    expect((attach.mock.calls as unknown as [BluetoothDevice, unknown][])[0]![1]).toBeNull();
+    expect(link.name).toBe('GAN12345');
+  });
+
   it('gives up cleanly when aborted while listening: no attach, an AbortError', async () => {
     const d = fakeDevice('GAN12345');
     const ctl = new AbortController();
