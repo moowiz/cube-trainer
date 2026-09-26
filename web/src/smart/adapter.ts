@@ -6,8 +6,15 @@
 // GAN cubes derive their key from the MAC address, which Web Bluetooth
 // hides: the library tries to read it from the advertisement, then asks
 // `askMac` (a one-time dialog; remembered per device name).
+//
+// Two ways in. `connectCube` opens the browser's chooser (a tap). `autoConnect`
+// takes the cube the chooser last picked from Chrome's permitted-device list
+// (`getDevices`, no tap needed), waits for its advertisement and connects the
+// moment it is heard: the page reconnects on load and after a dropped link.
+// The library's connect always calls the chooser, so the second path repeats
+// its GATT-first driver pick (service UUIDs -> protocol) here.
 
-import { connectSmartCube, type SmartCubeConnection, type SmartCubeEvent } from 'smartcube-web-bluetooth';
+import { connectSmartCube, getRegisteredProtocols, type SmartCubeConnection, type SmartCubeEvent, type SmartCubeProtocol } from 'smartcube-web-bluetooth';
 import { asMove, type CaptureEvent } from './capture';
 
 export interface CubeLink {
@@ -32,6 +39,20 @@ export interface ConnectOpts {
 }
 
 const MAC_KEY = 'cube.smart.mac.v1';
+const DEVICE_KEY = 'cube.smart.device.v1';
+
+/** The cube the chooser last picked: Chrome's per-origin device id and the name, for the chip. */
+export interface RememberedDevice { id: string; name: string }
+
+export function rememberedDevice(): RememberedDevice | null {
+  try {
+    const d = JSON.parse(localStorage.getItem(DEVICE_KEY) || 'null') as RememberedDevice | null;
+    return d && typeof d.id === 'string' && typeof d.name === 'string' ? d : null;
+  } catch { return null; }
+}
+export function rememberDevice(d: RememberedDevice | null): void {
+  try { if (d) localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); else localStorage.removeItem(DEVICE_KEY); } catch { /* no storage */ }
+}
 
 function rememberedMac(name: string): string | null {
   try { return (JSON.parse(localStorage.getItem(MAC_KEY) || '{}') as Record<string, string>)[name] ?? null; } catch { return null; }
@@ -102,29 +123,55 @@ export function bluetoothAvailable(): boolean {
   return typeof navigator !== 'undefined' && 'bluetooth' in navigator && !!navigator.bluetooth;
 }
 
+type Log = (msg: string) => void;
+
+/** The MAC step the library asks for, shared by both ways in: remembered, else the advertisement, else the dialog. */
+function macProvider(opts: ConnectOpts, log: Log, heard: BluetoothManufacturerData | null) {
+  let verdict = 'the advertisement was not probed';
+  return async (device: BluetoothDevice, isFallback?: boolean): Promise<string | null> => {
+    const name = device.name ?? 'cube';
+    const known = rememberedMac(name);
+    if (known) { log(`MAC: remembered ${known} for ${name}`); return known; }
+    if (!isFallback) {
+      // an advertisement already in hand (the auto-connect heard one) is read first; else listen for one
+      const fromHeard = heard ? macFromManufacturerData(heard) : null;
+      if (fromHeard) { log(`MAC: read ${fromHeard} from the advertisement that woke the auto-connect`); rememberMac(name, fromHeard); return fromHeard; }
+      // the library would try the advertisement next; do it ourselves first so the outcome is visible
+      const r = await probeAdvertisement(device, log);
+      verdict = r.verdict;
+      if (r.mac) rememberMac(name, r.mac);
+      return r.mac;
+    }
+    const mac = await opts.askMac(name, verdict);
+    if (mac) rememberMac(name, mac);
+    return mac;
+  };
+}
+
+/** The GAN MAC out of a manufacturer-data map (the probe's convention: the last 6 of the first 9 bytes, reversed), or null. */
+export function macFromManufacturerData(md: BluetoothManufacturerData): string | null {
+  const ids = [...md.keys()];
+  const gan = ids.find((id) => (id & 0xff) === 0x01);
+  if (gan === undefined) return null;
+  const dv = md.get(gan)!;
+  const bytes = [...new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength)];
+  if (bytes.length < 6) return null;
+  return bytes.slice(0, 9).slice(-6).reverse().map((b) => b.toString(16).toUpperCase().padStart(2, '0')).join(':');
+}
+
 /** Open the browser's device chooser and connect. Rejects when the user cancels or the cube is not supported. */
 export async function connectCube(opts: ConnectOpts): Promise<CubeLink> {
+  const log: Log = (msg) => { console.info(`[smart] ${msg}`); opts.onStatus?.(msg); };
+  const conn = await connectSmartCube({ onStatus: opts.onStatus, macAddressProvider: macProvider(opts, log, null) });
+  // the chooser's pick is remembered for the auto-connect (its id is what getDevices hands back)
+  const picked = await permittedDevices().then((ds) => ds.find((d) => d.name === conn.deviceName) ?? null).catch(() => null);
+  if (picked) rememberDevice({ id: picked.id, name: conn.deviceName });
+  return wrap(conn, opts);
+}
+
+/** The connection as our link: events stamped with the host clock, the first requests sent. */
+async function wrap(conn: SmartCubeConnection, opts: ConnectOpts): Promise<CubeLink> {
   const now = opts.now ?? (() => performance.now());
-  let verdict = 'the advertisement was not probed';
-  const log = (msg: string) => { console.info(`[smart] ${msg}`); opts.onStatus?.(msg); };
-  const conn = await connectSmartCube({
-    onStatus: opts.onStatus,
-    macAddressProvider: async (device, isFallback) => {
-      const name = device.name ?? 'cube';
-      const known = rememberedMac(name);
-      if (known) { log(`MAC: remembered ${known} for ${name}`); return known; }
-      if (!isFallback) {
-        // the library would try the advertisement next; do it ourselves first so the outcome is visible
-        const r = await probeAdvertisement(device, log);
-        verdict = r.verdict;
-        if (r.mac) rememberMac(name, r.mac);
-        return r.mac;
-      }
-      const mac = await opts.askMac(name, verdict);
-      if (mac) rememberMac(name, mac);
-      return mac;
-    },
-  });
   const link: CubeLink = {
     name: conn.deviceName,
     mac: conn.deviceMAC,
@@ -160,4 +207,135 @@ export async function connectCube(opts: ConnectOpts): Promise<CubeLink> {
   await link.requestFacelets().catch(() => undefined);
   link.requestBattery().catch(() => undefined);
   return link;
+}
+
+// ---- the auto-connect: a permitted device, heard, then connected without the chooser -----------------
+
+type Watchable = BluetoothDevice & { watchAdvertisements?: (o?: { signal?: AbortSignal }) => Promise<void> };
+
+/** Chrome's permitted-device list (the new permissions backend); [] where the API is missing. */
+export async function permittedDevices(): Promise<BluetoothDevice[]> {
+  const bt = bluetoothAvailable() ? (navigator.bluetooth as Bluetooth & { getDevices?: () => Promise<BluetoothDevice[]> }) : null;
+  if (!bt || typeof bt.getDevices !== 'function') return [];
+  try { return await bt.getDevices(); } catch { return []; }
+}
+
+/** Whether this browser can reconnect without the chooser: the permitted-device list plus advertisements. */
+export function canAutoConnect(): boolean {
+  if (!bluetoothAvailable()) return false;
+  const bt = navigator.bluetooth as Bluetooth & { getDevices?: unknown };
+  return typeof bt.getDevices === 'function' && typeof (globalThis as { BluetoothDevice?: { prototype?: { watchAdvertisements?: unknown } } }).BluetoothDevice?.prototype?.watchAdvertisements === 'function';
+}
+
+/**
+ * The remembered cube among the permitted devices: by id first; failing that (Chrome re-issues ids when
+ * site data is cleared) the one permitted device a registered protocol recognises by name, if there is
+ * exactly one. Pure over the lists, for the test.
+ */
+export function pickKnownDevice(devices: readonly BluetoothDevice[], remembered: RememberedDevice | null, protocols: readonly Pick<SmartCubeProtocol, 'matchesDevice'>[] = getRegisteredProtocols()): BluetoothDevice | null {
+  if (remembered) {
+    const byId = devices.find((d) => d.id === remembered.id);
+    if (byId) return byId;
+  }
+  const cubes = devices.filter((d) => protocols.some((p) => p.matchesDevice(d)));
+  return cubes.length === 1 ? cubes[0]! : null;
+}
+
+/** Resolve on the device's first advertisement (its manufacturer data), reject on abort or when the API refuses. */
+export function hearAdvertisement(device: BluetoothDevice, signal: AbortSignal): Promise<BluetoothManufacturerData | null> {
+  const d = device as Watchable;
+  return new Promise((resolve, reject) => {
+    if (typeof d.watchAdvertisements !== 'function') { reject(new Error('no watchAdvertisements API')); return; }
+    const ctl = new AbortController();
+    let done = false;
+    const finish = (f: () => void) => {
+      if (done) return;
+      done = true;
+      device.removeEventListener('advertisementreceived', onAdv);
+      signal.removeEventListener('abort', onAbort);
+      ctl.abort();
+      f();
+    };
+    const onAdv = (evt: Event) => finish(() => resolve((evt as BluetoothAdvertisingEvent).manufacturerData ?? null));
+    const onAbort = () => finish(() => reject(new DOMException('Aborted', 'AbortError')));
+    if (signal.aborted) { onAbort(); return; }
+    signal.addEventListener('abort', onAbort, { once: true });
+    device.addEventListener('advertisementreceived', onAdv);
+    d.watchAdvertisements({ signal: ctl.signal }).catch((err: unknown) => finish(() => reject(err instanceof Error ? err : new Error(String(err)))));
+  });
+}
+
+/** The library's driver pick: the protocol with the highest GATT affinity, ties to the one that knows the name. */
+export function resolveProtocol(protocols: readonly SmartCubeProtocol[], serviceUuids: ReadonlySet<string>, device: BluetoothDevice): SmartCubeProtocol | null {
+  const ranked = protocols.map((p) => ({ p, score: p.gattAffinity(serviceUuids, device) }));
+  const max = Math.max(-1, ...ranked.map((r) => r.score));
+  if (max > 0) {
+    const top = ranked.filter((r) => r.score === max);
+    return (top.find((r) => r.p.matchesDevice(device)) ?? top[0]!).p;
+  }
+  return protocols.find((p) => p.matchesDevice(device)) ?? null;
+}
+
+/** 128-bit lowercase, the form the protocols compare against. */
+export function normalizeUuid(uuid: string | number): string {
+  if (typeof uuid === 'number') return `${uuid.toString(16).padStart(8, '0')}-0000-1000-8000-00805f9b34fb`;
+  const u = uuid.trim().toLowerCase();
+  return /^(0x)?[0-9a-f]{1,8}$/.test(u) ? normalizeUuid(parseInt(u, 16)) : u;
+}
+
+/** Connect an already-permitted device (no chooser): GATT, primary services, the protocol they name, its session. */
+async function attachKnown(device: BluetoothDevice, opts: ConnectOpts, log: Log, heard: BluetoothManufacturerData | null): Promise<SmartCubeConnection> {
+  const gatt = device.gatt;
+  if (!gatt) throw new Error('GATT unavailable on this device');
+  log(`Connecting to ${device.name ?? 'the cube'}…`);
+  // DECISION: one connect with a 20 s timeout; the library retries twice more, but here the next
+  // advertisement is the retry (the caller listens again).
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      gatt.connect(),
+      new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('GATT connection timeout')), 20_000); }),
+    ]);
+  } catch (err) {
+    try { gatt.disconnect(); } catch { /* ignore */ }
+    throw err;
+  } finally { clearTimeout(timer); }
+  const serviceUuids = new Set<string>();
+  try { for (const s of await gatt.getPrimaryServices()) serviceUuids.add(normalizeUuid(s.uuid)); }
+  catch (err) { try { gatt.disconnect(); } catch { /* ignore */ } throw err; }
+  const protocol = resolveProtocol(getRegisteredProtocols(), serviceUuids, device);
+  if (!protocol) {
+    try { gatt.disconnect(); } catch { /* ignore */ }
+    throw new Error(`${device.name ?? 'the device'} matches no smart cube protocol`);
+  }
+  log(`Driver: ${protocol.nameFilters.map((f) => ('namePrefix' in f ? f.namePrefix : f.name)).join('/')}`);
+  try {
+    return await protocol.connect(device, macProvider(opts, log, heard), { serviceUuids, advertisementManufacturerData: heard, onStatus: opts.onStatus });
+  } catch (err) {
+    try { gatt.disconnect(); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
+export interface AutoConnectOpts extends ConnectOpts {
+  /** the device to wait for (the caller picked it, `pickKnownDevice`) */
+  device: BluetoothDevice;
+  /** stop waiting (the user tapped Connect or Disconnect, or the page is going away) */
+  signal: AbortSignal;
+  /** the attach step, injectable for the test; defaults to the GATT path above */
+  attach?(device: BluetoothDevice, heard: BluetoothManufacturerData | null): Promise<SmartCubeConnection>;
+}
+
+/**
+ * Wait for the device's advertisement, then connect it without the chooser. Rejects with AbortError on the
+ * signal, or with the connect failure (the caller decides whether to listen again).
+ */
+export async function autoConnect(opts: AutoConnectOpts): Promise<CubeLink> {
+  const log: Log = (msg) => { console.info(`[smart] ${msg}`); opts.onStatus?.(msg); };
+  log(`Listening for ${opts.device.name ?? 'the cube'}…`);
+  const heard = await hearAdvertisement(opts.device, opts.signal);
+  if (opts.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  const conn = await (opts.attach ?? ((d, h) => attachKnown(d, opts, log, h)))(opts.device, heard);
+  rememberDevice({ id: opts.device.id, name: conn.deviceName });
+  return wrap(conn, opts);
 }

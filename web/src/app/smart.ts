@@ -8,7 +8,7 @@ import { invertMap } from '../cube/frame';
 import { SOLVED } from '../cube/state';
 import { expectedFacelets, frameMap, relabelMoves, trainerScramble } from '../handoff';
 import { toast } from '../shell';
-import { bluetoothAvailable, connectCube, type CubeLink } from '../smart/adapter';
+import { autoConnect, bluetoothAvailable, canAutoConnect, connectCube, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
 import { Capture, replay } from '../smart/capture';
 import { CubeSource } from '../smart/source';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
@@ -53,51 +53,112 @@ function headerToSession(): void {
   void s.cubeHeader(cube.capture.header, { name: cubeLink.name, protocol: cubeLink.protocol, scheme: cube.colourOf });
 }
 
-async function connectSmartCube(): Promise<void> {
-  if (cubeLink) return;
-  const src = new CubeSource(CUBE_COLOURS);
-  view.setBusy('Pick your cube in the browser dialog…');
-  try {
-    cubeLink = await connectCube({
-      onEvent: (e) => {
-        src.feed(e);
-        const s = rig.current();
-        if (s) { headerToSession(); void s.cubeEvent(e); }
-        if (e.kind === 'disconnect') {
-          cubeLink = null;
-          dropSource(src);
-          refreshView();
-          toast('Smart cube disconnected');
-        }
-      },
-      askMac: async (name, why) => {
-        const v = window.prompt(
-          `The browser could not read the MAC address of ${name}: ${why}.\n\n` +
-          `Type it (like AB:12:34:56:78:9A); it is remembered for this cube.\n\n` +
-          `Where to find it: a BLE scanner app (nRF Connect on the phone) lists it next to the cube's name; on Windows it is in Device Manager > Bluetooth > the cube > Details > "Bluetooth device address". ` +
-          `To skip this dialog for good, turn on chrome://flags/#enable-experimental-web-platform-features and reconnect.`,
-        );
-        const mac = v?.trim().toUpperCase().replace(/-/g, ':') ?? '';
-        return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac) ? mac : null;
-      },
-      onStatus: (m) => view.setBusy(m),
-    });
-  } catch (err) {
-    view.setBusy(null);
-    toast(`No cube connected: ${err instanceof Error ? err.message : err}`);
-    return;
-  }
+/** The connect options both ways in share: the events into the source and the rig, the MAC dialog, the status line. */
+function connectOpts(src: CubeSource): ConnectOpts {
+  return {
+    onEvent: (e) => {
+      src.feed(e);
+      const s = rig.current();
+      if (s) { headerToSession(); void s.cubeEvent(e); }
+      if (e.kind === 'disconnect') {
+        cubeLink = null;
+        dropSource(src);
+        refreshView();
+        toast('Smart cube disconnected');
+        // a dropped link (not the user's Disconnect): listen for the cube again
+        if (wantCube) setTimeout(() => void listenForCube(), 1000);
+      }
+    },
+    askMac: async (name, why) => {
+      const v = window.prompt(
+        `The browser could not read the MAC address of ${name}: ${why}.\n\n` +
+        `Type it (like AB:12:34:56:78:9A); it is remembered for this cube.\n\n` +
+        `Where to find it: a BLE scanner app (nRF Connect on the phone) lists it next to the cube's name; on Windows it is in Device Manager > Bluetooth > the cube > Details > "Bluetooth device address". ` +
+        `To skip this dialog for good, turn on chrome://flags/#enable-experimental-web-platform-features and reconnect.`,
+      );
+      const mac = v?.trim().toUpperCase().replace(/-/g, ':') ?? '';
+      return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac) ? mac : null;
+    },
+    onStatus: (m) => view.setBusy(m),
+  };
+}
+
+function connected(src: CubeSource, link: CubeLink): void {
+  cubeLink = link;
+  wantCube = true;
   view.setBusy(null);
   takeSource(src);
   headerToSession();
-  toast(`${cubeLink.name} connected`);
+  toast(`${link.name} connected`);
+}
+
+// The auto-connect (docs/smart-cube-design.md, "Reconnecting"): while the page wants a cube and none is
+// connected, the remembered cube is listened for and connected the moment it advertises. `wantCube`
+// is off only after the user's own Disconnect, so a dropped link comes back and a dismissed one stays away.
+let wantCube = true;
+let listening: AbortController | null = null;
+let retried = false;
+
+function stopListening(): void {
+  listening?.abort();
+  listening = null;
+}
+
+async function listenForCube(): Promise<void> {
+  if (cubeLink || listening || !wantCube || !canAutoConnect()) return;
+  const device = pickKnownDevice(await permittedDevices(), rememberedDevice());
+  if (!device || cubeLink || listening) return;
+  const ctl = new AbortController();
+  listening = ctl;
+  const src = new CubeSource(CUBE_COLOURS);
+  try {
+    const link = await autoConnect({ ...connectOpts(src), device, signal: ctl.signal });
+    if (listening === ctl) listening = null;
+    connected(src, link);
+  } catch (err) {
+    if (listening === ctl) listening = null;
+    if (err instanceof DOMException && err.name === 'AbortError') return;
+    view.setBusy(null);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[smart] auto-connect failed', err);
+    toast(`${device.name ?? 'The cube'} did not connect: ${msg}`);
+    // DECISION: one retry after a failed attach (the cube advertises again in a second or two); a
+    // second failure leaves the Connect button, so a cube in a bad state cannot loop the page.
+    if (wantCube && !retried) { retried = true; setTimeout(() => void listenForCube(), 2000); }
+  }
+}
+
+/** The Connect button: the chooser, for a new cube or when the auto-connect has nothing to wait for. */
+async function connectSmartCube(): Promise<void> {
+  if (cubeLink) return;
+  stopListening();
+  wantCube = true;
+  retried = false;
+  const src = new CubeSource(CUBE_COLOURS);
+  view.setBusy('Pick your cube in the browser dialog…');
+  let link: CubeLink;
+  try {
+    link = await connectCube(connectOpts(src));
+  } catch (err) {
+    view.setBusy(null);
+    toast(`No cube connected: ${err instanceof Error ? err.message : err}`);
+    void listenForCube();
+    return;
+  }
+  connected(src, link);
 }
 
 export function initSmart(): void {
   view = mountCubeView(panel('cube-panel'), {
     bluetooth: bluetoothAvailable(),
     connect: connectSmartCube,
-    disconnect: async () => { await cubeLink?.disconnect().catch(() => undefined); },
+    disconnect: async () => {
+      // the user's own Disconnect: no reconnect until they tap Connect (or reload the page)
+      wantCube = false;
+      stopListening();
+      view.setBusy(null);
+      await cubeLink?.disconnect().catch(() => undefined);
+    },
     resync(how) {
       if (!cube) return;
       if (how === 'solved') {
@@ -125,6 +186,7 @@ export function initSmart(): void {
   });
   onSourceChange(refreshView);
   rig.onStart(headerToSession);
+  void listenForCube();
 
   // while connected: the status line every second, and, once the turns have settled, the cube's own
   // report every few seconds so a missed turn shows up as drift instead of a wrong lock later

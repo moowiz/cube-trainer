@@ -145,5 +145,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
+    // the smart cube library's ESM bundle names aes-js's exports, which Node's CJS interop refuses;
+    // through vite's transform (as in the browser build) it loads
+    server: { deps: { inline: ['smartcube-web-bluetooth'] } },
   },
 });

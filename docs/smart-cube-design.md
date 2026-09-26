@@ -229,6 +229,32 @@ permissions-backend flag on some platforms) and otherwise take a
 CubeStation app / on the box", remembered in localStorage per cube name.
 Budget an hour for this on each device.
 
+### 3.7 Reconnecting (2026-09-25)
+
+Web Bluetooth's chooser needs a tap, but Chrome's permitted-device list
+(`getDevices`, the new permissions backend) does not: a device the chooser
+once picked can be watched for its advertisement and connected on
+`advertisementreceived` with no gesture at all. The adapter's `autoConnect`
+does that: the chooser's pick is remembered (Chrome's per-origin device id +
+name, `cube.smart.device.v1`), on page load `app/smart.ts` picks it out of the
+permitted list (by id; failing that the one permitted device a protocol
+recognises by name), listens, and connects the moment the cube is heard.
+The library's `connectSmartCube` always calls the chooser, so the
+no-chooser path repeats its attach in the adapter: GATT connect, primary
+service UUIDs, the protocol with the highest GATT affinity, that protocol's
+`connect` with the advertisement's manufacturer data (the GAN MAC comes
+from it, so the MAC step is skipped too).
+
+Rules: a dropped link listens again after a second; the user's own
+Disconnect stops the listening until they tap Connect or reload; a failed
+attach is retried once, then the Connect button is left alone so a cube in a
+bad state cannot loop the page; Connect (the chooser) always works for a
+different cube and aborts the listening. Where the API is missing
+(`canAutoConnect` false: no `getDevices`, or no `watchAdvertisements`) the
+page behaves as before. The test is `test/smart-autoconnect.test.ts`, on a
+fake device; the attach step is injectable so the flow runs without a
+radio.
+
 **Done when:** the i Carry E connects on the phone and on desktop Chrome;
 each turn shows on the live view within ~100 ms; a deliberately drifted
 cube is resynced from a scan lock; one captured session replays through
