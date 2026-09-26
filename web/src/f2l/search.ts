@@ -8,6 +8,7 @@
 // every turn in the set). Other move sets (own side only, + D, + F2) are for scripts/f2l-derive.ts, which measures
 // the sheet against each. Pure; a table is built once per slot and move set (~330k entries, a byte each).
 
+import { STICKERS } from '../cube/geometry';
 import { SOLVED, state } from '../cube/state';
 import type { F2LCase, SlotName } from './data';
 import { moveCount } from '../cube/alg';
@@ -34,6 +35,22 @@ function indices(): [Int8Array, Int8Array] {
     EDGE_NAMES.flatMap((n) => stickersOf(n)).forEach((s, i) => { eIdx![s] = i; });
   }
   return [cIdx, eIdx];
+}
+
+let eoT: [Uint8Array, number[]] | null = null;
+/**
+ * EO as ZZ has it: each edge's U/D sticker (its F/B one for a middle-layer edge) is its EO sticker, and the edge is
+ * oriented when that sticker is on U/D, or on F/B in a middle-layer position. good[i] for every sticker index; the EO
+ * stickers of the 12 edges at home.
+ */
+function eoTables(): [Uint8Array, number[]] {
+  if (!eoT) {
+    const good = new Uint8Array(54);
+    const refs = EDGE_NAMES.map((n) => stickersOf(n).find((i) => /[UD]/.test(STICKERS[i]!.face)) ?? stickersOf(n).find((i) => /[FB]/.test(STICKERS[i]!.face))!);
+    for (const n of EDGE_NAMES) for (const i of stickersOf(n)) good[i] = /[UD]/.test(STICKERS[i]!.face) || (!/[UD]/.test(n) && /[FB]/.test(STICKERS[i]!.face)) ? 1 : 0;
+    eoT = [good, refs];
+  }
+  return eoT;
 }
 
 /** The pieces a slot's table follows, as their home reference stickers: the pair's corner and edge, then DR, DL. */
@@ -74,21 +91,25 @@ export interface Placed { slot: SlotName; corner: number; edge: number }
  * `keep` home at the end, those starting home (a kept pair may be lifted on the way; the other slots are free). Up
  * to `limit` of the shortest (all of one length, the first found first); [] past `maxDepth`.
  */
-export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { moves?: readonly string[]; maxDepth?: number; limit?: number } = {}): string[] {
+export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { moves?: readonly string[]; maxDepth?: number; limit?: number; eo?: boolean } = {}): string[] {
   const moves = opts.moves ?? RLU, maxDepth = opts.maxDepth ?? 14, limit = opts.limit ?? 1;
+  const [good, eoRefs] = eoTables(), nEo = opts.eo ? 12 : 0;
   const [c, e] = indices(), p = P(moves);
   const faces = moves.map((m) => m[0]!);
   const slots = [pair.slot, ...keep.filter((s) => s !== pair.slot)];
   const tabs = slots.map((s) => table(s, moves));
   /** state: [DR, DL, DF, DB, corner0, edge0, corner1, edge1, ...] */
   const home = [ref('DR'), ref('DL'), ref('DF'), ref('DB'), ...slots.flatMap((s) => [ref(`D${s}`), ref(s)])];
-  const cur = [...home.slice(0, 4), pair.corner, pair.edge, ...home.slice(6)];
+  const tracked = home.length;
+  // with F/B quarter turns: every edge's EO sticker too, which must all end good (ZZ's EO kept for the last layer)
+  const cur = [...home.slice(0, 4), pair.corner, pair.edge, ...home.slice(6), ...(nEo ? eoRefs : [])];
   const h = (s: number[]) => {
     let m = 0;
+    if (nEo) { let bad = 0; for (let i = tracked; i < s.length; i++) if (!good[s[i]!]) bad++; m = Math.ceil(bad / 4); } // a quarter F/B flips four
     for (let i = 0; i < tabs.length; i++) m = Math.max(m, tabs[i]![tableKey(c, e, s[4 + 2 * i]!, s[5 + 2 * i]!, s[0]!, s[1]!)]!);
     return m;
   };
-  const done = (s: number[]) => s.every((x, i) => x === home[i]);
+  const done = (s: number[]) => home.every((x, i) => s[i] === x) && s.every((x, i) => i < tracked || good[x]);
   const path: number[] = [], out: string[] = [];
   const dfs = (s: number[], g: number, bound: number, last: number): boolean => {
     const hs = h(s);

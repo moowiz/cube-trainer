@@ -2,10 +2,12 @@
 // to keep, and none of the case's own R/L/U algs is shorter.
 import { describe, expect, it } from 'vitest';
 import { moveCount, tokens } from '../src/cube/alg';
-import { state } from '../src/cube/state';
+import { crossSolved, edgeState } from '../src/cube/pieces';
+import { state, stepStates } from '../src/cube/state';
 import { DATA } from '../src/f2l/data';
 import { caseAlgs, fullAlg, invert, orderedAlgs, SLOTS, slotSolved } from '../src/f2l/model';
-import { leftBroken, openSlotShortcut, shortestFor } from '../src/f2l/search';
+import { casePair, casePicture, leftBroken, occupiedSlots, openSlotShortcut, shortestAlgs, shortestFor } from '../src/f2l/search';
+import type { SlotName } from '../src/f2l/data';
 
 const rlu = (a: string) => tokens(fullAlg('', a)).every((t) => 'RLU'.includes(t[0]!));
 
@@ -40,6 +42,14 @@ describe('the shortest R/L/U alg', () => {
     expect(o).toEqual({ alg: "D R U' R' D'", free: ['FR'] });
     expect(slotSolved(state(`${invert(fullAlg('', shortestFor('FL', c)!))} ${o.alg}`), 'FL')).toBe(true);
     expect(leftBroken('FL', c, o.alg).cross).toBe(true);
+  });
+  it('with F and B quarter turns allowed (eo), every edge ends oriented: front-right case 46 in 7', () => {
+    const c = DATA.slots.FR.cases['46']!;
+    const all = ['U', 'R', 'L', 'D', 'F', 'B'].flatMap((f) => [f, `${f}'`, `${f}2`]);
+    const g = shortestAlgs(casePair('FR', c), ['FL', 'BR', 'BL'].filter((s) => !occupiedSlots('FR', c).includes(s as SlotName)) as SlotName[], { moves: all, eo: true })[0]!;
+    expect(g.split(' ')).toHaveLength(7);
+    const end = stepStates(casePicture('FR', c), g).at(-1)!;
+    expect([slotSolved(end, 'FR'), crossSolved(edgeState(end)), edgeState(end).eo]).toEqual([true, true, 0]);
   });
   it('a shortcut through open slots names the slots it leaves disturbed, and is shorter than keeping them', () => {
     let seen = 0;
