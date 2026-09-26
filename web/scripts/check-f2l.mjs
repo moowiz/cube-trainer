@@ -5,15 +5,17 @@
 // connection, so the captures are cumulative.
 //
 //   npm run check:f2l        (run `npm run build` first)
+import Cube from 'cubejs';
 import { launchBrowser, serveDist } from './headless.mjs';
 const server = await serveDist(); const browser = await launchBrowser(); const page = await browser.newPage();
 const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const inverse = (alg) => alg.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m.slice(0, -1) : m.endsWith('2') ? m : m + "'")).join(' ');
-function capture(moves) {
+/** A capture from a connection whose first report is `from` (solved, or a cube reconnected mid-solve), then `moves`. */
+function capture(moves, from = SOLVED) {
   const lines = [JSON.stringify({ header: { version: 1, startedAt: Date.now(), t0: 0, scheme: { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' }, note: 'check-f2l' } })];
   let t = 1000;
   lines.push(JSON.stringify({ kind: 'connect', t, name: 'GAN-check', mac: '00:00:00:00:00:00', protocol: 'synthetic', caps: { gyroscope: false, battery: true, facelets: true, hardware: false, reset: true } }));
-  lines.push(JSON.stringify({ kind: 'facelets', t: (t += 100), facelets: SOLVED }));
+  lines.push(JSON.stringify({ kind: 'facelets', t: (t += 100), facelets: from }));
   for (const m of moves.split(/\s+/).filter(Boolean).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m]))) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
   return lines.join('\n') + '\n';
 }
@@ -153,6 +155,21 @@ await page.evaluate(() => window.ZZ.showTab('f2l')); await wait(400);
 check((await page.evaluate(() => window.ZZ.f2l.scramble())) !== scrX, 'back on the tab: the scramble is the cube as it stands');
 check(/^(front-left|back-left|back-right) case \d+$/.test(await text('#result .case-title h2') ?? ''), `and the open pair read off it: ${await text('#result .case-title h2')} (${await text('#scrmsg')})`);
 
+// a cube reconnected mid-F2L (user, 2026-09-26: it asked for the scramble again): its first report is read as it
+// stands, the drill arms there, and its turns are followed
+await page.$eval('#genF2L', (b) => b.click()); await wait(100);
+const cubeR = await cubeOf(await page.evaluate(() => window.ZZ.f2l.scramble()));
+await replay(cubeR);
+const algR = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
+await replay(`${cubeR} ${await cubeOf(algR)}`); // one pair in
+const midF2L = new Cube().move(`${cubeR} ${await cubeOf(algR)}`).asString();
+await page.evaluate((t) => window.ZZ.smart.replay(t), capture('', midF2L)); await wait(300);
+const titleR = await text('#result .case-title h2');
+check(/Read from your cube/.test(await text('#scrmsg') ?? '') && /case \d+$/.test(titleR ?? ''), `reconnected mid-F2L: read as it stands (${await text('#scrmsg')}; ${titleR})`);
+const nextAlg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
+await page.evaluate((t) => window.ZZ.smart.replay(t), capture(await cubeOf(nextAlg.split(' ')[0]), midF2L)); await wait(300);
+check((await count('#result .alg.on')) === 1 && (await text('#result .case-title h2')) === titleR, `and the next turn is followed: ${await count('#result .alg.on')} alg lit (${await text('#result .case-title h2')})`);
+
 // the case sheet: one slot's cases, filtered, a star that leads the finder, a case set on the finder
 await page.$eval('#allcases', (b) => b.click()); await wait(400);
 check(!(await page.$eval('#ref-sheet', (e) => e.hidden)), 'the sheet opens');
@@ -250,6 +267,20 @@ await page.$eval('#hidecube', (b) => b.click()); await wait(200);
 check(await page.$eval('#stage', (e) => getComputedStyle(e).display === 'none') && (await count('#result .case-title')) === 1, 'Hide the cube hides the picture, the case stays');
 await page.$eval('#hidecube', (b) => b.click()); await wait(200);
 check(await page.$eval('#stage', (e) => getComputedStyle(e).display !== 'none') && (await count('#cube3d polygon')) > 0, 'and brings it back, drawn');
+
+// a D-layer conjugate (front-left case 48, D' L' U' L D L' U L): its first D' puts the pair's pieces in their places
+// while it turns the cross away - not the pair done (user, 2026-09-26: the cube was read afresh, "solve EOCross")
+const CONJ = "D' L' U' L D L' U L";
+await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && !b.checked) b.click(); });
+await page.evaluate((s) => window.ZZ.f2l.load(s), inverse(CONJ)); await wait(200);
+await replay(await cubeOf(inverse(CONJ)));
+await pickPair('front-left'); await wait(200);
+check((await text('#result .case-title h2')) === 'front-left case 48', `the conjugate's case: ${await text('#result .case-title h2')}`);
+await replay(`${await cubeOf(inverse(CONJ))} ${await cubeOf("D'")}`);
+const conj = { title: await text('#result .case-title h2'), on: await page.$eval('#result .alg.on', (e) => e.dataset.alg).catch(() => null) };
+check(conj.title === 'front-left case 48' && conj.on === CONJ, `its D' is the alg under way, not the pair done: ${JSON.stringify(conj)}`);
+await replay(`${await cubeOf(inverse(CONJ))} ${await cubeOf(CONJ)}`);
+check(/All four pairs solved/.test(await text('#result .hint') ?? ''), `the whole conjugate: the pair in (${await text('#result .hint')})`);
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
 process.exit(failed ? 1 : 0);

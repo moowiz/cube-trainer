@@ -1070,4 +1070,21 @@ check:practice pass unchanged.
   and failed there. `check:f2l`'s alg-order check now skips the own-side
   row (added after the sheet's algs on purpose), which failed about one run
   in six depending on the scramble.
+- **F2L: a D-layer conjugate is not "the pair done" at its first D'.** On
+  front-left case 48 (D' L' U' L D L' U L), the D' puts the pair's pieces in
+  their places while it turns the cross away. By position alone that read as
+  solved, so the cube was read afresh and EOCross was asked for. A pair now
+  counts as in only with the cross in place too (also for the clock's end and
+  a picked case's finish).
+- **F2L: a cube reconnected mid-F2L is read as it stands.** A fresh
+  connection arms only at the scramble, which the cube is past, so it asked
+  for the scramble again. Its first report is now read the way a tab switch
+  mid-solve already was. That doesn't apply to a solved cube, or to one
+  still applying the scramble.
+- `check:ll`'s note step scrolls the field to the middle before clicking. On
+  the 800 × 600 page the field sometimes sat under the phone layout's fixed
+  bottom nav, and the click landed on the nav.
+- Known flaky: `check:f2l`'s "three turns into the front-left pair's alg"
+  failed once in about ten runs, on a random scramble. It is untouched by
+  these changes and not chased yet.
 

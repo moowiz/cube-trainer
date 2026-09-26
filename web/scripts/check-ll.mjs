@@ -53,7 +53,7 @@ await page.select('#pll-order', 'cycle');
 await page.click('#setup-close');
 const seen = [];
 for (let i = 1; i <= 6; i++) {
-  await page.click('#rail-new'); await new Promise((r) => setTimeout(r, 400));
+  await page.$eval('#rail-new', (b) => b.click()); await new Promise((r) => setTimeout(r, 400));
   seen.push(await page.evaluate(() => window.ZZ.pll.scramble()));
   const counter = await page.$eval('#pll-cycle', (e) => e.textContent);
   check(counter === `${i === 6 ? 1 : i} / 5`, `counter after New case ${i}: ${counter}`);
@@ -81,10 +81,12 @@ await page.$eval('#pll-showNote', (b) => b.click()); await new Promise((r) => se
 check((await page.$eval('#pll-noteHint', (e) => !e.hidden && e.textContent)) === 'bars facing me: T', 'tapped: the note shows');
 check(!(await page.$eval('#pll-result', (e) => e.classList.contains('show'))), 'and the alg stays hidden');
 check((await page.$eval('#pll-showNote', (e) => e.textContent)) === 'Hide my note', 'the button flips');
-await page.click('#rail-new'); await new Promise((r) => setTimeout(r, 500));
+await page.$eval('#rail-new', (b) => b.click()); await new Promise((r) => setTimeout(r, 500));
 check((await page.$eval('#pll-noteHint', (e) => e.hidden)), 'a new case: the note is hidden again');
 await page.evaluate((s) => window.ZZ.pll.load(s), setup); await new Promise((r) => setTimeout(r, 300));
 await page.$eval('#pll-showSol', (b) => b.click()); await new Promise((r) => setTimeout(r, 200));
+// (to the middle first: low on a phone-sized page it sits under the fixed bottom nav, which a pointer click would hit)
+await page.$eval('#pll-result .ll-note', (e) => e.scrollIntoView({ block: 'center' }));
 await page.click('#pll-result .ll-note'); await page.keyboard.down('Control'); await page.keyboard.press('a'); await page.keyboard.up('Control'); await page.keyboard.press('Backspace');
 await page.evaluate(() => document.activeElement.blur()); await new Promise((r) => setTimeout(r, 300));
 check((await page.$$('#pll-result .ll-notebox .eo-link')).length > 0, 'cleared: back to "add a note"');
@@ -94,7 +96,7 @@ check((await page.$eval('#pll-showNote', (e) => e.parentElement.hidden)), 'no no
 await page.select('#pll-vscr', 'read');
 await page.evaluate((t) => window.ZZ.smart.replay(t), capture('')); // a cube connected, solved, not moving
 await page.evaluate(() => { window.__said.length = 0; });
-await page.click('#rail-new'); await new Promise((r) => setTimeout(r, 700));
+await page.$eval('#rail-new', (b) => b.click()); await new Promise((r) => setTimeout(r, 700));
 const said = await page.evaluate(() => [...window.__said]);
 const first = await page.$eval('#pll-setup .mv', (e) => e.textContent.replace('′', ' prime').replace(/2$/, ' two'));
 console.log('said', JSON.stringify(said), 'first shown move', JSON.stringify(first));
@@ -120,7 +122,7 @@ const onOpen = await page.evaluate(() => [...window.__said]);
 const firstNow = await page.$eval('#pll-setup .mv', (e) => e.textContent.replace('′', ' prime').replace(/2$/, ' two'));
 check(onOpen[0] === firstNow, `opening the PLL tab reads the waiting scramble's first move (${JSON.stringify(onOpen)} vs ${firstNow})`);
 await page.select('#pll-vscr', 'off');
-await page.select('#pll-order', 'cycle'); await page.click('#rail-new'); await new Promise((r) => setTimeout(r, 400));
+await page.select('#pll-order', 'cycle'); await page.$eval('#rail-new', (b) => b.click()); await new Promise((r) => setTimeout(r, 400));
 await page.setViewport({ width: 400, height: 900, deviceScaleFactor: 2 });
 await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/ll-cycle.png' });
 await browser.close(); server.close();

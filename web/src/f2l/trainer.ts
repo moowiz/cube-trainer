@@ -265,6 +265,12 @@ export function mountF2L(root: HTMLElement): Stage {
   let tracked: { scr: string; pre: string; hist: string[] } | null = null;
   const trackedAlg = () => (tracked ? [tracked.scr, tracked.pre, ...tracked.hist].map(fromWca).filter(Boolean).join(' ') : '');
   const cube = (): string | null => (tracked ? state(trackedAlg()) : null);
+  /**
+   * A pair in, on a turn: both pieces home AND the cross with them. A D-layer conjugate (D' L' U' L D ...) puts the
+   * pair's pieces in their places with its first D' while it turns the cross away (user, 2026-09-26: counted done
+   * there, the cube was read afresh and EOCross asked for); by position alone that reads as solved.
+   */
+  const pairIn = (f: string, sl: SlotName): boolean => slotSolved(f, sl) && stageOf(f).cross === 4;
   /** Moves made on the tracked cube since the scramble and EOCross (the algs pressed, or the cube's own turns). */
   const movesDone = () => (tracked ? offList(tracked.hist.flatMap((h) => tokens(h))).length : 0); // a cube's R R is one R2
   // a cube feeding the tracked cube (app/sources.ts): its turns since the scramble are the whole of hist,
@@ -565,14 +571,14 @@ export function mountF2L(root: HTMLElement): Stage {
     const f = cube();
     if (!f) return false;
     // the clock: the first turn starts it, back at the scramble resets it, the four pairs in stop it
-    if (!toks.length) { clk.start = null; clk.end = null; } else { clk.start ??= t; if (clk.end === null && SLOTS.every((sl) => slotSolved(f, sl))) clk.end = t; }
+    if (!toks.length) { clk.start = null; clk.end = null; } else { clk.start ??= t; if (clk.end === null && SLOTS.every((sl) => pairIn(f, sl))) clk.end = t; }
     if (target && !target.done) {
       if (!toks.length) target.first = null; else target.first ??= t;
-      if (slotSolved(f, target.slot)) finishTarget(t, source, toks.join(' '));
+      if (pairIn(f, target.slot)) finishTarget(t, source, toks.join(' '));
     }
     if (pairAt === null) { syncFromCube(); return false; }
     if (!corner || !edge) { if (!backToPrevious()) syncFromCube(); return false; }
-    if (slotSolved(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); return false; }
+    if (pairIn(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); return false; }
     // mid-pair: on one of the listed algs (or a few turns off one) the case stays and the moves done light up - the
     // cross is broken halfway through most inserts, so it is not read again until the cube has strayed
     const p = pairProgress();
@@ -584,7 +590,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (other) {
       slot = other.slot; corner = other.corner; edge = other.edge; updateEdgeName();
       // the move that gave the pair away may be the one that finished it
-      if (slotSolved(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); } else render();
+      if (pairIn(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); } else render();
       return false;
     }
     if (p && p.off.bad.length <= OFF_LIMIT) { render(); return false; }
@@ -717,7 +723,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!tracked) return;
     tracked.hist.push(toWca(normalizeAlg(full)));
     const f = cube();
-    if (target && !target.done && !fedBy && f && slotSolved(f, target.slot)) finishTarget(null, 'typed', normalizeAlg(full));
+    if (target && !target.done && !fedBy && f && pairIn(f, target.slot)) finishTarget(null, 'typed', normalizeAlg(full));
     syncFromCube();
   }
   /** Show `alg` (trainer frame) as the scramble, and track it; `tgt` is the case it was made to put on a pair. */
@@ -955,12 +961,12 @@ export function mountF2L(root: HTMLElement): Stage {
    * not what the cube reports (a tab switch mid-solve, user 2026-09-26), the cube's state becomes the scramble
    * and the drill arms right there, as the follow's own opens do.
    */
-  function readCube(): void {
+  function readCube(force = false): void {
     const src = activeSource();
     const st = src?.state();
     if (!src || !st) return;
     const have = tracked ? safe(() => expectedFacelets(trackedAlg(), holdOf(), src.colourOf)) : null;
-    if (have === st) return;
+    if (have === st && !force) return;
     let scr: string;
     try { scr = trainerScramble({ facelets: st, colourOf: src.colourOf, solution: solveAny(st) }, holdOf()); } catch { return; }
     loadScramble(scr);
@@ -968,6 +974,21 @@ export function mountF2L(root: HTMLElement): Stage {
     if (tracked) trackMsg('Read from your cube as it stands.');
   }
   onTabChange((t) => { if (t === 'f2l') readCube(); });
+  // a cube (re)connected mid-F2L (user, 2026-09-26: it asked for the scramble again): a fresh connection arms only
+  // at the scramble, which the cube is past, so its first report is read as it stands - even when it matches the
+  // tracked cube, whose turns were the old connection's. Not a solved cube, nor one still applying the scramble.
+  let seenSrc: ReturnType<typeof activeSource> = null, fresh = false;
+  onSourceChange(() => {
+    const src = activeSource();
+    if (src !== seenSrc) { seenSrc = src; fresh = !!src; }
+    const st = src?.state();
+    if (!fresh || !src || !st) return;
+    fresh = false;
+    if (activeTab() !== 'f2l' || st === SOLVED) return;
+    const on = safe(() => makeTrackWatcher().status(stageScramble(), st, src.colourOf, holdOf()));
+    if (on && !on.off) return;
+    readCube(true);
+  });
   // ← → step through the open pairs (the cases are on the cards, so the next one can be chosen by eye)
   document.addEventListener('keydown', (e) => {
     if (activeTab() !== 'f2l' || sheetOpen() || e.metaKey || e.ctrlKey || e.altKey) return;
