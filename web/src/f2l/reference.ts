@@ -23,6 +23,7 @@ import {
   SLOT_WORD, SLOTS, type SlotName, twinOf, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
+import { ownSideFor, ownSideWords } from './ownside';
 import { isPicked, pool, setPicks, togglePick } from './pool';
 
 /** Where a case's pieces are: on top, in the pair's own slot, or in another one. */
@@ -93,7 +94,7 @@ const subhead = (slot: SlotName, c: F2LCase): string => `Corner ${facingWord(slo
  * tapped, `changed` when a case's main alg changes (the finder's case may be showing the old one).
  */
 export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCase) => void, changed?: () => void): void {
-  ensureStyle('f2lr-style', '.llr-drill.on { background: var(--ink); color: #fff; border-color: var(--ink); }');
+  ensureStyle('f2lr-style', '.llr-drill.on { background: var(--ink); color: #fff; border-color: var(--ink); } .llr-own { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; } .llr-own b { color: var(--ink); font-weight: 500; }');
   let shownSlot = slot;
   const active = new Set<string>();
   let namePat = '';
@@ -113,6 +114,13 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     return `<div class="llr-filters"><span class="lbl">Slot</span>${slots}<span class="gap"></span>${nameBoxHtml(namePat, '4 12, keyhole, UB')}
       <details class="llr-feats llr-fold" id="f2lr-feats"${foldOpen('f2lr-feats') ? ' open' : ''}><summary>By corner, edge, which sticker is up, and alg${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details></div>
       <p class="llr-count">${active.size || namePat ? `${n} of ${cases().length} cases match${n ? '' : ': nothing has all of that'}.` : 'The four slots are mirrors of each other, and a case has the same number on all four: pick the slot you are solving. Type a case number or a word (keyhole, UB) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>${pickRow}`;
+  };
+  // the shortest own-side alg that never lifts the neighbouring pair, when the main alg is not it: the saving shows
+  const ownLine = (c: F2LCase, main: string): string => {
+    const o = ownSideFor(shownSlot, c);
+    if (!o || !o.alg || o.alg === fullAlg('', main)) return '';
+    const w = ownSideWords(shownSlot);
+    return `<p class="llr-own">${esc(w.moves)} only, never lifting the ${esc(w.neighbour)} pair: <b>${algHtml(o.alg)}</b> <small>${o.moves} moves</small></p>`;
   };
   const card = (c: F2LCase): string => {
     const id = caseId(shownSlot, c.n);
@@ -137,6 +145,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
         </div>
       </div>
       <div class="llr-alg">${f2lAlgHtml(main)}${alts.length ? starHtml(main, true) : ''}</div>
+      ${ownLine(c, main)}
       ${noteHtml('f2l', id, main, `case ${num}`)}
       ${altsBox}
       <div class="llr-foot"><button type="button" class="llr-drill" data-go="${esc(id)}">Set in finder</button><button type="button" class="llr-play" data-play="${esc(id)}">▶ play it in 3D</button><button type="button" class="llr-drill${picked ? ' on' : ''}" data-filter="pick-${esc(id)}" aria-pressed="${picked}">${picked ? '✓ Practising' : 'Practise'}</button><span class="llr-tags">${esc(tags)}</span></div>

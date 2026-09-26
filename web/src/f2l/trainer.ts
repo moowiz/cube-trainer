@@ -31,6 +31,7 @@ import {
 } from './model';
 import { caseCells, GREY } from './pic';
 import { drawTarget, pool, poolTargets, savePool } from './pool';
+import { ownSideFor, ownSideWords } from './ownside';
 import { mountF2LPractice } from './practice';
 import { genTargeted, type Target } from './target';
 import { secs } from '../ll/practice';
@@ -561,8 +562,8 @@ export function mountF2L(root: HTMLElement): Stage {
   function routesFor(s: SlotName, c: CornerState, e: string): string[][] {
     const found = findCase(s, c, e);
     if (!found) return [];
-    const { algs, searched, usable } = algsFor(s, found.c, advanced(), found.hit.auf);
-    return [...algs, ...(searched ? [found.c.simple] : []), ...usable.map((o) => o.alg)].map((a) => tokens(fullAlg(found.hit.auf, a)));
+    const { algs, searched, usable, own } = algsFor(s, found.c, advanced(), found.hit.auf);
+    return [...[...algs, ...(searched ? [found.c.simple] : []), ...usable.map((o) => o.alg)].map((a) => fullAlg(found.hit.auf, a)), ...(own ? [own] : [])].map((a) => tokens(a));
   }
   /**
    * The cube stepped back into the alg of the pair solved last (short of its end): that pair is up again, with
@@ -824,11 +825,15 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
   /** The algs the panel lists for a slot's case: the main ones, the searched R/L/U one when it is not among them, the usable slot shortcuts. */
-  function algsFor(s: SlotName, c: F2LCase, adv: boolean, auf = ''): { algs: string[]; searched: boolean; usable: F2LCase['others'] } {
+  function algsFor(s: SlotName, c: F2LCase, adv: boolean, auf = ''): { algs: string[]; searched: boolean; usable: F2LCase['others']; own: string | null } {
     const algs = orderedAlgs(s, c, adv, auf);
     const searched = adv && c.simple_src === 'search' && !algs.includes(c.simple);
     const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((x) => !solvedSlots.has(x)) && (adv || isSimple(o.alg)));
-    return { algs, searched, usable };
+    // the shortest own-side alg that never lifts the neighbouring pair, when no row already is it: what a
+    // borrowing alg saves is then there to see (user, 2026-09-26); it is from the position, AUF included
+    const listed = new Set([...algs, ...(searched ? [c.simple] : []), ...usable.map((o) => o.alg)].map((a) => fullAlg(auf, a)));
+    const o = ownSideFor(s, c, auf);
+    return { algs, searched, usable, own: o && o.alg && !listed.has(o.alg) ? o.alg : null };
   }
   function showResult(): void {
     const D = DATA.slots[slot];
@@ -860,7 +865,7 @@ export function mountF2L(root: HTMLElement): Stage {
     t.innerHTML = `<h2>${SLOT_WORD[slot]} case ${twinOf(slot, c.n)}</h2><span>${GROUP_WORD[caseGroup(slot, c)].toLowerCase()}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
-    const { algs, searched, usable } = algsFor(slot, c, adv, hit.auf);
+    const { algs, searched, usable, own } = algsFor(slot, c, adv, hit.auf);
     const fav = f2lIsFavourite(caseId(slot, c.n));
     const ex = explain(slot, c, algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
@@ -869,6 +874,7 @@ export function mountF2L(root: HTMLElement): Stage {
     // the favourite leads (the sheet's star); then the sheet's algs (advanced) or the R/L/U one alone
     algs.forEach((a, i) => wrap.appendChild(algRow(a, hit.auf, i === 0 && fav ? 'your pick' : a === c.simple && c.simple_src === 'search' ? (adv ? 'R/L/U only, not in the sheet' : 'not in the sheet') : '', c)));
     if (searched) wrap.appendChild(algRow(c.simple, hit.auf, 'R/L/U only, not in the sheet', c));
+    if (own) { const w = ownSideWords(slot); wrap.appendChild(algRow(own, '', `${w.moves} only, never lifts the ${w.neighbour} pair`, c)); }
     if (usable.length) {
       const h3 = document.createElement('h3'); h3.textContent = 'Shortcuts using slots that are still open'; wrap.appendChild(h3);
       for (const o of usable) wrap.appendChild(algRow(o.alg, hit.auf, `uses ${o.free.map((s) => SLOT_WORD[s]).join(' + ')}`, c));

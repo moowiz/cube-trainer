@@ -159,6 +159,14 @@ await page.$eval('#ref-panel [data-filter="c-top"]', (b) => b.click()); await wa
 await page.$eval('#ref-panel [data-filter="e-top"]', (b) => b.click()); await wait(300);
 await page.$eval('#ref-panel [data-filter="slot-FL"]', (b) => b.click()); await wait(300);
 check((await page.$eval('#ref-panel .llr-case', (e) => e.dataset.id)).startsWith('FL-'), 'the front-left slot on show');
+await page.$eval('#ref-panel [data-filter="slot-BR"]', (b) => b.click()); await wait(300);
+// the back-right pair white up at UFL, edge at UF (case 5): the sheet borrows the front-right slot; the own-side alg is shown with its count
+const own5 = await page.$eval('#ref-panel .llr-case[data-id="BR-12"] .llr-own', (e) => e.textContent).catch(() => null);
+check(/^R and U only, never lifting the front-right pair: R' .* 11 moves$/.test(own5 ?? ''), `back-right case 5 shows its own-side alg: ${own5}`);
+await page.$eval('#ref-panel .llr-case[data-id="BR-12"] [data-go]', (b) => b.click()); await wait(300);
+const ownRow = await page.$$eval('#result .alg .tag', (es) => es.map((e) => e.textContent));
+check(ownRow.some((t) => /R and U only, never lifts the front-right pair/.test(t ?? '')), `the finder lists it too: ${ownRow.join(' | ')}`);
+await page.$eval('#allcases', (b) => b.click()); await wait(400);
 await page.$eval('#ref-panel [data-filter="slot-FR"]', (b) => b.click()); await wait(300);
 // star case 4's first other alg: the card says "your pick", the finder leads with it
 const card4 = '#ref-panel .llr-case[data-id="FR-4"]';
