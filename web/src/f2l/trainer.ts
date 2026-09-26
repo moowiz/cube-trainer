@@ -26,10 +26,16 @@ import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type Stage, 
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
-  acnUrl, caseId, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, isSlot, normalizeAlg, orderedAlgs, randomCase, slotSolved, slotState,
-  SLOT_WORD, SLOTS, trace, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
+  acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, normalizeAlg, orderedAlgs, randomCase, slotSolved, slotState,
+  SLOT_WORD, SLOTS, trace, twinOf, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
 import { caseCells, GREY } from './pic';
+import { drawTarget, pool, poolTargets, savePool } from './pool';
+import { mountF2LPractice } from './practice';
+import { genTargeted, type Target } from './target';
+import { secs } from '../ll/practice';
+import { newId } from '../store/types';
+import { fileAttempt } from '../ui/drill';
 import { openF2LReference } from './reference';
 import { onFavsChange } from '../ll/favs';
 import { ensureStyle, esc, scoped } from '../ui/dom';
@@ -147,6 +153,19 @@ const STYLE = `
   .f2l .note { font-size: 14px; color: var(--ink-2); margin: 6px 0 0; }
   .f2l .sheet { font-size: 13px; margin-top: 18px; }
   .f2l .sheet a { color: var(--ink-2); }
+  .f2l .target { font-size: 14px; color: var(--ink-2); line-height: 1.5; display: flex; flex-direction: column; gap: 4px; }
+  .f2l .target p { margin: 0; } .f2l .target b { color: var(--ink); font-weight: 600; }
+  .f2l .target label { display: inline-flex; align-items: center; gap: 6px; margin-right: 12px; }
+  .f2l .target .now { color: var(--ink); } .f2l .target .ok { color: #1B7A3E; font-weight: 600; }
+  .f2l .linkbtn { font: inherit; font-size: 14px; background: none; border: 0; padding: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+  .f2l .pscroll { overflow-x: auto; margin-top: 8px; }
+  .f2l .pscroll table { border-collapse: collapse; font-size: 13px; }
+  .f2l .pscroll th, .f2l .pscroll td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .f2l .pscroll th button { font: inherit; font-weight: 600; color: var(--ink-2); background: none; border: 0; padding: 0; cursor: pointer; }
+  .f2l .pscroll th button.on { color: var(--ink); }
+  .f2l .pscroll tr.dim td { color: var(--ink-2); }
+  .f2l .pscroll td.faster { color: #1B7A3E; } .f2l .pscroll td.slower { color: #B3261E; }
+  .f2l .prow { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
 `;
 
 const MARKUP = `
@@ -170,12 +189,16 @@ const MARKUP = `
   <div class="scr" id="scr">
     <div class="scrbtns">
       <button class="btn" type="button" id="genF2L">F2L practice scramble</button>
+      <button class="btn" type="button" id="genTarget" title="A scramble with one of the cases picked in the case sheet on its pair">Practise picked cases</button>
       <button class="btn" type="button" id="scrtricks" title="The scramble finger by finger">✋ Fingertricks</button>
     </div>
+    <div class="target" id="target"></div>
     <p class="scrfollow" id="scrfollow" hidden></p>
     <p class="scrmsg" id="scrmsg"></p>
     <label class="rescr"><input type="checkbox" id="rescramble"> New practice scramble when the cube is solved</label>
   </div>
+  <details class="principles" id="f2lpractice"><summary>Practice so far</summary><div id="f2lpracticeBody"></div>
+    <div id="f2lpracticeGraphWrap" hidden><p class="note" id="f2lpracticeN"></p><div id="f2lpracticeGraph"></div></div></details>
   <p class="pairrow"><label for="slotsel">Pair to solve</label>
     <select id="slotsel" class="bigsel"></select>
     <button class="btn" type="button" id="allcases">All 83 cases</button></p>
@@ -248,6 +271,12 @@ export function mountF2L(root: HTMLElement): Stage {
   let track: TrackStatus | null = null; // where the cube is on the scramble (and the EOCross moves under it)
   const view: View = { ...DEFAULT_VIEW };
   const hold = () => `white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right)`;
+  // targeted practice: the scramble on show put this slot's pair in a case picked in the case sheet. The pair
+  // solved (first) files an attempt: timed from the cube at the scramble (`at`) and its first turn when a cube
+  // feeds, untimed otherwise. `last` keeps the case just done out of the next draw.
+  let target: (Target & { at: number | null; first: number | null; done: { time: number | null; recognition?: number } | null }) | null = null;
+  let lastTarget: Target | null = null;
+  let targetMode = false; // the last scramble made here was a targeted one: the next "when solved" one is too
 
   // ---- pictures ----
   const cells = () => caseCells(slot, corner, edge, SLOTS.filter((s) => !solvedSlots.has(s)));
@@ -368,7 +397,7 @@ export function mountF2L(root: HTMLElement): Stage {
     // the shortest shortcut through a slot still open, when it beats the alg (user, 2026-09-26)
     const cuts = usable.map((o) => { const x = fullAlg(found.hit.auf, o.alg); return { alg: x, moves: moveCount(x), free: o.free.map((z) => SLOT_WORD[z]).join(' + ') }; }).sort((x, y) => x.moves - y.moves);
     const shortcut = cuts[0] && cuts[0].moves < moveCount(full) ? cuts[0] : null;
-    return { n: found.c.n, head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full), shortcut };
+    return { n: twinOf(s, found.c.n), head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full), shortcut };
   }
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
@@ -475,9 +504,10 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   const boxes = () => (scrWca ? { scr: scrWca, pre: '' } : null);
   /** The cube that feeds this stage is at the scramble (and the EOCross moves under it): track it from here without a press. */
-  function armed(): void {
+  function armed(t: number): void {
     const b = boxes();
     if (!b || !b.scr) return;
+    if (target && !target.done) { target.at = t; target.first = null; }
     // the same scramble tracked already (loaded by the follow, or applied by hand): only the turns start over
     if (!tracked || tracked.scr !== b.scr || tracked.pre !== b.pre) { tracked = { ...b, hist: [] }; solvedSlots = new Set(); }
     else tracked.hist = [];
@@ -495,7 +525,7 @@ export function mountF2L(root: HTMLElement): Stage {
    * alg for long is read afresh. Never "done": an undo after the last pair (to do it over, user 2026-09-26)
    * must still arrive, so the turns keep coming for as long as this scramble is up.
    */
-  function feed(text: string, source: 'cube' | 'camera'): boolean {
+  function feed(text: string, t: number, source: 'cube' | 'camera'): boolean {
     if (!tracked) return false;
     let toks: string[];
     try { toks = tokens(text); } catch { return false; }
@@ -503,6 +533,10 @@ export function mountF2L(root: HTMLElement): Stage {
     tracked.hist = toks.length ? [toWca(toks.join(' '))] : [];
     const f = cube();
     if (!f) return false;
+    if (target && !target.done) {
+      if (!toks.length) target.first = null; else target.first ??= t;
+      if (slotSolved(f, target.slot)) finishTarget(t, source, toks.join(' '));
+    }
     if (pairAt === null) { syncFromCube(); return false; }
     if (!corner || !edge) { if (!backToPrevious()) syncFromCube(); return false; }
     if (slotSolved(f, slot)) { pairsDone.push({ slot, corner, edge, at: pairAt }); syncFromCube(); return false; }
@@ -642,10 +676,13 @@ export function mountF2L(root: HTMLElement): Stage {
   function didThis(full: string): void {
     if (!tracked) return;
     tracked.hist.push(toWca(normalizeAlg(full)));
+    const f = cube();
+    if (target && !target.done && !fedBy && f && slotSolved(f, target.slot)) finishTarget(null, 'typed', normalizeAlg(full));
     syncFromCube();
   }
-  /** Show `alg` (trainer frame) as the scramble, and track it. */
-  function putScramble(alg: string, msg: string): void {
+  /** Show `alg` (trainer frame) as the scramble, and track it; `tgt` is the case it was made to put on a pair. */
+  function putScramble(alg: string, msg: string, tgt: Target | null = null): void {
+    target = tgt ? { ...tgt, at: null, first: null, done: null } : null; targetMode = !!tgt;
     scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset(); armedSince = false;
     trackMsg(msg); saveUrl();
     if (scrWca) applyScramble();
@@ -656,6 +693,52 @@ export function mountF2L(root: HTMLElement): Stage {
     const scr = genF2L();
     putScramble(scr, `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Cross and EO stay solved; only the pairs and top layer are scrambled.${activeSource() ? ' On your cube it is followed as you go.' : ''}`);
     shareScramble(scr, 'f2l');
+  }
+  const pairName = (s: SlotName) => `white-${faceColorName(s[0])}-${faceColorName(s[1])} (${SLOT_WORD[s]})`;
+  /** A scramble with one of the picked cases on its pair (pool.ts), the rest as the plain practice scramble (or the other pairs solved). */
+  function newTargetScramble(): void {
+    const t = drawTarget(poolTargets(), lastTarget);
+    if (!t) { trackMsg('No cases picked yet: open "All 83 cases" and tap Practise on the cases to learn.', true); renderTarget(); return; }
+    const g = genTargeted([t], Math.random, { rest: pool.rest });
+    if (!g) { trackMsg('Could not make that case.', true); return; } // one target always fits: not expected
+    lastTarget = t;
+    slot = t.slot; corner = null; edge = null;
+    putScramble(g.scramble, `Apply this to a solved cube held ${WCA_HOLD}, then hold it ${hold()}. Solve the ${pairName(t.slot)} pair first: it is one of the cases you picked.${activeSource() ? ' It is timed from the cube at the scramble to that pair in.' : ' Press Did this on the alg you used (or Solved) when it is in.'}`, t);
+    shareScramble(g.scramble, 'f2l');
+  }
+  /** The targeted pair is in: its attempt goes to the store (the practice table reads it back). */
+  function finishTarget(t: number | null, source: 'cube' | 'camera' | 'typed', moves: string): void {
+    if (!target || target.done) return;
+    const at = target.at, first = target.first;
+    const time = t !== null && at !== null ? Math.max(0, Math.round(t - at)) : null;
+    const recognition = time !== null && first !== null ? Math.max(0, Math.round(first - at!)) : undefined;
+    const execution = time !== null && first !== null ? Math.max(0, Math.round(t! - first)) : undefined;
+    fileAttempt({
+      id: newId(), puzzle: '333', stage: 'f2l', when: Date.now(), scramble: stageScramble() ?? '', moves, time,
+      ...(recognition !== undefined && { recognition }), ...(execution !== undefined && { execution }),
+      caseId: caseId(target.slot, target.n), assisted: false, source, editedAt: Date.now(),
+    });
+    target.done = { time, ...(recognition !== undefined && { recognition }) };
+    toast(`Case ${twinOf(target.slot, target.n)} ✓${time !== null ? ` ${secs(time)}` : ''}`);
+    renderTarget();
+    if ($('f2lpractice').hasAttribute('open')) setTimeout(() => void renderPractice(), 300); // after the store's write
+  }
+  /** The practice line under the scramble buttons: what is picked, the two options, the case on show and how it went. */
+  function renderTarget(): void {
+    const el = $('target');
+    const ids = pool.ids.map((id) => caseOf(id)).filter((h): h is NonNullable<typeof h> => !!h);
+    const names = pool.mirrors ? [...new Set(ids.map((h) => twinOf(h.slot, h.c.n)))].sort((a, b) => a - b).join(', ')
+      : ids.map((h) => `${SLOT_WORD[h.slot]} ${twinOf(h.slot, h.c.n)}`).join(', ');
+    let now = '';
+    if (target) {
+      const c = DATA.slots[target.slot].cases[target.n]!;
+      const d = target.done;
+      now = `<p class="now">Now: the <b>${esc(pairName(target.slot))}</b> pair, case ${twinOf(target.slot, target.n)} (${esc(GROUP_WORD[caseGroup(target.slot, c)].toLowerCase())}).`
+        + (d ? ` <span class="ok">✓${d.time !== null ? ` ${secs(d.time)}${d.recognition !== undefined ? `, first turn after ${secs(d.recognition)}` : ''}` : ' filed'}</span> <button type="button" class="linkbtn" data-next>Next case</button>` : '') + '</p>';
+    }
+    el.innerHTML = `<p>${ids.length ? `Picked to practise: <b>${ids.length} case${ids.length === 1 ? '' : 's'}</b> (${esc(names)})${pool.mirrors ? ' on every slot' : ''}.` : 'No cases picked to practise yet.'} <button type="button" class="linkbtn" data-pick>${ids.length ? 'Change' : 'Pick cases'}</button></p>`
+      + `<p><label><input type="checkbox" data-opt="mirrors"${pool.mirrors ? ' checked' : ''}> their mirrors on the other slots too</label><label><input type="checkbox" data-opt="rest"${pool.rest === 'solved' ? ' checked' : ''}> other pairs solved</label></p>`
+      + now;
   }
 
   // ---- the result panel ----
@@ -752,7 +835,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!found) { hint('No case in the sheet matches this position.'); return; }
     const { hit, c } = found;
     const t = document.createElement('div'); t.className = 'case-title';
-    t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
+    t.innerHTML = `<h2>${SLOT_WORD[slot]} case ${twinOf(slot, c.n)}</h2><span>${GROUP_WORD[caseGroup(slot, c)].toLowerCase()}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
     const { algs, searched, usable } = algsFor(slot, c, adv, hit.auf);
@@ -773,11 +856,12 @@ export function mountF2L(root: HTMLElement): Stage {
     if (c.note) { const nn = document.createElement('p'); nn.className = 'note'; nn.textContent = /keyhole/i.test(c.note) ? 'Keyhole case (the sheet lists no other-slot alg).' : c.note; r.appendChild(nn); }
     if (fedBy) markFollow();
     const s = document.createElement('p'); s.className = 'sheet';
-    s.innerHTML = `Row ${c.n} on the ${slot} tab of the <a href="https://docs.google.com/spreadsheets/d/13O15zHAd0rKU9V9VQHw1vLEQh7v5fpWzeajokjz8LgA/edit?gid=${D.gid}" target="_blank" rel="noopener">ZZF2L Cases sheet</a>. The AUF in parentheses is adjusted for the exact position you tapped.`;
+    s.innerHTML = `Row ${c.n} on the ${SLOT_WORD[slot]} tab${twinOf(slot, c.n) !== c.n ? ` (the sheet numbers each tab its own way; the number here is the front-right case's, the same on every slot)` : ''} of the <a href="https://docs.google.com/spreadsheets/d/13O15zHAd0rKU9V9VQHw1vLEQh7v5fpWzeajokjz8LgA/edit?gid=${D.gid}" target="_blank" rel="noopener">ZZF2L Cases sheet</a>. The AUF in parentheses is adjusted for the exact position you tapped.`;
     r.appendChild(s);
   }
 
   function render(): void {
+    renderTarget();
     renderTracker();
     drawPictures();
     showResult();
@@ -786,7 +870,9 @@ export function mountF2L(root: HTMLElement): Stage {
 
   /** Show and track `scramble` (trainer frame), from another tab, the follow, or the cube as it stands. */
   function loadScramble(scramble: string): void {
+    const was = scrWca;
     scrWca = safe(() => clean(toWca(scramble))) ?? ''; track = null; watcher.reset();
+    if (scrWca !== was) target = null; // another scramble (the follow's, another tab's): not the targeted one
     saveUrl(); renderFollow();
     applyScramble();
   }
@@ -822,6 +908,22 @@ export function mountF2L(root: HTMLElement): Stage {
 
   // ---- wiring ----
   $('genF2L').onclick = newScramble;
+  $('genTarget').onclick = newTargetScramble;
+  const pickCases = () => { $('allcases').click(); };
+  $('target').addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-next]')) newTargetScramble();
+    else if (t.closest('[data-pick]')) pickCases();
+  });
+  $('target').addEventListener('change', (e) => {
+    const box = e.target as HTMLInputElement;
+    if (box.dataset.opt === 'mirrors') pool.mirrors = box.checked;
+    else if (box.dataset.opt === 'rest') pool.rest = box.checked ? 'solved' : 'mixed';
+    else return;
+    savePool(); renderTarget();
+  });
+  const renderPractice = mountF2LPractice({ body: $('f2lpracticeBody'), graphWrap: $('f2lpracticeGraphWrap'), graph: $('f2lpracticeGraph'), n: $('f2lpracticeN') }, () => { renderTarget(); toast('Picked: press Practise picked cases'); });
+  $('f2lpractice').addEventListener('toggle', () => { if ($('f2lpractice').hasAttribute('open')) void renderPractice(); });
   $('scrtricks').onclick = () => {
     const ok = scrWca ? openFingertricks(scrWca, { title: 'The scramble', hold: WCA_HOLD }) : null;
     if (ok === null) trackMsg('Make a scramble first.', true);
@@ -837,7 +939,7 @@ export function mountF2L(root: HTMLElement): Stage {
   // the case sheet: a case set from it lands on the finder as if tapped in
   $('allcases').onclick = () => openF2LReference(slot, (s, c) => {
     // a case set by hand is not the tracked cube's: tracking stops, as a tapped-in case would have it
-    tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set();
+    target = null; tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set();
     slot = s; corner = { pos: c.corner, o: c.co }; edge = c.edge; fillSlotSelect(); updateEdgeName(); render(); window.scrollTo({ top: 0 });
   }, render);
   onFavsChange(render); // a favourite from the sheet or another device: the case on show leads with it
@@ -855,10 +957,10 @@ export function mountF2L(root: HTMLElement): Stage {
     wasSolved = solved;
     if (!byTurn || !rescr.checked || !armedSince || !scrWca) return;
     // after the follow's own solved handling (it may move the tabs): this tab, with the next scramble
-    setTimeout(() => { showTab('f2l'); newScramble(); window.scrollTo({ top: 0 }); toast('Solved ✓ next practice scramble'); }, 0);
+    setTimeout(() => { showTab('f2l'); if (targetMode) newTargetScramble(); else newScramble(); window.scrollTo({ top: 0 }); toast(`Solved ✓ next ${targetMode ? 'picked case' : 'practice scramble'}`); }, 0);
   });
   $('reset').onclick = () => { corner = null; edge = null; render(); };
-  $('restart').onclick = () => { tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
+  $('restart').onclick = () => { target = null; tracked = null; fed = []; pairsDone.length = 0; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
   onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
@@ -875,7 +977,7 @@ export function mountF2L(root: HTMLElement): Stage {
     render,
     scramble: stageScramble,
     newScramble,
-    feed: (text, _t, source) => feed(text, source ?? 'cube'),
+    feed: (text, t, source) => feed(text, t, source ?? 'cube'),
     armed,
     watch,
   };

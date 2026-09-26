@@ -52,7 +52,7 @@ const scr2 = await page.evaluate(() => window.ZZ.f2l.scramble());
 const cube2 = await cubeOf(scr2);
 await replay(cube2);
 const title2 = await text('#result .case-title h2');
-check(/^FR case \d+$/.test(title2 ?? ''), `the practice scramble's first pair read: ${title2}`);
+check(/^front-right case \d+$/.test(title2 ?? ''), `the practice scramble's first pair read: ${title2}`);
 // the pairs as cards: each open one with its case and shortest alg; the arrow keys step through them
 check(await page.$eval('#tracker', (e) => e.classList.contains('cards')), 'tracking: the pairs are cards');
 const cardText = await page.$$eval('#tracker > span:not(.done) small', (es) => es.map((e) => e.textContent));
@@ -60,7 +60,7 @@ check(cardText.length === (await count('#tracker > span:not(.done)')) && cardTex
 const curBefore = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
 await page.keyboard.press('ArrowRight'); await wait(150);
 const curAfter = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
-check(curAfter !== curBefore && /^(FL|BR|BL) case/.test(await text('#result .case-title h2')), `→ steps to the next open pair: ${await text('#result .case-title h2')}`);
+check(curAfter !== curBefore && /^(front-left|back-right|back-left) case/.test(await text('#result .case-title h2')), `→ steps to the next open pair: ${await text('#result .case-title h2')}`);
 await page.keyboard.press('ArrowLeft'); await wait(150);
 check((await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'))) === curBefore && (await text('#result .case-title h2')) === title2, '← steps back');
 const alg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
@@ -110,7 +110,7 @@ await replay(`${cube2} ${await cubeOf(alg)}`);
 console.log(`    hash: ${await page.evaluate(() => decodeURIComponent(location.hash))}`);
 const chips = await page.$$eval('#tracker > span', (es) => es.map((e) => e.className));
 check(chips[0].includes('done'), `the first slot is marked done (${chips.join(' | ')})`);
-check(/^(FL|BL|BR) case \d+$/.test(await text('#result .case-title h2') ?? ''), `the next pair's case read: ${await text('#result .case-title h2')}`);
+check(/^(front-left|back-left|back-right) case \d+$/.test(await text('#result .case-title h2') ?? ''), `the next pair's case read: ${await text('#result .case-title h2')}`);
 check(new RegExp(`tracking · ${algToks.length} moves so far`).test(await text('#result .trackbadge') ?? ''), `the moves so far: ${await text('#result .trackbadge')}`);
 // undone: the pair is open again and its case back (to do it over)
 await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(alg))}`);
@@ -141,17 +141,20 @@ await page.evaluate(() => window.ZZ.showTab('pll')); await wait(100);
 await replay(`${cube2} ${await cubeOf(alg)}`); // on the PLL tab: the F2L tab hears nothing of it
 await page.evaluate(() => window.ZZ.showTab('f2l')); await wait(400);
 check((await page.evaluate(() => window.ZZ.f2l.scramble())) !== scrX, 'back on the tab: the scramble is the cube as it stands');
-check(/^(FL|BL|BR) case \d+$/.test(await text('#result .case-title h2') ?? ''), `and the open pair read off it: ${await text('#result .case-title h2')} (${await text('#scrmsg')})`);
+check(/^(front-left|back-left|back-right) case \d+$/.test(await text('#result .case-title h2') ?? ''), `and the open pair read off it: ${await text('#result .case-title h2')} (${await text('#scrmsg')})`);
 
 // the case sheet: one slot's cases, filtered, a star that leads the finder, a case set on the finder
 await page.click('#allcases'); await wait(400);
 check(!(await page.$eval('#ref-sheet', (e) => e.hidden)), 'the sheet opens');
 check((await count('#ref-panel .llr-case')) === 83, `one slot's 83 cases (${await count('#ref-panel .llr-case')})`);
 check((await count('#ref-panel .llr-3d svg polygon')) >= 83 * 27, 'every case pictured in 3D (the three faces in view)');
-check((await count('#ref-panel h3.llr-group')) === 4, 'the four sections');
+check((await count('#ref-panel h3.llr-group')) === 9, `the nine groups by where the pieces are (${await count('#ref-panel h3.llr-group')})`);
 await page.evaluate(() => { document.getElementById('f2lr-feats').open = true; });
-await page.click('#ref-panel [data-filter="sec-Last slot"]'); await wait(300);
-check((await count('#ref-panel .llr-case')) === 20, `the last-slot section filtered: 20 cases (${await count('#ref-panel .llr-case')})`);
+await page.click('#ref-panel [data-filter="c-top"]'); await wait(300);
+await page.click('#ref-panel [data-filter="e-top"]'); await wait(300);
+check((await count('#ref-panel .llr-case')) === 12, `corner and edge on top: 12 cases (${await count('#ref-panel .llr-case')})`);
+await page.click('#ref-panel [data-filter="c-top"]'); await wait(300);
+await page.click('#ref-panel [data-filter="e-top"]'); await wait(300);
 await page.click('#ref-panel [data-filter="slot-FL"]'); await wait(300);
 check((await page.$eval('#ref-panel .llr-case', (e) => e.dataset.id)).startsWith('FL-'), 'the front-left slot on show');
 await page.click('#ref-panel [data-filter="slot-FR"]'); await wait(300);
@@ -163,7 +166,7 @@ await page.click(`${card4} .llr-alt [data-fav]`); await wait(300);
 check(/your pick/.test(await text(`${card4} .llr-name`)), 'the card says "your pick"');
 await page.click(`${card4} [data-go]`); await wait(300);
 check(await page.$eval('#ref-sheet', (e) => e.hidden), 'Set in finder closes the sheet');
-check((await text('#result .case-title h2')) === 'FR case 4', `the finder is on case 4, tracking dropped: ${await text('#result .case-title h2')}`);
+check((await text('#result .case-title h2')) === 'front-right case 4', `the finder is on case 4, tracking dropped: ${await text('#result .case-title h2')}`);
 check(/your pick/.test(await text('#result .alg .tag')) && (await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg)).replace(/[()]/g, '') === starred.replace(/[()]/g, ''), `the finder leads with the starred alg: ${starred}`);
 // the star put back: the case's standard alg leads again
 await page.click('#allcases'); await wait(400);
@@ -186,6 +189,32 @@ check(scr4 && scr4 !== scr3, 'and on the next practice scramble');
 await page.evaluate(() => { document.getElementById('rescramble').click(); });
 await replay(`${await cubeOf(scr4)} ${await cubeOf(inverse(scr4))}`); await wait(300);
 check(!/^Apply this to a solved cube/.test(await text('#scrmsg')), `box off: no new practice scramble (${(await text('#scrmsg')).slice(0, 40)})`);
+
+// targeted practice: two cases picked in the sheet, a scramble that puts one on its pair, the pair done on the
+// cube filed (timed) and shown in the practice table
+await page.click('#allcases'); await wait(400);
+await page.click('#ref-panel [data-filter="pick-FR-4"]'); await wait(200);
+await page.click('#ref-panel [data-filter="pick-FR-40"]'); await wait(200);
+check((await count('#ref-panel .llr-drill.on')) === 2, `two cases picked (${await count('#ref-panel .llr-drill.on')})`);
+await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
+check(/2 cases/.test(await text('#target')), `the finder says two are picked: ${await text('#target p')}`);
+await page.$eval('#genTarget', (b) => b.click()); await wait(300);
+const now = await text('#target .now');
+check(/front-right.*pair, case (4|40) /.test(now ?? ''), `a targeted scramble, on the front-right pair: ${now}`);
+const scrT = await page.evaluate(() => window.ZZ.f2l.scramble());
+const cubeT = await cubeOf(scrT);
+await replay(cubeT);
+const titleT = await text('#result .case-title h2');
+check(titleT === `front-right case ${/case (\d+)/.exec(now)[1]}`, `the finder reads that case off the cube: ${titleT}`);
+const algT = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
+await replay(`${cubeT} ${await cubeOf(algT)}`); await wait(300);
+check(/✓ \d+\.\ds/.test(await text('#target .now') ?? ''), `the pair in: filed with its time (${await text('#target .now')})`);
+await page.evaluate(() => { document.getElementById('f2lpractice').open = true; }); await wait(500);
+const rows = await page.$$eval('#f2lpracticeBody tbody tr', (es) => es.map((e) => [...e.children].map((td) => td.textContent.trim()).join('|')));
+check(rows.some((r) => r.startsWith(`${/case (\d+)/.exec(now)[1]} `) && r.split('|')[1] === '1'), `the practice table has it, one try: ${rows.join(' | ')}`);
+await page.$eval('#target [data-next]', (b) => b.click()); await wait(300);
+const now2 = await text('#target .now');
+check(/case (4|40) /.test(now2 ?? '') && /case (\d+)/.exec(now2)[1] !== /case (\d+)/.exec(now)[1], `Next case draws the other picked one: ${now2}`);
 
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
