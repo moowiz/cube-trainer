@@ -164,8 +164,11 @@ describe('explanations', () => {
     expect(explain('FR', c1, c1.simple).head).toBe('Direct insert.');
     const c4 = DATA.slots.FR.cases['4'];
     expect(explain('FR', c4, c4.algs[0]).head).toBe('D-layer conjugate.');
+    const c49 = DATA.slots.FR.cases['49'];
+    expect(explain('FR', c49, c49.algs[0]).head).toBe('Slide the corner under.');
+    // FR 17's corner is on top and its edge rides out through the bottom layer: no slide (test/f2l-explain.test.ts checks every claim)
     const c17 = DATA.slots.FR.cases['17'];
-    expect(explain('FR', c17, c17.algs[0]).head).toBe('Slide the corner under.');
+    expect(explain('FR', c17, c17.algs[0]).head).toBe('D-layer conjugate.');
   });
   it('sees a borrowed slot: the half-turn alg for the white-up case lifts the back-right pair and puts it back', () => {
     const c5 = DATA.slots.FR.cases['5'];

@@ -12,7 +12,7 @@
 import { FACE_MOVES, inverse, mergeMoves, moveCount, movesStr, tokens, type Move } from '../cube/alg';
 import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';
-import { SOLVED, state, stepStates } from '../cube/state';
+import { CENTRE, rawFacelets, SOLVED, state, stepStates } from '../cube/state';
 import { randomScramble } from '../scramble';
 import { stageOf } from '../stage';
 import { DATA, type CornerOrient, type F2LCase, type LookupHit, type SlotName } from './data';
@@ -187,11 +187,12 @@ const liftedU = (f: string, slot: SlotName) => cornerPos(f, slot)[1] === 1 || ed
 const crossUp = (f: string) => ['DF', 'DR', 'DB', 'DL'].some((e) => EDGE_POS[findEdge(f, e)][1] === 1);
 const crossHome = (f: string) => CROSS_POS.every((p) => cubieSolved(f, p));
 
+// the two basic 3-move inserts of each slot, and the picture each solves (measured: state(invert(m)))
 const INSERTS: Record<SlotName, [string, string][]> = {
-  FR: [["R U R'", 'white on the right, edge at the back'], ["R U' R'", 'white on the front, edge on the right']],
-  FL: [["L' U' L", 'white on the left, edge at the back'], ["L' U L", 'white on the front, edge on the left']],
-  BR: [["R' U' R", 'white on the right, edge at the front'], ["R' U R", 'white on the back, edge on the right']],
-  BL: [["L U L'", 'white on the left, edge at the front'], ["L U' L'", 'white on the back, edge on the left']],
+  FR: [["R U R'", 'corner above the slot, white on the right, edge at the back'], ["R U' R'", 'corner and edge joined over the front-left, white on the left']],
+  FL: [["L' U' L", 'corner above the slot, white on the left, edge at the back'], ["L' U L", 'corner and edge joined over the front-right, white on the right']],
+  BR: [["R' U' R", 'corner above the slot, white on the right, edge at the front'], ["R' U R", 'corner and edge joined over the back-left, white on the left']],
+  BL: [["L U L'", 'corner above the slot, white on the left, edge at the front'], ["L U' L'", 'corner and edge joined over the back-right, white on the right']],
 };
 const POP: Record<SlotName, string> = { FR: "R U' R' / R U R'", FL: "L' U L / L' U' L", BR: "R' U R / R' U' R", BL: "L U L' / L U' L'" };
 
@@ -209,48 +210,190 @@ export function borrowedSlots(slot: SlotName, alg: string, occ: ReadonlySet<stri
   return [...seen].filter((s) => slotSolved(end, s));
 }
 
-/** One line on why the alg has the shape it has, from the case's picture and the moves it uses. */
+// ---- explaining an alg: every claim read off the alg's own moves (test/f2l-explain.test.ts holds each to it) ----
+
+/** The pair in one state: the corner's position and where its white faces, the edge's position and flip. */
+function pairSig(f: string, slot: SlotName): string {
+  const c = findCorner(f, `D${slot}`, 'D');
+  const ep = edgePos(f, slot);
+  const i = facesAt(ep).find((k) => f[k] === slot[0])!;
+  return `${c.name}${c.face}|${posName(ep)}${STICKERS[i].face}`;
+}
+const READY = new Map<SlotName, Set<string>>();
+/** Every picture a basic insert solves from, with any U turn first. */
+function readySigs(slot: SlotName): Set<string> {
+  let r = READY.get(slot);
+  if (!r) {
+    r = new Set(['', 'U', 'U2', "U'"].flatMap((u) => INSERTS[slot].map(([m]) => pairSig(state(invert(`${u} ${m}`.trim())), slot))));
+    READY.set(slot, r);
+  }
+  return r;
+}
+interface PairAt { cAt: string; eAt: string; cU: boolean; eU: boolean; cHome: boolean; eHome: boolean; white: string; joined: boolean; ready: boolean }
+function pairAt(f: string, slot: SlotName): PairAt {
+  const c = findCorner(f, `D${slot}`, 'D');
+  const ep = edgePos(f, slot);
+  const home = slotPositions(slot);
+  const cU = c.pos[1] === 1, eU = ep[1] === 1;
+  let joined = false;
+  if (cU && eU && ((ep[0] === 0 && ep[2] === c.pos[2]) || (ep[2] === 0 && ep[0] === c.pos[0]))) {
+    const ci = facesAt(c.pos);
+    joined = facesAt(ep).every((i) => f[i] === f[ci.find((k) => STICKERS[k].face === STICKERS[i].face)!]);
+  }
+  return { cAt: c.name, eAt: posName(ep), cU, eU, cHome: cubieSolved(f, home.corner), eHome: cubieSolved(f, home.edge), white: c.face, joined, ready: readySigs(slot).has(pairSig(f, slot)) };
+}
+/** Net quarter turns of `face` in `toks`, mod 4. */
+const netTurns = (toks: readonly string[], face: string): number =>
+  toks.filter((t) => t[0] === face).reduce((n, t) => n + (t.endsWith("'") ? 3 : t.endsWith('2') ? 2 : 1), 0) % 4;
+const FB_WORD: Record<string, string> = { F: 'front', B: 'back' };
+
+/**
+ * One paragraph on why the alg has the shape it has: a short head (the finder's hint) and a body. The alg is
+ * followed move by move from the position it solves (its own AUF done first), and every sentence is one the
+ * moves bear out; where a shape has no simple true story the body says less.
+ */
 export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string; body: string } {
-  const core = alg.replace(/^\([^)]*\)\s*/, '');
-  const toks = algTokens(core);
+  const full = fullAlg('', alg);
+  const { pre, rest } = withAuf('', alg);
+  const toks = rest ? tokens(rest) : [];
   const n = toks.length;
+  const start = state(invert(full));
+  const s0 = pre ? stepStates(start, pre).at(-1)! : start;
+  const S = [s0, ...stepStates(s0, toks.join(' '))].map((f) => pairAt(f, slot));
   const cU = c.corner.startsWith('U'), eU = c.edge.startsWith('U');
   const cIn = c.corner === `D${slot}`, eIn = c.edge === slot;
   const cSlot = cU ? null : c.corner.slice(1), eSlot = eU ? null : c.edge;
-  const usesD = toks.some((t) => /^D/.test(t)), usesF2 = toks.some((t) => /^[FB]2/.test(t)), usesF = toks.some((t) => /^[FB]'?$/.test(t)), wide = toks.some((t) => /^[urfl]/.test(t));
-  const ends = INSERTS[slot].find(([m]) => core.endsWith(m));
-  const tail = ends ? ` The last three moves are the basic ${ends[0]} insert.` : '';
+  const cOther = cSlot && cSlot !== slot ? cSlot : null, eOther = eSlot && eSlot !== slot ? eSlot : null;
+  const twisted = cIn && c.co !== 'ud';
+  const word = (s: string) => (isSlot(s) ? SLOT_WORD[s] : s);
   const oWord = { ud: 'white up', fb: 'white facing front/back', rl: 'white facing right/left' }[c.co];
-  const word = (s: string | null) => (s && isSlot(s) ? SLOT_WORD[s] : s);
+  // when each piece first leaves the spot it starts in (state index; the move is toks[k - 1])
+  const cUp = S.findIndex((x) => x.cAt !== S[0]!.cAt), eUp = S.findIndex((x) => x.eAt !== S[0]!.eAt);
+  const upBy = (k: number) => (k > 0 ? toks[k - 1]! : '');
+  const joinedEver = S.some((x) => x.joined);
+  const ins = INSERTS[slot].find(([m]) => toks.slice(-3).join(' ') === m);
+  const tail = ins && n > 3 ? ` The last three moves are the basic ${ins[0]} insert.` : '';
+  // the first state from which U turns and a basic insert finish, reached using only `faces` (and U) before it
+  const readyVia = (from: number, faces: string) => {
+    const r = S.findIndex((x, i) => i >= from && x.ready);
+    return r >= 0 && toks.slice(0, r).every((t) => t[0] === 'U' || faces.includes(t[0])) ? r : -1;
+  };
+  // which of two pieces comes out first: 'the edge out first, then the corner' (`out` = ' out') or '... first, then ...'
+  const order = (a: string, ka: number, b: string, kb: number, out = '') => (ka < kb ? `${a}${out} first, then ${b}` : ka > kb ? `${b}${out} first, then ${a}` : `${a} and ${b}${out} on the same move`);
+
+  const usesD = toks.some((t) => t[0] === 'D');
+  const qFB = toks.find((t) => /^[FB]'?$/.test(t));
+  const hFB = toks.find((t) => /^[FB]2$/.test(t));
+  const slice = toks.some((t) => /^[urfdlbMESxyz]/.test(t));
+  const allHalf = toks.every((t) => /2/.test(t) || t[0] === 'U') && toks.some((t) => /2/.test(t) && t[0] !== 'U');
+  // the move that puts the pair in for good
+  let lastIn = S.length - 1;
+  while (lastIn > 0 && S[lastIn - 1]!.cHome && S[lastIn - 1]!.eHome) lastIn--;
+  const cornerHomeBy = (() => { let k = S.length - 1; while (k > 0 && S[k - 1]!.cHome) k--; return upBy(k); })();
+  const eStays = S.every((x) => x.eHome);
+  const dBack = netTurns(toks, 'D') === 0 ? '; they cancel out, so the cross ends where it started' : '';
+
   let head: string, body: string;
-  const twisted = c.corner === `D${slot}` && c.co !== 'ud' ? ' The corner is in its own slot but twisted, so it gets pulled out along the way.' : '';
-  const allHalf = toks.every((t) => /2/.test(t) || /^U/.test(t)) && toks.some((t) => /2/.test(t));
-  if (usesD && eIn && !cIn) { head = 'Slide the corner under.'; body = "The edge is already solved in the slot, so the alg never touches it. The corner is popped out, inserted with an ordinary insert into the neighbouring slot's corner spot, and then D' slides the bottom layer one notch so it ends up underneath the edge. The first D pre-rotates the bottom layer so that neighbouring spot holds junk rather than a solved corner, and the outer moves put that neighbour's corner back."; }
-  else if (allHalf) { head = 'Half-turn shuffle.'; body = `Half turns of one side plus U turns cycle pieces between the top layer and the slots without ever changing orientation. Because both pieces are already oriented correctly, this shuffle is enough to route them home.${twisted}`; }
-  else if (usesD) { head = 'D-layer conjugate.'; body = 'D turns temporarily rotate a helper slot under the working layer so an ordinary insert can use it, then D turns it back. The cross is only "broken" between the setup and the undo.'; }
-  else if (usesF2) { head = 'F2 flip.'; body = 'A half turn of F is EO-safe. It swaps the top-right and bottom-left of the front face and flips white from up to down, so with the pieces lined up correctly one F2 inserts the pair; the moves around it are setup and undo.'; }
-  else if (usesF) { head = 'F conjugate.'; body = "F cracks the slot open by lifting the solved corner, the middle moves slide the edge in from the top, F' closes it, and the remaining moves put back the cross edge and neighbouring pieces the F disturbed."; }
-  else if (wide) { head = 'Slice shuffle.'; body = 'A wide move shifts the middle slice so a half-turn shuffle of one layer swaps pieces between slots, then the wide move undoes the shift.'; }
-  else if (cU && eU) {
-    if (n === 3) { head = 'Direct insert.'; body = `The pair is already formed above the slot (${oWord}); this is one of the two basic 3-move inserts.`; }
-    else if (c.co === 'ud') { head = 'Tilt, then insert.'; body = `A corner with white facing up can't go in directly. The first moves push it into the slot the wrong way and pull it back out tilted, so it re-emerges with white on a side, then it's a normal pair-up and insert.${tail}`; }
-    else { head = 'Split and re-pair.'; body = `Both pieces are in the top layer but not lined up (${oWord}). The opening moves reposition them into one of the two basic insert pictures.${tail}`; }
+  if (usesD && eIn && eStays && cOther && cornerHomeBy[0] === 'D') {
+    head = 'Slide the corner under.';
+    body = `The edge is already solved in the slot and never moves. The corner is popped out of the ${word(cOther)} slot and put back into the bottom layer, and the D turns carry it round underneath the edge${dBack}.`;
+  } else if (usesD && eIn && eStays && cU && cornerHomeBy[0] === 'D') {
+    head = 'Corner under the edge.';
+    body = `The edge is already solved in the slot and never moves. The corner goes into the bottom layer at another spot, and the D turns carry it round underneath the edge${dBack}.`;
+  } else if (allHalf) {
+    head = 'Half-turn shuffle.';
+    body = 'Half turns (with U turns) move pieces between the top layer and the slots without changing which way they face. Both pieces already face the right way, so this shuffle is enough to route them home.';
+  } else if (usesD) {
+    head = 'D-layer conjugate.';
+    body = `The D turns swing the bottom layer round while the other moves work${dBack}.`;
+  } else if (qFB) {
+    const inv = invert(qFB);
+    head = qFB[0] === 'F' ? 'F conjugate.' : 'B conjugate.';
+    const k = toks.indexOf(qFB);
+    body = `A quarter turn of the ${FB_WORD[qFB[0]]} (${qFB}) flips edges, so ${toks.indexOf(inv, k + 1) > k ? `it is paired with ${inv} later in the alg and ` : ''}every edge is oriented again at the end.`;
+    if (S[k]!.cHome && S[k + 1]!.cU) body += ` Here ${qFB} opens the slot by lifting the solved corner out.`;
+  } else if (hFB) {
+    const lastBy = upBy(lastIn);
+    head = hFB[0] === 'F' ? 'F2 flip.' : 'B2 flip.';
+    body = `A half turn of the ${FB_WORD[hFB[0]]} (${hFB}) moves pieces across that face without flipping any edge.`;
+    if (/^[FB]2$/.test(lastBy)) body += ` Here ${lastBy} is the move that puts the pair in; the moves before it line the pieces up for it.`;
+  } else if (slice) {
+    head = 'Slice shuffle.';
+    const centresBack = Object.entries(CENTRE).every(([face, i]) => rawFacelets(full)[i] === face);
+    body = `The wide and slice turns carry a middle layer along, so the turns in between can move pieces through it${centresBack ? '; they cancel out by the end, leaving the centres where they started' : ''}.`;
+  } else if (cU && eU) {
+    if (n === 3) {
+      head = 'Direct insert.';
+      const pic = ins ? ` (${ins[1]})` : '';
+      body = S[0]!.joined
+        ? `The corner and edge are already joined in the top layer${pic}. This is a basic 3-move insert: the first turn lifts the slot, the U turn brings the pair over it, and the last turn drops it in.`
+        : `The corner and edge are apart in the top layer${pic}. This is a basic 3-move insert: the first turn lifts the slot, the U turn joins the pair over it, and the last turn drops it in.`;
+    } else if (c.co === 'ud') {
+      head = 'Tilt, then insert.';
+      const k = S.findIndex((x) => x.white !== 'U');
+      body = `With white facing up the corner can't be joined to the edge and dropped straight in. The opening moves turn it so white no longer faces up (move ${k}, ${upBy(k)})${tail ? ' and set the pair up for a basic insert.' : ', and the rest inserts the pair.'}${tail}`;
+    } else {
+      head = 'Split and re-pair.';
+      body = `Both pieces are in the top layer but not lined up for a basic insert (${oWord}). The opening moves reposition them${tail ? ' into one of the two basic insert pictures.' : ', and the rest inserts the pair.'}${tail}`;
+    }
+  } else if (twisted && eIn) {
+    head = 'Pair in, corner twisted.';
+    const lifted = S[3]?.cU && S[3]?.eU;
+    body = `Both pieces are in the slot but the corner is rotated. The pair has to come out and go back in: ${lifted ? 'the first three moves lift both pieces out' : 'the opening moves take them out'}, then ${joinedEver ? "they're joined again in the top layer and inserted" : 'they go back in the right way round'}.${tail}`;
+  } else if (twisted && eOther) {
+    head = 'Twisted corner, pop the edge.';
+    body = `The edge is in the ${word(eOther)} slot and the corner is in its own slot the wrong way round. The alg takes ${order('the edge', eUp, 'the corner', cUp, ' out')}, and ${joinedEver ? 're-inserts them as a pair' : 'puts them back in together'}.${tail}`;
+  } else if (twisted && eU) {
+    head = 'Twisted corner in slot.';
+    body = `The corner is in the right slot but rotated. It has to come out and go back in with the edge${joinedEver ? ', joined to it in the top layer' : ''}.${tail}`;
+  } else if (cIn && eU) {
+    head = joinedEver ? 'Lift the corner, re-pair.' : 'Corner out and back.';
+    body = `The corner is home but its edge is on top, and the corner is in the way. The alg takes the corner out${joinedEver ? ', joins it to the edge in the top layer and puts the pair back in' : ' and brings it back in with the edge by the end'}.${tail}`;
+  } else if (eIn && cU) {
+    head = 'Edge in, corner out.';
+    body = `The edge is sitting in the slot without its corner. The alg pulls it out${joinedEver ? ', joins it to the corner in the top layer' : ''} and inserts the pair properly.${tail}`;
+  } else if (cOther && eOther) {
+    const own = cOther.includes(upBy(cUp)[0] ?? '-') && eOther.includes(upBy(eUp)[0] ?? '-');
+    head = 'Two pops, then insert.';
+    const where = cOther === eOther ? `Both pieces are in the ${word(cOther)} slot. They are popped out${own ? " with that slot's own turns" : ''}` : `The corner is in the ${word(cOther)} slot and the edge in the ${word(eOther)} slot. Each is popped out${own ? " with its own slot's turns" : ''}`;
+    body = `${where}, ${order('the corner', cUp, 'the edge', eUp)}${joinedEver ? ', so they meet in the top layer and join' : ''}.${tail}`;
+  } else if (cOther && eIn) {
+    const own = cOther.includes(upBy(cUp)[0] ?? '-');
+    head = 'Edge out, pop the corner.';
+    body = `The edge is in the slot without its corner, and the corner is in the ${word(cOther)} slot. The alg takes ${order('the edge', eUp, 'the corner', cUp, ' out')}${own ? ", popping the corner with its slot's own turns" : ''}${joinedEver ? ', joins them in the top layer' : ''} and inserts the pair.${tail}`;
+  } else if (eOther && cIn) {
+    const own = eOther.includes(upBy(eUp)[0] ?? '-');
+    head = 'Corner out, pop the edge.';
+    body = `The corner is home without its edge, and the edge is in the ${word(eOther)} slot. The alg takes ${order('the corner', cUp, 'the edge', eUp, ' out')}${own ? ", popping the edge with its slot's own turns" : ''}${joinedEver ? ', joins them in the top layer' : ''} and inserts the pair.${tail}`;
+  } else if (cOther) {
+    const r = readyVia(cUp, cOther);
+    head = 'Pop the corner, then insert.';
+    body = `The corner is in the ${word(cOther)} slot.${r > 0 ? " The first moves pop it out with that slot's own turns so it lands ready for a basic insert." : ` It is popped out${cOther.includes(upBy(cUp)[0] ?? '-') ? " with that slot's own turns" : ''}, and the rest ${joinedEver ? 'joins it to the edge and ' : ''}inserts the pair.`}${tail}`;
+  } else if (eOther) {
+    const r = readyVia(eUp, eOther);
+    head = 'Pop the edge, then insert.';
+    body = `The edge is in the ${word(eOther)} slot.${r > 0 ? " The first moves pop it out with that slot's own turns so it lands ready for a basic insert." : ` It is popped out${eOther.includes(upBy(eUp)[0] ?? '-') ? " with that slot's own turns" : ''}, and the rest ${joinedEver ? 'joins it to the corner and ' : ''}inserts the pair.`}${tail}`;
+  } else {
+    head = 'Pop, then insert.';
+    body = `Pieces in wrong slots are popped out with that slot's own moves (${POP[slot]} style), then inserted normally.${tail}`;
   }
-  else if (twisted && eIn) { head = 'Pair in, corner twisted.'; body = `Both pieces are in the slot but the corner is rotated. The pair has to come out and go back in; the first three moves lift it, then it's re-paired and inserted.${tail}`; }
-  else if (twisted && eSlot) { head = 'Twisted corner, pop the edge.'; body = `The edge is in the ${word(eSlot)} slot and the corner is in its own slot the wrong way round. The alg pops the edge, pulls the corner out, and re-inserts them as a pair.${tail}`; }
-  else if (twisted && eU) { head = 'Twisted corner in slot.'; body = `The corner is in the right slot but rotated. It has to come out and go back in with the edge, which is what the first insert-shaped moves do.${tail}`; }
-  else if (cIn && eU) { head = 'Keyhole.'; body = `The solved corner blocks the slot. The alg lifts it out with the edge nearby, re-pairs them in the top layer and reinserts.${tail}`; }
-  else if (eIn && cU) { head = 'Edge in, corner out.'; body = `The edge is sitting in the slot without its corner. The alg pulls it out as part of a first insert attempt, re-pairs, and inserts properly.${tail}`; }
-  else if (cSlot && eSlot && cSlot !== slot && eSlot !== slot) { head = 'Two pops, then insert.'; body = `The corner is in the ${word(cSlot)} slot and the edge in the ${word(eSlot)} slot. Each is popped out with its own slot's moves, in an order and direction chosen so they meet in the top layer already paired.${tail}`; }
-  else if (cSlot && cSlot !== slot) { head = 'Pop the corner, then insert.'; body = `The corner is in the ${word(cSlot)} slot. The first moves pop it out with that slot's own turns so it lands next to the edge, ready for a basic insert.${tail}`; }
-  else if (eSlot && eSlot !== slot) { head = 'Pop the edge, then insert.'; body = `The edge is in the ${word(eSlot)} slot. The first moves pop it out with that slot's own turns so it lands ready for a basic insert.${tail}`; }
-  else { head = 'Pop, then insert.'; body = `Pieces in wrong slots are popped out with that slot's own moves (${POP[slot]} style), then inserted normally.${tail}`; }
+
+  // other slots the alg goes through: lifted and put back (whatever is there comes back), or left changed (a shortcut)
   const occ = new Set([cSlot, eSlot].filter((s): s is string => !!s));
   const bor = borrowedSlots(slot, alg, occ);
   if (bor.length) {
-    const names = bor.map((s) => SLOT_WORD[s]).join(' and ');
-    if (cU && eU && !usesD && !usesF2 && !usesF && !wide && n > 3) head = 'Borrow a neighbouring slot.';
-    body += ` Along the way it pulls the ${names} slot's pieces out (the half turns do that) and puts them back before the end, so that slot ends up untouched — it just needs to be either solved or empty when you start.`;
+    const names = `${bor.map((s) => SLOT_WORD[s]).join(' and ')} ${bor.length > 1 ? "slots'" : "slot's"}`;
+    const fs = [SOLVED, ...stepStates(SOLVED, normalizeAlg(full))], all = algTokens(full);
+    const liftMoves = bor.flatMap((b) => fs.slice(1).flatMap((f, i) => (!liftedU(fs[i]!, b) && liftedU(f, b) ? [all[i]!] : [])));
+    const byHalf = liftMoves.every((t) => /2/.test(t));
+    if (cU && eU && !usesD && !qFB && !hFB && !slice && n > 3) head = 'Borrow a neighbouring slot.';
+    body += ` Along the way it lifts the ${names} pieces out${byHalf ? ' (the half turns do that)' : ''} and puts them back before the end, so whatever is in ${bor.length > 1 ? 'those slots ends up where it was' : 'that slot ends up where it was'}.`;
+  }
+  const end = state(normalizeAlg(full));
+  const used = SLOTS.filter((s) => s !== slot && !occ.has(s) && !slotSolved(end, s));
+  if (used.length) {
+    const names = used.map((s) => SLOT_WORD[s]).join(' and ');
+    body += ` This is a slot shortcut: it runs through the ${names} slot${used.length > 1 ? 's' : ''} and leaves other pieces there, so use it only while ${used.length > 1 ? 'those slots are' : 'that slot is'} still unsolved.`;
   }
   return { head, body };
 }
