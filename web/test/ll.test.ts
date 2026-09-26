@@ -133,6 +133,42 @@ describe('solution() finds the tabled fix for random drills', () => {
 });
 
 describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
+  // 2026-09-25: a Performance trace of the page frozen 45 s at load put it all in the phase-2 search the two-phase
+  // solver runs at each phase-1 leaf (scrambleFor -> solveAny -> search1 -> searchG1), which had no cap at all; the
+  // constrained G1 searches (faces dropped, the slice rule, a length) had none either. Both are capped now, and past
+  // the cap a looser search stands in, so the scramble still reaches the state.
+  it('the phase-2 tails give up inside their budget and the scramble still reaches the state', async () => {
+    const { lastSearchStats } = await import('../src/ll/scramble');
+    // off G1 with the faces restricted (the PLL drill rebasing a long setup): the tails have no answer under
+    // U D R2 L2 and walked 15M nodes uncapped (784 ms on a desktop; the traced freeze was this path, longer)
+    let seed = 504;
+    const lcg = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
+    const setup = "U2 L' U' L2 F L' U' L' U L F' L' U L U2 R U R' U R U' R' U R U2 R' U L2 U' L U' L' U2 L2 U'";
+    const t0 = performance.now();
+    const scr = scrambleFor(setup, lcg, { faces: 'UDRL' });
+    expect(performance.now() - t0).toBeLessThan(3000);
+    expect(lastSearchStats().gaveUp).toBeGreaterThan(0);
+    expect(state(scr)).toBe(state(setup));
+    // U and D alone never solve an H perm: the search runs out of depths, and the looser one stands in
+    const h = inverse(PLL_CASES.find((c) => c.id === 'H')!.alg);
+    const scrH = scrambleFor(h, makeRng(7), { faces: 'UD', slices: 'paired' });
+    expect(state(scrH)).toBe(state(h));
+  });
+
+  it('every drill setup (an AUF each side of the case) answers in well under a second', () => {
+    const rng = makeRng(7);
+    const opts = { longer: [1, 2] as [number, number], slices: 'paired' as const, faces: 'UDRL', noLeadingU: true };
+    let worst = 0;
+    for (const c of PLL_CASES) for (const a of ['', 'U', 'U2', "U'"]) for (const b of ['', 'U', 'U2', "U'"]) {
+      const setup = `${a} ${inverse(c.alg)} ${b}`.trim();
+      const t0 = performance.now();
+      const scr = scrambleFor(setup, rng, opts);
+      worst = Math.max(worst, performance.now() - t0);
+      expect([c.id, a, b, state(scr)]).toEqual([c.id, a, b, state(setup)]);
+    }
+    expect(worst).toBeLessThan(1500);
+  });
+
   it('reaches the same state as the setup with face turns only, 15 moves at most', () => {
     const rng = makeRng(4);
     for (const c of PLL_CASES) {

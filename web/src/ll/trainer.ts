@@ -49,6 +49,7 @@ import type { FaceId } from '../cube/frame';
 import { mountDrill, readAttempts } from '../ui/drill';
 import { chunkList, triggers } from '../ui/fingertricks';
 import { CASES, families, type LLCase, type LLKind } from './cases';
+import { lastSearchStats } from './scramble';
 import { aufToSolve, done, drawCase, fitAlg, type LLStart, type Cycle, nextInCycle, PLL_SCRAMBLE, randomSetup, type RouteStep, route, scrambleFor, sliceForm, solution, splitAt, START_LABEL, STARTS, stepMoves, stepPlain, stepShown, trimAuf } from './model';
 import { algAngle } from './features';
 import { onFavsChange } from './favs';
@@ -551,7 +552,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       const opts = kind === 'pll' && settings.from === 'pll' && !lead.length ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
       const t0 = performance.now();
       const t = trimAuf(scrambleFor(setup, Math.random, opts));
-      console.info(`[ll] ${kind} scramble search took ${(performance.now() - t0).toFixed(0)} ms for "${setup}" ${JSON.stringify(opts)}`);
+      { const st = lastSearchStats(); console.info(`[ll] ${kind} scramble search took ${(performance.now() - t0).toFixed(0)} ms (phase 1 ${st.phase1} nodes, phase 2 ${st.phase2}, gave up ${st.gaveUp}) for "${setup}" ${JSON.stringify(opts)}`); }
       if (freeAuf && t.auf) {
         setup = faceTurns(`${setup} ${inverse(t.auf)}`);
         derive(); shareScramble(setup, kind);

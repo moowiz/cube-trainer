@@ -208,10 +208,12 @@ const shuffled = (n: number, rng: () => number): number[] => {
  * moves, else of one more, up to `maxDepth`, or null. `lastFace` is the face the moves before it
  * ended on (no U after a U); `order` is the moves tried, in that order (a subset drops faces).
  */
-function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[], slices?: 'none' | 'paired'): number[] | null {
+function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, maxDepth: number, lastFace: number, order: readonly number[], slices?: 'none' | 'paired', budget = Infinity, counter = { n: 0 }): number[] | null {
   const t = (tables ??= once('phase 2', buildTables));
   const path: number[] = [];
+  const start = counter.n;
   const search = (cp: number, ep: number, sl: number, depth: number, last: number): boolean => {
+    if (++counter.n > budget) return false;
     const h = Math.max(t.pruneCp[cp * N_SLICE + sl]!, t.pruneEp[ep * N_SLICE + sl]!);
     if (h > depth) return false;
     if (depth === 0) return h === 0 && slicesOk(path, slices);
@@ -225,9 +227,30 @@ function searchG1(st: { cp: number; ep: number; sl: number }, minDepth: number, 
     }
     return false;
   };
-  for (let depth = Math.max(0, minDepth); depth <= maxDepth; depth++) if (search(st.cp, st.ep, st.sl, depth, lastFace)) return path;
+  for (let depth = Math.max(0, minDepth); depth <= maxDepth && counter.n <= budget; depth++) if (search(st.cp, st.ep, st.sl, depth, lastFace)) { stats.phase2 += counter.n - start; return path; }
+  stats.phase2 += counter.n - start;
+  if (counter.n > budget && start <= budget) stats.gaveUp++;
+  if (counter.n > budget && start <= budget) console.info(`[ll] phase 2 search gave up after ${budget} nodes (depth ${minDepth}..${maxDepth}, ${order.length} moves, slices ${slices ?? 'free'}${lastFace >= 0 ? ', no leading U' : ''}): a looser search stands in`);
   return null;
 }
+
+// DECISION: a constrained phase-2 search (a subset of the faces, an exact length, the slice rule, no
+// leading U) is capped: the pruning tables know all ten moves, so with faces dropped they under-estimate,
+// and a length with no answer under the rules is a full tree walk (U and D alone never solve an H perm:
+// depths 0..30, for ever). Past the cap the next looser search stands in; the last one (every move, no
+// rules) is exact and fast. Measured 2026-09-26 over every PLL setup with an AUF each side, U D R2 L2:
+// the drill's searches finish under 6M nodes (~120 ms on a desktop), so 20M is a safety net, not a trim.
+const G1_BUDGET = 20_000_000;
+// The phase-2 tails the two-phase search runs at each phase-1 leaf share one budget of their own: they
+// had none, and a Performance trace of 2026-09-25 put a 45 s freeze at page load entirely in them
+// (scrambleFor -> solveAny -> search1 -> searchG1). Over 400 drill setups the tails total under 3.1M
+// nodes; with the faces restricted (the PLL drill's rebase) up to 15M, ~800 ms, so this trims those.
+const TAIL_BUDGET = 5_000_000;
+
+/** What the last solveAny / solveG1 cost: for the drills' console line and the tests' budget checks. */
+export interface SearchStats { phase1: number; phase2: number; gaveUp: number }
+const stats: SearchStats = { phase1: 0, phase2: 0, gaveUp: 0 };
+export const lastSearchStats = (): SearchStats => ({ ...stats });
 
 export interface SolveOpts {
   /** the faces phase 2 may turn, as letters (default every face: 'UDRLFB'); U and D are always in */
@@ -282,14 +305,14 @@ function solveG1(facelets: string, rng: () => number = Math.random, opts: SolveO
   const ns = opts.slices;
   let length = opts.length;
   if (length === undefined && opts.longer) {
-    const shortest = searchG1(st, 0, 30, last, order, ns);
+    const shortest = searchG1(st, 0, 30, last, order, ns, G1_BUDGET);
     const [lo, hi] = opts.longer;
     if (shortest) length = shortest.length + lo + Math.floor(rng() * (hi - lo + 1));
   }
   // DECISION: the asked length first; when nothing has that length (too short, or the wrong parity for
   // the moves allowed) the shortest answer stands in - a scramble that works beats one of the right length
-  const path = (length !== undefined ? searchG1(st, length, length, last, order, ns) : null)
-    ?? searchG1(st, 0, 30, last, order, ns) ?? searchG1(st, 0, 30, -1, shuffled(MOVES.length, rng));
+  const path = (length !== undefined ? searchG1(st, length, length, last, order, ns, G1_BUDGET) : null)
+    ?? searchG1(st, 0, 30, last, order, ns, G1_BUDGET) ?? searchG1(st, 0, 30, -1, shuffled(MOVES.length, rng));
   return path ? path.map((m) => MOVES[m]).join(' ') : null; // phase 2 needs at most 18 moves with every face: never null for a G1 state
 }
 
@@ -304,6 +327,10 @@ const NODE_BUDGET = 400_000;
  * few moves out of G1). Equal-length solutions come up in a random order.
  */
 export function solveAny(facelets: string, rng: () => number = Math.random, opts: SolveOpts = {}): string {
+  stats.phase1 = 0; stats.phase2 = 0; stats.gaveUp = 0;
+  return solveAnyInner(facelets, rng, opts);
+}
+function solveAnyInner(facelets: string, rng: () => number, opts: SolveOpts): string {
   const p0 = piecesOf(Cube.fromString(facelets));
   if (inG1(p0)) return solveG1(facelets, rng, opts)!;
   const t1 = (tables1 ??= once('phase 1', buildTables1));
@@ -315,6 +342,7 @@ export function solveAny(facelets: string, rng: () => number = Math.random, opts
   const exact = opts.length;
   const found: { best: string[] | null } = { best: null };
   let nodes = 0;
+  const tails = { n: 0 }; // phase-2 nodes over every tail, against TAIL_BUDGET
   const stack: Pieces[] = Array.from({ length: 20 }, () => new Uint8Array(40));
   const path: number[] = [];
   // every phase-1 solution of exactly `depth` more moves (h == 0 at the end); a phase-1 solution ending in a
@@ -329,14 +357,16 @@ export function solveAny(facelets: string, rng: () => number = Math.random, opts
       if (exact !== undefined) {
         const rest = exact - path.length;
         if (rest < 0) return;
-        const tail = searchG1(coords2(p), rest, rest, lastFace, order2);
+        const tail = searchG1(coords2(p), rest, rest, lastFace, order2, undefined, TAIL_BUDGET, tails);
         if (tail) { found.best = [...path.map((m) => ALL[m]!), ...tail.map((m) => MOVES[m]!)]; nodes = NODE_BUDGET + 1; }
+        if (tails.n > TAIL_BUDGET) nodes = NODE_BUDGET + 1; // the tails are spent: stop phase 1 too
         return;
       }
       const cap = found.best ? found.best.length - path.length - 1 : 18;
       if (cap < 0) return;
-      const tail = searchG1(coords2(p), 0, cap, lastFace, order2);
+      const tail = searchG1(coords2(p), 0, cap, lastFace, order2, undefined, TAIL_BUDGET, tails);
       if (tail) found.best = [...path.map((m) => ALL[m]!), ...tail.map((m) => MOVES[m]!)];
+      if (tails.n > TAIL_BUDGET) nodes = NODE_BUDGET + 1;
       return;
     }
     for (const m of order1) {
@@ -352,6 +382,7 @@ export function solveAny(facelets: string, rng: () => number = Math.random, opts
     if (found.best && d1 >= found.best.length) break;
     search1(p0, d1, first, 0);
   }
-  if (!found.best && (exact !== undefined || opts.noLeadingU || opts.faces)) return solveAny(facelets, rng, exact !== undefined ? { ...opts, length: undefined } : {}); // nothing of that length (or with those faces): the shortest stands in
+  stats.phase1 += nodes;
+  if (!found.best && (exact !== undefined || opts.noLeadingU || opts.faces)) return solveAnyInner(facelets, rng, exact !== undefined ? { ...opts, length: undefined } : {}); // nothing of that length (or with those faces): the shortest stands in
   return found.best!.join(' '); // phase 1 finds a solution by depth 12 for any state, far inside the budget
 }
