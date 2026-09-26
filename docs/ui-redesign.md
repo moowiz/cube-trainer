@@ -1087,4 +1087,8 @@ check:practice pass unchanged.
 - Known flaky: `check:f2l`'s "three turns into the front-left pair's alg"
   failed once in about ten runs, on a random scramble. It is untouched by
   these changes and not chased yet.
+- **F2L's four pairs are a 2 × 2 grid where they sit**, seen from above
+  with the front toward you: back-left and back-right over front-left and
+  front-right. That applies to the cards while tracking and to the chips
+  when tapping a case in. It fits a phone, with the algs wrapping.
 

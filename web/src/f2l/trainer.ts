@@ -86,10 +86,15 @@ const STYLE = `
   .f2l .net rect.solved { opacity: .38; cursor: default; }
   .f2l .net rect.pair { stroke: var(--ink); stroke-width: 2.5; }
   .f2l .net rect.hit:hover { stroke: var(--ink-2); stroke-width: 2; }
-  .f2l .tracker { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  /* the four pairs where they sit, seen from above with the front toward you: the back pairs over the front ones
+     (user, 2026-09-26: a line did not say which pair was where) */
+  .f2l .tracker { display: grid; grid-template-columns: repeat(2, max-content); grid-template-areas: "BL BR" "FL FR"; gap: 8px; margin-top: 10px; }
+  .f2l .tracker > [data-slot="FR"] { grid-area: FR; } .f2l .tracker > [data-slot="FL"] { grid-area: FL; }
+  .f2l .tracker > [data-slot="BR"] { grid-area: BR; } .f2l .tracker > [data-slot="BL"] { grid-area: BL; }
   .f2l .tracker > span { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; padding: 7px 12px 7px 8px; border-radius: 999px; border: 1.5px solid var(--line); color: var(--ink-2); background: var(--panel); cursor: pointer; }
   /* tracking: each open pair a card with its case and shortest alg, so the pair to solve next can be chosen by eye */
-  .f2l .tracker.cards > span { flex-direction: column; align-items: flex-start; gap: 4px; border-radius: 12px; padding: 8px 12px; min-width: 150px; }
+  .f2l .tracker.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
+  .f2l .tracker.cards > span { flex-direction: column; align-items: flex-start; gap: 4px; border-radius: 12px; padding: 8px 12px; min-width: 0; }
   .f2l .tracker.cards > span > b { display: inline-flex; align-items: center; gap: 8px; font-weight: inherit; }
   .f2l .tracker > span small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); letter-spacing: .02em; line-height: 1.35; }
   .f2l .tracker > span.cur small { color: var(--ink); }
@@ -443,6 +448,7 @@ export function mountF2L(root: HTMLElement): Stage {
       for (const col of ['#fff', faceHex(s[0]), faceHex(s[1])]) { const i = document.createElement('i'); i.style.background = col; sw.appendChild(i); }
       head.appendChild(sw); head.appendChild(document.createTextNode(SLOT_WORD[s]));
       el.appendChild(head);
+      el.dataset.slot = s;
       el.setAttribute('aria-label', `white-${faceColorName(s[0])}-${faceColorName(s[1])} ${SLOT_WORD[s]}`);
       if (solvedSlots.has(s)) el.classList.add('done');
       else {
