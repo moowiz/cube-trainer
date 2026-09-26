@@ -38,6 +38,9 @@
   .tabs button.ico.warn { color: #7A4B00; background: #FFF3D6; border-color: #E0B24B; }
   .tabs button.ico.busy { color: var(--ink-2); }
   .tabs button.ico.busy .ico-txt { display: inline-block; animation: sync-spin 1.4s linear infinite; }
+  /* the Cube button while the smart cube auto-connects (busy, above) and once it is on */
+  .tabs button.ico.cube-on { color: #1B5E20; background: #E8F5E9; border-color: #66BB6A; }
+  .tabs button.ico.busy .txt { display: inline; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
   @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
   /* a 400 px phone: five tabs and four icons ran 9 px past the edge and gave the page a sideways scroll */
@@ -95,7 +98,7 @@
   <span class="sp"></span>
   <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
   <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
-  <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)">🧊<span class="txt"> Cube</span><span class="key"> (l)</span></button>
+  <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)"><span class="ico-txt">🧊</span><span class="txt"> Cube</span><span class="key"> (l)</span></button>
   <button type="button" class="ico" id="algs-open" title="Algs: the algs worth remembering for the other puzzles - 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO (a)">📖<span class="txt"> Algs</span><span class="key"> (a)</span></button>
   <button type="button" class="ico" id="rec-open" hidden>⏺<span class="txt"> Record</span></button>
   <button type="button" class="ico" id="rec-pop" hidden title="Float the live camera in its own window to check the framing">⧉</button>

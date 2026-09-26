@@ -62,6 +62,7 @@ function connectOpts(src: CubeSource): ConnectOpts {
       if (s) { headerToSession(); void s.cubeEvent(e); }
       if (e.kind === 'disconnect') {
         cubeLink = null;
+        headerLight('idle');
         dropSource(src);
         refreshView();
         toast('Smart cube disconnected');
@@ -88,6 +89,7 @@ function connected(src: CubeSource, link: CubeLink): void {
   cubeLink = link;
   wantCube = true;
   view.setBusy(null);
+  headerLight('on', link.name);
   takeSource(src);
   headerToSession();
   toast(`${link.name} connected`);
@@ -109,10 +111,27 @@ function stopListening(): void {
   listening = null;
 }
 
+/**
+ * The tab bar's Cube button as the cube's light on every tab: spinning "Connecting…" while the page
+ * listens for or attaches the cube (the user asked for a sign on load, 2026-09-26), green once it is on.
+ */
+function headerLight(state: 'idle' | 'busy' | 'on', detail?: string): void {
+  const b = document.getElementById('cube-open');
+  if (!b) return; // the headless checks mount without the tab bar
+  b.classList.toggle('busy', state === 'busy');
+  b.classList.toggle('cube-on', state === 'on');
+  const txt = b.querySelector('.txt');
+  if (txt) txt.textContent = state === 'busy' ? ' Connecting…' : state === 'on' ? ` ${detail ?? 'Cube'}` : ' Cube';
+  b.title = state === 'busy' ? `${detail ?? 'Connecting the smart cube'}; tap for the Cube sheet (l)`
+    : state === 'on' ? `${detail} connected; tap for the Cube sheet (l)`
+    : 'Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)';
+}
+
 /** Why the auto-connect is not happening, on the chip's status line and the console; nothing when it can run. */
 function explain(why: string): void {
   console.info(`[smart] no auto-connect: ${why}`);
   view.setBusy(`No auto-connect: ${why}`);
+  headerLight('idle');
 }
 
 async function listenForCube(): Promise<void> {
@@ -132,6 +151,8 @@ async function listenForCube(): Promise<void> {
   attempts++;
   const ctl = new AbortController();
   listening = ctl;
+  headerLight('busy', `${support.watch ? 'Listening for' : 'Trying'} ${device.name ?? 'the cube'}`);
+  if (attempts === 1) toast(`Reconnecting ${device.name ?? 'the smart cube'}…`);
   const src = new CubeSource(CUBE_COLOURS);
   try {
     const link = await autoConnect({ ...connectOpts(src), device, signal: ctl.signal, watch: support.watch });
@@ -140,7 +161,7 @@ async function listenForCube(): Promise<void> {
     connected(src, link);
   } catch (err) {
     if (listening === ctl) listening = null;
-    if (err instanceof DOMException && err.name === 'AbortError') return;
+    if (err instanceof DOMException && err.name === 'AbortError') { if (!listening) headerLight('idle'); return; }
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[smart] auto-connect failed', err);
     view.setBusy(`${device.name ?? 'The cube'} did not connect (${msg}); trying again…`);
@@ -156,11 +177,13 @@ async function connectSmartCube(): Promise<void> {
   attempts = 0;
   const src = new CubeSource(CUBE_COLOURS);
   view.setBusy('Pick your cube in the browser dialog…');
+  headerLight('busy', 'Connecting the smart cube');
   let link: CubeLink;
   try {
     link = await connectCube(connectOpts(src));
   } catch (err) {
     view.setBusy(null);
+    headerLight('idle');
     toast(`No cube connected: ${err instanceof Error ? err.message : err}`);
     void listenForCube();
     return;

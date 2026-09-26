@@ -254,7 +254,10 @@ aborts the listening. Without `watchAdvertisements` (the experimental flag
 off) the page tries the GATT connection directly every few seconds instead:
 Chrome scans for a permitted device itself and fails after its own timeout
 when the cube is away. Without `getDevices` (`autoConnectSupport`) there is
-no auto-connect, and the chip's status line says so - as it says every other
+no auto-connect, and the chip's status line says so. The tab bar's Cube
+button is the light on every tab: spinning "Connecting…" while the page
+listens or attaches, green with the cube's name once it is on, and a toast
+"Reconnecting …" on the first attempt after load - as it says every other
 reason it is not happening (no permitted device yet, the remembered cube
 not among them, the attempt that failed). The test is `test/smart-autoconnect.test.ts`, on a
 fake device; the attach step is injectable so the flow runs without a
