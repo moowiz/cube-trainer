@@ -193,8 +193,8 @@ check(!/^Apply this to a solved cube/.test(await text('#scrmsg')), `box off: no 
 // targeted practice: two cases picked in the sheet, a scramble that puts one on its pair, the pair done on the
 // cube filed (timed) and shown in the practice table
 await page.click('#allcases'); await wait(400);
-await page.click('#ref-panel [data-filter="pick-FR-4"]'); await wait(200);
-await page.click('#ref-panel [data-filter="pick-FR-40"]'); await wait(200);
+await page.$eval('#ref-panel [data-filter="pick-FR-4"]', (b) => b.click()); await wait(300);
+await page.$eval('#ref-panel [data-filter="pick-FR-40"]', (b) => b.click()); await wait(300);
 check((await count('#ref-panel .llr-drill.on')) === 2, `two cases picked (${await count('#ref-panel .llr-drill.on')})`);
 await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
 check(/2 cases/.test(await text('#target')), `the finder says two are picked: ${await text('#target p')}`);

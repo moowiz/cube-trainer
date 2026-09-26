@@ -177,7 +177,7 @@ const MARKUP = `
   <details class="principles"><summary>The principles behind the cases</summary>
     <ol>
       <li><b>EO is done, so no F/B quarter turns.</b> Edge orientation stops being a variable: a top-layer edge always has its front/back colour facing up, and a slotted edge always has it facing front/back. You only ever need to know <i>where</i> the edge is.</li>
-      <li><b>A case is corner orientation first, edge position second.</b> Three corner states: white facing front/back, white facing right/left, white facing up (the awkward one).</li>
+      <li><b>A case is corner orientation first, edge position second.</b> Three corner states: white facing up (the awkward one), or white on a side with one of the pair's two colours on top. The case sheet groups them that way; which colour is on top does not change when you turn the top layer.</li>
       <li><b>There are only two inserts.</b> For the front-right pair: R U R' (white on the right, edge at the back) and R U' R' (white on the front, edge on the right). Every other alg is "get to one of these pictures, then do it". The other slots use the same two moves mirrored.</li>
       <li><b>White up needs a tilt.</b> Either split and re-pair with an R U' R' / R U2 R' style move, or use F2, which flips white from up to down while keeping EO.</li>
       <li><b>A solved corner is a closed door</b> (keyhole cases). Lift it out and re-pair, crack it with an F conjugate, or rotate a helper slot underneath with D.</li>

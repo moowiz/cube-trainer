@@ -14,7 +14,9 @@ import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';
 import { CENTRE, rawFacelets, SOLVED, state, stepStates } from '../cube/state';
 import { randomScramble } from '../scramble';
+import { faceColorName } from '../cube/scheme';
 import { stageOf } from '../stage';
+import type { FaceId } from '../types';
 import { DATA, type CornerOrient, type F2LCase, type LookupHit, type SlotName } from './data';
 
 export type { CornerOrient, F2LCase, LookupHit, SlotName };
@@ -198,8 +200,8 @@ const POP: Record<SlotName, string> = { FR: "R U' R' / R U R'", FL: "L' U L / L'
 
 /**
  * Other slots (not the target, not the ones the pair occupies) whose pieces get lifted into the
- * top layer during `alg` and are back home at the end: the alg borrows them, so they must be
- * solved or empty when you start.
+ * top layer during `alg` and are back home at the end: the alg borrows them and puts them back, so
+ * whatever is in such a slot, solved or not, ends up as it started.
  */
 export function borrowedSlots(slot: SlotName, alg: string, occ: ReadonlySet<string>): SlotName[] {
   const seen = new Set<SlotName>();
@@ -266,7 +268,7 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
   const cOther = cSlot && cSlot !== slot ? cSlot : null, eOther = eSlot && eSlot !== slot ? eSlot : null;
   const twisted = cIn && c.co !== 'ud';
   const word = (s: string) => (isSlot(s) ? SLOT_WORD[s] : s);
-  const oWord = { ud: 'white up', fb: 'white facing front/back', rl: 'white facing right/left' }[c.co];
+  const oWord = c.co === 'ud' ? 'white up' : `white on the ${faceColorName((c.co === 'rl' ? (c.corner.includes('R') ? 'R' : 'L') : c.corner.includes('F') ? 'F' : 'B') as FaceId)} side`;
   // when each piece first leaves the spot it starts in (state index; the move is toks[k - 1])
   const cUp = S.findIndex((x) => x.cAt !== S[0]!.cAt), eUp = S.findIndex((x) => x.eAt !== S[0]!.eAt);
   const upBy = (k: number) => (k > 0 ? toks[k - 1]! : '');
@@ -400,8 +402,10 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
 
 /** Where the pair is, in words, for the result panel. */
 export function describe(corner: CornerState | null, edge: string | null): string {
-  const oWord: Record<CornerOrient, string> = { ud: 'white facing up', rl: 'white facing right/left', fb: 'white facing front/back' };
-  const cs = corner ? (corner.pos.startsWith('U') ? `corner at ${corner.pos}, ${oWord[corner.o]}` : `corner in the ${SLOT_WORD[corner.pos.slice(1) as SlotName]} slot, ${oWord[corner.o].replace('up', 'down')}`) : '';
+  // white's side by its colour: "right/left" named the far side of the picture for the back slots (drawn from behind)
+  const side = (c: CornerState) => faceColorName((c.o === 'rl' ? (c.pos.includes('R') ? 'R' : 'L') : c.pos.includes('F') ? 'F' : 'B') as FaceId);
+  const oWord = (c: CornerState, up: boolean) => (c.o === 'ud' ? `white facing ${up ? 'up' : 'down'}` : `white on the ${side(c)} side`);
+  const cs = corner ? (corner.pos.startsWith('U') ? `corner at ${corner.pos}, ${oWord(corner, true)}` : `corner in the ${SLOT_WORD[corner.pos.slice(1) as SlotName]} slot, ${oWord(corner, false)}`) : '';
   const es = edge ? (edge.startsWith('U') ? `edge at ${edge}` : `edge in the ${SLOT_WORD[edge as SlotName]} slot`) : '';
   return [cs, es].filter(Boolean).join('; ');
 }

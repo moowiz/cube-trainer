@@ -203,6 +203,7 @@ describe('explanations', () => {
     expect(describePair({ pos: 'UFR', o: 'ud' }, 'FL')).toBe('corner at UFR, white facing up; edge in the front-left slot');
     expect(describePair({ pos: 'DBL', o: 'ud' }, null)).toBe('corner in the back-left slot, white facing down');
     expect(describePair(null, 'UB')).toBe('edge at UB');
+    expect(describePair({ pos: 'DBR', o: 'rl' }, 'UF')).toBe('corner in the back-right slot, white on the red side; edge at UF');
   });
 });
 
