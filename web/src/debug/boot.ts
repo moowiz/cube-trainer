@@ -25,8 +25,35 @@ export async function timed<T>(step: string, run: () => Promise<T>): Promise<T> 
   finally { console.info(`[boot] ${now()}  ${step} took ${(performance.now() - t).toFixed(0)} ms`); }
 }
 
+/**
+ * Every setTimeout callback in the first `forMs` timed, and one over 50 ms logged with the stack from
+ * where it was scheduled: a long task from a timeout (the drills' first scrambles, the model load's
+ * steps) named by its caller, which the longtask entry cannot do.
+ */
+function watchTimeouts(forMs: number): void {
+  const w = window as unknown as { setTimeout: (...a: unknown[]) => number };
+  const orig = w.setTimeout.bind(window);
+  const until = performance.now() + forMs;
+  w.setTimeout = (...args: unknown[]): number => {
+    const fn = args[0];
+    if (typeof fn !== 'function' || performance.now() > until) return orig(...args);
+    const at = new Error().stack?.split('\n').slice(2, 6).map((l) => l.trim()).join(' <- ') ?? '?';
+    const scheduled = performance.now();
+    args[0] = function (this: unknown, ...a: unknown[]) {
+      const t = performance.now();
+      try { return (fn as (...x: unknown[]) => unknown).apply(this, a); }
+      finally {
+        const d = performance.now() - t;
+        if (d > 50) console.warn(`[boot] timeout callback took ${d.toFixed(0)} ms (scheduled +${scheduled.toFixed(0)} ms, ran +${t.toFixed(0)} ms) from: ${at}`);
+      }
+    };
+    return orig(...args);
+  };
+}
+
 /** Start the observers: call first thing in main.ts. */
 export function initBootLog(): void {
+  watchTimeouts(30_000);
   console.info(`[boot] ${now()}  main.ts running (modules fetched, parsed and evaluated; origin ${new Date(t0()).toISOString()})`);
   try {
     const po = new PerformanceObserver((list) => {

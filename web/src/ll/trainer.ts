@@ -549,7 +549,9 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
       // a PLL case from the PLL: the U D R2 L2 fixed-length scramble; an earlier start or a handed-over
       // cube is off G1 and takes the plain shortest answer
       const opts = kind === 'pll' && settings.from === 'pll' && !lead.length ? { ...PLL_SCRAMBLE, faces: scrambleFaces(), noLeadingU: freeAuf } : {};
+      const t0 = performance.now();
       const t = trimAuf(scrambleFor(setup, Math.random, opts));
+      console.info(`[ll] ${kind} scramble search took ${(performance.now() - t0).toFixed(0)} ms for "${setup}" ${JSON.stringify(opts)}`);
       if (freeAuf && t.auf) {
         setup = faceTurns(`${setup} ${inverse(t.auf)}`);
         derive(); shareScramble(setup, kind);
