@@ -198,23 +198,24 @@ describe('explanations', () => {
 
 describe('the favourite alg (the case sheet\'s star)', () => {
   it('leads the list once starred, and the standard comes back on null', async () => {
-    const { allAlgs, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, orderedAlgs } = await import('../src/f2l/model');
+    const { allAlgs, byLength, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, orderedAlgs } = await import('../src/f2l/model');
     const { DATA } = await import('../src/f2l/data');
     const c = DATA.slots.FR.cases['4']!; // three sheet algs and two slot shortcuts
     const id = caseId('FR', c.n);
     expect(caseOf(id)).toEqual({ slot: 'FR', c });
     expect(caseOf('FR-999')).toBeNull();
-    expect(f2lMainAlg(id)).toBe(c.algs[0]);
+    expect(f2lMainAlg(id)).toBe(byLength(c.algs)[0]);
+    expect(byLength(["(U2) R U R' U R' D' R U' R' D R", "R U' R'", "R U R' U2 R U' R' U R U' R'"])).toEqual(["R U' R'", "R U R' U2 R U' R' U R U' R'", "(U2) R U R' U R' D' R U' R' D R"]);
     expect(f2lSetMainAlg(id, "R U R' U'")).toBe(false); // not one of its algs
     const pick = c.others[0]!.alg;
     expect(allAlgs(c)).toContain(pick);
     expect(f2lSetMainAlg(id, pick)).toBe(true);
     expect([f2lMainAlg(id), f2lIsFavourite(id)]).toEqual([pick, true]);
-    expect(orderedAlgs('FR', c, true)).toEqual([pick, ...c.algs]);
+    expect(orderedAlgs('FR', c, true)).toEqual([pick, ...byLength(c.algs)]);
     expect(orderedAlgs('FR', c, false)).toEqual([pick]); // simple mode: the pick alone
     expect(f2lSetMainAlg(id, null)).toBe(true);
-    expect([f2lMainAlg(id), f2lIsFavourite(id), orderedAlgs('FR', c, false)]).toEqual([c.algs[0], false, [c.simple]]);
-    expect(f2lSetMainAlg(id, c.algs[0]!)).toBe(true); // the standard starred is no favourite
+    expect([f2lMainAlg(id), f2lIsFavourite(id), orderedAlgs('FR', c, false)]).toEqual([byLength(c.algs)[0], false, [c.simple]]);
+    expect(f2lSetMainAlg(id, byLength(c.algs)[0]!)).toBe(true); // the standard starred is no favourite
     expect(f2lIsFavourite(id)).toBe(false);
   });
 });

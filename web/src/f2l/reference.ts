@@ -15,7 +15,7 @@ import { esc } from '../ui/dom';
 import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 import { DATA } from './data';
 import {
-  allAlgs, caseId, caseOf, type CornerOrient, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, invert, isSlot, normalizeAlg, SLOT_WORD, SLOTS, type SlotName, withAuf,
+  allAlgs, byLength, caseId, caseOf, type CornerOrient, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, invert, isSlot, normalizeAlg, SLOT_WORD, SLOTS, type SlotName, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
 
@@ -97,7 +97,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     const id = caseId(shownSlot, c.n);
     const main = f2lMainAlg(id) ?? c.algs[0]!;
     const fav = f2lIsFavourite(id);
-    const alts = allAlgs(c).filter((a) => a !== main).map((a) => {
+    const alts = byLength(allAlgs(c).filter((a) => a !== main)).map((a) => {
       const o = c.others.find((x) => x.alg === a);
       return { alg: a, note: o ? `uses the ${o.free.map((s) => SLOT_WORD[s]).join(' and ')} slot${o.free.length > 1 ? 's' : ''}, which must be open or solved` : a === c.simple && c.simple_src === 'search' ? 'R/L/U only, found by search (not in the sheet)' : c.algs.includes(a) ? 'from the sheet' : '' };
     });

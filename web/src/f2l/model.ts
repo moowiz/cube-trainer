@@ -9,7 +9,7 @@
 // was - which is what the sheet's algs assume; the only normalised states
 // are the ones the tracker keeps between algs.
 
-import { FACE_MOVES, inverse, mergeMoves, movesStr, tokens, type Move } from '../cube/alg';
+import { FACE_MOVES, inverse, mergeMoves, moveCount, movesStr, tokens, type Move } from '../cube/alg';
 import { facesAt, key, posName, STICKERS, type Vec } from '../cube/geometry';
 import { applyEdgeMove, cubieSolved, EDGE_POS, edgeMoveOf, edgeState, findCorner, findEdge, type EdgeState } from '../cube/pieces';
 import { SOLVED, state, stepStates } from '../cube/state';
@@ -422,8 +422,8 @@ export function allAlgs(c: F2LCase): string[] {
   return [...new Set(out)];
 }
 export function f2lCaseIds(): string[] { return SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).map((c) => caseId(s, c.n))); }
-/** The table's own main: the first sheet alg. */
-export function f2lStandardAlg(id: string): string | undefined { return caseOf(id)?.c.algs[0]; }
+/** The table's own main: the shortest sheet alg. */
+export function f2lStandardAlg(id: string): string | undefined { const c = caseOf(id)?.c; return c && byLength(c.algs)[0]; }
 /** The alg the finder leads with: the favourite, else the standard. */
 export function f2lMainAlg(id: string): string | undefined { return FAV.get(id) ?? f2lStandardAlg(id); }
 export function f2lIsFavourite(id: string): boolean { return FAV.has(id); }
@@ -432,7 +432,7 @@ export function f2lSetMainAlg(id: string, alg: string | null): boolean {
   const hit = caseOf(id);
   if (!hit) return false;
   if (alg !== null && !allAlgs(hit.c).includes(alg)) return false;
-  if (alg === null || alg === hit.c.algs[0]) FAV.delete(id); else FAV.set(id, alg);
+  if (alg === null || alg === f2lStandardAlg(id)) FAV.delete(id); else FAV.set(id, alg);
   return true;
 }
 /**
@@ -442,6 +442,11 @@ export function f2lSetMainAlg(id: string, alg: string | null): boolean {
  */
 export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean): string[] {
   const fav = FAV.get(caseId(slot, c.n));
-  const main = fav ?? (advanced ? c.algs[0]! : c.simple);
-  return [main, ...(advanced ? c.algs : []).filter((a) => a !== main)];
+  const rest = advanced ? byLength(c.algs) : [];
+  const main = fav ?? (advanced ? rest[0]! : c.simple);
+  return [main, ...rest.filter((a) => a !== main)];
+}
+/** Algs shortest first (the AUF counted), the sheet's order among equals (user, 2026-09-26: fewest moves lead). */
+export function byLength(algs: readonly string[]): string[] {
+  return algs.map((a, i) => ({ a, i, n: moveCount(fullAlg('', a)) })).sort((x, y) => x.n - y.n || x.i - y.i).map((x) => x.a);
 }

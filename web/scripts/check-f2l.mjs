@@ -47,7 +47,7 @@ await replay(`${cubeScr} ${await cubeOf(inverse(scr))}`);
 check(/All four pairs solved.*in \d+ moves/.test(await text('#result .hint') ?? ''), `a solved cube: F2L done with the count: ${await text('#result .hint')}`);
 
 // a practice scramble (EO + cross solved, pairs mixed): the cube does it, the pair's alg is followed
-await page.click('#genF2L'); await wait(100);
+await page.$eval('#genF2L', (b) => b.click()); await wait(100);
 const scr2 = await page.evaluate(() => window.ZZ.f2l.scramble());
 const cube2 = await cubeOf(scr2);
 await replay(cube2);
@@ -58,6 +58,11 @@ const algToks = alg.split(' ');
 console.log(`    alg: ${alg}`);
 check(/^\d+ moves$/.test(await text('#result .alg .n')) && (await text('#result .alg .n')) === `${algToks.length} moves`, `the row carries its move count: ${await text('#result .alg .n')}`);
 check((await count('#result .alg button')) === (await count('#result .alg')), 'no "Did this" on a cube (Explain only)');
+await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && !b.checked) b.click(); }); await wait(200);
+// the case's own rows (the slot shortcuts under their heading are their own list)
+const counts = await page.$$eval('#result .alg', (es) => es.filter((e) => !/^uses/.test(e.querySelector('.tag')?.textContent ?? '')).map((e) => Number.parseInt(e.querySelector('.n').textContent, 10)));
+check(counts.length > 0 && counts.every((n, i) => i === 0 || counts[i - 1] <= n), `advanced: the algs come fewest moves first (${counts.join(', ')})`);
+await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && b.checked) b.click(); }); await wait(200);
 check((await count('#result .alg.on')) === 0, 'no alg lit before a turn');
 await replay(`${cube2} ${await cubeOf(algToks[0])}`);
 check((await count('#result .alg.on')) === 1, 'one turn in: the alg being done is lit');
@@ -96,6 +101,26 @@ const chips = await page.$$eval('#tracker > span', (es) => es.map((e) => e.class
 check(chips[0].includes('done'), `the first slot is marked done (${chips.join(' | ')})`);
 check(/^(FL|BL|BR) case \d+$/.test(await text('#result .case-title h2') ?? ''), `the next pair's case read: ${await text('#result .case-title h2')}`);
 check(new RegExp(`tracking · ${algToks.length} moves so far`).test(await text('#result .trackbadge') ?? ''), `the moves so far: ${await text('#result .trackbadge')}`);
+// undone: the pair is open again and its case back (to do it over)
+await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(alg))}`);
+check((await text('#result .case-title h2')) === title2, `undone through the pair: its case is back (${await text('#result .case-title h2')})`);
+check(!(await page.$$eval('#tracker > span', (es) => es[0].className)).includes('done'), 'and the slot is open again');
+// the pair's last move undone (its cross-breaking R' say): back in the pair, one move short, not "solve EOCross"
+await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(algToks.at(-1)))}`);
+check((await text('#result .case-title h2')) === title2 && (await count('#result .alg.on .mv.done')) === algToks.length - 1, `the last move undone: back in the pair, ${await count('#result .alg.on .mv.done')} of ${algToks.length} done (${await text('#result .case-title h2')})`);
+// all four pairs in: F2L done, and the turns still arrive (the tab is never "done" with the scramble)
+await page.evaluate(() => { document.getElementById('rescramble').checked = false; });
+const solveAll = await cubeOf(inverse(scr2));
+await replay(`${cube2} ${solveAll}`);
+check(/All four pairs solved/.test(await text('#result .hint') ?? ''), 'F2L done on the cube');
+// the tab opened with the cube elsewhere: the cube as it stands is read, not the scramble assumed
+await page.$eval('#genF2L', (b) => b.click()); await wait(100);
+const scrX = await page.evaluate(() => window.ZZ.f2l.scramble());
+await page.evaluate(() => window.ZZ.showTab('pll')); await wait(100);
+await replay(`${cube2} ${await cubeOf(alg)}`); // on the PLL tab: the F2L tab hears nothing of it
+await page.evaluate(() => window.ZZ.showTab('f2l')); await wait(400);
+check((await page.evaluate(() => window.ZZ.f2l.scramble())) !== scrX, 'back on the tab: the scramble is the cube as it stands');
+check(/^(FL|BL|BR) case \d+$/.test(await text('#result .case-title h2') ?? ''), `and the open pair read off it: ${await text('#result .case-title h2')} (${await text('#scrmsg')})`);
 
 // the case sheet: one slot's cases, filtered, a star that leads the finder, a case set on the finder
 await page.click('#allcases'); await wait(400);
@@ -117,7 +142,7 @@ await page.click(`${card4} .llr-alt [data-fav]`); await wait(300);
 check(/your pick/.test(await text(`${card4} .llr-name`)), 'the card says "your pick"');
 await page.click(`${card4} [data-go]`); await wait(300);
 check(await page.$eval('#ref-sheet', (e) => e.hidden), 'Set in finder closes the sheet');
-check((await text('#result .case-title h2')) === 'FR case 4', `the finder is on case 4: ${await text('#result .case-title h2')}`);
+check((await text('#result .case-title h2')) === 'FR case 4', `the finder is on case 4, tracking dropped: ${await text('#result .case-title h2')}`);
 check(/your pick/.test(await text('#result .alg .tag')) && (await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg)).replace(/[()]/g, '') === starred.replace(/[()]/g, ''), `the finder leads with the starred alg: ${starred}`);
 // the star put back: the case's standard alg leads again
 await page.click('#allcases'); await wait(400);
@@ -127,7 +152,7 @@ await page.evaluate(() => document.getElementById('ref-close').click()); await w
 
 // the box on: the cube solved right through brings the next practice scramble, on this tab
 await page.evaluate(() => { const b = document.getElementById('rescramble'); if (!b.checked) b.click(); });
-await page.click('#genF2L'); await wait(100);
+await page.$eval('#genF2L', (b) => b.click()); await wait(100);
 const scr3 = await page.evaluate(() => window.ZZ.f2l.scramble());
 check((await count('#scrfollow .mv')) > 0, 'the practice scramble is a move list again');
 const cube3 = await cubeOf(scr3);
