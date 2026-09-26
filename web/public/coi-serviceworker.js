@@ -4,6 +4,14 @@
 // SharedArrayBuffer -> multi-threaded wasm inference (2-3x on a phone).
 // The page registers it and reloads once; nothing here touches request
 // bodies. Same idea as gzuidhof/coi-serviceworker, trimmed to what we use.
+// DECISION: COEP is `credentialless`, not `require-corp`. Firestore's WebChannel
+// closes with a no-cors request (Write/channel?TYPE=terminate); its opaque
+// response carries no Cross-Origin-Resource-Policy header, and require-corp
+// blocks it ("CORP prevented from serving the response" on every disconnect).
+// credentialless lets no-cors responses through by fetching them without
+// cookies, which Firestore does not use, and still grants SharedArrayBuffer.
+// A browser that does not know the value ignores it and the page simply
+// stays un-isolated: one wasm thread, which facekp.ts handles.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
@@ -14,7 +22,7 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(fetch(r).then((res) => {
     if (res.status === 0 || res.type === 'opaque') return res;
     const h = new Headers(res.headers);
-    h.set('Cross-Origin-Embedder-Policy', 'require-corp');
+    h.set('Cross-Origin-Embedder-Policy', 'credentialless');
     h.set('Cross-Origin-Opener-Policy', 'same-origin');
     return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
   }));
