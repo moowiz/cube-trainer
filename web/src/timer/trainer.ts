@@ -27,7 +27,7 @@ import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from './track-ui'
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
 import { persisted } from '../ui/settings';
-import { type Mode, MODES, ScrambleVoice } from '../ui/voice';
+import { type Mode, MODE_LABEL, MODES, say, ScrambleVoice } from '../ui/voice';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
 // timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
@@ -128,6 +128,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       <div class="tm-more" id="tm-more" hidden><button class="btn eo-link" type="button" id="tm-moreBtn">Show all</button></div>
     </div>`;
   const $ = scoped(root, (n) => `#tm-${n}`, 'timer');
+  // the session row is moved to the Progress sheet (app/modes.ts): held here, not looked up under this tab
+  const sessSel = $('session') as HTMLSelectElement, newSess = $('newsess');
 
   // ---- the scramble ----
   let scramble = '';                        // WCA notation
@@ -243,6 +245,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   let startAt: number | null = null;   // first turn / Space, host ms
   let moves: SolveMove[] = [];         // WCA letters, t relative to startAt
   let lastLine = '';
+  let justDone: number | null = null; // the solve just finished, for the rail before the store has it back
   function resetAttempt(): void { phase = 'idle'; armedAt = null; startAt = null; moves = []; }
 
   function armed(t: number): void {
@@ -280,11 +283,15 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Math.min(Date.now(), Date.now() - (performance.now() - startAt)), scramble, time, penalty,
       moves: moves.length ? moves.slice() : undefined, source: moves.length ? 'cube' : 'keyboard', inspection, editedAt: Date.now(),
     };
+    justDone = effectiveTime(rec);
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
     lastLine = `${formatTime(effectiveTime(rec))}${tps}`;
     deps.onSolve?.({ id: rec.id, when: rec.when, t0: startAt, t1: tEnd, scramble, time, moves: rec.moves });
     resetAttempt();
     beep(1320, 120);
+    // the voice on (the phone may be lying face up out of sight): the time is said. After this turn's
+    // handling - a carried solve is still being carried while this runs, and the voice is quiet until it ends
+    if (settings.voice !== 'off') { const said = formatTime(effectiveTime(rec)); setTimeout(() => say(said), 0); }
     const rolled = rollSession(rec.when);
     if (rolled) rec.session = rolled.id;
     void deps.store.then(async (st) => {
@@ -331,14 +338,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   const keyable = (ev: KeyboardEvent) => active() && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes((ev.target as HTMLElement).tagName);
   document.addEventListener('keydown', (ev) => {
     if (!keyable(ev)) return;
-    if (ev.key === ' ') { ev.preventDefault(); if (!ev.repeat) press(); }
-    else if (ev.key === 'Escape') { held = false; resetAttempt(); render(); }
+    if (ev.key === 'Escape') { held = false; resetAttempt(); render(); }
     else if (ev.key.toLowerCase() === 'n') newScramble();
-  });
-  document.addEventListener('keyup', (ev) => {
-    if (ev.key !== ' ' || !keyable(ev)) return;
-    ev.preventDefault();
-    release();
   });
   $('next').onclick = newScramble;
 
@@ -398,8 +399,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     selected = null; showAll = false;
     await loadSolves();
   }
-  $('session').addEventListener('change', () => { void pickSession(($('session') as HTMLSelectElement).value); });
-  $('newsess').onclick = () => {
+  sessSel.addEventListener('change', () => { void pickSession(sessSel.value); });
+  newSess.onclick = () => {
     const name = window.prompt('Name for the new session:', `session ${sessions.length + 1}`);
     if (!name) return;
     void deps.store.then(async (st) => {
@@ -479,9 +480,12 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
 
   // settings segments in the sheet
   const seg = document.getElementById('timer-settings');
+  const paints: (() => void)[] = [];
+  const paintSettings = () => { for (const p of paints) p(); };
   seg?.querySelectorAll<HTMLElement>('.eo-seg[data-set]').forEach((s) => {
     const key = s.dataset.set as keyof Settings;
     const paint = () => s.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.v === settings[key]));
+    paints.push(paint);
     paint();
     s.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
@@ -550,7 +554,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       $('last').querySelectorAll<HTMLButtonElement>('button[data-pen]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pen) === cur.penalty));
     }
     // sessions
-    const sel = $('session') as HTMLSelectElement;
+    const sel = sessSel;
     const now = Date.now();
     sel.innerHTML = sessions.map((s) => {
       const sp = spans.get(s.id);
@@ -580,11 +584,38 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
 
   void deps.store.then((st) => { st.onChange(() => { void loadSolves(); }); return loadSessions(); }).then(() => newScramble());
 
+  // the voice's switch on the rail: off, or back to the mode it was last in (read when it never was)
+  let lastVoice: Mode = settings.voice !== 'off' ? settings.voice : 'read';
   return {
     load: (trainerScramble) => setScramble(toWca(trainerScramble), false),
     render,
     scramble: () => (scramble ? fromWca(scramble) : null),
     newScramble,
     feed, armed, watch,
+    rail: () => ({
+      toks: scramble ? scramble.split(' ') : null,
+      track,
+      offText: voice.offText(),
+      note: scramble ? undefined : 'making a scramble…',
+      clock: held ? { ms: 0, phase: 'held' }
+        : phase === 'ready' ? { ms: 0, phase: 'ready' }
+        : phase === 'solving' && startAt !== null ? { ms: performance.now() - startAt, phase: 'running' }
+        : (() => {
+          const sel = selected ? solves.find((v) => v.id === selected) : undefined;
+          const last = sel ?? solves[solves.length - 1];
+          const t = sel ? effectiveTime(sel) : justDone ?? (last ? effectiveTime(last) : null);
+          return { ms: typeof t === 'number' && t >= 0 ? t : null, phase: 'idle' as const };
+        })(),
+    }),
+    press: (down) => { if (down) press(); else release(); },
+    voice: () => ({
+      on: settings.voice !== 'off',
+      label: settings.voice === 'off' ? 'voice off' : `voice: ${MODE_LABEL[settings.voice]}`,
+      toggle: () => {
+        if (settings.voice === 'off') settings.voice = lastVoice; else { lastVoice = settings.voice; settings.voice = 'off'; }
+        saveSettings(); paintSettings(); render();
+        say(settings.voice === 'off' ? 'voice off' : `scramble: ${MODE_LABEL[settings.voice]}`);
+      },
+    }),
   };
 }

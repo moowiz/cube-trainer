@@ -8,10 +8,12 @@ export const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g,
 /**
  * A lookup that throws: `$('sol')` is the element `sel('sol')` finds under `root`, or an error
  * naming `what`, so a template edit that drops an element fails at mount and not on first click.
+ * An element moved out of `root` since (a stage's option rows, taken into its mode's settings
+ * sheet by app/modes.ts) is found in the page: the ids are the page's own.
  */
 export function scoped(root: ParentNode, sel: (name: string) => string, what: string): <T extends HTMLElement = HTMLElement>(name: string) => T {
   return <T extends HTMLElement = HTMLElement>(name: string): T => {
-    const e = root.querySelector<T>(sel(name));
+    const e = root.querySelector<T>(sel(name)) ?? (typeof document !== 'undefined' && sel(name).startsWith('#') ? document.querySelector<T>(sel(name)) : null);
     if (!e) throw new Error(`${what} has no ${sel(name)}`);
     return e;
   };

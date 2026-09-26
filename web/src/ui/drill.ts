@@ -11,7 +11,7 @@ import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, render3d, type Cell } from '../cube/render';
 import { faceHex } from '../cube/scheme';
 import { state } from '../cube/state';
-import { activeTab, sheetOpen, stages, trainerHold } from '../shell';
+import { activeTab, sheetOpen, stages, trainerHold, type RailClock } from '../shell';
 import { newId, type AttemptRecord, type AttemptStage } from '../store/types';
 import { moveWhat, openFingertricks } from './fingertricks';
 import { ensureStyle, scoped } from './dom';
@@ -84,6 +84,10 @@ interface Timer {
 export interface Drill {
   $(name: string): HTMLElement;
   timer: Timer;
+  /** The clock as the cube rail shows it: held (a press waiting for its release), ready (armed), running, or the last time. */
+  clock(): RailClock;
+  /** Space or a press on the rail's timer: down stops a running clock or arms one, up starts it (the Solve tab's rule). */
+  press(down: boolean): void;
   flash(msg: string): void;
   result: {
     show(title: string, sub: string): void;
@@ -351,14 +355,33 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const tag = (ev.target as HTMLElement).tagName;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) { if (ev.target === box && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); check(); } return; }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    if (ev.key === ' ') { ev.preventDefault(); timer.toggle(); return; }
-    if (ev.key === 'Escape') { timer.reset(); return; }
+    if (ev.key === 'Escape') { timer.reset(); held = false; return; }
     if (ev.key.toLowerCase() === 'n') { h.onNew(); return; }
     h.onKey?.(ev);
   });
 
+  // the press: down arms (release starts), a press while running stops, and its release does nothing
+  let held = false, swallow = false;
   const drill: Drill = {
     $, timer, flash, result, active,
+    clock() {
+      if (held) return { ms: 0, phase: 'held' };
+      if (timer.running()) return { ms: (performance.now() - startAt!), phase: 'running' };
+      if (armedAt !== null && startAt === null) return { ms: 0, phase: 'ready' };
+      const t = timer.elapsed();
+      return { ms: t === null ? null : t * 1000, phase: 'idle' };
+    },
+    press(down) {
+      if (down) {
+        if (timer.running()) { timer.toggle(); swallow = true; return; }
+        held = true;
+        return;
+      }
+      if (swallow) { swallow = false; return; }
+      if (!held) return;
+      held = false;
+      timer.toggle();
+    },
     moves: () => box.value,
     setMoves: (t) => { box.value = t; },
     feed(text, t, source) {

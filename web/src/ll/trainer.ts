@@ -1089,9 +1089,30 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   drill.$('hints').appendChild(refBtn);
   onSchemeChange(render);
   if (settings.repeat) startRep(false); else newCase();
+  // the voice's switch on the rail: both move sets off, or back to what they were (the scramble read, the alg watched, when never set)
+  let lastSay = settings.say.scramble !== 'off' || settings.say.alg !== 'off' ? { ...settings.say } : { scramble: 'read' as Mode, alg: 'watch' as Mode };
   return {
     // a rep's scramble is the setup itself, the cube's own state, even when that is solved ('')
     load, render, scramble: () => (settings.repeat ? setup : scramble || setup || null), newScramble: () => (settings.repeat ? startRep(true) : newCase()), watch,
+    rail: () => {
+      const clock = drill.clock();
+      if (settings.repeat) { const cs = repCases(); return { toks: null, track: null, note: `Repeating ${cs.length === CASES[kind].length ? `all ${cs.length} cases` : cs.map((c) => c.name).join(', ')} from wherever the cube is`, clock }; }
+      if (!setup) return { toks: null, track: null, clock };
+      if (scramble === null) return { toks: null, track: null, note: 'making a scramble…', clock };
+      const { toks, spans } = shownScramble();
+      return { toks, spans, track, offText: scrVoice.offText(), clock };
+    },
+    press: (down) => drill.press(down),
+    voice: () => ({
+      on: speaks(),
+      label: speaks() ? `voice: scramble ${settings.say.scramble === 'off' ? 'off' : settings.say.scramble}, alg ${settings.say.alg === 'off' ? 'off' : settings.say.alg}` : 'voice off',
+      toggle: () => {
+        if (speaks()) { lastSay = { ...settings.say }; settings.say = { scramble: 'off', alg: 'off' }; } else settings.say = { ...lastSay };
+        scrSel.value = settings.say.scramble; algSel.value = settings.say.alg;
+        voiceChanged(speaks() ? `scramble: ${MODE_LABEL[settings.say.scramble]}. alg: ${MODE_LABEL[settings.say.alg]}` : '');
+        if (!speaks()) say('voice off');
+      },
+    }),
     feed: (text, t, source) => {
       // a rep lined up first (a U turn or two before the alg, as in a solve): the rep starts from there instead
       if (settings.repeat && absorbAuf(text)) return false;

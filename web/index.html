@@ -13,104 +13,261 @@
   :root {
     --bg: #ECEEF2; --panel: #F7F8FA; --ink: #1B222C; --ink-2: #5A6472; --line: #D3D8E0;
     --grey: #CBD1D9; --grey-ll: #DDE1E7; --good: #1E7A46;
+    --top-h: 56px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink);
     font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
     font-feature-settings: "tnum"; }
-  body { padding: 20px 18px 40px; }
   h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
   a.btn { text-decoration: none; display: inline-block; }
   button.btn, a.btn { font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
   button.btn:hover { border-color: var(--ink-2); }
   button.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  /* the stage tabs and the scan / settings buttons */
-  .tabs { max-width: 900px; margin: 0 auto 16px; display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-  .tabs button { font: inherit; font-size: 15px; padding: 8px 14px; border: 0; background: none; color: var(--ink-2); cursor: pointer;
-    border-bottom: 2px solid transparent; margin-bottom: -1px; }
-  .tabs button.on { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
-  .tabs button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-  .tabs .sp { flex: 1; }
-  .tabs button.ico { padding: 6px 10px; margin: 0 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 14px; align-self: center; white-space: nowrap; }
-  .tabs button.ico:hover { border-color: var(--ink-2); }
-  .tabs button.ico.rec-on { color: #fff; background: #C62828; border-color: #C62828; }
-  .tabs button.ico.rec-on .txt { display: inline; font-variant-numeric: tabular-nums; }
-  .tabs button.ico.warn { color: #7A4B00; background: #FFF3D6; border-color: #E0B24B; }
-  .tabs button.ico.busy { color: var(--ink-2); }
-  .tabs button.ico.busy .ico-txt { display: inline-block; animation: sync-spin 1.4s linear infinite; }
-  /* the Cube button while the smart cube auto-connects (busy, above) and once it is on */
-  .tabs button.ico.cube-on { color: #1B5E20; background: #E8F5E9; border-color: #66BB6A; }
-  .tabs button.ico.busy .txt { display: inline; }
+  [hidden] { display: none !important; }
+
+  /* ---- the top bar: the mode, the places (desktop), the cube, the gear ---- */
+  .topbar { position: sticky; top: 0; z-index: 50; height: var(--top-h); display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .mode-chip { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 58vw; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px 6px 14px; font: inherit; font-size: 16px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .mode-chip b { font-weight: 600; }
+  .mode-chip small { color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .mode-chip i { font-style: normal; color: var(--ink-2); font-size: 12px; }
+  .brand { display: none; font-weight: 700; font-size: 15px; margin-right: 6px; }
+  .mtabs, .dests { display: none; gap: 2px; align-self: stretch; }
+  .mtabs button, .dests button { font: inherit; font-size: 15px; padding: 0 12px; border: 0; background: none; color: var(--ink-2); cursor: pointer; border-bottom: 2px solid transparent; }
+  .mtabs button.on, .dests button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+  .dsep { display: none; width: 1px; height: 22px; background: var(--line); margin: 0 6px; }
+  .topbar .sp { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 11px; font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--panel); color: var(--ink-2); cursor: pointer; white-space: nowrap; max-width: 44vw; overflow: hidden; text-overflow: ellipsis; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--grey); flex-shrink: 0; }
+  .pill.cube-on { background: #E8F5E9; border-color: #8BC34A; color: #1B5E20; }
+  .pill.cube-on .dot { background: #43A047; }
+  .pill.busy .dot { background: #E0A100; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .ico { height: 34px; min-width: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; font-size: 15px; padding: 0 8px; cursor: pointer; white-space: nowrap; }
+  .ico:hover, .pill:hover, .mode-chip:hover { border-color: var(--ink-2); }
+  .ico .txt { display: none; }
+  .ico.rec-on { color: #fff; background: #C62828; border-color: #C62828; }
+  .ico.rec-on .txt { display: inline; font-variant-numeric: tabular-nums; }
+  .ico.warn { color: #7A4B00; background: #FFF3D6; border-color: #E0B24B; }
+  .ico.busy .ico-txt { display: inline-block; animation: sync-spin 1.4s linear infinite; }
   @keyframes sync-spin { to { transform: rotate(360deg); } }
-  @media (max-width: 600px) { .tabs .key, .tabs .txt { display: none; } .tabs button { padding: 8px 10px; font-size: 14px; } .tabs { gap: 2px; } }
-  /* a 400 px phone: five tabs and four icons ran 9 px past the edge and gave the page a sideways scroll */
-  @media (max-width: 420px) { .tabs button { padding: 8px 8px; } .tabs button.ico { padding: 6px 8px; } }
-  /* sheets: the scanner and the settings float over whichever stage is open */
+  @media (min-width: 900px) {
+    .brand, .mtabs, .dests, .dsep { display: flex; }
+    .mode-chip { max-width: 280px; }
+    .ico .txt { display: inline; }
+  }
+
+  /* ---- the page: the cube rail beside (desktop) or above (phone) the focus pane ---- */
+  .app { display: flex; flex-direction: column; }
+  .rail { padding: 10px 14px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .focus { padding: 12px 16px 96px; min-width: 0; }
+  .fhead { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; flex-wrap: wrap; }
+  .fhead h2 { margin: 0; font-size: 18px; font-weight: 600; }
+  .fhead .fsub { color: var(--ink-2); font-size: 14px; }
+  .fhead .sp { flex: 1; }
+  .fhead .btn { padding: 5px 10px; font-size: 13px; border-radius: 999px; }
+  .fbanner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: #FFF6DE; border: 1px solid #E6CF8A; border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; font-size: 14px; color: #5A4300; }
+  .fbanner .btn { padding: 4px 10px; font-size: 13px; }
+  @media (min-width: 900px) {
+    .app { flex-direction: row; align-items: flex-start; }
+    .rail { width: 390px; flex-shrink: 0; position: sticky; top: var(--top-h); height: calc(100vh - var(--top-h)); overflow-y: auto; border-bottom: 0; border-right: 1px solid var(--line); padding: 16px 18px 56px; }
+    .focus { flex: 1; padding: 16px 24px 40px; }
+  }
+
+  /* ---- the phone's bottom nav ---- */
+  .bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; display: flex; background: var(--panel); border-top: 1px solid var(--line); padding: 4px 0 calc(6px + env(safe-area-inset-bottom)); }
+  .bnav button { flex: 1; font: inherit; font-size: 12px; background: none; border: 0; color: var(--ink-2); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; cursor: pointer; }
+  .bnav button.on { color: var(--ink); font-weight: 600; }
+  .bnav svg { width: 22px; height: 22px; }
+  @media (min-width: 900px) { .bnav { display: none; } }
+  /* the version chip: out of the way of the buttons at thumb height on a phone */
+  #page-ver { bottom: 72px !important; left: auto !important; right: 8px; }
+  @media (min-width: 900px) { #page-ver { bottom: 12px !important; left: 12px !important; right: auto; } }
+  /* a mode with nothing for the rail (finding an F2L case by tapping it in): the page is the focus */
+  body.bare .rail { display: none; }
+
+  /* ---- what the rail and the setup sheet took over, hidden in the focus pane (kept in the page: the stages still write them) ---- */
+  .focus .eo-head, .focus #tm-scr, .focus #tm-track, .focus #tm-pad, .focus #tm-sess, .focus #tm-next,
+  .focus #eo-timer, .focus #eo-scramble, .focus #eo-orient, .focus .eo-row:has(#eo-timerBtn), .focus .eo-note:not(.eo-stratnote),
+  .focus #ocll-timer, .focus #ocll-setup, .focus #ocll-track, .focus #pll-timer, .focus #pll-setup, .focus #pll-track, .focus #ocll-ref, .focus #pll-ref,
+  .focus .f2l .scrbtns, .focus .f2l #scrfollow, .focus .f2l .pairbtns #allcases, .focus .f2l > header > h1, .focus .f2l > header > p { display: none !important; }
+  /* the ? shows the prose again, where it was */
+  .focus.help .eo-head { display: flex !important; } .focus.help .eo-head button { display: none; }
+  .focus.help #eo-orient, .focus.help .eo-note:not(.eo-stratnote), .focus.help .f2l > header > p { display: block !important; }
+  /* typed moves only without a cube */
+  body.has-cube .focus #eo-sol, body.has-cube .focus label[for="eo-sol"], body.has-cube .focus .eo-row:has(#eo-check) { display: none !important; }
+  /* the last-layer drill: the case big, the two buttons at thumb height */
+  .focus .ll-pic { max-width: 300px; }
+  .focus #pll-showSol, .focus #ocll-showSol, .focus #pll-showNote, .focus #ocll-showNote { font: inherit; font-size: 15px; text-decoration: none; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+  .focus #pll-showSol, .focus #ocll-showSol { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+  /* F2L: the finder's tapping only in its own mode, the practice parts only in practice */
+  .focus .f2l:not(.find) .views, .focus .f2l:not(.find) .netwrap, .focus .f2l:not(.find) .legend, .focus .f2l:not(.find) .controls { display: none !important; }
+  .focus .f2l.find .principles, .focus .f2l.find #scr, .focus .f2l.find #f2lpractice { display: none !important; }
+  .focus .f2l.find > header > p:first-of-type { display: block !important; }
+  .focus .f2l:not(.picked) #target { display: none; }
+  /* the pane is narrower than the page the finder was laid out for: an alg keeps its line, the rest wraps under it */
+  .focus .f2l .alg { flex-wrap: wrap; }
+  .focus .f2l .alg .txt { flex: 1 1 100%; }
+  @media (min-width: 900px) and (max-width: 1400px) { .focus .f2l main { grid-template-columns: 280px 1fr; gap: 20px; } }
+
+  /* ---- sheets: float over the page ---- */
   .zz-sheet { position: fixed; inset: 0; z-index: 1000; background: rgba(20,22,28,.45); overflow: auto; }
   .zz-sheet-box { background: var(--bg); min-height: 100%; }
-  .zz-sheet-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .zz-sheet-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; background: var(--bg); border-bottom: 1px solid var(--line); }
   .zz-sheet-head b { font-size: 17px; font-weight: 600; }
   .zz-sheet-head .sub { flex: 1; color: var(--ink-2); font-size: 13px; }
+  .zz-sheet-head .sp { flex: 1; }
   .zz-sheet-body { padding: 14px 16px 32px; }
+  /* the bottom sheets (the mode picker, a mode's settings): up from the bottom on a phone */
+  .zz-sheet.bottom .zz-sheet-box { position: absolute; left: 0; right: 0; bottom: 0; min-height: 0; max-height: 88vh; overflow: auto; border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.25); }
   @media (min-width: 820px) {
     .zz-sheet { padding: 28px 18px; }
     .zz-sheet-box { max-width: 900px; margin: 0 auto; min-height: 0; border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.35); overflow: hidden; }
-    /* the scanner lays itself out in columns (camera, state, pipeline) past 1100px: give it the width */
+    .zz-sheet.bottom .zz-sheet-box { position: static; max-width: 620px; max-height: none; border-radius: 14px; }
     #scan-sheet .zz-sheet-box { max-width: 1900px; }
-    /* the sheets that are grids of cards (the algs, the case reference) fill a desktop */
     #algs-sheet .zz-sheet-box, #ref-sheet .zz-sheet-box { max-width: 1400px; }
     .zz-sheet-head { border-radius: 14px 14px 0 0; }
   }
-  /* a desktop monitor: the phone-sized type and 900px columns are what browser zoom fixes, so do it here (zoom is standard CSS since 2024) */
+  /* the case sheet as a drawer on a wide screen: the drill beside it keeps following the cube */
+  @media (min-width: 1300px) {
+    #ref-sheet.drawer { inset: var(--top-h) 0 0 auto; width: 460px; padding: 0; background: none; box-shadow: -8px 0 30px rgba(0,0,0,.18); }
+    #ref-sheet.drawer .zz-sheet-box { max-width: none; min-height: 100%; border-radius: 0; box-shadow: none; }
+    #ref-sheet.drawer .zz-sheet-head { border-radius: 0; }
+  }
   @media (min-width: 1600px) { html { zoom: 1.2; } }
   @media (min-width: 2200px) { html { zoom: 1.4; } }
   /* the scan sheet docked in a corner while a solve is followed: the camera and the follow strip, the stage live underneath */
-  .zz-sheet.docked { inset: auto 12px 12px auto; width: min(300px, calc(100vw - 24px)); padding: 0; background: none; overflow: visible; cursor: pointer; }
+  .zz-sheet.docked { inset: auto 12px 72px auto; width: min(300px, calc(100vw - 24px)); padding: 0; background: none; overflow: visible; cursor: pointer; }
+  @media (min-width: 900px) { .zz-sheet.docked { bottom: 12px; } }
   .zz-sheet.docked .zz-sheet-box { min-height: 0; max-width: none; border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.35); border: 1px solid var(--line); }
   .zz-sheet.docked .zz-sheet-head { display: none; }
   .zz-sheet.docked .zz-sheet-body { padding: 0; }
-  .set-sec { max-width: 560px; margin: 0 auto 8px; }
-  .set-sec h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 18px 2px 4px; }
-  .set-sec .lbl label { cursor: pointer; }
-  .set-sec select { font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
-  .toast { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 1100; background: rgba(20,22,28,.94); color: #e8eaf0; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: min(90vw, 480px); box-shadow: 0 4px 18px rgba(0,0,0,.35); }
-  [hidden] { display: none !important; }
+  .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 1100; background: rgba(20,22,28,.94); color: #e8eaf0; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: min(90vw, 480px); box-shadow: 0 4px 18px rgba(0,0,0,.35); }
 
-  /* the settings sheet's rows (the EO trainer's segments and the F2L toggles live here) */
+  /* settings rows (the settings sheet, a mode's settings) */
+  .set-sec { max-width: 560px; margin: 0 auto 8px; }
+  .set-sec h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2); margin: 16px 2px 2px; }
+  .set-sec .lbl label { cursor: pointer; }
+  .set-sec select, .set-sec .ll-opts select { font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
   .eo-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
   .eo-opt:last-of-type { border-bottom: none; }
   .eo-opt .lbl { font-size: 15px; }
   .eo-opt .sub { display: block; color: var(--ink-2); font-size: 13px; margin-top: 2px; }
-  .eo-seg { display: flex; background: var(--grey-ll); border-radius: 8px; padding: 3px; gap: 2px; flex-shrink: 0; }
+  .eo-seg { display: flex; background: var(--grey-ll); border-radius: 8px; padding: 3px; gap: 2px; flex-shrink: 0; flex-wrap: wrap; }
   .eo-seg button { font: inherit; border: none; background: none; padding: 6px 10px; font-size: 14px; border-radius: 6px; color: var(--ink-2); cursor: pointer; }
   .eo-seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
   .eo-legend { font-size: 13px; color: var(--ink-2); line-height: 1.9; padding: 8px 2px 0; }
-  .eo-legend kbd { display: inline-block; min-width: 20px; text-align: center; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; color: var(--ink); font: 12px/20px inherit; }
+  /* the drills' own option rows, moved into their mode's settings: one per line */
+  #setup-sheet .ll-opts { flex-direction: column; align-items: stretch; gap: 0; font-size: 15px; color: var(--ink); margin: 0; }
+  #setup-sheet .ll-opts > label, #setup-sheet .ll-voice > label { justify-content: space-between; padding: 9px 2px; border-bottom: 1px solid var(--line); }
+  #setup-sheet .ll-opts label:has(> input[type="checkbox"]), #setup-sheet .ll-showpic { flex-direction: row-reverse; }
+  #setup-sheet .ll-showpic input { margin: 0; }
+  #setup-sheet .ll-voice { display: flex; flex-direction: column; align-items: stretch; gap: 0; font-weight: 600; padding-top: 10px; }
+  #setup-sheet .ll-voice > label { font-weight: 400; }
+  #setup-sheet .ll-chunks, #setup-sheet .ll-say, #setup-sheet .ll-cases { font-size: 14px; margin: 10px 2px; }
+  #setup-sheet .ll-showpic { display: flex; justify-content: space-between; margin: 0; padding: 9px 2px; font-size: 15px; color: var(--ink); border-bottom: 1px solid var(--line); }
+  #setup-sheet .rescr, #setup-sheet .hidecube { display: block; padding: 9px 2px; font-size: 15px; border-bottom: 1px solid var(--line); }
+  #setup-sheet #tm-follow { justify-content: space-between; margin: 0; padding: 9px 2px; font-size: 15px; color: var(--ink); border-bottom: 1px solid var(--line); }
+  /* the mode picker */
+  .mp-list { display: flex; flex-direction: column; gap: 6px; }
+  .mp-item { display: block; width: 100%; text-align: left; font: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; color: var(--ink); }
+  .mp-item.on { border: 2px solid var(--ink); background: #fff; }
+  .mp-item b { font-size: 16px; } .mp-item .w { color: var(--ink-2); font-size: 13px; margin-left: 6px; } .mp-item kbd { float: right; font: 12px/18px inherit; color: var(--ink-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; background: #fff; }
+  .mp-strip { display: flex; gap: 3px; margin-top: 6px; }
+  .mp-strip span { flex: 1; font-size: 11px; font-weight: 600; text-align: center; border-radius: 5px; padding: 2px 0; border: 1px solid var(--line); background: #fff; }
+  .mp-strip span.out { border-style: dashed; background: transparent; color: #8A93A0; font-weight: 400; }
+  .mp-strip span.fz { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .mp-links { display: flex; gap: 8px; margin-top: 12px; }
 </style>
 </head>
 <body>
-<nav class="tabs" aria-label="Trainer">
-  <button type="button" data-t="solve">Solve</button>
-  <button type="button" data-t="eo">EO</button>
-  <button type="button" data-t="f2l">F2L</button>
-  <button type="button" data-t="ocll">OCLL</button>
-  <button type="button" data-t="pll">PLL</button>
+<header class="topbar">
+  <span class="brand">ZZ trainer</span>
+  <button type="button" class="mode-chip" id="mode-chip" title="What to practise (1-6)"><b id="mode-name">Solve</b><small id="mode-sub"></small><i>▾</i></button>
+  <nav class="mtabs" id="mtabs" aria-label="Practise">
+    <button type="button" data-mode="solve">Solve</button><button type="button" data-mode="eo">EOCross</button><button type="button" data-mode="f2l">F2L</button><button type="button" data-mode="ll">Last layer</button>
+  </nav>
+  <span class="dsep"></span>
+  <nav class="dests" aria-label="Places"><button type="button" data-dest="cases">Cases</button><button type="button" data-dest="progress">Progress</button></nav>
   <span class="sp"></span>
-  <button type="button" class="ico" id="scan-open" title="Scan your cube from scratch: a lock opens the stage it is at">📷<span class="txt"> Scan</span><span class="key"> (c)</span></button>
-  <button type="button" class="ico" id="scan-resume" title="Back to the scan in progress" hidden>↩<span class="txt"> Resume</span><span class="key"> (r)</span></button>
-  <button type="button" class="ico" id="cube-open" title="Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)"><span class="ico-txt">🧊</span><span class="txt"> Cube</span><span class="key"> (l)</span></button>
-  <button type="button" class="ico" id="algs-open" title="Algs: the algs worth remembering for the other puzzles - 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO (a)">📖<span class="txt"> Algs</span><span class="key"> (a)</span></button>
+  <button type="button" class="pill" id="cube-open" title="Your cube (l)"><span class="dot"></span><span class="txt">No cube</span></button>
   <button type="button" class="ico" id="rec-open" hidden>⏺<span class="txt"> Record</span></button>
   <button type="button" class="ico" id="rec-pop" hidden title="Float the live camera in its own window to check the framing">⧉</button>
   <button type="button" class="ico" id="sync-warn" hidden aria-label="Sync status"><span class="ico-txt">⟳</span><span class="txt"> Syncing</span></button>
-  <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙<span class="key"> (s)</span></button>
+  <button type="button" class="ico" id="settings-open" title="Settings (s)" aria-label="Settings">⚙</button>
+  <button type="button" id="algs-open" hidden>Algs</button>
+</header>
+<div class="app">
+  <aside class="rail" id="rail" aria-label="Your cube"></aside>
+  <main class="focus" id="focus">
+    <div class="fhead"><h2 id="focus-title">Solve</h2><span class="fsub" id="focus-sub"></span><span class="sp"></span><button type="button" class="btn" id="help-btn" title="What this is and how it works (?)">?</button><button type="button" class="btn" id="setup-open" title="This mode's settings">Settings</button></div>
+    <div class="fbanner" id="focus-banner" hidden></div>
+    <!-- every stage is mounted here by src/main.ts -->
+    <div id="solve-panel" hidden></div>
+    <div id="eo-panel" hidden></div>
+    <div id="f2l-panel" hidden></div>
+    <div id="ocll-panel" hidden></div>
+    <div id="pll-panel" hidden></div>
+  </main>
+</div>
+<nav class="bnav" id="bnav" aria-label="Places">
+  <button type="button" data-dest="practise" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/></svg>Practise</button>
+  <button type="button" data-dest="cases"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5C4.7 20 4 19.3 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5c.8 0 1.5-.7 1.5-1.5z"/></svg>Cases</button>
+  <button type="button" data-dest="progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg>Progress</button>
 </nav>
-<!-- every stage is mounted here by src/main.ts -->
-<div id="solve-panel" hidden></div>
-<div id="eo-panel" hidden></div>
-<div id="f2l-panel" hidden></div>
-<div id="ocll-panel" hidden></div>
-<div id="pll-panel" hidden></div>
+
+<div id="modes-sheet" class="zz-sheet bottom" hidden>
+  <div class="zz-sheet-box">
+    <div class="zz-sheet-head"><b>Practise</b><span class="sub">Each is a stretch of the solve: where the scramble leaves the cube, and where it stops. Keys 1-6.</span><button type="button" class="btn" id="modes-close">Close</button></div>
+    <div class="zz-sheet-body"><div class="mp-list" id="mp-list"></div>
+      <div class="mp-links"><button type="button" class="btn" data-dest="cases">Cases</button><button type="button" class="btn" data-dest="progress">Progress</button></div></div>
+  </div>
+</div>
+<div id="setup-sheet" class="zz-sheet bottom" hidden>
+  <div class="zz-sheet-box">
+    <div class="zz-sheet-head"><b id="setup-title">Settings</b><span class="sp"></span><button type="button" class="btn" id="setup-close">Done</button></div>
+    <div class="zz-sheet-body">
+      <section class="set-sec" data-setup="solve" id="timer-settings">
+        <h3>When I solve</h3>
+        <div id="setup-solve-follow"></div>
+        <div class="eo-opt"><div><div class="lbl">Next scramble by itself</div><span class="sub">After a solve the next scramble appears without a tap: scramble, solve, repeat.</span></div>
+          <div class="eo-seg" data-set="autonext"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+        <div class="eo-opt"><div><div class="lbl">Sounds</div><span class="sub">A beep when the scramble is matched and when the cube is solved, so the phone can stay out of reach.</span></div>
+          <div class="eo-seg" data-set="beep"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+        <h3>Voice</h3>
+        <div class="eo-opt"><div><div class="lbl">Scramble</div><span class="sub">With a smart cube: the next move read out, the moves you make said back, or nothing until a wrong turn - every mode but Off calls one, with the turns to undo. Any mode but Off also says the time.</span></div>
+          <div class="eo-seg" data-set="voice"><button type="button" data-v="off">Off</button><button type="button" data-v="read">Read</button><button type="button" data-v="echo">Echo</button><button type="button" data-v="watch">Watch</button></div></div>
+      </section>
+      <section class="set-sec" data-setup="eo" id="eo-settings">
+        <div class="eo-opt"><div><div class="lbl">Goal</div><span class="sub">EOCross: orient the edges and build the white cross in one go. Optimal solutions and hints follow the goal.</span></div>
+          <div class="eo-seg" data-set="goal"><button type="button" data-v="eo">EO</button><button type="button" data-v="cross">EOCross</button></div></div>
+        <div class="eo-opt"><div><div class="lbl">Show bad edge count</div><span class="sub">Off hides the count so you recognise EO yourself.</span></div>
+          <div class="eo-seg" data-set="count"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+        <div class="eo-opt"><div><div class="lbl">Mark bad edges</div><span class="sub">Dots on the edges that need flipping (m).</span></div>
+          <div class="eo-seg" data-set="mark"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+        <div class="eo-opt"><div><div class="lbl">View</div><span class="sub">Net shows all six faces at once.</span></div>
+          <div class="eo-seg" data-set="view"><button type="button" data-v="3d">3D</button><button type="button" data-v="net">Net</button></div></div>
+        <div class="eo-opt"><div><div class="lbl">Bad edges in scramble</div><span class="sub">Pick a count to drill one case size.</span></div>
+          <div class="eo-seg" data-set="target"><button type="button" data-v="any">Any</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button><button type="button" data-v="6">6</button><button type="button" data-v="8">8</button></div></div>
+      </section>
+      <section class="set-sec" data-setup="f2l">
+        <div class="eo-opt" id="f2l-kindrow"><div><div class="lbl">Scrambles</div><span class="sub">All four pairs mixed, or one of the cases you picked (Cases → F2L → Practise) put on its pair.</span></div>
+          <div class="eo-seg" id="f2l-kind"><button type="button" data-v="all">All pairs</button><button type="button" data-v="picked">Picked cases</button></div></div>
+        <div id="setup-f2l-moved"></div>
+        <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="showhints" checked> Show the hint above the cube</label></div></div>
+        <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="advanced"> Show advanced algs (D, F2, slice and wide moves)</label></div></div>
+      </section>
+      <section class="set-sec" data-setup="ll">
+        <div class="eo-opt"><div><div class="lbl">Drill</div><span class="sub">OCLL alone, or PLL (which can start from OCLL or the last pair, for recognition).</span></div>
+          <div class="eo-seg" id="ll-set"><button type="button" data-v="ocll">OCLL</button><button type="button" data-v="pll">PLL</button></div></div>
+        <div id="setup-ll-ocll" data-llset="ocll"></div>
+        <div id="setup-ll-pll" data-llset="pll"></div>
+      </section>
+      <section class="set-sec" data-setup="find"><p style="color:var(--ink-2)">Nothing to set: pick the slot on the chips above the cube, then tap where the pieces are.</p></section>
+    </div>
+  </div>
+</div>
 
 <div id="scan-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
@@ -120,53 +277,34 @@
 </div>
 <div id="settings-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Settings</b><span class="sub">Keys on any stage: c scan, r resume, l cube, a algs, s settings, n new, Space timer, Esc close. Dvorak-friendly on purpose.</span><button type="button" class="btn" id="settings-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Settings</b><span class="sub">Keys: 1-6 modes, n new, Space timer, c camera, l cube, a other puzzles, s settings, ? help, Esc close. Each mode's own settings are under its Settings button.</span><button type="button" class="btn" id="settings-close">Close</button></div>
     <div class="zz-sheet-body">
       <section class="set-sec"><h3>Cube</h3>
-        <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every stage, scramble and scan uses this.</span></div>
+        <div class="eo-opt"><div><div class="lbl">Colour facing you</div><span class="sub">White stays down. Every mode, scramble and scan uses this.</span></div>
           <select id="frontc"></select></div>
-        <div class="eo-opt"><div><div class="lbl"><label><input type="checkbox" id="cubefollow" checked> Follow my solve on the smart cube</label></div><span class="sub">On the drill tabs, as the cube you solve crosses into the next stage - EO, F2L, OCLL, PLL - that tab opens with it loaded, like the camera's follow mode. A cube scrambled by hand is picked up after 15 s of rest. The Solve tab has its own choice under the scramble - stay there, or follow into the stages with the timer running underneath.</span></div></div>
+        <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="keepawake" checked> Keep the screen awake while the app is open</label></div></div>
       </section>
-      <section class="set-sec" id="timer-settings"><h3>Timer</h3>
-    <div class="eo-opt"><div><div class="lbl">Next scramble by itself</div><span class="sub">After a solve the next scramble appears without a tap: scramble, solve, repeat.</span></div>
-      <div class="eo-seg" data-set="autonext"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
-    <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="keepawake" checked> Keep the screen awake while the app is open</label></div></div>
-    <div class="eo-opt"><div><div class="lbl">Sounds</div><span class="sub">A beep when the scramble is matched and when the cube is solved, so the phone can stay out of reach.</span></div>
-      <div class="eo-seg" data-set="beep"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">Scramble voice</div><span class="sub">With a smart cube, as on the PLL tab: the next move of the scramble read out, or the moves you make said back, or nothing until a wrong turn - which every mode but Off calls, with the turns to undo.</span></div>
-      <div class="eo-seg" data-set="voice"><button type="button" data-v="off">Off</button><button type="button" data-v="read">Reads the next move</button><button type="button" data-v="echo">Says my moves</button><button type="button" data-v="watch">Only wrong turns</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">Sync times</div><span class="sub" id="sync-sub">Keep the history in the cloud and share it between the phone and the desktop. Google sign-in; nothing but the solve records goes up.</span></div>
-      <div><button class="btn" id="sync-in" type="button">Sign in</button><button class="btn" id="sync-out" type="button" hidden>Sign out</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">History</div><span class="sub">csTimer's export file goes in (as new sessions); ours and csTimer's come out.</span></div>
-      <div><button class="btn" id="hist-import" type="button">Import csTimer</button> <button class="btn" id="hist-export" type="button">Export</button> <button class="btn" id="hist-export-cs" type="button">Export csTimer</button><input type="file" id="hist-file" accept=".txt,.json,application/json" hidden></div></div>
+      <section class="set-sec"><h3>Account</h3>
+        <div class="eo-opt"><div><div class="lbl">Sync times</div><span class="sub" id="sync-sub">Keep the history in the cloud and share it between the phone and the desktop. Google sign-in; nothing but the solve records goes up.</span></div>
+          <div><button class="btn" id="sync-in" type="button">Sign in</button><button class="btn" id="sync-out" type="button" hidden>Sign out</button></div></div>
       </section>
       <section class="set-sec"><h3>Tools</h3>
-    <div class="eo-opt"><div><div class="lbl">Labeler</div><span class="sub">Click the corners of each face on your photos: the hand labels the detector is fine-tuned on.</span></div>
-      <a class="btn" href="label.html">Open the labeler</a></div>
-      </section>
-      <section class="set-sec" id="eo-settings"><h3>EO trainer</h3>
-    <div class="eo-opt"><div><div class="lbl">Goal</div><span class="sub">EOCross: orient the edges and build the white cross in one go. Optimal solutions and hints follow the goal.</span></div>
-      <div class="eo-seg" data-set="goal"><button type="button" data-v="eo">EO</button><button type="button" data-v="cross">EOCross</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">Show bad edge count</div><span class="sub">Off hides the count so you recognise EO yourself.</span></div>
-      <div class="eo-seg" data-set="count"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">Mark bad edges</div><span class="sub">Dots on the edges that need flipping.</span></div>
-      <div class="eo-seg" data-set="mark"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">View</div><span class="sub">Net shows all six faces at once.</span></div>
-      <div class="eo-seg" data-set="view"><button type="button" data-v="3d">3D</button><button type="button" data-v="net">Net</button></div></div>
-    <div class="eo-opt"><div><div class="lbl">Bad edges in scramble</div><span class="sub">Pick a count to drill one case size.</span></div>
-      <div class="eo-seg" data-set="target"><button type="button" data-v="any">Any</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button><button type="button" data-v="6">6</button><button type="button" data-v="8">8</button></div></div>
-      </section>
-      <section class="set-sec"><h3>F2L</h3>
-        <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="showhints" checked> Show the hint above the cube</label></div></div>
-        <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="advanced"> Show advanced algs (D, F2, slice and wide moves)</label></div></div>
+        <div class="eo-opt"><div><div class="lbl">Labeler</div><span class="sub">Click the corners of each face on your photos: the hand labels the detector is fine-tuned on.</span></div>
+          <a class="btn" href="label.html">Open the labeler</a></div>
       </section>
     </div>
   </div>
 </div>
 <div id="cube-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Your cube</b><span class="sub">What the app believes your cube looks like: from a smart cube when one is connected, else from the camera while it follows a solve. With a smart cube, every stage's timer starts and checks itself as you turn, and the drill tabs follow your solve (a setting).</span><button type="button" class="btn" id="cube-close">Close</button></div>
-    <div class="zz-sheet-body" id="cube-panel"></div>
+    <div class="zz-sheet-head"><b>Your cube</b><span class="sp"></span><button type="button" class="btn" id="cube-close">Close</button></div>
+    <div class="zz-sheet-body">
+      <div id="cube-panel"></div>
+      <section class="set-sec" style="max-width:none"><h3>The camera</h3>
+        <div class="eo-opt"><div><div class="lbl">Scan the cube</div><span class="sub">Without a smart cube, or to check it: the camera reads the state, and with follow on it keeps watching the solve.</span></div>
+          <div><button type="button" class="btn" id="scan-open" title="Scan your cube from scratch (c)">Scan</button> <button type="button" class="btn" id="scan-resume" title="Back to the scan in progress (r)" hidden>Resume</button></div></div>
+      </section>
+    </div>
   </div>
 </div>
 <div id="tricks-sheet" class="zz-sheet" hidden>
@@ -183,13 +321,22 @@
 </div>
 <div id="stats-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Stats</b><span class="sub">Every solve as a dot, the running averages as lines. Hover or touch the graph for one solve's numbers.</span><button type="button" class="btn" id="stats-close">Close</button></div>
-    <div class="zz-sheet-body" id="stats-panel"></div>
+    <div class="zz-sheet-head"><b>Progress</b><div class="eo-seg" id="prog-seg"><button type="button" data-v="solves">Solves</button><button type="button" data-v="ll">Last layer</button><button type="button" data-v="f2l">F2L</button></div><span class="sp"></span><button type="button" class="btn" id="stats-close">Close</button></div>
+    <div class="zz-sheet-body">
+      <section id="prog-solves">
+        <div id="prog-sess"></div>
+        <div id="stats-panel"></div>
+        <div class="eo-opt" style="margin-top:14px"><div><div class="lbl">History</div><span class="sub">csTimer's export file goes in (as new sessions); ours and csTimer's come out.</span></div>
+          <div><button class="btn" id="hist-import" type="button">Import csTimer</button> <button class="btn" id="hist-export" type="button">Export</button> <button class="btn" id="hist-export-cs" type="button">Export csTimer</button><input type="file" id="hist-file" accept=".txt,.json,application/json" hidden></div></div>
+      </section>
+      <section id="prog-ll" hidden></section>
+      <section id="prog-f2l" hidden></section>
+    </div>
   </div>
 </div>
 <div id="algs-sheet" class="zz-sheet" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Algs</b><span class="sub">The algs worth remembering for the other puzzles: not a method, just what you cannot work out at the cube. Pictures show the case; the alg solves it.</span><button type="button" class="btn" id="algs-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Other puzzles</b><span class="sub">The algs worth remembering: not a method, just what you cannot work out at the cube.</span><button type="button" class="btn" id="algs-close">Close</button></div>
     <div class="zz-sheet-body" id="algs-panel"></div>
   </div>
 </div>

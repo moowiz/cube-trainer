@@ -18,6 +18,10 @@ import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook 
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type SolutionSet } from './solver';
 import { persisted } from '../ui/settings';
+import { hold } from '../app/context';
+import type { TrackStatus } from '../timer/track';
+import { makeTrackWatcher } from '../timer/track-ui';
+import type { ColorName, FaceId } from '../types';
 
 interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; goal: 'eo' | 'cross' }
 const SETTINGS_KEY = 'zz-eo-settings';
@@ -314,5 +318,13 @@ export function mountEO(root: HTMLElement): Stage {
   newScramble();
   drill.setShowLabel(solLabel());
 
-  return { load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t) };
+  // the scramble followed on a smart cube, for the cube rail (the tab never tracked it itself)
+  const watcher = makeTrackWatcher();
+  let track: TrackStatus | null = null;
+  const watch = (facelets: string | null, colourOf: Record<FaceId, ColorName>) => { track = scramble ? watcher.status(scramble, facelets, colourOf, hold()) : null; };
+  return {
+    load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,
+    rail: () => ({ toks: scramble ? toWca(scramble).split(' ').filter(Boolean) : null, track, clock: drill.clock() }),
+    press: (down) => drill.press(down),
+  };
 }

@@ -3,11 +3,38 @@
 // through. The markup lives in index.html; this wires it.
 
 import { FRONT_OPTIONS, faceColorName, frontIndex, setFrontIndex } from './cube/scheme';
+import type { TrackStatus } from './timer/track';
 import type { ColorName, FaceId } from './types';
 import { readStored, writeStored } from './ui/settings';
 
 const TABS = ['solve', 'eo', 'f2l', 'ocll', 'pll'] as const;
 export type Tab = (typeof TABS)[number];
+
+/** The clock the cube rail shows for a stage: the time so far (or the last result), and what it is doing. */
+export interface RailClock {
+  /** ms elapsed while running; the last result when idle (null: nothing to show) */
+  ms: number | null;
+  /** held: Space or a press is down (release starts); ready: the scramble is on the cube (the first turn starts) */
+  phase: 'idle' | 'held' | 'ready' | 'running';
+}
+
+/**
+ * What the cube rail (ui/rail.ts) shows for the stage that owns it: the scramble as the stage shows it and
+ * reads it (WCA letters, `spans` when one token covers two moves - an M2), where the cube is on it, and the
+ * clock. The stage keeps its own logic; the rail only draws.
+ */
+export interface RailView {
+  /** the scramble as shown; null while there is none (then `note`) */
+  toks: string[] | null;
+  spans?: number[];
+  /** where the cube's belief is on the scramble; null without a cube */
+  track: TrackStatus | null;
+  /** the undo when off the scramble, as the voice has it */
+  offText?: string;
+  /** a line instead of the scramble (repeat mode, a scramble being made) */
+  note?: string;
+  clock: RailClock;
+}
 
 /** What every stage offers the shell. Scrambles are in the trainer frame (white down, chosen colour front). */
 export interface Stage {
@@ -25,6 +52,12 @@ export interface Stage {
   armed?(t: number): void;
   /** The belief of the cube that feeds this stage changed (its letters coloured `colourOf`), before arming too; `turn` is the move that did it (trainer letters), if a move did. */
   watch?(facelets: string | null, colourOf: Record<FaceId, ColorName>, turn?: string): void;
+  /** What the cube rail draws while this stage owns it. */
+  rail?(): RailView;
+  /** Space or a press on the rail's timer: down arms (or stops a running clock), up starts. */
+  press?(down: boolean): void;
+  /** The voice's one-tap switch on the rail: whether it speaks, what it does, and the toggle; absent: no voice. */
+  voice?(): { on: boolean; label: string; toggle(): void };
 }
 
 export const stages: Partial<Record<Tab, Stage>> = {};
@@ -52,6 +85,8 @@ let kept: Tab | null = null;
 export function keepScramble(tab: Tab | null): void { kept = tab; }
 /** The Solve tab's timer is on a solve the cube's follow is carrying through the drill tabs: the drills keep quiet. */
 export function carriedSolve(): boolean { return kept === 'solve'; }
+/** The stage whose scramble and clock the cube rail shows: the carried solve's tab while one is carried, else the open one. */
+export function ownerTab(): Tab { return kept ?? activeTab(); }
 
 const el = (id: string): HTMLElement => {
   const e = document.getElementById(id);
@@ -87,7 +122,7 @@ export function trainerHold(): string {
 // ---- sheets: the scanner, the settings and the fingertricks float over whichever stage is open ----
 // A DOCKED sheet (the scanner following a solve, shrunk to a corner) is up but not open: the stage under it is live.
 export function sheetOpen(): boolean {
-  return !!document.querySelector('.zz-sheet:not([hidden]):not(.docked)');
+  return !!document.querySelector('.zz-sheet:not([hidden]):not(.docked):not(.drawer)');
 }
 export function openSheet(id: string): void {
   el(id).hidden = false;
@@ -118,7 +153,7 @@ function resumeScan(): void { openScan({ keep: true }); }
 /** The algs sheet fills this in: draw the chosen puzzle's algs when the sheet opens. */
 export const algsHooks: { onOpen(): void } = { onOpen: () => undefined };
 /** Open the algs sheet (the other puzzles' cheat sheet). */
-function openAlgs(): void {
+export function openAlgs(): void {
   openSheet('algs-sheet');
   algsHooks.onOpen();
 }

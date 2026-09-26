@@ -8,6 +8,7 @@ import { hold, panel, store } from './app/context';
 import { rig } from './app/rig';
 import { initRecordButton } from './app/record';
 import { initCubeFollow } from './app/cubefollow';
+import { initModes } from './app/modes';
 import { initScannerBridge } from './app/scanner-bridge';
 import { initSmart } from './app/smart';
 import { initSyncUi } from './app/sync-ui';
@@ -50,6 +51,7 @@ initScannerBridge(); mark('scanner bridge (the scan sheet mounted: model load an
 initCubeFollow(); mark('cube follow');
 initRecordButton(); mark('record button');
 initWake(); mark('wake lock');
+initModes(); mark('modes (the rail, the mode chip, the settings sheets)');
 setTimeout(() => mark('first idle tick after main.ts (the timeouts queued at mount ran: the drills\' first scrambles)'), 0);
 
 // For the headless checks and the console: what the store holds.

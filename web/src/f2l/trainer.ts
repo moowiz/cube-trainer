@@ -22,7 +22,7 @@ import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type View } f
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { SOLVED, state } from '../cube/state';
 import { stageOf } from '../stage';
-import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type Stage, stages, toast } from '../shell';
+import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type RailClock, type RailView, type Stage, stages, toast } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
@@ -246,7 +246,7 @@ export function mountF2L(root: HTMLElement): Stage {
   const svg = $('cube3d') as unknown as SVGSVGElement, netSvg = $('net') as unknown as SVGSVGElement;
   let scrWca = ''; // the scramble on show, WCA letters (the hold it is applied in); '' for none
   let armedSince = false; // a cube reached the scramble on show: solving it through to solved may bring the next one
-  const RESCR_KEY = 'zzf2l-rescramble', HIDE_KEY = 'zzf2l-hidecube';
+  const RESCR_KEY = 'zzf2l-rescramble', HIDE_KEY = 'zzf2l-hidecube', KIND_KEY = 'zzf2l-kind';
   const cubeHidden = () => root.classList.contains('nocube');
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
@@ -504,7 +504,36 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   const boxes = () => (scrWca ? { scr: scrWca, pre: '' } : null);
   /** The cube that feeds this stage is at the scramble (and the EOCross moves under it): track it from here without a press. */
+  // ---- the clock the cube rail shows: from the cube's first turn after the scramble to the four pairs in, or a press ----
+  let clk: { start: number | null; end: number | null; armed: boolean; held: boolean; swallow: boolean } = { start: null, end: null, armed: false, held: false, swallow: false };
+  const clockReset = () => { clk = { start: null, end: null, armed: false, held: false, swallow: false }; };
+  function clock(): RailClock {
+    if (clk.held) return { ms: 0, phase: 'held' };
+    if (clk.start !== null && clk.end === null) return { ms: performance.now() - clk.start, phase: 'running' };
+    if (clk.armed && clk.start === null) return { ms: 0, phase: 'ready' };
+    return { ms: clk.start !== null && clk.end !== null ? clk.end - clk.start : null, phase: 'idle' };
+  }
+  function press(down: boolean): void {
+    if (down) {
+      if (clk.start !== null && clk.end === null) { clk.end = performance.now(); clk.swallow = true; return; }
+      clk.held = true; return;
+    }
+    if (clk.swallow) { clk.swallow = false; return; }
+    if (!clk.held) return;
+    clk.held = false; clk.start = performance.now(); clk.end = null;
+  }
+  /** The scramble as the rail shows it: the setup part only (a targeted case set up from the cube), done when the cube is at it. */
+  function railView(): RailView {
+    const all = scrWca ? safe(() => tokens(scrWca)) : null;
+    if (!all) return { toks: null, track: null, clock: clock() };
+    const toks = all.slice(setupFrom);
+    const shift = (x: TrackStatus | null): TrackStatus | null => (x && setupFrom ? { ...x, applied: Math.max(0, x.applied - setupFrom), total: x.total - setupFrom } : x);
+    const t: TrackStatus | null = !activeSource() ? null : (track?.matched || (fedBy && fed.length)) ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : shift(track);
+    return { toks, track: t, clock: clock() };
+  }
+
   function armed(t: number): void {
+    clockReset(); clk.armed = true;
     const b = boxes();
     if (!b || !b.scr) return;
     if (target && !target.done) { target.at = t; target.first = null; }
@@ -533,6 +562,8 @@ export function mountF2L(root: HTMLElement): Stage {
     tracked.hist = toks.length ? [toWca(toks.join(' '))] : [];
     const f = cube();
     if (!f) return false;
+    // the clock: the first turn starts it, back at the scramble resets it, the four pairs in stop it
+    if (!toks.length) { clk.start = null; clk.end = null; } else { clk.start ??= t; if (clk.end === null && SLOTS.every((sl) => slotSolved(f, sl))) clk.end = t; }
     if (target && !target.done) {
       if (!toks.length) target.first = null; else target.first ??= t;
       if (slotSolved(f, target.slot)) finishTarget(t, source, toks.join(' '));
@@ -684,7 +715,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** Show `alg` (trainer frame) as the scramble, and track it; `tgt` is the case it was made to put on a pair. */
   function putScramble(alg: string, msg: string, tgt: Target | null = null): void {
-    target = tgt ? { ...tgt, at: null, first: null, done: null } : null; targetMode = !!tgt; setupFrom = 0;
+    target = tgt ? { ...tgt, at: null, first: null, done: null } : null; targetMode = !!tgt; setupFrom = 0; clockReset();
     scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset(); armedSince = false;
     trackMsg(msg); saveUrl();
     if (scrWca) applyScramble();
@@ -935,8 +966,8 @@ export function mountF2L(root: HTMLElement): Stage {
   });
 
   // ---- wiring ----
-  $('genF2L').onclick = newScramble;
-  $('genTarget').onclick = newTargetScramble;
+  $('genF2L').onclick = () => { writeStored(KIND_KEY, 'all'); newScramble(); };
+  $('genTarget').onclick = () => { writeStored(KIND_KEY, 'picked'); newTargetScramble(); };
   const pickCases = () => { $('allcases').click(); };
   $('target').addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
@@ -1003,9 +1034,12 @@ export function mountF2L(root: HTMLElement): Stage {
     load: loadScramble,
     render,
     scramble: stageScramble,
-    newScramble,
+    // the practice kind picked in the mode's settings (app/modes.ts): all four pairs, or a picked case on one
+    newScramble: () => (readStored(KIND_KEY) === 'picked' ? newTargetScramble() : newScramble()),
     feed: (text, t, source) => feed(text, t, source ?? 'cube'),
     armed,
     watch,
+    rail: railView,
+    press,
   };
 }

@@ -66,7 +66,16 @@ export function cubeFollowing(): boolean { return engaged; }
 // DECISION: the Solve tab follows by default, like the drills; a timer-only sitting is one tap
 // away and remembered. The setting under Cube is the master: off, nothing follows anywhere.
 const DRILLS: readonly Tab[] = ['eo', 'f2l', 'ocll', 'pll'];
-const master = (): boolean => (box?.checked ?? false) && cubeActive();
+// the master switch (a settings checkbox until 2026-09-26, when the modes took over what follows where): absent is on
+const master = (): boolean => (box?.checked ?? true) && cubeActive();
+// what the mode allows (app/modes.ts): which stages a crossing may open, and where a solve picked up by hand ends
+let openable: (s: Exclude<Stage, 'solved'>) => boolean = () => true;
+let homeTab: () => Tab = () => 'solve';
+/** The mode's rules: the stages the follow may open as the cube crosses into them, and the tab a picked-up solve ends on. */
+export function setFollowRules(r: { openable?: (s: Exclude<Stage, 'solved'>) => boolean; home?: () => Tab }): void {
+  if (r.openable) openable = r.openable;
+  if (r.home) homeTab = r.home;
+}
 const wanted = (): boolean => {
   if (!master()) return false;
   const tab = activeTab();
@@ -194,13 +203,15 @@ function consume(): void {
       announceSolved(src);
       // a solve picked up after a pause (scrambled by hand, or the timer never armed) ends on the Solve tab too, ready for
       // the next scramble (user, 2026-09-25); a drill's own case, solved, stays where it is with its result
-      if (solveFrom === null || solveFrom === 'solve') { console.log('CUBE FOLLOW solved: to the Solve tab'); if (activeTab() !== 'solve') { showTab('solve'); window.scrollTo({ top: 0 }); } }
+      if (solveFrom === null || solveFrom === 'solve') { const home = homeTab(); console.log(`CUBE FOLLOW solved: to the ${home === 'solve' ? 'Solve' : home} tab`); if (activeTab() !== home) { showTab(home); window.scrollTo({ top: 0 }); } }
     }
     return;
   }
   // the open tab's drill is on this solve from its own scramble and crossed into its own stage (a PLL drill
   // started from OCLL, say): it judges the solve when it is done, and reloading it here would cut the solve in two
   if (next === activeTab() && driverArmed()) return;
+  // past the mode's stretch (F2L done in the F2L mode): the stage it is about keeps the screen
+  if (!openable(next)) return;
   open(src, next, scr, `crossed into ${next}`);
 }
 
@@ -235,7 +246,6 @@ function poll(): void {
 let followed: MoveSource | null = null;
 /** The follow engages when the setting is on, the cube is the active source and a drill tab is open; it starts over each time, and with each source. */
 function refresh(): void {
-  if (solveSeg) solveSeg.parentElement!.hidden = !master();
   const on = wanted();
   const src = on ? activeSource() : null;
   if (on === engaged && src === followed) return;

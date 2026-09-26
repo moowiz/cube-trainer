@@ -41,9 +41,10 @@ await page.goto(`${server.origin}/?tab=eo`, { waitUntil: 'networkidle0' });
 
 // the EO tab's goal: EOCross, so the drill is done only when the undo is complete (with the goal EO
 // alone it would check itself the moment EO is solved, part way through the undo - also right)
-await page.click('#settings-open');
+// (the EO mode's own settings sheet since the redesign, docs/ui-redesign.md)
+await page.evaluate(() => window.ZZ.modes.openSetup());
 await page.click('#eo-settings [data-set="goal"] [data-v="cross"]');
-await page.click('#settings-close');
+await page.click('#setup-close');
 
 // a scramble in the trainer's letters, and the same turns as the cube would report them
 const TRAINER_SCRAMBLE = "R U F' L2 B";
@@ -112,11 +113,11 @@ const followed = await page.evaluate(() => ({
   scrs: Object.fromEntries(window.ZZ.tabs.map((t) => [t, (window.ZZ[t].scramble() ?? '').replace(/\s+/g, ' ').trim()])),
 }));
 console.log(JSON.stringify(followed));
-check(followed.tab === 'ocll', `the cube crossed into OCLL last (F2L done): the OCLL tab is open (${followed.tab})`);
+// since the modes (2026-09-26): the page opened on EO is the EOCross mode, whose stretch ends at EOCross - the cube
+// going on into F2L and OCLL does not take the screen away from the drill (the Solve mode's coach, below, still does)
+check(followed.tab === 'eo', `the EOCross mode stops at EOCross: the EO drill stays up as the cube goes on (${followed.tab})`);
 check(new RegExp(`Solved ✓ ${solveTurns2} turns`).test(followed.toast), `the solved cube was announced with its ${solveTurns2} turns: "${followed.toast}"`);
 const stateOf = (alg) => new Cube().move(alg).asString();
-check(stateOf(followed.scrs.ocll) === stateOf("R U R' U R U2 R'"), 'every tab was loaded with the cube as it stood when F2L was done (the Sune state)');
-check(window_all_equal(Object.fromEntries(['solve', 'eo', 'f2l', 'ocll'].map((t) => [t, stateOf(followed.scrs[t])]))), 'the tabs up to OCLL hold that same state (the PLL tab, not yet at its stage, keeps its own)');
 // a cube scrambled by hand (no tab's scramble): the first pause loads it into the tab its stage calls for
 const HAND = "R U F' L2 B";
 const capHand = capture(await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), HAND), '');
@@ -128,7 +129,7 @@ const handOpened = await page.evaluate(async (text) => {
 console.log(JSON.stringify(handOpened));
 check(handOpened.tab === 'eo', `the pause after a hand scramble opens the EO tab (${handOpened.tab})`);
 check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scrambled cube: ${handOpened.eo}`);
-// ...and that picked-up solve, done, ends on the Solve tab, ready for the next scramble (user, 2026-09-25); real time,
+// ...and that picked-up solve, done, ends on the mode's own tab, ready for the next scramble (user, 2026-09-25); real time,
 // with the pause inside the capture, because each replay is a fresh connection
 const HAND2 = "L D' R2 F U"; // not the scramble the EO tab now holds: that would read as the drill's own case
 const hand2Cube = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), HAND2);
@@ -142,9 +143,11 @@ const picked = await page.evaluate(async (text) => {
   return { tab: window.ZZ.activeTab(), lines };
 }, capPick.text);
 console.log(JSON.stringify(picked));
-check(picked.lines.some((l) => /a pause behind the mark/.test(l)) && picked.tab === 'solve', `a hand-scrambled cube picked up and solved lands on the Solve tab (${picked.tab}): ${picked.lines.join(' | ')}`);
+// (since the modes, 2026-09-26: on the mode's own stage - the EO mode here, the page was opened on it; the
+// Solve mode's own is the Solve tab, as before)
+check(picked.lines.some((l) => /a pause behind the mark/.test(l)) && picked.tab === 'eo', `a hand-scrambled cube picked up and solved lands on the mode's own tab (${picked.tab}): ${picked.lines.join(' | ')}`);
 // the same on the Solve tab does nothing: a cube off its scramble there is a mis-scramble, not a solve to pick up
-await page.click('.tabs button[data-t="solve"]');
+await page.evaluate(() => window.ZZ.modes.select('solve', true));
 const solveTabStill = await page.evaluate(async (text) => {
   await window.ZZ.smart.replay(text);
   await new Promise((r) => setTimeout(r, 17_000));
@@ -209,7 +212,7 @@ check(opened[1] && stateOf(opened[1][2]) === stateOf("R U R' U R U2 R'"), `the O
 check(fol.rows === rowsBefore + 1 && fol.top === wantTime, `the timer kept timing under the other tabs and saved the solve: ${fol.top} s (want ${wantTime})`);
 check(new RegExp(`^${wantTime} · ${solveTurns2} turns`).test(fol.state), `the result line has every turn of the solve: "${fol.state}"`);
 // stay: the tabs never move, the timer times as before
-await page.click('#tm-cubefollow [data-v="stay"]');
+await page.$eval('#tm-cubefollow [data-v="stay"]', (b) => b.click()); // the Solve mode's settings sheet: Coach off
 await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
 await page.evaluate((s) => window.ZZ.solve.load(s), SCR2);
 followLog.length = 0;
@@ -218,7 +221,7 @@ console.log(JSON.stringify({ ...stay, log: followLog }));
 check(followLog.length === 0 && stay.tab === 'solve', `with Stay here the tabs never move: ${followLog.join(' | ') || '(none)'}`);
 check(stay.rows === rowsBefore + 2 && stay.top === wantTime, `the timer saved that solve too: ${stay.top} s`);
 check((await page.evaluate(() => localStorage.getItem('zz-solve-follow'))) === 'stay', 'the choice is remembered');
-await page.click('#tm-cubefollow [data-v="follow"]');
+await page.$eval('#tm-cubefollow [data-v="follow"]', (b) => b.click());
 // the next scramble (the pad needs one)
 await page.waitForFunction(() => { const s = document.getElementById('tm-scr')?.textContent ?? ''; return s && !s.includes('generating'); }, { timeout: 90_000 });
 

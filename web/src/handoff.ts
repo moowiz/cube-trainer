@@ -90,3 +90,29 @@ function sourceToTrainer(colourOf: Record<FaceId, ColorName>, hold: Hold): Frame
   };
   return frameMap(letter(hold.down), letter(hold.front));
 }
+
+// the 24 whole-cube rotations, as cubejs moves
+const ROTATIONS: readonly string[] = (() => {
+  const out: string[] = [];
+  for (const a of ['', 'x', 'x2', "x'", 'z', "z'"]) for (const b of ['', 'y', 'y2', "y'"]) out.push(`${a} ${b}`.trim());
+  return out;
+})();
+const CENTRES: Record<FaceId, number> = { U: 4, R: 13, F: 22, D: 31, L: 40, B: 49 };
+
+/**
+ * A source's belief as the trainer sees it: the cube turned so `hold.down` is underneath and
+ * `hold.front` faces you, each sticker named by the trainer's letter for the face its colour is the
+ * centre of - so `stageOf` reads it. Null when the source has no such colours, or they are not
+ * adjacent.
+ */
+export function beliefInTrainer(facelets: string, colourOf: Record<FaceId, ColorName>, hold: Hold): string | null {
+  for (const rot of ROTATIONS) {
+    const s = rot ? Cube.fromString(facelets).move(rot).asString() : facelets;
+    if (colourOf[s[CENTRES.D] as FaceId] !== hold.down || colourOf[s[CENTRES.F] as FaceId] !== hold.front) continue;
+    // the centres are where the trainer's letters are: the letter on each centre names its face
+    const name: Partial<Record<string, FaceId>> = {};
+    for (const f of FACE_ORDER) name[s[CENTRES[f]]!] = f;
+    return s.split('').map((l) => name[l] ?? l).join('');
+  }
+  return null;
+}

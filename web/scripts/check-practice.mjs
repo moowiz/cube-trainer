@@ -39,7 +39,8 @@ await page.evaluate(async () => {
 });
 await page.reload({ waitUntil: 'networkidle0' });
 await new Promise((r) => setTimeout(r, 500));
-await page.evaluate(() => { document.getElementById('pll-practice').open = true; document.getElementById('pll-practice').scrollIntoView(); });
+// the practice table lives in Progress (the Last layer part) since the redesign (docs/ui-redesign.md)
+await page.evaluate(() => { window.ZZ.modes.openProgress('ll'); document.getElementById('pll-practice').scrollIntoView(); });
 await new Promise((r) => setTimeout(r, 800));
 const rows = async () => page.$$eval('#pll-practiceBody tbody tr td.name', (tds) => tds.map((t) => t.textContent.trim()));
 const heads = await page.$$eval('#pll-practiceBody thead th button', (bs) => bs.map((b) => b.textContent.trim()));
@@ -86,22 +87,28 @@ await page.screenshot({ path: (process.env.TMPDIR ?? '/tmp') + '/practice-phone-
 // the sort survives a reload
 await page.reload({ waitUntil: 'networkidle0' });
 await new Promise((r) => setTimeout(r, 500));
-await page.evaluate(() => { document.getElementById('pll-practice').open = true; });
+await page.evaluate(() => window.ZZ.modes.openProgress('ll'));
 await new Promise((r) => setTimeout(r, 600));
 check((await page.$eval('#pll-practiceBody th button.on', (b) => b.dataset.sort)) === 'trend', 'the sort is remembered');
 // the tick under the picture hides it, and stays off over a reload
 const picShown = () => page.evaluate(() => !document.getElementById('pll-pic').parentElement.hidden || !document.getElementById('pll-stage').hidden);
 check(await picShown(), 'the picture is on by default');
+await page.evaluate(() => document.getElementById('stats-close').click());
+const setup = (on) => page.evaluate((on) => (on ? window.ZZ.modes.openSetup() : document.getElementById('setup-close').click()), on);
+await setup(true);
 await page.click('#pll-showpic');
+await setup(false);
 await new Promise((r) => setTimeout(r, 200));
 check(!(await picShown()), 'unticked: no diagram, no 3D cube');
 await page.reload({ waitUntil: 'networkidle0' });
 await new Promise((r) => setTimeout(r, 500));
 check(!(await picShown()) && !(await page.$eval('#pll-showpic', (b) => b.checked)), 'still hidden after a reload');
+await setup(true);
 await page.click('#pll-showpic');
+await setup(false);
 await new Promise((r) => setTimeout(r, 200));
 check(await picShown(), 'ticked again: the picture is back');
-await page.evaluate(() => { document.getElementById('pll-practice').open = true; });
+await page.evaluate(() => window.ZZ.modes.openProgress('ll'));
 await new Promise((r) => setTimeout(r, 600));
 await page.setViewport({ width: 1280, height: 900 });
 await page.click('#pll-practiceGraph .pg-legend button[data-all="on"]');

@@ -127,7 +127,7 @@ function headerLight(state: 'idle' | 'busy' | 'on', detail?: string): void {
   b.classList.toggle('busy', state === 'busy');
   b.classList.toggle('cube-on', state === 'on');
   const txt = b.querySelector('.txt');
-  if (txt) txt.textContent = state === 'busy' ? ' Connecting…' : state === 'on' ? ` ${detail ?? 'Cube'}` : ' Cube';
+  if (txt) txt.textContent = state === 'busy' ? 'Connecting…' : state === 'on' ? `${detail ?? 'Cube'}` : 'No cube';
   b.title = state === 'busy' ? `${detail ?? 'Connecting the smart cube'}; tap for the Cube sheet (l)`
     : state === 'on' ? `${detail} connected; tap for the Cube sheet (l)`
     : 'Your cube: connect a smart cube, and see what the app thinks the cube looks like (l)';
