@@ -327,9 +327,11 @@ are in WCA notation (a standard smart cube's own letters). Decisions:
 2026-09-17: start at the first turn, stop at solved; +2 / DNF are buttons
 only); the gap from "scrambled" to the first turn is still stored on the
 solve as `inspection` for later; the next scramble is
-prefetched so it appears the instant a solve ends; the sync pulls with a
-snapshot listener on `updatedAt > last seen` (server timestamps) and
-pushes dirty records in batches of 400. Firestore rules:
+prefetched so it appears the instant a solve ends; the sync pulls
+`updatedAt > last seen` (server timestamps) at sign-in and when the tab
+comes back into view (a snapshot listener until 2026-09-26; the app is
+used on one screen at a time, and the Firestore lite build is a third of
+the full one) and pushes dirty records in batches of 400. Firestore rules:
 `firebase/firestore.rules`. Sign-in happens on `signin.html`: the app
 runs cross-origin isolated (COOP same-origin, for wasm threads), which
 cuts a popup off from its opener and made the in-app popup end in
@@ -353,9 +355,8 @@ shows each session's span and count; nothing new is stored, it all reads
 off `when`. The header grows a sync chip, the way a document editor
 shows it: a spinning "Syncing" while records are on their way, and a ⚠
 whenever the cloud is not taking them: sync wanted but signed out, a
-failed push or listener, or records pending for over a minute since the
-queue filled (or any while offline: the SDK queues a commit and never
-rejects it, so `pending` sitting there is the only sign). `syncChip` /
+failed push or pull, or records pending for over a minute since the
+queue filled (or any while offline). `syncChip` /
 `syncWarning` in `sync.ts` are the rule; the chip opens the settings
 sheet, whose sync row counts the records waiting.
 

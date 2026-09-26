@@ -6,7 +6,11 @@
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, type User } from 'firebase/auth';
-import { collection, doc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where, writeBatch, type DocumentData } from 'firebase/firestore';
+// DECISION (2026-09-26): the lite build. It has no snapshot listeners and no offline write queue,
+// which the sync does not need: the store's own dirty flags are the queue, and the page is used on
+// one screen at a time, so a pull at sign-in and on return to the tab is enough. It leaves out the
+// full build's regex engine and channel code (~300 kB minified).
+import { collection, doc, getDocs, getFirestore, query, serverTimestamp, setDoc, Timestamp, where, writeBatch, type DocumentData } from 'firebase/firestore/lite';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyAyCxJIScit6X-KpWmPKHKw4yv1DB0rRbE',
@@ -22,7 +26,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 export type { User, DocumentData };
-export { auth, db, collection, doc, onSnapshot, query, serverTimestamp, setDoc, Timestamp, where, writeBatch, onAuthStateChanged, signOut, getRedirectResult };
+export { auth, db, collection, doc, getDocs, query, serverTimestamp, setDoc, Timestamp, where, writeBatch, onAuthStateChanged, signOut, getRedirectResult };
 
 /** Google sign-in: a popup, or the redirect flow where popups are blocked. */
 export async function signInWithGoogle(): Promise<void> {

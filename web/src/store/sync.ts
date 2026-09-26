@@ -2,8 +2,10 @@
 // the local IndexedDB store stays the source of truth; when sync is on
 // and the user is signed in, every dirty record is pushed to Firestore
 // under users/{uid}/{solves|sessions|attempts|favs|notes}/{id} and every record another
-// device wrote comes back through a snapshot listener and applyRemote
-// (the later edit wins). Firebase itself loads lazily (firebase.ts).
+// device wrote is pulled (`updatedAt` after the last one seen) at sign-in and whenever the
+// tab comes back into view, through applyRemote (the later edit wins). No live listener: the
+// app is used on one screen at a time (2026-09-26), and the Firestore lite build is a third of
+// the full one. Firebase itself loads lazily (firebase.ts).
 
 import type { Coll, Store } from './local';
 import type { AttemptRecord, FavRecord, NoteRecord, SessionRecord, SolveRecord } from './types';
@@ -23,8 +25,8 @@ export interface SyncState {
 
 /**
  * What the header should warn about, or null: sync wanted but signed out, a failed push or
- * listener, or edits the cloud has not taken for a while (offline: the SDK queues a commit and
- * never rejects it, so `pending` sitting there is the only sign). Pure, for the tests.
+ * pull, or edits the cloud has not taken for a while (offline, or a push that keeps failing).
+ * Pure, for the tests.
  */
 export function syncWarning(s: SyncState, now = Date.now(), online = true, stuckMs = 60_000): string | null {
   if (s.status === 'off' || s.status === 'loading') return null;
@@ -64,7 +66,7 @@ export class Sync {
   private fb: FB | null = null;
   private state: SyncState = { status: 'off', pushed: 0, pulled: 0, pending: 0 };
   private uid: string | null = null;
-  private unsubs: (() => void)[] = [];
+  private pulling: Promise<void> | null = null;
   private pushTimer: ReturnType<typeof setTimeout> | undefined;
   private pushing = false;
 
@@ -90,7 +92,9 @@ export class Sync {
     fb.getRedirectResult(fb.auth).catch(() => undefined);
     fb.onAuthStateChanged(fb.auth, (user) => { void this.onUser(user); });
     this.store.onChange(() => this.schedulePush());
-    window.addEventListener('online', () => this.schedulePush());
+    window.addEventListener('online', () => { void this.pullAll(); this.schedulePush(); });
+    // the pull, on coming back to the tab: another device may have written while this one was away
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void this.pullAll(); });
     void this.countPending();
   }
 
@@ -114,24 +118,32 @@ export class Sync {
 
   async signOut(): Promise<void> {
     setWanted(false);
-    this.stopListening();
     if (this.fb) await this.fb.signOut(this.fb.auth).catch(() => undefined);
     this.uid = null;
     this.set({ status: 'off', user: undefined });
   }
 
-  private stopListening(): void {
-    for (const u of this.unsubs) u();
-    this.unsubs = [];
-  }
-
   private async onUser(user: import('./firebase').User | null): Promise<void> {
-    this.stopListening();
     if (!user) { this.uid = null; this.set({ status: 'signed-out', user: undefined }); return; }
     this.uid = user.uid;
     this.set({ status: 'syncing', user: { name: user.displayName ?? '', email: user.email ?? '' } });
-    for (const coll of COLLS) this.listen(coll);
+    await this.pullAll();
     await this.push();
+  }
+
+  /** Every collection pulled once; a pull already under way is shared, not repeated. */
+  private pullAll(): Promise<void> {
+    if (!this.fb || !this.uid) return Promise.resolve();
+    return (this.pulling ??= (async () => {
+      try {
+        for (const coll of COLLS) await this.pull(coll);
+        if (this.state.status === 'syncing') this.set({ status: 'synced' });
+      } catch (err) {
+        this.set({ status: 'error', error: `Pull failed: ${err instanceof Error ? err.message : err}` });
+      } finally {
+        this.pulling = null;
+      }
+    })());
   }
 
   private col(coll: Coll) {
@@ -139,35 +151,27 @@ export class Sync {
     return fb.collection(fb.db, 'users', this.uid!, coll);
   }
 
-  /** Records the other side edited after the last one we saw, from now on. */
-  private listen(coll: Coll): void {
+  /** The records the other side edited after the last one we saw, into the store. */
+  private async pull(coll: Coll): Promise<void> {
     const fb = this.fb!, uid = this.uid!;
     const key = `lastPulled/${uid}/${coll}`;
-    void this.store.getMeta<number>(key).then((last) => {
-      if (this.uid !== uid) return;
-      const q = fb.query(this.col(coll), fb.where('updatedAt', '>', fb.Timestamp.fromMillis(last ?? 0)));
-      const unsub = fb.onSnapshot(q, (snap) => {
-        void (async () => {
-          let newest = last ?? 0;
-          let pulled = 0;
-          for (const ch of snap.docChanges()) {
-            if (ch.type === 'removed') continue;
-            const data = ch.doc.data() as Record<string, unknown> & { updatedAt?: { toMillis(): number } | null };
-            const at = data.updatedAt && typeof data.updatedAt.toMillis === 'function' ? data.updatedAt.toMillis() : null;
-            if (at === null) continue; // our own pending write, not yet stamped by the server
-            const rec = { ...data } as Record<string, unknown>;
-            delete rec.updatedAt;
-            const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord & AttemptRecord & FavRecord & NoteRecord);
-            if (applied === 'applied') pulled++;
-            if (at > newest) newest = at;
-          }
-          if (newest !== (last ?? 0)) { last = newest; await this.store.setMeta(key, newest); }
-          if (pulled) this.set({ pulled: this.state.pulled + pulled });
-          if (this.state.status === 'syncing') this.set({ status: 'synced' });
-        })();
-      }, (err) => this.set({ status: 'error', error: `Sync listener failed: ${err.message}` }));
-      this.unsubs.push(unsub);
-    });
+    const last = (await this.store.getMeta<number>(key)) ?? 0;
+    if (this.uid !== uid) return;
+    const snap = await fb.getDocs(fb.query(this.col(coll), fb.where('updatedAt', '>', fb.Timestamp.fromMillis(last))));
+    let newest = last;
+    let pulled = 0;
+    for (const d of snap.docs) {
+      const data = d.data() as Record<string, unknown> & { updatedAt?: { toMillis(): number } | null };
+      const at = data.updatedAt && typeof data.updatedAt.toMillis === 'function' ? data.updatedAt.toMillis() : null;
+      if (at === null) continue;
+      const rec = { ...data } as Record<string, unknown>;
+      delete rec.updatedAt;
+      const applied = await this.store.applyRemote(coll, rec as unknown as SolveRecord & SessionRecord & AttemptRecord & FavRecord & NoteRecord);
+      if (applied === 'applied') pulled++;
+      if (at > newest) newest = at;
+    }
+    if (newest !== last) await this.store.setMeta(key, newest);
+    if (pulled) this.set({ pulled: this.state.pulled + pulled });
   }
 
   private schedulePush(): void {
