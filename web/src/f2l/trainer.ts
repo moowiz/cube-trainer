@@ -362,7 +362,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const st = slotState(f, s);
     const found = findCase(s, st.corner, st.edge);
     if (!found) return null;
-    const a = orderedAlgs(s, found.c, advanced())[0]!;
+    const a = orderedAlgs(s, found.c, advanced(), found.hit.auf)[0]!;
     const full = fullAlg(found.hit.auf, a);
     return { n: found.c.n, head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full) };
   }
@@ -520,7 +520,7 @@ export function mountF2L(root: HTMLElement): Stage {
   function routesFor(s: SlotName, c: CornerState, e: string): string[][] {
     const found = findCase(s, c, e);
     if (!found) return [];
-    const { algs, searched, usable } = algsFor(s, found.c, advanced());
+    const { algs, searched, usable } = algsFor(s, found.c, advanced(), found.hit.auf);
     return [...algs, ...(searched ? [found.c.simple] : []), ...usable.map((o) => o.alg)].map((a) => tokens(fullAlg(found.hit.auf, a)));
   }
   /**
@@ -697,7 +697,7 @@ export function mountF2L(root: HTMLElement): Stage {
     b.addEventListener('click', () => {
       if (tracked && currentHit && !fedBy) { // tracking: the pair is solved by doing the alg shown
         const c = DATA.slots[slot].cases[currentHit.n];
-        if (c) { didThis(fullAlg(currentHit.auf, orderedAlgs(slot, c, advanced())[0]!)); return; }
+        if (c) { didThis(fullAlg(currentHit.auf, orderedAlgs(slot, c, advanced(), currentHit.auf)[0]!)); return; }
       }
       markSolved();
     });
@@ -711,8 +711,8 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
   /** The algs the panel lists for a slot's case: the main ones, the searched R/L/U one when it is not among them, the usable slot shortcuts. */
-  function algsFor(s: SlotName, c: F2LCase, adv: boolean): { algs: string[]; searched: boolean; usable: F2LCase['others'] } {
-    const algs = orderedAlgs(s, c, adv);
+  function algsFor(s: SlotName, c: F2LCase, adv: boolean, auf = ''): { algs: string[]; searched: boolean; usable: F2LCase['others'] } {
+    const algs = orderedAlgs(s, c, adv, auf);
     const searched = adv && c.simple_src === 'search' && !algs.includes(c.simple);
     const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((x) => !solvedSlots.has(x)) && (adv || isSimple(o.alg)));
     return { algs, searched, usable };
@@ -747,7 +747,7 @@ export function mountF2L(root: HTMLElement): Stage {
     t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
-    const { algs, searched, usable } = algsFor(slot, c, adv);
+    const { algs, searched, usable } = algsFor(slot, c, adv, hit.auf);
     const fav = f2lIsFavourite(caseId(slot, c.n));
     const ex = explain(slot, c, algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;

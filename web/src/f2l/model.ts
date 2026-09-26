@@ -436,17 +436,21 @@ export function f2lSetMainAlg(id: string, alg: string | null): boolean {
   return true;
 }
 /**
- * The algs to list for a case, main first: the favourite when there is one, else the sheet's first alg
- * (advanced) or the R/L/U-only one (simple). The rest of the sheet's algs follow; the slot shortcuts are
- * the caller's to add (they need free slots).
+ * The algs to list for a case, main first: the favourite when there is one, else the sheet's shortest alg
+ * from the position at hand (`auf` the lookup's; advanced) or the R/L/U-only one (simple). The rest of the
+ * sheet's algs follow, shortest first; the slot shortcuts are the caller's to add (they need free slots).
  */
-export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean): string[] {
+export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean, auf = ''): string[] {
   const fav = FAV.get(caseId(slot, c.n));
-  const rest = advanced ? byLength(c.algs) : [];
+  const rest = advanced ? byLength(c.algs, auf) : [];
   const main = fav ?? (advanced ? rest[0]! : c.simple);
   return [main, ...rest.filter((a) => a !== main)];
 }
-/** Algs shortest first (the AUF counted), the sheet's order among equals (user, 2026-09-26: fewest moves lead). */
-export function byLength(algs: readonly string[]): string[] {
-  return algs.map((a, i) => ({ a, i, n: moveCount(fullAlg('', a)) })).sort((x, y) => x.n - y.n || x.i - y.i).map((x) => x.a);
+/**
+ * Algs shortest first as they will be done from the position at hand - `auf` (the lookup's) folded into each
+ * alg's own, so a cancelling AUF counts for nothing and an added one counts - the sheet's order among equals
+ * (user, 2026-09-26: fewest moves lead, setup moves included).
+ */
+export function byLength(algs: readonly string[], auf = ''): string[] {
+  return algs.map((a, i) => ({ a, i, n: moveCount(fullAlg(auf, a)) })).sort((x, y) => x.n - y.n || x.i - y.i).map((x) => x.a);
 }

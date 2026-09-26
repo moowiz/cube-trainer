@@ -206,6 +206,9 @@ describe('the favourite alg (the case sheet\'s star)', () => {
     expect(caseOf('FR-999')).toBeNull();
     expect(f2lMainAlg(id)).toBe(byLength(c.algs)[0]);
     expect(byLength(["(U2) R U R' U R' D' R U' R' D R", "R U' R'", "R U R' U2 R U' R' U R U' R'"])).toEqual(["R U' R'", "R U R' U2 R U' R' U R U' R'", "(U2) R U R' U R' D' R U' R' D R"]);
+    // the position's AUF folded in: (U') R U' R' from a U-away position is three moves, the bare alg becomes four
+    expect(byLength(["R U R' U'", "(U') R U' R'"], 'U')).toEqual(["(U') R U' R'", "R U R' U'"]);
+    expect(orderedAlgs('FR', DATA.slots.FR.cases['1']!, true, "U'")[0]).toBe("(U) R U' R'");
     expect(f2lSetMainAlg(id, "R U R' U'")).toBe(false); // not one of its algs
     const pick = c.others[0]!.alg;
     expect(allAlgs(c)).toContain(pick);
