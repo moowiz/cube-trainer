@@ -64,12 +64,16 @@ export function uCount(tok: string): number {
 }
 export function uTok(n: number): string { return ['', 'U', 'U2', "U'"][((n % 4) + 4) % 4]; }
 
-/** An alg's own (U) bracket combined with the AUF of the position tapped: the AUF to do first, and the rest. */
+/**
+ * An alg's own (U) bracket combined with the AUF of the position tapped: the AUF to do first, and the rest in
+ * canonical tokens (the sheet's L2' is L2 here: the trainer's rows tokenize it with the strict parser, which
+ * threw on it, 2026-09-26).
+ */
 export function withAuf(auf: string, alg: string): { pre: string; rest: string } {
   const m = /^\(([^)]*)\)\s*(.*)$/.exec(alg);
   let pre = 0, rest = alg;
   if (m) { pre = uCount(m[1].replace(/2'$/, '2')); rest = m[2]; }
-  return { pre: uTok(uCount(auf) + pre), rest };
+  return { pre: uTok(uCount(auf) + pre), rest: normalizeAlg(rest) };
 }
 /** The alg to do from the position tapped, AUF first, in canonical tokens (the sheet's U2' becomes U2). */
 export const fullAlg = (auf: string, alg: string): string => { const { pre, rest } = withAuf(auf, alg); return normalizeAlg((pre ? `${pre} ` : '') + rest); };

@@ -111,6 +111,7 @@ describe('sheet notation', () => {
     expect(withAuf('U2', "(U2') R' U R")).toEqual({ pre: '', rest: "R' U R" });
     expect(withAuf("U'", "(U') R U R'")).toEqual({ pre: 'U2', rest: "R U R'" });
     expect(withAuf('', "R U R'")).toEqual({ pre: '', rest: "R U R'" });
+    expect(withAuf('', "(U) L' U L2' U' L'")).toEqual({ pre: 'U', rest: "L' U L2 U' L'" }); // the sheet's L2' read by the strict parser
     expect(fullAlg('U', "(U) R U2' R'")).toBe("U2 R U2 R'");
   });
   it('acnUrl sets up with the inverse and shows the alg', () => {
