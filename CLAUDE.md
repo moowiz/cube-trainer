@@ -130,10 +130,11 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      Cube sheet's live view, ZZ.smart), cubefollow (the cube drags the tabs through the
                      stages), scanner-bridge (locks, follow mode, the reader as a source, Record -> rig),
                      record (the header Record button), sync-ui (the settings row), rig (the recording
-                     session), wake (the screen wake lock), modes (docs/ui-redesign.md: what you practise -
-                     Solve, EO, F2L, F2L into the last layer, the last layer, Find an F2L case - as a stretch
-                     of the solve; the mode chip and picker, each mode's settings sheet (the stages' own rows
-                     moved into it), the ? help, the Cases and Progress places, the rail's host)
+                     session), wake (the screen wake lock), modes (docs/ui-redesign.md: what you practice - the timed
+                     Solve, a stretch of the solve (a stage to start at, one to stop after: EOCross on to
+                     solved, F2L alone, ...; the cube solved brings the next), Find an F2L case; the mode chip
+                     and the stretch picker, each mode's settings sheet (the stages' own rows moved into it),
+                     the ? help, the Cases and Progress places, the rail's host)
     rig/             the recording rig's client: stream (ordered POSTs to the dev server's sink),
                      session (one folder per sitting: video chunks, cube events, solves, evidence)
     debug/           HSV/Lab views, frame dump, fps counter, selftest (the hook check-detect.mjs drives)
@@ -231,8 +232,8 @@ cd model && make export      # writes web/public/models/facekp.onnx
 
 - `docs/ui-redesign.md` — the page's shape (2026-09-26): the journeys, what made
   the tabs cluttered, and the design built from it - the cube rail beside the
-  stage, modes as a stretch of the solve, run vs setup. Section 12 is what was
-  built and what is still open; read it before moving a control.
+  stage, modes as a stretch of the solve, run vs setup. Sections 12-13 are what
+  was built and what is still open; read them before moving a control.
 - `docs/rubiks-vision-analysis.md` — analysis of gillis.oldfeldt/rubiks-vision
   (a comparable browser scanner: whole-cube 54-keypoint pose, learned colour
   model, exact 9-per-colour decoder). Verdict: keep our per-face

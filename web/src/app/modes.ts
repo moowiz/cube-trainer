@@ -14,7 +14,7 @@
 // two places that are not practice: Cases and Progress.
 
 import { state } from '../cube/state';
-import { activeTab, carriedSolve, closeSheet, onTabChange, openAlgs, openSheet, ownerTab, sheetOpen, showTab, stages, type Tab } from '../shell';
+import { activeTab, carriedSolve, closeSheet, onTabChange, openAlgs, openSheet, ownerTab, sheetOpen, showTab, stages, toast, type Tab } from '../shell';
 import { stageOf } from '../stage';
 import type { SplitStage } from '../timer/splits';
 import { mountRail, type CubeView, type Rail } from '../ui/rail';
@@ -23,14 +23,16 @@ import { setFollowRules } from './cubefollow';
 import { hold } from './context';
 import { activeSource, onSourceChange } from './sources';
 
-type ModeId = 'solve' | 'eo' | 'f2l' | 'f2lll' | 'll' | 'find';
+type ModeId = 'solve' | 'eo' | 'f2l' | 'll' | 'find';
 type LLSet = 'ocll' | 'pll';
+/** The picker's rows: the Solve, one per stage a stretch can start at, and the finder. */
+type RowId = 'solve' | 'eo' | 'f2l' | 'ocll' | 'pll' | 'find';
 
 interface ModeDef {
   id: ModeId;
   name(): string;
-  /** the picker's line: from where to where, and what it is about */
-  what: string;
+  /** the focus pane's line under the title: what it is about */
+  what(): string;
   /** the stages the mode covers (the strip), and the one it is about */
   range(): readonly SplitStage[];
   focus(): SplitStage | null;
@@ -40,7 +42,7 @@ interface ModeDef {
   view: CubeView;
 }
 
-const MODE_KEY = 'zz-mode', SET_KEY = 'zz-ll-set', F2L_KIND = 'zzf2l-kind';
+const MODE_KEY = 'zz-mode', SET_KEY = 'zz-ll-set', F2L_KIND = 'zzf2l-kind', STOP_KEY = 'zz-stop';
 const llSet = (): LLSet => (readStored(SET_KEY) === 'ocll' ? 'ocll' : 'pll');
 const llFrom = (): string => {
   const st = readStoredJson(`zz-${llSet()}-settings`) as { from?: string } | null;
@@ -50,21 +52,49 @@ const eoGoal = (): string => ((readStoredJson('zz-eo-settings') as { goal?: stri
 const f2lKind = (): 'all' | 'picked' => (readStored(F2L_KIND) === 'picked' ? 'picked' : 'all');
 
 const ALL: readonly SplitStage[] = ['eo', 'f2l', 'ocll', 'pll'];
+const STAGE_NAME: Record<SplitStage, string> = { eo: 'EOCross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
+const rank = (s: SplitStage): number => ALL.indexOf(s);
+/** Where a stretch stops, per stage it starts at (the picker's cells): the stage after which the help stops following the cube. */
+type StopStart = 'eo' | 'f2l' | 'ocll';
+// DECISION: the stops start where the modes were before stretches (2026-09-26): EOCross and F2L alone, OCLL on into PLL
+const STOP_DEFAULT: Record<StopStart, SplitStage> = { eo: 'eo', f2l: 'f2l', ocll: 'pll' };
+function stopOf(start: StopStart): SplitStage {
+  const st = readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null;
+  const s = st?.[start];
+  return s && ALL.includes(s) && rank(s) >= rank(start) ? s : STOP_DEFAULT[start];
+}
+function setStop(start: StopStart, stop: SplitStage): void {
+  const st = (readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null) ?? {};
+  writeStored(STOP_KEY, JSON.stringify({ ...st, [start]: stop }));
+}
+/** The stages from `start` through `stop`. */
+const stretch = (start: SplitStage, stop: SplitStage): SplitStage[] => ALL.filter((s) => rank(s) >= rank(start) && rank(s) <= rank(stop));
+/** "F2L", or "F2L → OCLL", or "EOCross → solved". */
+const stretchName = (name: string, start: SplitStage, stop: SplitStage): string => (stop === start ? name : `${name} → ${stop === 'pll' ? 'solved' : STAGE_NAME[stop]}`);
+const onTo = (start: SplitStage, stop: SplitStage): string => (stop === start ? '' : `, then on to ${stop === 'pll' ? 'the end' : STAGE_NAME[stop]}`);
+
 const MODES: readonly ModeDef[] = [
   // DECISION: the Solve mode shows the cube's net on a desktop (room for it beside the timer); on a phone it starts hidden, a tap away
-  { id: 'solve', name: () => 'Solve', what: 'scrambled → solved · timed, the stages as splits', range: () => ALL, focus: () => null, home: () => 'solve', view: 'net' },
-  { id: 'eo', name: () => eoGoal(), what: 'scrambled → EO or EOCross · plan it, then do it', range: () => ['eo'], focus: () => 'eo', home: () => 'eo', view: 'off' },
-  { id: 'f2l', name: () => 'F2L', what: 'cross done → F2L · the pairs, with their cases', range: () => ['f2l'], focus: () => 'f2l', home: () => 'f2l', view: 'off' },
-  { id: 'f2lll', name: () => 'F2L → LL', what: 'cross done → solved · then the OCLL and PLL you get', range: () => ['f2l', 'ocll', 'pll'], focus: () => 'f2l', home: () => 'f2l', view: 'off' },
+  { id: 'solve', name: () => 'Solve', what: () => 'timed, the stages as splits', range: () => ALL, focus: () => null, home: () => 'solve', view: 'net' },
+  { id: 'eo', name: () => stretchName(eoGoal(), 'eo', stopOf('eo')), what: () => `plan it, then do it${onTo('eo', stopOf('eo'))}`, range: () => stretch('eo', stopOf('eo')), focus: () => 'eo', home: () => 'eo', view: 'off' },
+  { id: 'f2l', name: () => stretchName('F2L', 'f2l', stopOf('f2l')), what: () => `the pairs, with their cases${onTo('f2l', stopOf('f2l'))}`, range: () => stretch('f2l', stopOf('f2l')), focus: () => 'f2l', home: () => 'f2l', view: 'off' },
   {
-    id: 'll', name: () => (llSet() === 'pll' ? 'PLL' : 'OCLL'), what: 'the case → solved · the cases you pick',
-    range: () => { const f = llFrom(); return f === 'pair' ? ['f2l', 'ocll', 'pll'] : f === 'ocll' ? ['ocll', 'pll'] : llSet() === 'ocll' ? ['ocll', 'pll'] : ['pll']; },
+    id: 'll', name: () => (llSet() === 'pll' ? 'PLL' : stretchName('OCLL', 'ocll', stopOf('ocll'))), what: () => 'the cases you pick',
+    range: () => {
+      const f = llFrom();
+      if (llSet() === 'pll') return f === 'pair' ? ['f2l', 'ocll', 'pll'] : f === 'ocll' ? ['ocll', 'pll'] : ['pll'];
+      return stretch(f === 'pair' ? 'f2l' : 'ocll', stopOf('ocll'));
+    },
     focus: () => llSet(), home: () => llSet(), view: 'off',
   },
-  { id: 'find', name: () => 'Find an F2L case', what: 'no scramble: tap where the pieces are', range: () => [], focus: () => 'f2l', home: () => 'f2l', view: 'off' },
+  { id: 'find', name: () => 'Find an F2L case', what: () => 'no scramble: tap where the pieces are', range: () => [], focus: () => 'f2l', home: () => 'f2l', view: 'off' },
 ];
 const modeDef = (id: ModeId): ModeDef => MODES.find((m) => m.id === id)!;
 const TAB_NAME: Record<Tab, string> = { solve: 'Solve', eo: 'EOCross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
+const ROWS: readonly RowId[] = ['solve', 'eo', 'f2l', 'ocll', 'pll', 'find'];
+const rowMode = (r: RowId): ModeId => (r === 'ocll' || r === 'pll' ? 'll' : r);
+/** The picker's row the current mode is. */
+const currentRow = (): RowId => (mode === 'll' ? llSet() : mode);
 
 let mode: ModeId = 'solve';
 let rail: Rail | null = null;
@@ -73,7 +103,7 @@ function currentMode(): ModeId { return mode; }
 
 /** The mode a stage panel belongs to: the current one when it is one of its panels, else the stage's own. */
 function modeForTab(t: Tab): ModeId {
-  if (t === 'f2l') return mode === 'f2lll' || mode === 'find' ? mode : 'f2l';
+  if (t === 'f2l') return mode === 'find' ? mode : 'f2l';
   if (t === 'ocll' || t === 'pll') { if (llSet() !== t) writeStored(SET_KEY, t); return 'll'; }
   return t;
 }
@@ -106,9 +136,9 @@ function selectMode(id: ModeId, keep = false): void {
     // finding a case by hand: the tracked scramble goes, the pieces are yours to place
     if (id === 'find' && !wasFind) document.getElementById('restart')?.click();
   }
-  // F2L into the last layer: the whole cube solved brings the next F2L scramble (the finder's own box, ticked)
+  // F2L on into the last layer: the whole cube solved brings the next F2L scramble (the finder's own box, ticked)
   const rescr = document.getElementById('rescramble') as HTMLInputElement | null;
-  if (id === 'f2lll' && rescr && !rescr.checked) { rescr.checked = true; rescr.dispatchEvent(new Event('change')); }
+  if (id === 'f2l' && stopOf('f2l') !== 'f2l' && rescr && !rescr.checked) { rescr.checked = true; rescr.dispatchEvent(new Event('change')); }
   const home = modeDef(id).home();
   showTab(home);
   if (!keep) ensureCase(home);
@@ -120,7 +150,7 @@ function selectMode(id: ModeId, keep = false): void {
 // ---- the header: the chip, the desktop tabs, the focus pane's title, the banner ----
 function chipSub(): string {
   if (mode === 'solve') return (readStored('zz-solve-follow') ?? 'follow') === 'follow' ? 'coach on' : '';
-  if (mode === 'f2l' || mode === 'f2lll') return f2lKind() === 'picked' ? 'picked cases' : 'all pairs';
+  if (mode === 'f2l') return f2lKind() === 'picked' ? 'picked cases' : 'all pairs';
   if (mode === 'll') {
     const st = readStoredJson(`zz-${llSet()}-settings`) as { cases?: string[]; from?: string } | null;
     const n = st?.cases?.length;
@@ -133,34 +163,58 @@ function render(): void {
   const def = modeDef(mode);
   document.getElementById('mode-name')!.textContent = def.name();
   document.getElementById('mode-sub')!.textContent = chipSub();
-  document.querySelectorAll<HTMLElement>('#mtabs [data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode || (b.dataset.mode === 'f2l' && (mode === 'f2lll' || mode === 'find'))));
+  document.querySelectorAll<HTMLElement>('#mtabs [data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode || (b.dataset.mode === 'f2l' && mode === 'find')));
   const t = activeTab();
   const home = def.home();
   document.getElementById('focus-title')!.textContent = def.name();
   const sub = document.getElementById('focus-sub')!;
-  sub.textContent = t !== home && inMode(t) ? (carriedSolve() ? `coach: ${TAB_NAME[t]}` : `now at ${TAB_NAME[t]}`) : def.what.split(' · ')[1] ?? '';
+  sub.textContent = t !== home && inMode(t) ? (carriedSolve() ? `coach: ${TAB_NAME[t]}` : `now at ${TAB_NAME[t]}`) : def.what();
   // the cube picked up somewhere else (a hand scramble, a scan): its stage is on show, the mode is still yours
   const banner = document.getElementById('focus-banner')!;
   const off = t !== home && !carriedSolve() && !inMode(t);
   banner.hidden = !off;
   // redrawn only when it says something else: this runs every second, and a redraw under a press would eat the click
-  const html = off ? `<span>Following your cube: it is at <b>${TAB_NAME[t]}</b>.</span><button type="button" class="btn" data-go="here">Practise ${TAB_NAME[t]} from here</button><button type="button" class="btn" data-go="back">Back to ${def.name()}</button>` : '';
+  const html = off ? `<span>Following your cube: it is at <b>${TAB_NAME[t]}</b>.</span><button type="button" class="btn" data-go="here">Practice ${TAB_NAME[t]} from here</button><button type="button" class="btn" data-go="back">Back to ${def.name()}</button>` : '';
   if (banner.dataset.html !== html) { banner.dataset.html = html; banner.innerHTML = html; }
 }
 
-// ---- the picker ----
+// ---- the picker: the Solve, the stretches (a row per stage one starts at, a cell per stage it can stop after), the finder ----
+const ROW_WHAT: Record<RowId, () => string> = {
+  solve: () => 'scrambled → solved, timed and kept in your session; the coach shows each stage\'s help as you get there',
+  eo: () => 'from a scramble',
+  f2l: () => (f2lKind() === 'picked' ? 'cross done, a picked case' : 'cross done'),
+  ocll: () => (readStoredJson('zz-ocll-settings') as { from?: string } | null)?.from === 'pair' ? 'from the last pair' : 'an OCLL case',
+  pll: () => { const f = (readStoredJson('zz-pll-settings') as { from?: string } | null)?.from; return f === 'pair' ? 'recognised from the last pair' : f === 'ocll' ? 'recognised from OCLL' : 'a PLL case'; },
+  find: () => 'no scramble: tap where the pieces are',
+};
+const ROW_NAME: Record<RowId, () => string> = { solve: () => 'Solve', eo: eoGoal, f2l: () => 'F2L', ocll: () => 'OCLL', pll: () => 'PLL', find: () => 'Find an F2L case' };
 function renderPicker(): void {
-  const names = ['EOCross', 'F2L', 'OCLL', 'PLL'];
-  document.getElementById('mp-list')!.innerHTML = MODES.map((m, i) => {
-    const r = m.range(), f = m.focus();
-    const strip = m.id === 'find' ? '' : `<div class="mp-strip">${ALL.map((s, k) => `<span class="${!r.includes(s) ? 'out' : s === f || (f === null) ? 'fz' : ''}">${names[k]}</span>`).join('')}</div>`;
-    return `<button type="button" class="mp-item${m.id === mode ? ' on' : ''}" data-pick="${m.id}"><kbd>${i + 1}</kbd><b>${m.name()}</b><span class="w">${m.what}</span>${strip}</button>`;
+  const cur = currentRow();
+  const key = (r: RowId) => `<kbd>${ROWS.indexOf(r) + 1}</kbd>`;
+  const whole = (r: RowId) => `<button type="button" class="mp-item${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>`;
+  const rows = (['eo', 'f2l', 'ocll', 'pll'] as const).map((r) => {
+    const stop = r === 'pll' ? 'pll' : stopOf(r);
+    const cells = ALL.map((s) => {
+      if (rank(s) < rank(r)) return '<i class="mp-gap"></i>';
+      const title = s === r ? `${STAGE_NAME[r]} alone` : `${STAGE_NAME[r]}, then on through ${s === 'pll' ? 'PLL to solved' : STAGE_NAME[s]}`;
+      return `<button type="button" class="mp-cell${rank(s) <= rank(stop) ? ' in' : ''}${s === stop ? ' end' : ''}" data-row="${r}" data-stop="${s}" title="${title}">${STAGE_NAME[s]}</button>`;
+    }).join('');
+    return `<button type="button" class="mp-name${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>${cells}`;
   }).join('');
+  document.getElementById('mp-list')!.innerHTML = `${whole('solve')}
+    <div class="mp-cap"><b>Practice a stretch.</b> A row is where the scramble leaves the cube; tap the stage to stop after. The help follows your cube up to there, and when the cube is solved the next scramble comes.</div>
+    <div class="mp-grid">${rows}</div>${whole('find')}`;
+}
+/** A picker row (and a stop, from its cells): the mode it is, with its case. */
+function pickRow(r: RowId, stop?: SplitStage): void {
+  if (r === 'ocll' || r === 'pll') writeStored(SET_KEY, r);
+  if (stop && (r === 'eo' || r === 'f2l' || r === 'ocll')) setStop(r, stop);
+  selectMode(rowMode(r));
 }
 
 // ---- a mode's settings: the stages' own rows, moved into one sheet ----
 function openSetup(): void {
-  const sec = mode === 'f2lll' ? 'f2l' : mode;
+  const sec = mode;
   document.querySelectorAll<HTMLElement>('#setup-sheet [data-setup]').forEach((s) => { s.hidden = s.dataset.setup !== sec; });
   document.querySelectorAll<HTMLElement>('#setup-sheet [data-llset]').forEach((s) => { s.hidden = s.dataset.llset !== llSet(); });
   document.getElementById('setup-title')!.textContent = `${modeDef(mode).name()} · settings`;
@@ -209,7 +263,7 @@ function assembleSetup(): void {
 // ---- the places that are not practice ----
 let casesKind: 'f2l' | 'ocll' | 'pll' = 'pll';
 function openCases(kind?: 'f2l' | 'ocll' | 'pll' | 'other'): void {
-  const k = kind ?? (mode === 'll' ? llSet() : mode === 'f2l' || mode === 'f2lll' || mode === 'find' ? 'f2l' : casesKind);
+  const k = kind ?? (mode === 'll' ? llSet() : mode === 'f2l' || mode === 'find' ? 'f2l' : casesKind);
   closeSheet('stats-sheet');
   if (k === 'other') { closeSheet('ref-sheet'); openAlgs(); casesBar(document.querySelector('#algs-sheet .zz-sheet-head'), 'other'); return; }
   closeSheet('algs-sheet');
@@ -234,7 +288,7 @@ function casesBar(head: Element | null, on: string): void {
 }
 function openProgress(seg?: 'solves' | 'll' | 'f2l'): void {
   closeSheet('ref-sheet'); closeSheet('algs-sheet');
-  const s = seg ?? (mode === 'll' ? 'll' : mode === 'f2l' || mode === 'f2lll' ? 'f2l' : 'solves');
+  const s = seg ?? (mode === 'll' ? 'll' : mode === 'f2l' ? 'f2l' : 'solves');
   // the Solve tab's Graph opens this sheet and draws the solves
   document.getElementById('tm-graph')?.click();
   progressSeg(s);
@@ -254,16 +308,40 @@ function dest(d: string): void {
 }
 /** The bottom nav and the desktop's places light up with the sheet that is open. */
 function paintDests(): void {
-  const on = !document.getElementById('stats-sheet')!.hidden ? 'progress' : (!document.getElementById('ref-sheet')!.hidden || !document.getElementById('algs-sheet')!.hidden) ? 'cases' : 'practise';
+  const on = !document.getElementById('stats-sheet')!.hidden ? 'progress' : (!document.getElementById('ref-sheet')!.hidden || !document.getElementById('algs-sheet')!.hidden) ? 'cases' : 'practice';
   document.querySelectorAll<HTMLElement>('#bnav [data-dest], .dests [data-dest]').forEach((b) => b.classList.toggle('on', b.dataset.dest === on));
+}
+
+// ---- a stretch: its end, and New anywhere in it ----
+/**
+ * The follow saw the cube solved, on a solve that started at `from`'s scramble (the follow's rule): a stretch of
+ * the mode's (EOCross on to solved) goes back to where it starts, and the EO stage, which has no next-when-solved
+ * of its own, makes the next scramble. (F2L's own box does, and the last layer's drills have their "next case
+ * when solved".) A stage alone keeps its result up, as it always has.
+ */
+function stretchSolved(from: Tab | null): boolean {
+  if (mode === 'solve' || mode === 'find' || from === null || from === 'solve' || !inMode(from) || modeDef(mode).range().length < 2) return false;
+  const home = modeDef(mode).home();
+  if (activeTab() !== home) { showTab(home); window.scrollTo({ top: 0 }); }
+  if (home === 'eo') { stages.eo?.newScramble(); toast('Solved ✓ next scramble'); }
+  return true;
+}
+/** The rail's New: the mode's own next case, from wherever in its stretch the cube is (the carried solve's own, while one is). */
+function newCase(): void {
+  if (carriedSolve()) { stages.solve?.newScramble(); return; }
+  const home = modeDef(mode).home();
+  if (activeTab() !== home && inMode(activeTab())) showTab(home);
+  stages[activeTab()]?.newScramble();
 }
 
 export function initModes(): void {
   assembleSetup();
   // the follow opens only the stages inside the mode; a cube picked up and solved goes back to the mode's own
-  setFollowRules({ openable: (s) => inMode(s), home: () => modeDef(mode).home() });
+  setFollowRules({ openable: (s) => inMode(s), home: () => modeDef(mode).home(), solved: stretchSolved });
   rail = mountRail(document.getElementById('rail')!, {
     owner: () => stages[ownerTab()],
+    ownerTab,
+    newCase,
     source: activeSource,
     hold,
     onSource: (cb) => { onSourceChange(cb); },
@@ -278,7 +356,9 @@ export function initModes(): void {
 
   const want = new URLSearchParams(location.search).get('tab');
   const tabs: readonly string[] = ['solve', 'eo', 'f2l', 'ocll', 'pll'];
-  let m = readStored(MODE_KEY) as ModeId | null;
+  let m = readStored(MODE_KEY) as ModeId | 'f2lll' | null;
+  // F2L into the last layer was its own mode until the stretches (2026-09-26): F2L, stopping after PLL
+  if (m === 'f2lll') { setStop('f2l', 'pll'); m = 'f2l'; }
   if (want && tabs.includes(want)) m = modeForTab(want as Tab);
   else if (!m || !MODES.some((d) => d.id === m)) m = modeForTab((readStored('zz-tab') as Tab | null) ?? 'solve');
   // the first case is the one the stage made at mount (or the page address asked for): kept
@@ -288,10 +368,10 @@ export function initModes(): void {
   document.getElementById('mode-chip')!.addEventListener('click', () => { renderPicker(); openSheet('modes-sheet'); });
   document.getElementById('modes-close')!.addEventListener('click', () => closeSheet('modes-sheet'));
   document.getElementById('mp-list')!.addEventListener('click', (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-pick]');
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-row]');
     if (!b) return;
     closeSheet('modes-sheet');
-    selectMode(b.dataset.pick as ModeId);
+    pickRow(b.dataset.row as RowId, b.dataset.stop as SplitStage | undefined);
   });
   document.getElementById('mtabs')!.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-mode]');
@@ -337,11 +417,11 @@ export function initModes(): void {
   });
   const obs = new MutationObserver(paintDests);
   for (const id of ['ref-sheet', 'algs-sheet', 'stats-sheet']) obs.observe(document.getElementById(id)!, { attributes: true, attributeFilter: ['hidden'] });
-  // keys: 1-6 the modes, ? the help
+  // keys: 1-6 the picker's rows, ? the help
   document.addEventListener('keydown', (e) => {
     if (sheetOpen() || e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
     const n = Number(e.key);
-    if (n >= 1 && n <= MODES.length) { selectMode(MODES[n - 1]!.id); return; }
+    if (n >= 1 && n <= ROWS.length) { pickRow(ROWS[n - 1]!); return; }
     if (e.key === '?') document.getElementById('focus')!.classList.toggle('help');
   });
   // a smart cube or the camera feeding: the typed-moves box goes
@@ -352,4 +432,4 @@ export function initModes(): void {
 }
 
 // for the headless checks and the console
-(window.ZZ as Record<string, unknown>).modes = { select: selectMode, current: currentMode, openSetup, openCases, openProgress };
+(window.ZZ as Record<string, unknown>).modes = { select: selectMode, pick: pickRow, current: currentMode, openSetup, openCases, openProgress };

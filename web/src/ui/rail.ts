@@ -20,7 +20,7 @@ import { faceHex, onSchemeChange } from '../cube/scheme';
 import { state } from '../cube/state';
 import { beliefInTrainer, type Hold } from '../handoff';
 import type { MoveSource } from '../moves/source';
-import type { RailView, Stage } from '../shell';
+import type { RailView, Stage, Tab } from '../shell';
 import { stageOf, type Stage as CubeStage, type StageReport } from '../stage';
 import { SPLIT_STAGES, SplitClock, splitText, type SplitStage } from '../timer/splits';
 import { formatTime } from '../timer/stats';
@@ -32,8 +32,11 @@ import { readStoredJson, writeStored } from './settings';
 export type CubeView = 'net' | '3d' | 'off';
 
 export interface RailHost {
-  /** the stage the rail draws */
+  /** the stage the rail draws, and its tab */
   owner(): Stage | undefined;
+  ownerTab(): Tab;
+  /** New: the mode's next case (from anywhere in its stretch, back to where it starts) */
+  newCase(): void;
   source(): MoveSource | null;
   hold(): Hold;
   /** every item of the active source, and every change of source */
@@ -73,8 +76,8 @@ const STYLE = `
   .rl-pips { display: inline-flex; gap: 3px; margin-left: 5px; vertical-align: 1px; }
   .rl-pips i { width: 7px; height: 7px; border-radius: 2px; border: 1px solid currentColor; opacity: .7; }
   .rl-pips i.on { background: currentColor; opacity: 1; }
-  .rl-scr { display: flex; flex-wrap: wrap; justify-content: center; gap: .05em .5em; font-weight: 700; font-size: 28px; line-height: 1.35; letter-spacing: .01em; min-height: 38px; text-align: center; }
-  .rl-scr .mv .p { color: #B3261E; font-size: 1.1em; } .rl-scr .mv .d { color: #1A56B8; }
+  .rl-scr { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: .05em .5em; font-weight: 700; font-size: 28px; line-height: 1.35; letter-spacing: .01em; min-height: 38px; text-align: center; }
+  .rl-scr .mv .p { color: #B3261E; font-size: 1.1em; line-height: 1; } .rl-scr .mv .d { color: #1A56B8; }
   .rl-scr .done { color: #9AA3AF; font-weight: 600; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; }
   .rl-scr .done .p, .rl-scr .done .d { color: inherit; }
   .rl-scr .nx { outline: 3px solid #E0A100; outline-offset: 2px; border-radius: 6px; }
@@ -84,7 +87,7 @@ const STYLE = `
   .rl-scr.note { font-size: 14px; font-weight: 400; color: var(--ink-2); min-height: 0; }
   .rl-off { text-align: center; color: #7A4B00; }
   .rl-off .lbl { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-  .rl-off .undo { font-size: 32px; font-weight: 700; display: flex; justify-content: center; flex-wrap: wrap; gap: .1em .5em; }
+  .rl-off .undo { font-size: 32px; font-weight: 700; display: flex; justify-content: center; align-items: baseline; flex-wrap: wrap; gap: .1em .5em; }
   .rl-line { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 17px; margin-top: -6px; }
   .rl-clock { display: flex; flex-direction: column; align-items: center; border-radius: 14px; padding: 4px 0; cursor: pointer;
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
@@ -174,7 +177,9 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   });
 
   // ---- the strip: the range, where the cube is, and the attempt's splits ----
-  let attempt: { t0: number; clock: SplitClock; done: boolean; total: number | null } | null = null;
+  // `carried`: a stretch went on past one stage's clock into the next stage's, so the clock shown is the attempt's own;
+  // `between`: one stage's clock has stopped and the next one's has not started yet
+  let attempt: { t0: number; clock: SplitClock; done: boolean; total: number | null; carried: boolean; between: boolean } | null = null;
   let lastPhase: RailView['clock']['phase'] = 'idle';
   function reportNow(): StageReport | null {
     const now = cubeNow();
@@ -199,36 +204,70 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   }
   /**
    * The attempt follows the owner's clock: it starts when the clock does (the cube's first turn, a press),
-   * ends when it stops, and a new scramble clears the last one's splits. Checked on every item and frame.
+   * ends when it stops, and a new scramble clears the last one's splits. Inside a stretch (EOCross on to solved)
+   * a stage's clock stopping on the turn that finished that stage carries the attempt on into the next stage's,
+   * so the splits and the time run on to where the stretch stops. Checked on every item (`turnT`: its host time)
+   * and every frame.
    */
   // the stage before the latest turn: an attempt starts from where the cube was when the clock was armed, not
   // after its first turn (a PLL alg's first R breaks the cross, which would read as a start at EOCross)
   let before: StageReport | null = null;
-  function syncAttempt(v: RailView): boolean {
+  let lastOwner: Tab | null = null;
+  function syncAttempt(v: RailView, turnT?: number): boolean {
+    const applying = !!v.track && v.track.applied > 0 && !v.track.matched && !v.track.off;
     // the last attempt's splits stay up (the result) until the next scramble is being applied, or the next attempt starts
-    if (attempt?.done && v.track && v.track.applied > 0 && !v.track.matched && !v.track.off) attempt = null;
-    let ended = false;
-    if (v.clock.phase === 'running' && (lastPhase !== 'running' || !attempt || attempt.done)) {
+    if (attempt?.done && applying) attempt = null;
+    // (a stretch between two stages is not dropped on that: a stage just opened reads the first turn of its alg as
+    // the start of its own scramble at times, the scramble's last double turn half undone; New and a mode drop it)
+    const owner = host.ownerTab(), switched = lastOwner !== null && owner !== lastOwner;
+    const live = !!attempt && !attempt.done;
+    // the stage armed at its scramble before this turn started on it - and perhaps finished, or handed the cube on
+    const startedOnTurn = turnT !== undefined && lastPhase === 'ready' && (v.clock.phase !== 'ready' || switched);
+    if (!live && ((v.clock.phase === 'running' && (lastPhase !== 'running' || !attempt)) || startedOnTurn)) {
       const rep = before ?? reportNow();
-      attempt = { t0: performance.now() - (v.clock.ms ?? 0), clock: new SplitClock(rep && rep.stage !== 'solved' ? rep.stage : 'eo'), done: false, total: null };
-    } else if (v.clock.phase !== 'running' && lastPhase === 'running' && attempt && !attempt.done) {
-      attempt.done = true;
-      attempt.total = v.clock.ms;
-      const rep = reportNow();
-      if (rep?.stage === 'solved' && v.clock.ms !== null) attempt.clock.turned('solved', v.clock.ms);
+      const t0 = startedOnTurn && turnT !== undefined ? turnT : performance.now() - (v.clock.ms ?? 0);
+      attempt = { t0, clock: new SplitClock(rep && rep.stage !== 'solved' ? rep.stage : 'eo'), done: false, total: null, carried: false, between: false };
+    } else if (live && attempt!.between && v.clock.phase === 'running') attempt!.between = false;
+    let ended = false;
+    const end = (total: number | null) => {
+      const a = attempt!, rep = reportNow();
+      a.done = true;
+      a.total = total;
+      if (rep && total !== null) a.clock.turned(rep.stage, total);
       ended = true;
+    };
+    const rep = reportNow();
+    const range = host.range(), last = range[range.length - 1];
+    if (attempt && !attempt.done && attempt.carried && turnT !== undefined && rep && (rep.stage === 'solved' || !range.includes(rep.stage))) {
+      // a stretch runs on the cube: it ends on the turn that takes the cube past it, whatever the stage's own clock did
+      end(turnT - attempt.t0);
+    } else if (attempt && !attempt.done && !attempt.between && v.clock.phase !== 'running' && (lastPhase === 'running' || startedOnTurn)) {
+      // the clock stopped. On a turn, with the cube still inside the mode's stretch: on into the next stage, if that
+      // turn finished one (F2L done, on to OCLL) or the stage whose clock stopped is not the stretch's last (EO alone
+      // done, the cross still to do). A press, the cube past the stretch or solved, the Solve's own clock: the end.
+      const stopped = switched ? lastOwner! : owner;
+      const onward = turnT !== undefined && !!host.source() && !!rep && rep.stage !== 'solved' && owner !== 'solve' && range.includes(rep.stage)
+        && ((!!before && RANK[rep.stage] > RANK[before.stage]) || (!!last && stopped !== 'solve' && RANK[stopped] < RANK[last]));
+      if (onward) { attempt.carried = true; attempt.between = true; }
+      else end(attempt.carried ? (turnT ?? performance.now()) - attempt.t0 : v.clock.ms);
     }
     lastPhase = v.clock.phase;
+    lastOwner = owner;
     return ended;
+  }
+  /** The clock the rail shows: the owner's, or a carried stretch's own (from its first turn, through every stage so far). */
+  function shownClock(v: RailView): RailView['clock'] {
+    if (!attempt?.carried) return v.clock;
+    return attempt.done ? { ms: attempt.total, phase: 'idle' } : { ms: performance.now() - attempt.t0, phase: 'running' };
   }
   // a crossing is timed by the turn that made it (the source's host time), not by the next frame
   host.onSource(() => {
     const src = host.source();
+    const it = src?.items().at(-1);
+    const t = it?.kind === 'move' ? it.t : performance.now();
     const v = host.owner()?.rail?.();
-    if (v) syncAttempt(v);
+    if (v) syncAttempt(v, t);
     if (attempt && !attempt.done && src) {
-      const it = src.items().at(-1);
-      const t = it?.kind === 'move' ? it.t : performance.now();
       const rep = reportNow();
       if (rep) attempt.clock.turned(rep.stage, Math.max(0, t - attempt.t0));
     }
@@ -297,7 +336,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   document.addEventListener('keyup', (ev) => { if (ev.key !== ' ' || !keyable(ev)) return; ev.preventDefault(); host.owner()?.press?.(false); });
 
   // ---- tools ----
-  $('rail-new').addEventListener('click', () => host.owner()?.newScramble());
+  $('rail-new').addEventListener('click', () => { if (attempt && !attempt.done) attempt = null; host.newCase(); });
   $('rail-voice').addEventListener('click', () => { host.owner()?.voice?.()?.toggle(); tick(true); });
   $('rail-tricks').addEventListener('click', () => {
     const v = host.owner()?.rail?.();
@@ -311,7 +350,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     const v: RailView = owner?.rail?.() ?? { toks: null, track: null, clock: { ms: null, phase: 'idle' } };
     const now = performance.now();
     if (syncAttempt(v)) force = true;
-    drawClock(v);
+    drawClock({ ...v, clock: shownClock(v) });
     if (force || now - lastSlow > 150) {
       lastSlow = now;
       box.classList.toggle('big', host.bigClock());
@@ -328,5 +367,5 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   const loop = () => { tick(); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);
   onSchemeChange(() => drawCube(true));
-  return { refresh: () => { drawnScr = ''; if (attempt?.done) attempt = null; tick(true); drawCube(true); } };
+  return { refresh: () => { drawnScr = ''; if (attempt?.done || attempt?.carried) attempt = null; tick(true); drawCube(true); } };
 }

@@ -736,8 +736,8 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     };
     body.innerHTML = `<div class="ll-scroll"><table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${stats.map((s) => `
       <tr class="${s.n < 3 ? 'dim' : ''}">${cols.map((c) => cell(s, c.key)).join('')}</tr>`).join('')}</tbody></table></div>
-      <p class="note">${sortBy.key === 'work' ? `Worst first: the least practised (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}.` : 'Tap a heading to sort by it, again to flip it.'} Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster. Tap a case to graph it on its own.</p>
-      <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpractised</button>${sortBy.key === 'work' ? '' : '<button type="button" class="eo-link" data-sort="work">sort worst first</button>'}</div>`;
+      <p class="note">${sortBy.key === 'work' ? `Worst first: the least practiced (under three tries, greyed), then the slowest recently${anyQuiz ? ', slower still when misnamed' : ''}.` : 'Tap a heading to sort by it, again to flip it.'} Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster. Tap a case to graph it on its own.</p>
+      <div class="row"><button type="button" class="eo-link" data-work="5">Drill the five to work on</button><button type="button" class="eo-link" data-work="8">the eight</button><button type="button" class="eo-link" data-work="new">the unpracticed</button>${sortBy.key === 'work' ? '' : '<button type="button" class="eo-link" data-sort="work">sort worst first</button>'}</div>`;
     // the graph: a line per case, over every timed try of the stage
     const { lines, whens } = caseLines(attempts, CASES[kind]);
     wrap.hidden = !whens.length;

@@ -71,10 +71,15 @@ const master = (): boolean => (box?.checked ?? true) && cubeActive();
 // what the mode allows (app/modes.ts): which stages a crossing may open, and where a solve picked up by hand ends
 let openable: (s: Exclude<Stage, 'solved'>) => boolean = () => true;
 let homeTab: () => Tab = () => 'solve';
-/** The mode's rules: the stages the follow may open as the cube crosses into them, and the tab a picked-up solve ends on. */
-export function setFollowRules(r: { openable?: (s: Exclude<Stage, 'solved'>) => boolean; home?: () => Tab }): void {
+let solvedRule: (from: Tab | null) => boolean = () => false;
+/**
+ * The mode's rules: the stages the follow may open as the cube crosses into them, the tab a picked-up solve ends
+ * on, and what a solve from a tab's scramble (null: picked up by hand) does when the cube is solved (true: done).
+ */
+export function setFollowRules(r: { openable?: (s: Exclude<Stage, 'solved'>) => boolean; home?: () => Tab; solved?: (from: Tab | null) => boolean }): void {
   if (r.openable) openable = r.openable;
   if (r.home) homeTab = r.home;
+  if (r.solved) solvedRule = r.solved;
 }
 const wanted = (): boolean => {
   if (!master()) return false;
@@ -192,7 +197,8 @@ function consume(): void {
     if (activeTab() === 'solve') setTiming(true);
     return;
   }
-  if (path && !path.off) return;
+  // (at its start, applied 0, is the cube solved: the turn that solved it, not a scramble begun)
+  if (path && !path.off && (path.applied > 0 || path.half)) return;
   const next = follower.turned(followReport(scr).stage);
   if (!next) return;
   if (next === 'solved') {
@@ -201,6 +207,8 @@ function consume(): void {
     if (timing) { setTiming(false); console.log('CUBE FOLLOW solved: back to the Solve tab'); if (activeTab() !== 'solve') { showTab('solve'); window.scrollTo({ top: 0 }); } }
     else {
       announceSolved(src);
+      // a stretch of the mode's (EOCross on to solved, say): back to where it starts, with the next scramble
+      if (solvedRule(solveFrom)) return;
       // a solve picked up after a pause (scrambled by hand, or the timer never armed) ends on the Solve tab too, ready for
       // the next scramble (user, 2026-09-25); a drill's own case, solved, stays where it is with its result
       if (solveFrom === null || solveFrom === 'solve') { const home = homeTab(); console.log(`CUBE FOLLOW solved: to the ${home === 'solve' ? 'Solve' : home} tab`); if (activeTab() !== home) { showTab(home); window.scrollTo({ top: 0 }); } }

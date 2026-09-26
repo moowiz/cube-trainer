@@ -72,6 +72,10 @@ export function mountEO(root: HTMLElement): Stage {
   let xsol: SolutionSet | null = null;   // every optimal EOCross solution, from the worker
   let outlook: EoOutlook | null = null;
   let assisted = false, recorded = false;
+  // the scramble followed on a smart cube, for the cube rail (the tab never tracked it itself); a new scramble's
+  // starts afresh, not with the last one's (a solve that began by undoing its tail read as "27 of 30 applied")
+  const watcher = makeTrackWatcher();
+  let track: TrackStatus | null = null;
   const results: { t: number; n: number; opt: number }[] = [];
   const view: View = { ...DEFAULT_VIEW };
   const xc = new EOCrossClient();
@@ -98,7 +102,7 @@ export function mountEO(root: HTMLElement): Stage {
     start = edgeState(facelets);
     shown = null;
     solution = solveEO(start.eo);
-    xsol = null; assisted = false; recorded = false;
+    xsol = null; assisted = false; recorded = false; track = null;
     if (settings.goal === 'cross' || xc.status !== 'off') requestCross();
     drill.begin();
     drill.setShowLabel(solLabel());
@@ -318,9 +322,6 @@ export function mountEO(root: HTMLElement): Stage {
   newScramble();
   drill.setShowLabel(solLabel());
 
-  // the scramble followed on a smart cube, for the cube rail (the tab never tracked it itself)
-  const watcher = makeTrackWatcher();
-  let track: TrackStatus | null = null;
   const watch = (facelets: string | null, colourOf: Record<FaceId, ColorName>) => { track = scramble ? watcher.status(scramble, facelets, colourOf, hold()) : null; };
   return {
     load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,

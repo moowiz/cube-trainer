@@ -2,7 +2,8 @@
 
 Status: **built, first cut (2026-09-26, later the same day)** - section 12
 says what is in it, how it differs from the proposal below, and what is
-still open. The proposal as first written follows unchanged. Mockups are in
+still open; section 13 is the second round, after the first feedback
+(stretches: a start and a stop per mode). The proposal as first written follows unchanged. Mockups are in
 `docs/ui-redesign/mockups.html` (open it in a browser); the PNGs beside
 it are screenshots of each frame, and the `now-*.png` files are the app
 as it is today (headless Chrome at 400 x 860 and 1280 x 900, with a
@@ -918,7 +919,7 @@ pool", "switch mode"): both built the recommended way, to be judged by use.
 - **The follow opens only the stages inside the mode**, so the EOCross mode
   stays on EO and the F2L mode stays on F2L.
 - **A cube picked up by hand** shows its stage under a banner offering
-  "Practise X from here" or "Back to <mode>". The mode does not change by
+  "Practice X from here" or "Back to <mode>". The mode does not change by
   itself, and a picked-up solve ends on the mode's own stage (it was always
   the Solve tab before).
 - **Each mode's settings sheet** holds the rows that used to sit on the tab
@@ -969,3 +970,75 @@ pool", "switch mode"): both built the recommended way, to be judged by use.
   taking drill shares, and Escape with a docked scanner.
 - Nothing has been tried on the phone yet: this is what your feedback is
   for.
+
+## 13. Second round: stretches (2026-09-26, the same evening)
+
+**Your feedback:** the scramble's moves sat at different heights; "practise"
+should read "practice"; on a desktop it was unclear what tapping a stage in
+the picker's strips did ("I guess switch me there?"); and there was no way
+to take a scramble from EOCross and carry on to the end.
+
+**What changed:**
+
+- **The picker is a stretch picker.** The Solve row stays one tap
+  (timed, kept in your session). Below it, each row is where the
+  scramble leaves the cube (EOCross, F2L, OCLL, PLL), and its cells are
+  the stages it can stop after. Tapping a cell picks that stretch: the
+  EOCross row's PLL cell is "EOCross → solved". The row's name picks
+  the stretch last used. The Find an F2L case row is last. The cells
+  are the only things that look like buttons, and each does exactly
+  one thing.
+- **"F2L → LL" is gone as a mode.** It is the F2L row stopped after PLL,
+  and a stored `f2lll` mode is read as that.
+- **The stops start where the modes were** (a DECISION): EOCross and F2L
+  stop after themselves, and OCLL goes on through PLL. They are kept per
+  row in `zz-stop`.
+- **Keys 1-6 are the rows**: Solve, EOCross, F2L, OCLL, PLL, Find.
+- **A stretch is one attempt.** The follow opens each stage inside it as
+  the cube gets there, as before.
+  - The rail keeps one clock from the first turn to the turn that takes
+    the cube past the stop.
+  - The strip fills with every stage's split on the way. On a headless
+    replay of EOCross → solved: EOCross 0.5, F2L 1.7, OCLL 2.7, PLL 4.5,
+    9.35 s in all.
+  - A stage whose clock stops before the stretch's last stage (EO alone
+    done, the cross still to do) carries the attempt on.
+  - A press on the clock, New, or another mode ends it.
+- **The end of a stretch** is the cube solved. Then the mode goes back to
+  where it starts. EOCross makes its next scramble there, because EO has
+  no next-when-solved setting of its own. F2L's own box does it (ticked
+  for any F2L stretch past F2L), and the last-layer drills have "Next
+  case when solved". A stage alone (EOCross alone, say) keeps its result
+  up, as it always has.
+- **New in a stretch** is the stretch's next case, from wherever the cube
+  has got to.
+- **The scramble's moves share one baseline.** A primed move drew its ′ at
+  1.1× the size, which made its box taller, and the row top-aligned its
+  boxes. Headless Chrome shows 1 px; a phone font that falls back to
+  another font for the ′ glyph shows more.
+- **"Practice" everywhere in the UI**: the picker, the bottom nav, the
+  banner's "Practice X from here", and the F2L case sheet's toggle and
+  lines.
+
+**Fixed on the way:**
+
+- The follow let the solving turn through when the open stage had
+  re-scrambled its case mid-alg. A solved cube is the start of any
+  scramble (applied 0), and that read as "a scramble being applied", so
+  the solve was never announced.
+- EO's scramble tracking now starts afresh with each scramble. A solve
+  that began by undoing the old scramble's tail left it reading "27 of
+  30 applied", which cleared the result.
+- On a phone the version chip no longer covers an open sheet.
+
+**Checked:** `check:smart` now runs EOCross → solved on a replayed cube:
+the stages open in turn, there is one clock and four splits, and the
+next EO scramble comes when the cube is solved. check:ll, check:f2l and
+check:practice pass unchanged.
+
+**Still open** (beyond section 12's list):
+
+- The Solve mode's coach still starts at F2L. It shows no EO help, since
+  a timed solve's inspection is its own.
+- The picker is the only place that sets a stop. Each mode's settings
+  sheet could carry the same cells.

@@ -193,7 +193,7 @@ const MARKUP = `
   <div class="scr" id="scr">
     <div class="scrbtns">
       <button class="btn" type="button" id="genF2L">F2L practice scramble</button>
-      <button class="btn" type="button" id="genTarget" title="A scramble with one of the cases picked in the case sheet on its pair">Practise picked cases</button>
+      <button class="btn" type="button" id="genTarget" title="A scramble with one of the cases picked in the case sheet on its pair">Practice picked cases</button>
       <button class="btn" type="button" id="scrtricks" title="The scramble finger by finger">✋ Fingertricks</button>
     </div>
     <div class="target" id="target"></div>
@@ -731,7 +731,7 @@ export function mountF2L(root: HTMLElement): Stage {
   /** A scramble with one of the picked cases on its pair (pool.ts), the rest as the plain practice scramble (or the other pairs solved). */
   function newTargetScramble(): void {
     const t = drawTarget(poolTargets(), lastTarget);
-    if (!t) { trackMsg('No cases picked yet: open "All 83 cases" and tap Practise on the cases to learn.', true); renderTarget(); return; }
+    if (!t) { trackMsg('No cases picked yet: open "All 83 cases" and tap Practice on the cases to learn.', true); renderTarget(); return; }
     const g = genTargeted([t], Math.random, { rest: pool.rest });
     if (!g) { trackMsg('Could not make that case.', true); return; } // one target always fits: not expected
     lastTarget = t;
@@ -790,7 +790,7 @@ export function mountF2L(root: HTMLElement): Stage {
       now = `<p class="now">Now: the <b>${esc(pairName(target.slot))}</b> pair, case ${twinOf(target.slot, target.n)} (${esc(GROUP_WORD[caseGroup(target.slot, c)].toLowerCase())}).`
         + (d ? ` <span class="ok">✓${d.time !== null ? ` ${secs(d.time)}${d.recognition !== undefined ? `, first turn after ${secs(d.recognition)}` : ''}` : ' filed'}</span> <button type="button" class="linkbtn" data-next>Next case</button>` : '') + '</p>';
     }
-    el.innerHTML = `<p>${ids.length ? `Picked to practise: <b>${ids.length} case${ids.length === 1 ? '' : 's'}</b> (${esc(names)})${pool.mirrors ? ' on every slot' : ''}.` : 'No cases picked to practise yet.'} <button type="button" class="linkbtn" data-pick>${ids.length ? 'Change' : 'Pick cases'}</button></p>`
+    el.innerHTML = `<p>${ids.length ? `Picked to practice: <b>${ids.length} case${ids.length === 1 ? '' : 's'}</b> (${esc(names)})${pool.mirrors ? ' on every slot' : ''}.` : 'No cases picked to practice yet.'} <button type="button" class="linkbtn" data-pick>${ids.length ? 'Change' : 'Pick cases'}</button></p>`
       + `<p><label><input type="checkbox" data-opt="mirrors"${pool.mirrors ? ' checked' : ''}> their mirrors on the other slots too</label><label><input type="checkbox" data-opt="rest"${pool.rest === 'solved' ? ' checked' : ''}> other pairs solved</label></p>`
       + now;
   }
@@ -981,7 +981,7 @@ export function mountF2L(root: HTMLElement): Stage {
     else return;
     savePool(); renderTarget();
   });
-  const renderPractice = mountF2LPractice({ body: $('f2lpracticeBody'), graphWrap: $('f2lpracticeGraphWrap'), graph: $('f2lpracticeGraph'), n: $('f2lpracticeN') }, () => { renderTarget(); toast('Picked: press Practise picked cases'); });
+  const renderPractice = mountF2LPractice({ body: $('f2lpracticeBody'), graphWrap: $('f2lpracticeGraphWrap'), graph: $('f2lpracticeGraph'), n: $('f2lpracticeN') }, () => { renderTarget(); toast('Picked: press Practice picked cases'); });
   $('f2lpractice').addEventListener('toggle', () => { if ($('f2lpractice').hasAttribute('open')) void renderPractice(); });
   $('scrtricks').onclick = () => {
     const shown = scrWca ? safe(() => tokens(scrWca).slice(setupFrom).join(' ')) : null;

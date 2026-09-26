@@ -14,8 +14,8 @@ const server = await serveDist();
 
 const SOLVED = 'UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB';
 const inverse = (alg) => alg.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m.slice(0, -1) : m.endsWith('2') ? m : m + "'")).join(' ');
-/** A capture in which the cube goes from solved through `scrambleAlg` (the cube's letters) and then `solveAlg`, 180 ms a turn. */
-function capture(scrambleAlg, solveAlg, gapMs = 0) {
+/** A capture in which the cube goes from solved through `scrambleAlg` (the cube's letters) and then `solveAlg`, 180 ms a turn (`looks`: a pause before solve turn i). */
+function capture(scrambleAlg, solveAlg, gapMs = 0, looks = {}) {
   const lines = [JSON.stringify({ header: { version: 1, startedAt: Date.now(), t0: 0, scheme: { U: 'white', R: 'red', F: 'green', D: 'yellow', L: 'orange', B: 'blue' }, note: 'check-smart' } })];
   let t = 1000;
   lines.push(JSON.stringify({ kind: 'connect', t, name: 'GAN-check', mac: '00:00:00:00:00:00', protocol: 'synthetic', caps: { gyroscope: false, battery: true, facelets: true, hardware: false, reset: true } }));
@@ -26,7 +26,7 @@ function capture(scrambleAlg, solveAlg, gapMs = 0) {
   turns.push(...scr, ...sol);
   for (const m of scr) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
   t += gapMs; // a pause between the scramble and the solve, when asked
-  for (const m of sol) lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t }));
+  sol.forEach((m, i) => { t += looks[i] ?? 0; lines.push(JSON.stringify({ kind: 'move', t: (t += 180), move: m, tRaw: Math.round(t * 1.01), tLocal: t })); });
   return { text: lines.join('\n') + '\n', turns: turns.length, span: (turns.length - 1) * 180 };
 }
 
@@ -241,6 +241,31 @@ await new Promise((r) => setTimeout(r, 150));
 const stopped = await page.evaluate(() => ({ state: document.getElementById('tm-state').textContent, rows: document.querySelectorAll('#tm-list li').length, top: document.querySelector('#tm-list li .t')?.textContent }));
 check(stopped.rows === padBefore + 1 && !/Solving/.test(stopped.state), `a tap stops and saves the solve (${stopped.rows} rows): "${stopped.state}"`);
 check(stopped.top && Number(stopped.top) >= 0.4 && Number(stopped.top) < 0.7, `the tapped solve's time is its press-to-tap span: ${stopped.top} s`);
+
+// ---- a stretch (docs/ui-redesign.md 12): EOCross on to solved - each stage opens as the cube reaches it, one clock
+// and the four splits on the rail, and the cube solved brings the next EO scramble ----
+const PARTS = ["D F' D'", "U R U' R'", "U R U R' U R U2 R'", "U R U R' U' R' F R2 U' R' U' R U R' F'"]; // EOCross, the pair, a Sune, a T perm
+const STRETCH = PARTS.join(' ');
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'pll'));
+await page.evaluate((s) => window.ZZ.eo.load(s), inverse(STRETCH));
+const cubeParts = await page.evaluate((ps) => ps.map((p) => window.ZZ.smart.cubeAlg(p)), PARTS);
+const quarter = (alg) => alg.split(/\s+/).filter(Boolean).flatMap((m) => (m.endsWith('2') ? [m, m] : [m])).length;
+const LOOK = 700, looks = {};
+let at = 0;
+for (const p of cubeParts.slice(0, -1)) { at += quarter(p); looks[at] = LOOK; }
+const nStretch = quarter(cubeParts.join(' '));
+followLog.length = 0;
+const eoBefore = await page.evaluate(() => window.ZZ.eo.scramble());
+await page.evaluate((text) => window.ZZ.smart.replay(text), capture(inverse(cubeParts.join(' ')), cubeParts.join(' '), 0, looks).text);
+await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+const stretch = await page.evaluate(() => ({ tab: window.ZZ.activeTab(), time: document.getElementById('rail-time').textContent, strip: document.getElementById('rail-strip').innerText.replace(/\s+/g, ' ').trim(), eo: window.ZZ.eo.scramble(), chip: document.getElementById('mode-name').textContent }));
+console.log(JSON.stringify({ ...stretch, log: followLog }));
+check(followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+)/)[1]).join(' ') === 'f2l ocll pll', `EOCross → solved opened F2L, OCLL and PLL as the cube got there: ${followLog.join(' | ')}`);
+const stretchTime = (((nStretch - 1) * 180 + LOOK * (PARTS.length - 1)) / 1000).toFixed(2);
+check(stretch.time === stretchTime, `one clock for the stretch, its first turn to its last: ${stretch.time} (want ${stretchTime})`);
+check(/^EOCross [\d.]+ F2L [\d.]+ OCLL [\d.]+ PLL [\d.]+$/.test(stretch.strip), `the rail's strip has every stage's split: "${stretch.strip}"`);
+check(stretch.tab === 'eo' && stretch.eo !== eoBefore && /→ solved/.test(stretch.chip), `solved: back to EOCross with the next scramble (${stretch.tab}, "${stretch.chip}")`);
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
 
 // ---- installable: the manifest the page links to resolves and has what Chrome asks for ----
 const manifest = await page.evaluate(async () => {

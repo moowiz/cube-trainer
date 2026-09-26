@@ -83,6 +83,7 @@
   @media (min-width: 900px) { .bnav { display: none; } }
   /* the version chip: out of the way of the buttons at thumb height on a phone */
   #page-ver { bottom: 72px !important; left: auto !important; right: 8px; }
+  @media (max-width: 899px) { body:has(.zz-sheet:not([hidden])) #page-ver { display: none; } }
   @media (min-width: 900px) { #page-ver { bottom: 12px !important; left: 12px !important; right: auto; } }
   /* a mode with nothing for the rail (finding an F2L case by tapping it in): the page is the focus */
   body.bare .rail { display: none; }
@@ -176,18 +177,25 @@
   .mp-item { display: block; width: 100%; text-align: left; font: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; color: var(--ink); }
   .mp-item.on { border: 2px solid var(--ink); background: #fff; }
   .mp-item b { font-size: 16px; } .mp-item .w { color: var(--ink-2); font-size: 13px; margin-left: 6px; } .mp-item kbd { float: right; font: 12px/18px inherit; color: var(--ink-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; background: #fff; }
-  .mp-strip { display: flex; gap: 3px; margin-top: 6px; }
-  .mp-strip span { flex: 1; font-size: 11px; font-weight: 600; text-align: center; border-radius: 5px; padding: 2px 0; border: 1px solid var(--line); background: #fff; }
-  .mp-strip span.out { border-style: dashed; background: transparent; color: #8A93A0; font-weight: 400; }
-  .mp-strip span.fz { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .mp-cap { font-size: 13px; color: var(--ink-2); margin: 8px 2px 0; line-height: 1.4; } .mp-cap b { color: var(--ink); }
+  .mp-grid { display: grid; grid-template-columns: minmax(92px, 1fr) repeat(4, minmax(0, 78px)); gap: 5px 4px; }
+  .mp-name { text-align: left; font: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; cursor: pointer; color: var(--ink); min-width: 0; }
+  .mp-name.on { border: 2px solid var(--ink); background: #fff; }
+  .mp-name b { font-size: 15px; } .mp-name .w { display: block; color: var(--ink-2); font-size: 12px; }
+  .mp-name kbd { float: right; font: 12px/18px inherit; color: var(--ink-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; background: #fff; }
+  .mp-cell { font: inherit; font-size: 12px; font-weight: 600; border-radius: 9px; border: 1px dashed #B8C0CC; background: transparent; color: #8A93A0; cursor: pointer; padding: 0 2px; min-height: 44px; }
+  .mp-cell.in { border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  .mp-cell.end { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .mp-cell:hover { border-color: var(--ink); }
+  @media (max-width: 599px) { .mp-name kbd, .mp-item kbd { display: none; } .mp-name { padding: 7px 8px; } .mp-cell { font-size: 11px; } }
   .mp-links { display: flex; gap: 8px; margin-top: 12px; }
 </style>
 </head>
 <body>
 <header class="topbar">
   <span class="brand">ZZ trainer</span>
-  <button type="button" class="mode-chip" id="mode-chip" title="What to practise (1-6)"><b id="mode-name">Solve</b><small id="mode-sub"></small><i>▾</i></button>
-  <nav class="mtabs" id="mtabs" aria-label="Practise">
+  <button type="button" class="mode-chip" id="mode-chip" title="What to practice (1-6)"><b id="mode-name">Solve</b><small id="mode-sub"></small><i>▾</i></button>
+  <nav class="mtabs" id="mtabs" aria-label="Practice">
     <button type="button" data-mode="solve">Solve</button><button type="button" data-mode="eo">EOCross</button><button type="button" data-mode="f2l">F2L</button><button type="button" data-mode="ll">Last layer</button>
   </nav>
   <span class="dsep"></span>
@@ -214,14 +222,14 @@
   </main>
 </div>
 <nav class="bnav" id="bnav" aria-label="Places">
-  <button type="button" data-dest="practise" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/></svg>Practise</button>
+  <button type="button" data-dest="practice" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/></svg>Practice</button>
   <button type="button" data-dest="cases"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5C4.7 20 4 19.3 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5c.8 0 1.5-.7 1.5-1.5z"/></svg>Cases</button>
   <button type="button" data-dest="progress"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg>Progress</button>
 </nav>
 
 <div id="modes-sheet" class="zz-sheet bottom" hidden>
   <div class="zz-sheet-box">
-    <div class="zz-sheet-head"><b>Practise</b><span class="sub">Each is a stretch of the solve: where the scramble leaves the cube, and where it stops. Keys 1-6.</span><button type="button" class="btn" id="modes-close">Close</button></div>
+    <div class="zz-sheet-head"><b>Practice</b><span class="sub">Keys 1-6.</span><button type="button" class="btn" id="modes-close">Close</button></div>
     <div class="zz-sheet-body"><div class="mp-list" id="mp-list"></div>
       <div class="mp-links"><button type="button" class="btn" data-dest="cases">Cases</button><button type="button" class="btn" data-dest="progress">Progress</button></div></div>
   </div>
@@ -254,7 +262,7 @@
           <div class="eo-seg" data-set="target"><button type="button" data-v="any">Any</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button><button type="button" data-v="6">6</button><button type="button" data-v="8">8</button></div></div>
       </section>
       <section class="set-sec" data-setup="f2l">
-        <div class="eo-opt" id="f2l-kindrow"><div><div class="lbl">Scrambles</div><span class="sub">All four pairs mixed, or one of the cases you picked (Cases → F2L → Practise) put on its pair.</span></div>
+        <div class="eo-opt" id="f2l-kindrow"><div><div class="lbl">Scrambles</div><span class="sub">All four pairs mixed, or one of the cases you picked (Cases → F2L → Practice) put on its pair.</span></div>
           <div class="eo-seg" id="f2l-kind"><button type="button" data-v="all">All pairs</button><button type="button" data-v="picked">Picked cases</button></div></div>
         <div id="setup-f2l-moved"></div>
         <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="showhints" checked> Show the hint above the cube</label></div></div>

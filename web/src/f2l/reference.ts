@@ -64,7 +64,7 @@ const FILTERS: Filter[] = [
   { key: 'a-wide', group: 'Algs', label: () => 'wide/slice', test: (slot, c) => usesFace(mainAlg(slot, c), /^[rlfbuMSEx]/) },
   { key: 'a-short', group: 'Algs', label: () => 'a slot shortcut', test: (_slot, c) => c.others.length > 0 },
   { key: 'a-fav', group: 'Algs', label: () => 'your pick', test: (slot, c) => f2lIsFavourite(caseId(slot, c.n)) },
-  { key: 'a-pick', group: 'Practice', label: () => 'picked to practise', test: (slot, c) => isPicked(caseId(slot, c.n)) },
+  { key: 'a-pick', group: 'Practice', label: () => 'picked to practice', test: (slot, c) => isPicked(caseId(slot, c.n)) },
 ];
 
 /** Does a case match the name box? Each word is a case number (exact) or a word of its description or note (prefix). */
@@ -110,7 +110,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     }
     const n = cases().filter(shown).length;
     const picks = pool.ids.length;
-    const pickRow = `<p class="llr-count">Practise: <b>${picks ? `${picks} case${picks === 1 ? '' : 's'} picked` : 'none picked'}</b>${pool.mirrors ? ' (and their mirrors on the other slots)' : ''}. <button type="button" class="eo-link" data-filter="pick-shown">pick the ${n} shown</button>${picks ? ' <button type="button" class="eo-link" data-filter="pick-none">clear</button>' : ''} · the finder's <b>Practise picked cases</b> puts one on its pair.</p>`;
+    const pickRow = `<p class="llr-count">Practice: <b>${picks ? `${picks} case${picks === 1 ? '' : 's'} picked` : 'none picked'}</b>${pool.mirrors ? ' (and their mirrors on the other slots)' : ''}. <button type="button" class="eo-link" data-filter="pick-shown">pick the ${n} shown</button>${picks ? ' <button type="button" class="eo-link" data-filter="pick-none">clear</button>' : ''} · the finder's <b>Practice picked cases</b> puts one on its pair.</p>`;
     return `<div class="llr-filters"><span class="lbl">Slot</span>${slots}<span class="gap"></span>${nameBoxHtml(namePat, '4 12, keyhole, UB')}
       <details class="llr-feats llr-fold" id="f2lr-feats"${foldOpen('f2lr-feats') ? ' open' : ''}><summary>By corner, edge, which sticker is up, and alg${active.size ? ` · ${active.size} on` : ''}</summary><div class="llr-chips">${chips}</div></details></div>
       <p class="llr-count">${active.size || namePat ? `${n} of ${cases().length} cases match${n ? '' : ': nothing has all of that'}.` : 'The four slots are mirrors of each other, and a case has the same number on all four: pick the slot you are solving. Type a case number or a word (keyhole, UB) or tap the chips to narrow the list; a case shows when it matches every chip that is on.'}</p>${pickRow}`;
@@ -148,7 +148,7 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
       ${ownLine(c, main)}
       ${noteHtml('f2l', id, main, `case ${num}`)}
       ${altsBox}
-      <div class="llr-foot"><button type="button" class="llr-drill" data-go="${esc(id)}">Set in finder</button><button type="button" class="llr-play" data-play="${esc(id)}">▶ play it in 3D</button><button type="button" class="llr-drill${picked ? ' on' : ''}" data-filter="pick-${esc(id)}" aria-pressed="${picked}">${picked ? '✓ Practising' : 'Practise'}</button><span class="llr-tags">${esc(tags)}</span></div>
+      <div class="llr-foot"><button type="button" class="llr-drill" data-go="${esc(id)}">Set in finder</button><button type="button" class="llr-play" data-play="${esc(id)}">▶ play it in 3D</button><button type="button" class="llr-drill${picked ? ' on' : ''}" data-filter="pick-${esc(id)}" aria-pressed="${picked}">${picked ? '✓ Practicing' : 'Practice'}</button><span class="llr-tags">${esc(tags)}</span></div>
       <div class="llr-player"></div>
     </div>`;
   };

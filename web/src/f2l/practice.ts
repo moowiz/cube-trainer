@@ -36,7 +36,7 @@ export function mountF2LPractice(els: { body: HTMLElement; graphWrap: HTMLElemen
     const picked = pickedTwins();
     const shown = sortStats(all.filter((s) => s.n > 0 || picked.has(s.name)), sortBy.key, sortBy.dir);
     if (!all.some((s) => s.n > 0)) {
-      els.body.innerHTML = '<p class="note">Nothing yet. Pick cases in the case sheet (All 83 cases, then Practise on a card), press Practise picked cases, and solve that pair first: each one is filed here, timed when a smart cube is following.</p>';
+      els.body.innerHTML = '<p class="note">Nothing yet. Pick cases in the case sheet (All 83 cases, then Practice on a card), press Practice picked cases, and solve that pair first: each one is filed here, timed when a smart cube is following.</p>';
       els.graphWrap.hidden = true;
       return;
     }
@@ -62,8 +62,8 @@ export function mountF2LPractice(els: { body: HTMLElement; graphWrap: HTMLElemen
     };
     els.body.innerHTML = `<div class="pscroll"><table><thead><tr>${cols.map(th).join('')}</tr></thead><tbody>${shown.map((s) => `
       <tr class="${s.n < 3 ? 'dim' : ''}">${cols.map((c) => cell(s, c.key)).join('')}</tr>`).join('')}</tbody></table></div>
-      <p class="note">${sortBy.key === 'work' ? 'Worst first: the least practised (under three tries, greyed), then the slowest recently.' : 'Tap a heading to sort by it, again to flip it.'} A case's number is the front-right one; its mirrors on the other slots count with it. Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster.</p>
-      <div class="prow"><button type="button" class="linkbtn" data-work="5">Practise the five to work on</button><button type="button" class="linkbtn" data-work="8">the eight</button>${sortBy.key === 'work' ? '' : '<button type="button" class="linkbtn" data-sort="work">sort worst first</button>'}</div>`;
+      <p class="note">${sortBy.key === 'work' ? 'Worst first: the least practiced (under three tries, greyed), then the slowest recently.' : 'Tap a heading to sort by it, again to flip it.'} A case's number is the front-right one; its mirrors on the other slots count with it. Recent = the last ${RECENT} timed tries; trend = those against the ${RECENT} before, minus is faster.</p>
+      <div class="prow"><button type="button" class="linkbtn" data-work="5">Practice the five to work on</button><button type="button" class="linkbtn" data-work="8">the eight</button>${sortBy.key === 'work' ? '' : '<button type="button" class="linkbtn" data-sort="work">sort worst first</button>'}</div>`;
     const { lines, whens } = caseLines(attempts, cases);
     const drawn = lines.filter((l) => l.points.length);
     els.graphWrap.hidden = !whens.length;
