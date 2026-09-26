@@ -498,32 +498,90 @@ screen taps, and starred algs and per-case stats persist and sync.
 
 ---
 
-## M11 — ZZ analysis and coaching (design doc 6.1)
+## M11 — ZZ analysis and coaching (design doc 6.1; re-validated 2026-09-26)
 
-`web/src/analysis/`, pure functions over a solve record, tested on
-recordings: phase splits from `stage.ts` predicates (EO, EOCross, pairs
-1-4 in solved order, OCLL, PLL, AUF) with time / moves / TPS / recognition
-vs execution each; pauses located in phase and pair; EO and EOCross
-compared to optimal for the scramble, pairs and last-layer algs to their
-tables, executed alg identified up to AUF with misturns; case tagging into
-a per-case memory; the bottleneck card against the user's own median;
-trends per session. A replay scrubber over the live view.
+Still the right next milestone, and camera-free. What has changed since
+6.1 was written: every timed solve on the smart cube already stores its
+turns with timestamps and its inspection (`store/types.ts` SolveRecord),
+and the drills already file recognition / execution / case / optimal per
+attempt (`ui/drill.ts`, AttemptRecord); the per-case tables
+(`ll/practice.ts`, `f2l/practice.ts`) read them. So 6.1's "case tagging
+into a per-case memory" and "recognition vs execution" exist for DRILLED
+cases; M11 is doing the same for whole solves, and the comparators it
+needs exist too (EO / EOCross optimal: `eo/solver.ts` and the EOCross
+worker; a pair's case read off a state and its shortest alg:
+`f2l/model.ts`; a last-layer alg identified up to AUF and misturns:
+`ll/model.ts` identify / solution / fitAlg, `cube/route.ts`).
 
-**Done when:** every solve in the store shows its splits and the card,
-and a week of solves has a trend line.
+`web/src/analysis/`, pure functions over a SolveRecord (moves in WCA
+letters, rotated into the trainer frame with `cube/frame.ts`), tested on
+fixtures cut from the store and from `recordings/*/cube.jsonl`:
+
+- Phase splits with 6.1's definition (the LAST time a `stage.ts` predicate
+  becomes true and stays true, pairs in the order solved, the AUF split
+  off); per phase time, moves, TPS, recognition (the pause before its
+  first turn) vs execution; pauses over a threshold located in phase and
+  pair.
+- Comparisons: EO and EOCross against optimal for the scramble, each pair
+  against its case's shortest alg, the last layer's executed alg
+  identified with its misturns.
+- The per-case memory from solves: each pair and last-layer case met in a
+  real solve counts in the practice tables and in the drills' draws.
+  DECISION (recommended): derived, not stored - the store keeps facts
+  (solves, attempts) and the analysis is a pure function of them, so an
+  analysis fix changes the numbers on a re-run; the tables merge the two
+  sources. Mark real-solve rows as such.
+- The bottleneck card: each phase as a fraction of the solve against the
+  user's own median over the last 50, one sentence naming the phase to
+  work on. Trends: per-phase medians per session, TPS, pause fraction.
+
+Where it shows, in the redesign's terms (`docs/ui-redesign.md` 6): NO new
+surface. The stage strip shows splits now as approximate first crossings
+(redesign decision 6); M11 replaces those with the analysis's. The
+result view after a Solve carries the card. Progress -> Solves carries
+the phase medians and trends (6.8 already reserves the spot); Progress ->
+Last layer / F2L merge in the real-solve cases. The replay scrubber sits
+on the cube rail's live cube. Not in M11: LLM commentary (Later / maybe).
+
+**Done when:** every solve in the store with turns shows its splits and
+the card; the stage strip's splits come from the analysis; a pair or
+last-layer case met in a real solve appears in its practice table; a
+week of solves has a trend line.
 
 ---
 
-## M12 — Planning drills and cube-judged drills (design doc 6.2)
+## M12 — Planning drills (design doc 6.2; re-validated 2026-09-26)
 
-EOCross planning (unlimited timed inspection, optional declared plan,
-judged: solved / moves vs optimal / planned vs executed / inspection vs
-8 s), EOCross+1 (planned slot vs done, the transition pause), and
-recognition vs execution per attempt in the four stage tabs feeding the
-per-case memory.
+Half of 6.2 is done: "recognition vs execution per attempt in the stage
+tabs" ships (`ui/drill.ts` measures both from the source's stamps; the
+practice tables show and sort by them), so that bullet is struck. What
+remains is the planning drill, and under the redesign it is not a new
+tab: it is the EO / EOCross mode (scrambled -> EO or EOCross; the Goal
+setting exists in `eo/trainer.ts`) with two setup options and a judged
+result:
 
-**Done when:** a planning session's attempts are stored with their
-verdicts and the stage tabs show recognition and execution separately.
+- **Inspection** unlimited and timed, from the scramble matched to the
+  first turn (the drill's recognition already IS this number), judged
+  against the 8 s goal (a setting).
+- **A declared plan**, optional: tapped or typed before the first turn.
+  Judged: EOCross solved or not, moves vs optimal (already stored), the
+  first divergence of executed from planned, inspection vs the goal,
+  execution time.
+- **EOCross+1:** the stop one pair later; the slot planned vs done
+  (`f2l/model.ts` reads which slot got solved), the pause between the
+  cross and the pair.
+- Stored as AttemptRecord stage `'plan'` (the name is already reserved)
+  with the plan alongside the moves, so the same scramble can be
+  retried; Progress -> EO lists them (redesign 6.8: "Later, EO: planning
+  attempts").
+
+Ordering: M12 wants the redesign's mode picker and per-mode setup sheets
+(its phases 1 and 3); built on today's EO tab it would be redone. So M11
+first (pure functions; its surfaces exist), M12 after or inside phase 3.
+
+**Done when:** a planning attempt stores the inspection, the plan, the
+divergence and the verdict; the same scramble can be retried; Progress
+lists the attempts with those columns.
 
 ---
 

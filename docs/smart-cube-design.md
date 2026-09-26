@@ -551,6 +551,12 @@ fitted times, the latency offset, every resync, and the scheme.
 
 ## 6. M11 and M12 in brief
 
+Re-validated 2026-09-26 in `MILESTONES.md` (M11, M12): what below already
+exists (recognition / execution per attempt, the per-case tables), what
+changed (the case memory derived from solves, not stored; the planning
+drill as a setup of the EO / EOCross mode in the UI redesign, not a tab),
+and the order (M11 first). This section is the original sketch.
+
 ### 6.1 ZZ analysis (`web/src/analysis/`, pure functions, tests on recordings)
 
 Phase boundaries over move prefixes with `stage.ts`, each the *last* time
