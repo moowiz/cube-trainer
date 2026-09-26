@@ -166,7 +166,8 @@ describe('scrambleFor(): a face-turn scramble for a PLL drill', () => {
     expect(lastSearchStats().phase2).toBeLessThan(10_000_000); // the capped search plus the looser one that stood in
   });
 
-  it('every drill setup (an AUF each side of the case) answers in well under a second', () => {
+  // 352 setups: about 3 s here, past vitest's 5 s cap on the CI runner (2026-09-26); the per-call bound is the test
+  it('every drill setup (an AUF each side of the case) answers in well under a second', { timeout: 60_000 }, () => {
     const rng = makeRng(7);
     const opts = { longer: [1, 2] as [number, number], slices: 'paired' as const, faces: 'UDRL', noLeadingU: true };
     let worst = 0;

@@ -447,10 +447,45 @@ export function mountF2L(root: HTMLElement): Stage {
     // mid-pair: on one of the listed algs (or a few turns off one) the case stays and the moves done light up - the
     // cross is broken halfway through most inserts, so it is not read again until the cube has strayed
     const p = pairProgress();
-    if (p && (p.on || p.off.bad.length <= OFF_LIMIT)) { render(); return false; }
+    if (p?.on) { render(); return false; }
+    // off every alg of this pair: a few moves into another open pair's alg means that is the pair being solved
+    const other = otherSlotUnderWay();
+    if (other) { slot = other.slot; corner = other.corner; edge = other.edge; fillSlotSelect(); updateEdgeName(); render(); return false; }
+    if (p && p.off.bad.length <= OFF_LIMIT) { render(); return false; }
     syncFromCube();
     return solvedSlots.size === 4;
   }
+  // DECISION: an alg's first turns are ambiguous between slots (an AUF, an R that lifts either right-hand
+  // pair), so another slot takes over only this many moves into one of its algs, or the whole alg when shorter
+  const SWITCH_AT = 3;
+  /**
+   * Another open slot whose case (read at the same state this pair was) has an alg the cube is at least
+   * SWITCH_AT moves into, with its pieces there; null when none is. The furthest along wins.
+   */
+  function otherSlotUnderWay(): { slot: SlotName; corner: CornerState; edge: string } | null {
+    if (!tracked || pairAt === null) return null;
+    const setup = pairSetup(), since = fed.slice(pairAt);
+    if (since.length < SWITCH_AT) return null;
+    let f0: string, cur: string;
+    try { f0 = state(setup); cur = state(`${setup} ${since.join(' ')}`); } catch { return null; }
+    let best: { slot: SlotName; corner: CornerState; edge: string; n: number } | null = null;
+    for (const s of SLOTS) {
+      if (s === slot || solvedSlots.has(s) || slotSolved(f0, s)) continue;
+      const st = slotState(f0, s);
+      const found = findCase(s, st.corner, st.edge);
+      if (!found) continue;
+      const { algs, searched, usable } = algsFor(s, found.c, advanced());
+      for (const a of [...algs, ...(searched ? [found.c.simple] : []), ...usable.map((o) => o.alg)]) {
+        const route = tokens(fullAlg(found.hit.auf, a));
+        const r = routeProgress(setup, route, cur);
+        const n = r.done + (r.half ? 0.5 : 0);
+        if (r.onRoute && n >= Math.min(SWITCH_AT, route.length) && (!best || n > best.n)) best = { slot: s, corner: st.corner, edge: st.edge, n };
+      }
+    }
+    return best;
+  }
+  /** The alg from solved to the state the current pair's pieces were read at. */
+  const pairSetup = () => (tracked && pairAt !== null ? [tracked.scr, tracked.pre].map(fromWca).concat(fed.slice(0, pairAt)).filter(Boolean).join(' ') : '');
   /**
    * Where the cube is along each alg listed for the pair, from the state the pieces were read at: the routes
    * (trainer letters, as the rows carry them), each with its progress; `on` is the one the cube is furthest
@@ -460,8 +495,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!tracked || pairAt === null) return null;
     const rows = [...$('result').querySelectorAll<HTMLElement>('.alg[data-alg]')];
     if (!rows.length) return null;
-    const setup = [tracked.scr, tracked.pre].map(fromWca).concat(fed.slice(0, pairAt)).filter(Boolean).join(' ');
-    const since = fed.slice(pairAt);
+    const setup = pairSetup(), since = fed.slice(pairAt);
     let cur: string | null;
     try { cur = state(`${setup} ${since.join(' ')}`); } catch { cur = null; }
     const routes = rows.map((el) => ({ el, ...routeProgress(setup, tokens(el.dataset.alg!), cur) }));
@@ -594,6 +628,14 @@ export function mountF2L(root: HTMLElement): Stage {
     if (next) { slot = next; fillSlotSelect(); updateEdgeName(); }
     render();
   }
+  const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
+  /** The algs the panel lists for a slot's case: the main ones, the searched R/L/U one when it is not among them, the usable slot shortcuts. */
+  function algsFor(s: SlotName, c: F2LCase, adv: boolean): { algs: string[]; searched: boolean; usable: F2LCase['others'] } {
+    const algs = orderedAlgs(s, c, adv);
+    const searched = adv && c.simple_src === 'search' && !algs.includes(c.simple);
+    const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((x) => !solvedSlots.has(x)) && (adv || isSimple(o.alg)));
+    return { algs, searched, usable };
+  }
   function showResult(): void {
     const D = DATA.slots[slot];
     const r = $('result'); r.innerHTML = '';
@@ -624,17 +666,15 @@ export function mountF2L(root: HTMLElement): Stage {
     t.innerHTML = `<h2>${slot} case ${c.n}</h2><span>${c.section}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const adv = advanced();
-    const algs = orderedAlgs(slot, c, adv);
+    const { algs, searched, usable } = algsFor(slot, c, adv);
     const fav = f2lIsFavourite(caseId(slot, c.n));
     const ex = explain(slot, c, algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
     hb.hidden = !showHints();
     const wrap = document.createElement('div');
-    const SIMPLE = /^[RLU][2']*$/; const isSimple = (a: string) => normalizeAlg(a).split(' ').every((tok) => SIMPLE.test(tok));
     // the favourite leads (the sheet's star); then the sheet's algs (advanced) or the R/L/U one alone
     algs.forEach((a, i) => wrap.appendChild(algRow(a, hit.auf, i === 0 && fav ? 'your pick' : a === c.simple && c.simple_src === 'search' ? (adv ? 'R/L/U only, not in the sheet' : 'not in the sheet') : '', c)));
-    if (adv && c.simple_src === 'search' && !algs.includes(c.simple)) wrap.appendChild(algRow(c.simple, hit.auf, 'R/L/U only, not in the sheet', c));
-    const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((s) => !solvedSlots.has(s)) && (adv || isSimple(o.alg)));
+    if (searched) wrap.appendChild(algRow(c.simple, hit.auf, 'R/L/U only, not in the sheet', c));
     if (usable.length) {
       const h3 = document.createElement('h3'); h3.textContent = 'Shortcuts using slots that are still open'; wrap.appendChild(h3);
       for (const o of usable) wrap.appendChild(algRow(o.alg, hit.auf, `uses ${o.free.map((s) => SLOT_WORD[s]).join(' + ')}`, c));

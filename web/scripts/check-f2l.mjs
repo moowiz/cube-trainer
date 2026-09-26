@@ -65,13 +65,30 @@ check((await page.$eval('#result .alg.on', (e) => e.dataset.alg)) === alg, 'and 
 check((await count('#result .alg.on .mv.done')) === 1, `its first move underlined (${await count('#result .alg.on .mv.done')})`);
 check((await text('#result .case-title h2')) === title2, 'the case stays while the alg is under way');
 // a wrong turn (one no listed alg makes next): called with its undo, the case kept even though the cross is broken
-const wrong = (await page.$$eval('#result .alg[data-alg]', (es, k) => es.map((e) => e.dataset.alg.split(' ')[k]), 1)).some((m) => m?.startsWith('L')) ? 'B2' : 'L2';
+// a face no listed alg turns first or second, and not the face just turned (that would merge with it)
+const heads = await page.$$eval('#result .alg[data-alg]', (es) => es.flatMap((e) => e.dataset.alg.split(' ').slice(0, 2).map((m) => m[0])));
+const wrong = ['L', 'B', 'R', 'F'].filter((f) => !heads.includes(f) && f !== algToks[0][0]).map((f) => `${f}2`)[0];
 await replay(`${cube2} ${await cubeOf(algToks[0])} ${await cubeOf(wrong)}`);
 check(new RegExp(`Off the alg after ${wrong}.*undo with ${wrong}`).test((await text('#result .offalg')) ?? ''), `wrong turn called: ${await text('#result .offalg')}`);
 check((await text('#result .case-title h2')) === title2, 'the case stays for a turn off');
 // strayed further than the finder tolerates: the cube is read afresh (the cross is broken, so EOCross is asked for)
 await replay(`${cube2} ${await cubeOf(algToks[0])} ${await cubeOf(`${wrong} D R2 F2 D'`)}`);
 check(/Solve EOCross on your cube first/.test(await text('#result .hint') ?? ''), `strayed: read afresh: ${await text('#result .hint')}`);
+// a few moves into another open slot's alg: that slot takes over (its case read at the same state)
+await replay(cube2);
+await page.select('#slotsel', 'FL'); await wait(200);
+const flTitle = await text('#result .case-title h2');
+const flAlg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg).catch(() => null);
+await page.select('#slotsel', 'FR'); await wait(200);
+if (flAlg && /^FL case/.test(flTitle ?? '')) {
+  const head = flAlg.split(' ').slice(0, 3).join(' ');
+  await replay(`${cube2} ${await cubeOf(head)}`);
+  const t = await text('#result .case-title h2');
+  // (the same three turns may start one of this slot's algs too: then it rightly stays)
+  check(t === flTitle || (t === title2 && (await count('#result .alg.on')) === 1), `three turns into the front-left pair's alg: ${t} (was ${title2}, front-left is ${flTitle})`);
+  await replay(`${cube2} ${await cubeOf(flAlg.split(' ').slice(0, 1).join(' '))}`);
+  check((await text('#result .case-title h2')) === title2 || (await count('#result .alg.on')) === 1, 'one turn in: no switch yet');
+} else console.log(`    (front-left pair solved on this scramble: switch not tried)`);
 // the whole alg: the pair is in, the next pair's case is read
 await replay(`${cube2} ${await cubeOf(alg)}`);
 console.log(`    hash: ${await page.evaluate(() => decodeURIComponent(location.hash))}`);
