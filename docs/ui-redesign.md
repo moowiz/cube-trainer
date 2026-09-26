@@ -1091,4 +1091,8 @@ check:practice pass unchanged.
   with the front toward you: back-left and back-right over front-left and
   front-right. That applies to the cards while tracking and to the chips
   when tapping a case in. It fits a phone, with the algs wrapping.
+- **Halfway through a double turn of the scramble**, the move stays boxed
+  in the rail and gets a dotted underline, as the alg rows already mark a
+  half turn. The box used to disappear until the turn was finished, which
+  looked like lost progress.
 

@@ -250,6 +250,16 @@ const STRETCH = PARTS.join(' ');
 const cubeParts = await page.evaluate((ps) => ps.map((p) => window.ZZ.smart.cubeAlg(p)), PARTS);
 const quarter = (alg) => alg.split(/\s+/).filter(Boolean).flatMap((m) => (m.endsWith('2') ? [m, m] : [m])).length;
 const railNow = () => page.evaluate(() => ({ tab: window.ZZ.activeTab(), time: document.getElementById('rail-time').textContent, strip: document.getElementById('rail-strip').innerText.replace(/\s+/g, ' ').trim(), scr: document.getElementById('rail-scr').innerText.replace(/\s+/g, ' ').trim(), off: !!document.querySelector('#rail-scr .rl-off'), eo: window.ZZ.eo.scramble(), chip: document.getElementById('mode-name').textContent }));
+// halfway through a double turn of the scramble: the move under way stays boxed, dotted, the ones before underlined
+// (user, 2026-09-26: the box went and the progress with it)
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
+await page.evaluate(() => window.ZZ.eo.load("R U2 F D' L2 B"));
+const halfCube = await page.evaluate(() => window.ZZ.smart.cubeAlg("R U2 F D' L2 B"));
+const halfQ = halfCube.split(/\s+/).flatMap((m) => (m.endsWith('2') ? [m[0], m[0]] : [m]));
+await page.evaluate((text) => window.ZZ.smart.replay(text), capture(halfQ.slice(0, 2).join(' '), '').text);
+await new Promise((r) => setTimeout(r, 300));
+const halfMarks = await page.$$eval('#rail-scr > span', (es) => es.map((e) => e.className.trim()));
+check(halfMarks[0] === 'done' && halfMarks[1] === 'half nx' && halfMarks.slice(2).every((c) => c === ''), `halfway through the scramble's U2: it stays boxed and dotted (${halfMarks.join(',')})`);
 // a wrong turn while scrambling, on a stage that keeps no list of its own (EO): the rail gives the turns to undo it,
 // not just "undo" (user, 2026-09-26)
 await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
