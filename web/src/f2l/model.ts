@@ -17,7 +17,7 @@ import { randomScramble } from '../scramble';
 import { faceColorName } from '../cube/scheme';
 import { stageOf } from '../stage';
 import type { FaceId } from '../types';
-import { shortestFor } from './search';
+import { SEARCHED } from './searched';
 import { DATA, type CornerOrient, type F2LCase, type LookupHit, type SlotName } from './data';
 
 export type { CornerOrient, F2LCase, LookupHit, SlotName };
@@ -569,19 +569,51 @@ export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
   const slot = m[1] as SlotName, c = DATA.slots[slot].cases[m[2]!];
   return c ? { slot, c } : null;
 }
+// ---- the searched algs: computed once by scripts/f2l-searched.ts (search.ts), looked up here -----------------------
+
+/** A searched alg, as done from the position, in the sheet's form for the lookup's `auf`: fullAlg(auf, it) gives it back. */
+function sheetForm(from: string, auf: string): string {
+  const t = from.split(' ').filter(Boolean);
+  const lead = t[0]?.[0] === 'U' ? uCount(t[0]) : 0;
+  const rest = (lead ? t.slice(1) : t).join(' '), pre = uTok(lead - uCount(auf));
+  return pre ? `(${pre}) ${rest}` : rest;
+}
+const searchKey = (slot: SlotName, c: F2LCase, auf: string) => `${slot}${c.n}|${auf}`;
+/** The fewest R/L/U turns from the position (`auf` the lookup's) keeping the cross and every slot the pair is not in. */
+export function searchedAlg(slot: SlotName, c: F2LCase, auf = ''): string | null {
+  const v = SEARCHED[searchKey(slot, c, auf)];
+  return v ? sheetForm(v, auf) : null;
+}
+/**
+ * The fewest turns from the position keeping only the slots in `keep` (the solved ones; the others are open), when
+ * that is shorter than keeping every slot: R/L/U, or with D where an open neighbour lets D swing the target slot under
+ * it (user, 2026-09-26). `free` is the open slots it leaves changed. Null when going through them saves nothing.
+ */
+export function openSlotShortcut(slot: SlotName, c: F2LCase, auf: string, keep: readonly SlotName[]): { alg: string; free: SlotName[] } | null {
+  const inCase = new Set([c.corner.slice(1), c.edge]);
+  const kept = keep.filter((s) => s !== slot && !inCase.has(s)).sort().join('.');
+  const v = SEARCHED[`${searchKey(slot, c, auf)}|${kept}`];
+  if (!v) return null;
+  const [alg, free] = v.split(';') as [string, string];
+  return { alg: sheetForm(alg, auf), free: free.split('.') as SlotName[] };
+}
+/** The own-side alg from the position (ownside.ts): R/U or L/U only, never lifting the neighbouring pair; as done, AUF included. */
+export const searchedOwnSide = (slot: SlotName, c: F2LCase, auf = ''): string | null => SEARCHED[`${searchKey(slot, c, auf)}|own`] ?? null;
+
 /**
  * A case's algs from the position at hand (`auf` the lookup's): the sheet's, and the fewest-turns R/L/U alg found by
- * search (search.ts) when none of the sheet's is as short - the sheet is a list of good algs, not a proof that none
- * is shorter (user, 2026-09-26: front-left case 31 had only R U R' U' L' U L; R L' U R' L is 5).
+ * search when none of the sheet's is as short - the sheet is a list of good algs, not a proof that none is shorter
+ * (user, 2026-09-26: front-left case 31 had only R U R' U' L' U L; R L' U R' L is 5). Searched from each AUF's own
+ * position: the canonical one's alg with the AUF folded in is not always the shortest from the others.
  */
 export function caseAlgs(slot: SlotName, c: F2LCase, auf = ''): string[] {
-  const s = shortestFor(slot, c);
+  const s = searchedAlg(slot, c, auf);
   const n = (a: string) => moveCount(fullAlg(auf, a));
   return s && c.algs.every((a) => n(s) < n(a)) ? [...c.algs, s] : c.algs;
 }
 /** The R/L/U-only alg: the case's own (the sheet's, or one searched offline), or the fewest-turns one when that is shorter. */
 export function simpleAlg(slot: SlotName, c: F2LCase, auf = ''): string {
-  const s = shortestFor(slot, c);
+  const s = searchedAlg(slot, c, auf);
   return s && moveCount(fullAlg(auf, s)) < moveCount(fullAlg(auf, c.simple)) ? s : c.simple;
 }
 /** True for an alg of a case that the sheet does not list: found by search, offline or here. */

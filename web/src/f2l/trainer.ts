@@ -26,13 +26,12 @@ import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type RailClo
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
-  acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, normalizeAlg, notInSheet, orderedAlgs, randomCase, simpleAlg, slotSolved, slotState,
+  acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, normalizeAlg, notInSheet, openSlotShortcut, orderedAlgs, randomCase, simpleAlg, slotSolved, slotState,
   SLOT_WORD, SLOTS, trace, twinOf, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName,
 } from './model';
 import { caseCells, GREY } from './pic';
 import { drawTarget, pool, poolTargets, savePool } from './pool';
 import { ownSideFor, ownSideWords } from './ownside';
-import { openSlotShortcut } from './search';
 import { mountF2LPractice } from './practice';
 import { genTargeted, type Target } from './target';
 import { secs } from '../ll/practice';
@@ -896,7 +895,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const searched = adv && notInSheet(c, simple) && !algs.includes(simple) ? simple : null;
     const usable = c.others.filter((o) => !algs.includes(o.alg) && o.free.every((x) => !solvedSlots.has(x)) && (adv || isSimple(o.alg)));
     const listed = () => new Set([...algs, ...(searched ? [searched] : []), ...usable.map((o) => o.alg)].map((a) => fullAlg(auf, a)));
-    const open = openSlotShortcut(s, c, SLOTS.filter((x) => x !== s && solvedSlots.has(x)));
+    const open = openSlotShortcut(s, c, auf, SLOTS.filter((x) => x !== s && solvedSlots.has(x)));
     const n = (a: string) => moveCount(fullAlg(auf, a));
     if (open && [...listed()].every((a) => n(open.alg) < moveCount(a))) usable.unshift(open);
     // the shortest own-side alg that never lifts the neighbouring pair, when no row already is it: what a

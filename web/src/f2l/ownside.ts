@@ -7,8 +7,7 @@
 import { facesAt, key, STICKERS } from '../cube/geometry';
 import { SOLVED, state } from '../cube/state';
 import type { F2LCase, SlotName } from './data';
-import { fullAlg, invert, SLOT_WORD } from './model';
-import { shortestFor } from './search';
+import { SLOT_WORD, searchedOwnSide } from './model';
 
 /** For a move, where each sticker goes: to[i] = the index sticker i lands on. */
 const PERMS = new Map<string, number[]>();
@@ -80,16 +79,13 @@ export function ownSideAlg(facelets: string, slot: SlotName, maxDepth = 16): Own
   return null;
 }
 
-const CACHE = new Map<string, OwnSide | null>();
 /**
- * The own-side alg for a case from the position at hand (`auf` the lookup's), the other slots solved: the case's
- * picture at that AUF is set up by its shortest all-keeping alg undone (search.ts; the sheet's first alg may go
- * through the neighbour's slot), so the neighbour is home to begin with.
+ * The own-side alg for a case from the position at hand (`auf` the lookup's), the other slots solved: looked up in the
+ * table scripts/f2l-searched.ts builds with ownSideAlg (model.searchedOwnSide). Null when there is none.
  */
 export function ownSideFor(slot: SlotName, c: F2LCase, auf = ''): OwnSide | null {
-  const k = `${slot}-${c.n}-${auf}`;
-  if (!CACHE.has(k)) CACHE.set(k, ownSideAlg(state(invert(fullAlg(auf, shortestFor(slot, c) ?? c.algs[0]!))), slot));
-  return CACHE.get(k)!;
+  const alg = searchedOwnSide(slot, c, auf);
+  return alg ? { alg, moves: alg.split(' ').length } : null;
 }
 /** Which way the own side turns, and the pair it must not lift: "R and U", "front-right". */
 export function ownSideWords(slot: SlotName): { moves: string; neighbour: string } {

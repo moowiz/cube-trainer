@@ -121,7 +121,10 @@ export function asSheetAlg(alg: string): string {
  * state is not the case's picture.
  */
 export function casePair(slot: SlotName, c: F2LCase): Placed {
-  const f = state(invert(fullAlg('', c.algs[0]!)));
+  return placedIn(state(invert(fullAlg('', c.algs[0]!))), slot);
+}
+/** Where `slot`'s pair sits on a facelet string (trainer frame), as the search follows it. */
+export function placedIn(f: string, slot: SlotName): Placed {
   const where = new Map<string, number>();
   for (let i = 0; i < 54; i++) where.set(idAt(f, i), i);
   return { slot, corner: where.get(idAt(SOLVED, ref(`D${slot}`)))!, edge: where.get(idAt(SOLVED, ref(slot)))! };
