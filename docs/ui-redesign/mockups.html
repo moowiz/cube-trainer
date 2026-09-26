@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ZZ trainer - redesign mockups (2026-09-26)</title>
+<!--
+  Static mockups for docs/ui-redesign.md. Nothing here is wired: it is the app's own palette,
+  type and SVG renders (the case diagram, the 3D cube, the F2L net were lifted from the built
+  page) laid out the proposed way. Each frame is a fixed phone (400 x 860) or desktop
+  (1280 x 800) viewport; docs/ui-redesign/*.png are screenshots of them.
+-->
+<style>
+  :root {
+    --bg: #ECEEF2; --panel: #F7F8FA; --ink: #1B222C; --ink-2: #5A6472; --ink-3: #8A93A0; --line: #D3D8E0;
+    --grey: #CBD1D9; --grey-ll: #DDE1E7; --good: #1E7A46; --good-bg: #E8F5E9; --warn: #7A4B00; --warn-bg: #FFF3D6;
+    --prime: #D0342C; --two: #1E5BC6; --focus: #1B222C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #C4CAD3; color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif; font-feature-settings: "tnum"; }
+  .board { padding: 36px; display: flex; flex-direction: column; gap: 56px; }
+  .board > h1 { margin: 0; font-size: 26px; }
+  .board > p { margin: -40px 0 0; max-width: 900px; color: #2a313b; line-height: 1.5; }
+  .row { display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { max-width: 400px; font-size: 14px; color: #232a33; margin-bottom: 12px; line-height: 1.45; min-height: 82px; }
+  figure.wide figcaption { max-width: 1000px; min-height: 0; }
+  figcaption b { display: block; font-size: 16px; margin-bottom: 3px; }
+
+  .phone, .desk { background: var(--bg); border: 1px solid #8e97a3; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+  .phone { width: 400px; height: 860px; border-radius: 26px; }
+  .desk { width: 1280px; height: 800px; border-radius: 10px; }
+
+  button { font: inherit; color: inherit; }
+  .sp { flex: 1; }
+  .muted { color: var(--ink-2); }
+  .small { font-size: 13px; }
+  .tiny { font-size: 12px; color: var(--ink-2); }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+  .mode { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px 6px 14px; font-size: 16px; font-weight: 600; }
+  .mode small { font-weight: 400; color: var(--ink-2); font-size: 13px; }
+  .mode i { font-style: normal; color: var(--ink-2); font-size: 12px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 11px; font-size: 13px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+  .pill.on { background: var(--good-bg); border-color: #8BC34A; color: #1B5E20; }
+  .pill.warn { background: var(--warn-bg); border-color: #E0B24B; color: var(--warn); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #43A047; display: inline-block; }
+  .pill.warn .dot { background: #E0A100; }
+  .ic { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--line); background: var(--panel); display: inline-grid; place-items: center; font-size: 16px; padding: 0; }
+  .ic svg { width: 18px; height: 18px; }
+
+  /* desktop top bar */
+  .dtop { display: flex; align-items: center; gap: 4px; padding: 10px 20px 0; border-bottom: 1px solid var(--line); }
+  .dtop .tab { border: 0; background: none; padding: 9px 14px 11px; font-size: 15px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .dtop .tab.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+  .dtop .sep { width: 1px; height: 20px; background: var(--line); margin: 0 10px 6px; }
+  .dtop .pill, .dtop .ic { margin-bottom: 7px; }
+  .dtop .brand { font-weight: 700; font-size: 15px; margin-right: 18px; padding-bottom: 8px; }
+
+  /* the stage strip: the range when idle, the progress when running */
+  .strip { display: flex; gap: 3px; align-items: stretch; }
+  .seg { flex: 1; min-width: 0; border-radius: 6px; background: #fff; border: 1px solid var(--line); padding: 4px 6px 3px; font-size: 11.5px; line-height: 1.2; }
+  .seg b { display: block; font-weight: 600; font-size: 12px; white-space: nowrap; }
+  .seg s { text-decoration: none; color: var(--ink-2); font-size: 11px; }
+  .seg.wide { flex: 1.7; }
+  .seg.out { background: transparent; border-style: dashed; color: var(--ink-3); }
+  .seg.out s { color: var(--ink-3); }
+  .seg.done { background: #E3EFE6; border-color: #A8CFB2; }
+  .seg.cur { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .seg.cur s { color: #C9D0DA; }
+  .seg.fz { box-shadow: inset 0 -3px 0 #E0A100; }
+  .pips { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: 1px; }
+  .pips i { width: 7px; height: 7px; border-radius: 2px; border: 1px solid currentColor; opacity: .7; }
+  .pips i.on { background: currentColor; opacity: 1; }
+  .strip-cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-2); margin: 3px 2px 0; }
+
+  /* scramble tokens */
+  .scr { display: flex; flex-wrap: wrap; justify-content: center; font-weight: 700; letter-spacing: .01em; }
+  .scr span { padding: 0 .16em; margin: 0 .06em .08em; border-radius: 6px; }
+  .scr .p { color: var(--prime); }
+  .scr .t { color: var(--two); }
+  .scr span.d { color: #9AA3AF; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 5px; font-weight: 600; }
+  .scr span.d .p, .scr span.d .t { color: #9AA3AF; }
+  .scr span.nx { outline: 3px solid #E0A100; outline-offset: 1px; }
+  .scr.big { font-size: 34px; line-height: 1.35; }
+  .scr.mid { font-size: 22px; line-height: 1.4; }
+  .scr.sm { font-size: 15px; line-height: 1.5; justify-content: flex-start; }
+  .folded { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+  .folded .ok { color: var(--good); font-weight: 600; }
+
+  .timer { font-weight: 300; letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 10px 14px; font-size: 15px; }
+  .btn.pri { background: var(--ink); border-color: var(--ink); color: #fff; font-weight: 600; }
+  .btn.ghost { background: transparent; }
+  .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* the phone's bottom nav */
+  .nav { display: flex; border-top: 1px solid var(--line); background: var(--panel); padding: 6px 0 10px; }
+  .nav a { flex: 1; text-align: center; font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .nav a.on { color: var(--ink); font-weight: 600; }
+  .nav a svg { width: 22px; height: 22px; }
+
+  /* the cube rail on a phone: a strip under the top bar */
+  .rail-p { padding: 10px 14px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .body { flex: 1; display: flex; flex-direction: column; padding: 12px 16px; gap: 12px; min-height: 0; }
+  .bar { display: flex; gap: 8px; padding: 10px 14px; }
+  .bar .btn { flex: 1; text-align: center; }
+
+  /* sheets */
+  .scrim { position: absolute; inset: 0; background: rgba(20,22,28,.45); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--bg); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.25); padding: 8px 16px 16px; }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--grey); margin: 0 auto 10px; }
+  .sheet h3 { margin: 0; font-size: 18px; }
+  .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .opt:last-child { border-bottom: 0; }
+  .opt .sub { display: block; color: var(--ink-2); font-size: 12px; margin-top: 1px; }
+  .seg-c { display: inline-flex; background: var(--grey-ll); border-radius: 8px; padding: 3px; gap: 2px; flex-shrink: 0; }
+  .seg-c span { padding: 4px 9px; font-size: 13px; border-radius: 6px; color: var(--ink-2); white-space: nowrap; }
+  .seg-c span.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+  .tog { width: 38px; height: 22px; border-radius: 11px; background: var(--grey); position: relative; flex-shrink: 0; }
+  .tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+  .tog.on { background: var(--good); }
+  .tog.on::after { left: 18px; }
+  .sec-h { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); margin: 12px 0 2px; }
+
+  .pc { padding: 7px 9px; border-radius: 10px; background: #fff; border: 1px solid var(--line); font-size: 12px; line-height: 1.35; }
+  .pc.cur { border: 2px solid var(--ink); }
+  .pc.done { background: #E3EFE6; border-color: #A8CFB2; color: var(--ink-2); }
+  .pc .nm { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 4px; }
+  .pc .alg { font-weight: 700; font-size: 13px; letter-spacing: .01em; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  .stat { display: flex; gap: 14px; font-size: 13px; color: var(--ink-2); }
+  .stat b { color: var(--ink); font-weight: 600; }
+  table.times { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.times td { padding: 5px 4px; border-top: 1px solid var(--line); }
+  table.times td.n { color: var(--ink-3); width: 26px; }
+  table.times td.t { font-weight: 600; }
+  table.times td.r { text-align: right; color: var(--ink-2); }
+
+  .note { position: absolute; background: #FFF8C5; border: 1px solid #E6D46B; color: #4A3D00; font-size: 11.5px; line-height: 1.35; padding: 5px 7px; border-radius: 6px; max-width: 190px; box-shadow: 0 2px 6px rgba(0,0,0,.12); z-index: 5; }
+  .note::before { content: "note"; display: block; font-weight: 700; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; opacity: .6; }
+
+  /* desktop columns */
+  .cols { flex: 1; display: flex; min-height: 0; }
+  .rail { width: 420px; flex-shrink: 0; border-right: 1px solid var(--line); background: var(--panel); padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+  .focus { flex: 1; padding: 16px 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .drawer { width: 360px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .fhead { display: flex; align-items: center; gap: 10px; }
+  .fhead h2 { margin: 0; font-size: 20px; }
+  [data-svg] svg { display: block; }
+  [data-svg] polygon { stroke: #2b3340; stroke-width: 1.2; stroke-linejoin: round; }
+  [data-svg] polygon.solved { fill-opacity: .85; }
+  [data-svg] rect { stroke: #2b3340; stroke-width: 1.2; }
+  [data-svg] .ll-arrow { fill: none; stroke: #1b222c; stroke-width: 3; stroke-linecap: round; }
+  [data-svg] .ll-arrow-halo { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; opacity: .85; }
+  [data-svg] .ll-head { fill: #1b222c; stroke: #fff; stroke-width: 1.5; }
+  .lbl { font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="board">
+<h1>ZZ trainer - redesign mockups</h1>
+<p>Companion to <code>docs/ui-redesign.md</code>. Static, not wired. They use the app's own palette and the SVGs the built page draws. Yellow notes explain a decision. Phone frames are 400 x 860; desktop frames are 1280 x 800.</p>
+
+<!-- ============================ PHONE: SOLVE ============================ -->
+<div class="row">
+
+<figure id="p-solve-scr"><figcaption><b>P1 · Solve, scrambling (phone propped up)</b>The scramble is the only big thing while you apply it: it ticks along with the cube, the next turn has a box around it, and a wrong turn turns the strip amber. The strip under the top bar is the stage strip: here the range is the whole solve.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">Solve <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="rail-p">
+    <div class="strip">
+      <div class="seg cur"><b>Scr.</b><s>8/22</s></div><div class="seg"><b>EO</b></div><div class="seg"><b>Cross</b></div><div class="seg wide"><b>F2L</b><span class="pips"><i></i><i></i><i></i><i></i></span></div><div class="seg"><b>OLL</b></div><div class="seg"><b>PLL</b></div>
+    </div>
+  </div>
+  <div class="body" style="justify-content:center;gap:20px">
+    <div class="scr big" data-scr="R2 D' L2 U2 F2 L' B2 U' R F2 U2 R' D2 F L2 U B' R2 U2 F' D2 L" data-done="8"></div>
+    <div class="chips" style="justify-content:center"><span class="chip">voice · <b>reads the next move</b></span><span class="chip">Show a solution</span></div>
+    <div style="display:flex;align-items:center;gap:14px;justify-content:center;margin-top:8px">
+      <div data-net="BDBDUBDBFRLUBRRFRBBRDUFDUBRFUUFDDDULDLLRLLFLLRFRUBFUFL" data-s="11"></div>
+      <div class="tiny" style="max-width:150px">The cube as the app sees it. Tap it for the Cube panel (resync, source).</div>
+    </div>
+  </div>
+  <div style="text-align:center;padding:4px 0 10px"><div class="timer" style="font-size:44px;color:var(--ink-3)">0.00</div><div class="tiny">starts on the first turn after the scramble</div></div>
+  <div style="padding:8px 16px 10px;border-top:1px solid var(--line)"><div class="stat"><span>ao5 <b>11.52</b></span><span>ao12 <b>12.40</b></span><span>today <b>34</b></span><span class="sp"></span><span>best <b>8.91</b></span></div></div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+</div></figure>
+
+<figure id="p-solve-done"><figcaption><b>P2 · Solve, just solved</b>The same spot every mode uses for a result. The strip becomes the splits: approximate ones from the follow's stage crossings now, exact once M11's phase detection lands. The next scramble is already up top, small, and grows once you pick the cube up.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">Solve <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="rail-p">
+    <div class="strip">
+      <div class="seg done"><b>EO</b><s>1.9</s></div><div class="seg done"><b>Cross</b><s>1.4</s></div><div class="seg done wide"><b>F2L</b><s>5.1</s></div><div class="seg done"><b>OLL</b><s>1.2</s></div><div class="seg done"><b>PLL</b><s>1.8</s></div>
+    </div>
+  </div>
+  <div class="body" style="gap:14px">
+    <div><div class="tiny" style="text-align:center;margin-bottom:2px">next scramble</div><div class="scr sm" style="justify-content:center" data-scr="F2 R' U2 B2 D L2 F2 U' B2 R2 D' F L' U2 R D' B2 F' U L2" data-done="0"></div></div>
+    <div style="text-align:center;margin-top:16px"><div class="timer" style="font-size:96px">11.42</div><div class="muted" style="margin-top:6px">38 turns · 3.3 tps · ao5 11.52 → <b style="color:var(--good)">11.31</b></div></div>
+    <div class="bar" style="padding:6px 0"><button class="btn">+2</button><button class="btn">DNF</button><button class="btn">Note</button><button class="btn">Delete</button></div>
+    <table class="times"><tbody>
+      <tr><td class="n">34</td><td class="t">11.42</td><td class="r">38 · 3.3 tps · 11:02</td></tr>
+      <tr><td class="n">33</td><td class="t">12.10</td><td class="r">41 · 3.4 tps · 11:01</td></tr>
+      <tr><td class="n">32</td><td class="t">10.88</td><td class="r">36 · 3.3 tps · 11:00</td></tr>
+      <tr><td class="n">31</td><td class="t">13.50</td><td class="r">44 · 3.3 tps · 10:59</td></tr>
+    </tbody></table>
+    <div class="tiny">Session <b>2026-09-26 10:40</b> · 34 solves · Progress has the graph and the rest</div>
+  </div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+  <div class="note" style="left:30px;top:640px;max-width:300px">Splits now: the time of each stage crossing the follow already detects (follow.ts). Exact ones (the last time a stage became true and stayed true) come with M11.</div>
+</div></figure>
+
+<figure id="p-modes"><figcaption><b>P3 · The mode picker (tap the mode chip)</b>Every mode is a <i>range</i> on the stage strip: where the scramble leaves the cube, and where the attempt ends. The tabs become presets of it, and "start in F2L, carry on through PLL" is just another row, not a tangle of follow settings.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">Solve <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="scrim"></div>
+  <div class="sheet" style="top:60px">
+    <div class="grab"></div>
+    <div style="display:flex;align-items:center"><h3>Practise</h3><span class="sp"></span><span class="tiny">1-5 on a keyboard</span></div>
+    <div data-modes></div>
+    <div class="sec-h" style="margin-top:12px">Or set the range</div>
+    <div class="opt"><span>Start from</span><span class="seg-c"><span>Scrambled</span><span class="on">Cross</span><span>Last pair</span><span>OLL</span><span>PLL</span></span></div>
+    <div class="opt"><span>Stop at</span><span class="seg-c"><span>EO</span><span>Cross</span><span>F2L</span><span class="on">Solved</span></span></div>
+    <div class="opt"><span>Focus<span class="sub">what the cases, stats and voice are about</span></span><span class="seg-c"><span>F2L</span><span>OLL</span><span class="on">PLL</span></span></div>
+  </div>
+</div></figure>
+
+</div>
+
+<!-- ============================ PHONE: PLL ============================ -->
+<div class="row">
+
+<figure id="p-pll-armed"><figcaption><b>P4 · PLL, the case is on the cube</b>The case is the hero; the scramble has folded to one line. The two buttons you reach for are at the bottom, above the nav, not under a page of settings. The timer sits in the same corner of the strip in every drill.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">PLL <small>21 cases</small> <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="rail-p">
+    <div class="strip">
+      <div class="seg out"><b>F2L</b></div><div class="seg out"><b>OLL</b></div><div class="seg cur fz wide"><b>PLL</b><s>case 7</s></div><div class="seg"><b>AUF</b></div>
+    </div>
+    <div style="display:flex;align-items:center;margin-top:8px"><div class="folded"><span class="ok">✓ scrambled</span><span>12 turns · U R2 D' R2 D R2 …</span></div><span class="sp"></span><div class="timer" style="font-size:26px">0.00</div></div>
+  </div>
+  <div class="body" style="align-items:center;justify-content:center">
+    <div style="width:300px;height:300px" data-svg="pll-0"></div>
+    <div class="chips" style="justify-content:center"><span class="chip">voice · scramble <b>read</b> · alg <b>watch</b></span><span class="chip">asks the case</span></div>
+  </div>
+  <div class="bar"><button class="btn">Show my note</button><button class="btn pri">Show the alg</button></div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+  <div class="note" style="left:196px;top:168px">The dashed segments are outside the range: this drill starts at the PLL. Start from "Last pair" would make them solid.</div>
+</div></figure>
+
+<figure id="p-pll-done"><figcaption><b>P5 · PLL, solved</b>The result replaces the buttons: the case named, your time against your own ao5 for it, the alg you did with its chunk labels, and your note. "Next case when solved" is a countdown here, not a checkbox up the page.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">PLL <small>21 cases</small> <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="rail-p">
+    <div class="strip">
+      <div class="seg out"><b>F2L</b></div><div class="seg out"><b>OLL</b></div><div class="seg done fz wide"><b>PLL</b><s>0.9 + 1.5</s></div><div class="seg done"><b>AUF</b><s>0.2</s></div>
+    </div>
+    <div style="display:flex;align-items:center;margin-top:8px"><div class="folded"><span class="ok">✓ solved</span><span>14 turns</span></div><span class="sp"></span><div class="timer" style="font-size:26px">2.61</div></div>
+  </div>
+  <div class="body" style="align-items:stretch">
+    <div style="display:flex;gap:14px;align-items:center">
+      <div style="width:120px;height:120px;flex-shrink:0" data-svg="pll-0"></div>
+      <div><div style="font-size:28px;font-weight:700">T perm</div><div class="muted">2.61 · your ao5 on T <b style="color:var(--good)">2.74</b> · 23 tries</div><div class="tiny" style="margin-top:4px">named right when asked</div></div>
+    </div>
+    <div class="card" style="padding:12px 14px">
+      <div class="scr mid" style="justify-content:flex-start" data-scr="R U R' U' R' F R2 U' R' U' R U R' F'" data-done="0"></div>
+      <div class="tiny" style="margin-top:2px">sexy · T core · 14 moves</div>
+      <div style="margin-top:8px;padding:8px 10px;background:var(--panel);border-radius:8px;font-size:13px">bars facing me: T <span class="tiny">· your note</span></div>
+    </div>
+    <div class="stat"><span>sitting <b>7</b> cases</span><span>ao5 <b>2.88</b></span><span>slowest <b>Na 4.1</b></span></div>
+  </div>
+  <div class="bar"><button class="btn">Again</button><button class="btn pri">Next case · 2</button></div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+</div></figure>
+
+<figure id="p-pll-setup"><figcaption><b>P6 · PLL setup (the ⋯ on the mode chip)</b>Every control that sits on the PLL tab today, moved into one sheet, grouped by what it is about. Nothing is removed. The voice gets one row per move set, as the LL drill already decided.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">PLL <small>21 cases</small> <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="scrim"></div>
+  <div class="sheet" style="top:54px">
+    <div class="grab"></div>
+    <div style="display:flex;align-items:center"><h3>PLL drill</h3><span class="sp"></span><button class="btn pri" style="padding:6px 14px">Done</button></div>
+    <div class="sec-h">Cases</div>
+    <div class="opt"><span>In the drill<span class="sub">Aa Ab E F Ga Gb Gc Gd H Ja Jb Na Nb Ra Rb T Ua Ub V Y Z</span></span><button class="btn" style="padding:5px 10px;font-size:13px">21 · Edit</button></div>
+    <div class="opt"><span>Order</span><span class="seg-c"><span class="on">Weighted</span><span>Each once</span></span></div>
+    <div class="opt"><span>Start from<span class="sub">earlier = recognise it in context</span></span><span class="seg-c"><span>Last pair</span><span>OCLL</span><span class="on">PLL</span></span></div>
+    <div class="sec-h">Each case</div>
+    <div class="opt"><span>Show the alg</span><span class="seg-c"><span class="on">When I ask</span><span>Once I start</span></span></div>
+    <div class="opt"><span>When solved</span><span class="seg-c"><span>Wait</span><span class="on">Next case</span></span></div>
+    <div class="opt"><span>Repeat the algs, no scramble</span><span class="tog"></span></div>
+    <div class="sec-h">Voice</div>
+    <div class="opt"><span>Scramble</span><span class="seg-c"><span>Off</span><span class="on">Read</span><span>Echo</span><span>Watch</span></span></div>
+    <div class="opt"><span>Alg</span><span class="seg-c"><span>Off</span><span>Read</span><span>Echo</span><span class="on">Watch</span></span></div>
+    <div class="opt"><span>Ask me the case</span><span class="tog on"></span></div>
+    <div class="opt"><span>Chunk names<span class="sub">34 said by name</span></span><span class="muted">›</span></div>
+    <div class="opt"><span>Practice so far<span class="sub">opens Progress on PLL</span></span><span class="muted">›</span></div>
+  </div>
+</div></figure>
+
+</div>
+
+<!-- ============================ PHONE: F2L / CUBE ============================ -->
+<div class="row">
+
+<figure id="p-f2l"><figcaption><b>P7 · F2L practice, following the cube</b>This is the finder's tracked mode alone: the four pair cards, the cube, the pair being done. The tap-the-facelets lookup is its own mode ("Find a case", P8), and the targeted-case controls live in the setup sheet.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">F2L <small>all pairs</small> <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="rail-p">
+    <div class="strip">
+      <div class="seg out"><b>EO</b></div><div class="seg out"><b>Cross</b></div><div class="seg cur fz wide"><b>F2L</b><span class="pips"><i class="on"></i><i></i><i></i><i></i></span></div><div class="seg"><b>OLL</b></div><div class="seg"><b>PLL</b></div>
+    </div>
+    <div style="display:flex;align-items:center;margin-top:8px"><div class="folded"><span class="ok">✓ at the scramble</span><span>following</span></div><span class="sp"></span><div class="timer" style="font-size:26px">4.18</div></div>
+  </div>
+  <div class="body" style="gap:10px">
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="width:170px;height:150px;flex-shrink:0" data-svg="f2l-0"></div>
+      <div style="flex:1"><div style="font-size:18px;font-weight:700">front-right</div><div class="tiny">case 29 · Pop the edge, then insert</div><div class="scr mid" style="justify-content:flex-start;font-size:20px;margin-top:6px" data-scr="U R U R2 U' R2 U R'" data-done="3"></div><div class="tiny">8 moves · Explain · Animate</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="pc done"><div class="nm"><i class="sw" style="background:#2E6CE0"></i><i class="sw" style="background:#F58F2A"></i>front-left ✓</div>1.9 s · 6 moves</div>
+      <div class="pc cur"><div class="nm"><i class="sw" style="background:#2E6CE0"></i><i class="sw" style="background:#E2433C"></i>front-right</div>case 29<br><span class="alg">U R U R2 U' R2 U R'</span></div>
+      <div class="pc"><div class="nm"><i class="sw" style="background:#33B15D"></i><i class="sw" style="background:#E2433C"></i>back-right</div>case 30<br><span class="alg">U L U L' R' U' R</span> · 7</div>
+      <div class="pc"><div class="nm"><i class="sw" style="background:#33B15D"></i><i class="sw" style="background:#F58F2A"></i>back-left</div>case 55<br><span class="alg">R U' R2 U' R U L U' L'</span></div>
+    </div>
+    <div class="tiny">Start a pair's alg and that slot takes over · ← → on a keyboard</div>
+  </div>
+  <div class="bar"><button class="btn">Undo the pair</button><button class="btn pri">New scramble</button></div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+</div></figure>
+
+<figure id="p-f2l-find"><figcaption><b>P8 · F2L, find a case (no cube needed)</b>The tap-to-place finder as its own mode: the net and the instructions only while you place, and the answer where the pair cards would be. This is the lookup people use at the desk with a normal cube.</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">Find an F2L case <i>▾</i></button><span class="sp"></span><span class="pill"><i class="dot" style="background:var(--grey)"></i>no cube</span><button class="ic">⚙</button></div>
+  <div class="body" style="gap:10px">
+    <div style="font-size:15px"><b>Tap the white sticker of the corner</b>, then the edge's blue sticker.<span class="tiny"> White down, blue facing you.</span></div>
+    <div style="display:flex;gap:6px"><span class="chip"><b>front-right</b></span><span class="chip">front-left</span><span class="chip">back-right</span><span class="chip">back-left</span></div>
+    <div style="width:360px;height:274px" data-svg="f2l-1"></div>
+    <div class="card" style="padding:10px 12px">
+      <div style="display:flex;align-items:baseline;gap:8px"><b style="font-size:17px">case 29</b><span class="tiny">corner on top, edge in another slot</span></div>
+      <div class="scr mid" style="justify-content:flex-start;font-size:20px" data-scr="U R U R2 U' R2 U R'" data-done="0"></div>
+      <div class="tiny">8 moves · 3 more algs · Explain · Animate</div>
+    </div>
+  </div>
+  <div class="bar"><button class="btn">Clear</button><button class="btn">Random case</button></div>
+  <div class="nav"><a class="on" data-ico="play">Practise</a><a data-ico="book">Cases</a><a data-ico="chart">Progress</a></div>
+</div></figure>
+
+<figure id="p-cube"><figcaption><b>P9 · The cube pill, opened</b>What the Cube sheet, the Scan button, the Resume button and the Record button do today, in one place. The source is a choice, as the MoveSource design has it: a smart cube, the camera, or nothing (a Space or tap timer, typed moves).</figcaption>
+<div class="phone">
+  <div class="top"><button class="mode">PLL <small>21 cases</small> <i>▾</i></button><span class="sp"></span><span class="pill on"><i class="dot"></i>GAN · 86%</span><button class="ic">⚙</button></div>
+  <div class="scrim"></div>
+  <div class="sheet" style="top:54px">
+    <div class="grab"></div>
+    <div style="display:flex;align-items:center"><h3>Your cube</h3><span class="sp"></span><button class="btn pri" style="padding:6px 14px">Done</button></div>
+    <div class="opt"><span>Moves come from</span><span class="seg-c"><span class="on">Smart cube</span><span>Camera</span><span>Nothing</span></span></div>
+    <div class="opt"><span>GAN i Carry E · connected<span class="sub">battery 86% · clock fitted on 312 turns · reconnects on load</span></span><button class="btn" style="padding:5px 10px;font-size:13px">Disconnect</button></div>
+    <div style="display:flex;gap:10px;align-items:center;padding:10px 0">
+      <div style="width:150px;height:150px" data-svg="eo-0"></div>
+      <div data-net="BDBDUBDBFRLUBRRFRBBRDUFDUBRFUUFDDDULDLLRLLFLLRFRUBFUFL" data-s="12"></div>
+    </div>
+    <div class="tiny">last turn <b>U'</b> 0.4 s ago · 31 turns this sitting</div>
+    <div class="sec-h">Not what's in your hand?</div>
+    <div style="display:flex;gap:8px;padding:6px 0"><button class="btn">It's solved</button><button class="btn">Use what the cube reports</button><button class="btn">Scan it</button></div>
+    <div class="sec-h">Developer</div>
+    <div class="opt"><span>Save capture · Record · Pop out the camera</span><span class="muted">›</span></div>
+  </div>
+</div></figure>
+
+</div>
+
+<!-- ============================ DESKTOP ============================ -->
+<figure class="wide" id="d-solve"><figcaption><b>D1 · Desktop, Solve with the coach on, mid-solve</b>Two columns, as asked: the cube on the left (the source, the live cube, the scramble, the timer, the stage strip), the thing you are working on on the right. With the coach on, the right column follows the cube: here it is at F2L, so the pair cards are up; at OLL the case replaces them. The timer never moves, because the tab never changes under it.</figcaption>
+<div class="desk">
+  <div class="dtop"><span class="brand">ZZ trainer</span><button class="tab on">Solve</button><button class="tab">EO</button><button class="tab">F2L</button><button class="tab">Last layer</button><span class="sep"></span><button class="tab">Cases</button><button class="tab">Progress</button><span class="sp"></span><span class="pill on" style="margin-right:6px"><i class="dot"></i>GAN i Carry E · 86%</span><button class="ic" data-ico2="cam"></button>&nbsp;<button class="ic">⚙</button></div>
+  <div class="cols">
+    <div class="rail">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:center">
+        <div style="width:190px;height:190px" data-svg="eo-0"></div>
+        <div data-net="BDBDUBDBFRLUBRRFRBBRDUFDUBRFUUFDDDULDLLRLLFLLRFRUBFUFL" data-s="11"></div>
+      </div>
+      <div class="folded" style="justify-content:center"><span class="ok">✓ scrambled</span><span>22 turns · R2 D' L2 U2 F2 L' B2 …</span></div>
+      <div style="text-align:center"><div class="timer" style="font-size:88px">7.84</div><div class="tiny">25 turns · 3.2 tps</div></div>
+      <div>
+        <div class="strip">
+          <div class="seg done"><b>EO</b><s>1.9</s></div><div class="seg done"><b>Cross</b><s>1.3</s></div><div class="seg cur wide"><b>F2L</b><span class="pips"><i class="on"></i><i class="on"></i><i></i><i></i></span><s> 4.6</s></div><div class="seg"><b>OLL</b></div><div class="seg"><b>PLL</b></div>
+        </div>
+        <div class="strip-cap"><span>scrambled</span><span>solved</span></div>
+      </div>
+      <div class="sp"></div>
+      <div class="stat" style="justify-content:center"><span>ao5 <b>11.52</b></span><span>ao12 <b>12.40</b></span><span>today <b>34</b></span></div>
+    </div>
+    <div class="focus">
+      <div class="fhead"><h2>F2L · 2 pairs left</h2><span class="chip">coach <b>on</b></span><span class="chip">voice <b>off</b></span><span class="sp"></span><button class="btn" style="padding:6px 12px;font-size:13px">Solve settings</button></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div class="pc done"><div class="nm"><i class="sw" style="background:#2E6CE0"></i><i class="sw" style="background:#F58F2A"></i>front-left ✓</div>2.1 s · 7 moves</div>
+        <div class="pc done"><div class="nm"><i class="sw" style="background:#33B15D"></i><i class="sw" style="background:#F58F2A"></i>back-left ✓</div>2.5 s · 9 moves</div>
+        <div class="pc cur"><div class="nm"><i class="sw" style="background:#2E6CE0"></i><i class="sw" style="background:#E2433C"></i>front-right</div>case 29 · Pop the edge, then insert<br><span class="alg">U R U R2 U' R2 U R'</span> · 8</div>
+        <div class="pc"><div class="nm"><i class="sw" style="background:#33B15D"></i><i class="sw" style="background:#E2433C"></i>back-right</div>case 30 · Pop the corner, then insert<br><span class="alg">U L U L' R' U' R</span> · 7</div>
+      </div>
+      <div style="display:flex;gap:18px;align-items:flex-start">
+        <div style="width:260px;height:230px" data-svg="f2l-0"></div>
+        <div class="card" style="flex:1;padding:14px 16px">
+          <div style="display:flex;align-items:baseline;gap:10px"><b style="font-size:18px">front-right · case 29</b><span class="tiny">corner on top, edge in the back-right slot</span></div>
+          <div class="scr mid" style="justify-content:flex-start;margin-top:6px" data-scr="U R U R2 U' R2 U R'" data-done="3"></div>
+          <div class="tiny">8 moves · shorter through back-right while it is open: <b>R U' R' U R U' R'</b> (7) · Explain · Animate</div>
+        </div>
+      </div>
+      <div class="sp"></div>
+      <div class="lbl">This session</div>
+      <table class="times"><tbody>
+        <tr><td class="n">33</td><td class="t">12.10</td><td>F2 L2 U' R2 D B2 R' …</td><td class="r">EO 2.2 · F2L 6.0 · LL 3.9</td><td class="r">41 · 3.4 tps</td><td class="r">11:01</td></tr>
+        <tr><td class="n">32</td><td class="t">10.88</td><td>R2 D B2 U2 F L' …</td><td class="r">EO 1.7 · F2L 5.3 · LL 3.9</td><td class="r">36 · 3.3 tps</td><td class="r">11:00</td></tr>
+        <tr><td class="n">31</td><td class="t">13.50</td><td>U F2 R2 D' B2 L …</td><td class="r">EO 2.9 · F2L 6.6 · LL 4.0</td><td class="r">44 · 3.3 tps</td><td class="r">10:59</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+  <div class="note" style="left:470px;top:520px;max-width:260px">The focus column follows the cube's stage (today's "Follow into the stages", which switches the whole tab). Coach off, it shows the session list instead.</div>
+</div></figure>
+
+<figure class="wide" id="d-pll"><figcaption><b>D2 · Desktop, PLL drill with the Cases drawer open</b>The case sheet opens as a drawer instead of a modal, so you can read the algs, star one or write a note while the drill waits. The same grammar as D1: the cube on the left, the case in the middle. Past about 1600 px the drawer can stay open.</figcaption>
+<div class="desk">
+  <div class="dtop"><span class="brand">ZZ trainer</span><button class="tab">Solve</button><button class="tab">EO</button><button class="tab">F2L</button><button class="tab on">Last layer</button><span class="sep"></span><button class="tab on" style="border-bottom-color:transparent">Cases</button><button class="tab">Progress</button><span class="sp"></span><span class="pill on" style="margin-right:6px"><i class="dot"></i>GAN i Carry E · 86%</span><button class="ic" data-ico2="cam"></button>&nbsp;<button class="ic">⚙</button></div>
+  <div class="cols">
+    <div class="rail" style="width:330px">
+      <div style="display:flex;justify-content:center"><div data-net="UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB" data-s="13"></div></div>
+      <div class="folded" style="justify-content:center"><span class="ok">✓ scrambled</span><span>12 turns · U R2 D' R2 D R2 …</span></div>
+      <div style="text-align:center"><div class="timer" style="font-size:64px">0.00</div><div class="tiny">starts on your first turn</div></div>
+      <div><div class="strip"><div class="seg out"><b>F2L</b></div><div class="seg out"><b>OLL</b></div><div class="seg cur fz wide"><b>PLL</b></div><div class="seg"><b>AUF</b></div></div></div>
+      <div class="sp"></div>
+      <div class="stat" style="justify-content:center"><span>sitting <b>7</b></span><span>ao5 <b>2.88</b></span><span>slowest <b>Na</b></span></div>
+    </div>
+    <div class="focus" style="align-items:center">
+      <div class="fhead" style="align-self:stretch"><h2>PLL</h2><span class="chip"><b>21</b> cases · weighted</span><span class="chip">start from <b>PLL</b></span><span class="chip">voice <b>read · watch</b></span><span class="sp"></span><button class="btn" style="padding:6px 12px;font-size:13px;white-space:nowrap">Settings</button></div>
+      <div style="width:340px;height:340px;margin-top:10px" data-svg="pll-0"></div>
+      <div class="sp"></div>
+      <div style="display:flex;gap:10px;width:420px"><button class="btn" style="flex:1">Show my note (n)</button><button class="btn pri" style="flex:1">Show the alg (Enter)</button></div>
+    </div>
+    <div class="drawer">
+      <div style="display:flex;align-items:center"><b style="font-size:17px">Cases · PLL</b><span class="sp"></span><span class="seg-c"><span>F2L</span><span>OCLL</span><span class="on">PLL</span><span>Other</span></span></div>
+      <input style="font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:#fff" placeholder="G, R*, Ja Jb">
+      <div class="card" style="padding:10px 12px"><div style="display:flex;gap:10px;align-items:center"><div style="width:54px;height:54px" data-svg="pll-0"></div><div><b>Aa</b> <span class="tiny">9 moves · ↔ Ab</span><div style="font-weight:700;font-size:14px">x R' U R' D2 R U' R' D2 R2 x' <span style="color:#C99A00">★</span></div><div class="tiny">A commutator</div></div></div><div style="margin-top:6px;display:flex;gap:6px"><span class="chip">in the drill ✓</span><span class="chip">note</span><span class="chip">play in 3D</span></div></div>
+      <div class="card" style="padding:10px 12px"><div style="display:flex;gap:10px;align-items:center"><div style="width:54px;height:54px" data-svg="pll-0"></div><div><b>Ab</b> <span class="tiny">9 moves · ↔ Aa</span><div style="font-weight:700;font-size:14px">x R2 D2 R U R' D2 R U' R x' <span style="color:#C99A00">★</span></div><div class="tiny">A commutator backwards</div></div></div><div style="margin-top:6px;display:flex;gap:6px"><span class="chip">in the drill ✓</span><span class="chip">note</span><span class="chip">play in 3D</span></div></div>
+      <div class="card" style="padding:10px 12px"><div style="display:flex;gap:10px;align-items:center"><div style="width:54px;height:54px" data-svg="pll-0"></div><div><b>E</b> <span class="tiny">16 moves · itself</span><div style="font-weight:700;font-size:14px">x' R U' R' D R U R' D' … <span style="color:#C99A00">★</span></div><div class="tiny">E half, U' first</div></div></div><div style="margin-top:6px;display:flex;gap:6px"><span class="chip">in the drill ✓</span><span class="chip">note</span><span class="chip">play in 3D</span></div></div>
+      <div class="tiny" style="text-align:center">18 more</div>
+    </div>
+  </div>
+  <div class="note" style="left:360px;top:560px;max-width:230px">Esc closes the drawer; the drill underneath never stopped following the cube.</div>
+</div></figure>
+
+</div>
+
+<script>
+// ---- little renderers so the frames stay editable: scrambles, nets, icons, the mode list, the lifted SVGs ----
+const SVGS = {"eo-0":"<svg viewBox=\"-170 -170 340 340\"><polygon class=\"\" points=\"-10.6,-131.6 -66.3,-146.3 -26.0,-166.1 28.6,-152.4\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"121.2,53.2 118.1,112.6 151.5,82.9 155.4,25.0\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"55.2,-114.2 -4.2,-129.9 34.9,-150.9 92.9,-136.4\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"124.9,-16.6 121.6,46.4 155.8,18.4 159.9,-42.8\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"-105.9,73.9 -160.7,52.7 -156.5,112.1 -103.1,134.4\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"-58.0,-106.4 -114.9,-122.5 -70.9,-144.1 -15.1,-129.2\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"79.8,87.4 77.7,148.6 114.2,116.1 117.3,56.5\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"125.4,-95.6 62.0,-112.4 99.6,-134.7 161.5,-119.2\" fill=\"#F58F2A\"></polygon><polygon class=\"\" points=\"128.8,-90.8 125.3,-23.8 160.4,-49.8 164.7,-114.7\" fill=\"#FBFBF9\"></polygon><polygon class=\"\" points=\"-109.2,2.6 -165.6,-17.1 -161.2,45.9 -106.2,66.9\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"-41.1,98.8 -99.6,76.3 -96.9,136.9 -39.9,160.7\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"9.4,-87.2 -51.5,-104.5 -8.7,-127.5 50.8,-111.6\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"82.4,15.2 80.1,80.4 117.6,49.7 120.8,-13.5\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"-110.2,-78.6 -168.2,-96.4 -120.0,-120.0 -63.0,-103.7\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"34.3,125.0 33.3,188.1 73.4,152.4 75.5,91.0\" fill=\"#F58F2A\"></polygon><polygon class=\"\" points=\"-112.7,-73.2 -170.8,-91.2 -166.1,-24.3 -109.5,-4.8\" fill=\"#F58F2A\"></polygon><polygon class=\"\" points=\"-42.4,25.9 -102.7,4.9 -99.9,69.3 -41.2,91.8\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"28.3,125.6 -34.3,101.4 -33.4,163.4 27.5,188.7\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"81.5,-66.7 16.3,-85.2 57.6,-109.8 121.2,-92.8\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"85.1,-61.7 82.6,7.8 121.2,-20.8 124.7,-88.0\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"-41.2,-57.5 -103.5,-76.6 -56.4,-101.8 4.5,-84.4\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"35.4,50.4 34.4,117.7 75.7,84.0 77.9,18.6\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"-43.8,-51.9 -106.1,-71.2 -103.0,-2.5 -42.5,18.4\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"29.2,50.9 -35.5,28.3 -34.4,94.3 28.4,118.3\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"32.9,-34.8 -34.1,-55.3 11.5,-82.4 76.9,-63.7\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"36.7,-29.4 35.6,42.6 78.1,11.1 80.5,-58.6\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"30.3,-28.9 -36.6,-49.7 -35.6,20.8 29.3,43.2\" fill=\"#FBFBF9\"></polygon></svg>","f2l-0":"<svg viewBox=\"-170 -170 340 340\"><polygon class=\"hit\" points=\"-10.6,-131.6 -66.3,-146.3 -26.0,-166.1 28.6,-152.4\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"121.2,53.2 118.1,112.6 151.5,82.9 155.4,25.0\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"55.2,-114.2 -4.2,-129.9 34.9,-150.9 92.9,-136.4\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"124.9,-16.6 121.6,46.4 155.8,18.4 159.9,-42.8\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-105.9,73.9 -160.7,52.7 -156.5,112.1 -103.1,134.4\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-58.0,-106.4 -114.9,-122.5 -70.9,-144.1 -15.1,-129.2\" fill=\"#DDE1E7\"></polygon><polygon class=\"solved\" points=\"79.8,87.4 77.7,148.6 114.2,116.1 117.3,56.5\" fill=\"#E2433C\"></polygon><polygon class=\"hit\" points=\"125.4,-95.6 62.0,-112.4 99.6,-134.7 161.5,-119.2\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"128.8,-90.8 125.3,-23.8 160.4,-49.8 164.7,-114.7\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-109.2,2.6 -165.6,-17.1 -161.2,45.9 -106.2,66.9\" fill=\"#DDE1E7\"></polygon><polygon class=\"solved\" points=\"-41.1,98.8 -99.6,76.3 -96.9,136.9 -39.9,160.7\" fill=\"#2E6CE0\"></polygon><polygon class=\"center\" points=\"9.4,-87.2 -51.5,-104.5 -8.7,-127.5 50.8,-111.6\" fill=\"#F5D63D\"></polygon><polygon class=\"center\" points=\"82.4,15.2 80.1,80.4 117.6,49.7 120.8,-13.5\" fill=\"#E2433C\"></polygon><polygon class=\"hit\" points=\"-110.2,-78.6 -168.2,-96.4 -120.0,-120.0 -63.0,-103.7\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"34.3,125.0 33.3,188.1 73.4,152.4 75.5,91.0\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-112.7,-73.2 -170.8,-91.2 -166.1,-24.3 -109.5,-4.8\" fill=\"#DDE1E7\"></polygon><polygon class=\"center\" points=\"-42.4,25.9 -102.7,4.9 -99.9,69.3 -41.2,91.8\" fill=\"#2E6CE0\"></polygon><polygon class=\"hit\" points=\"28.3,125.6 -34.3,101.4 -33.4,163.4 27.5,188.7\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"81.5,-66.7 16.3,-85.2 57.6,-109.8 121.2,-92.8\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"85.1,-61.7 82.6,7.8 121.2,-20.8 124.7,-88.0\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-41.2,-57.5 -103.5,-76.6 -56.4,-101.8 4.5,-84.4\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"35.4,50.4 34.4,117.7 75.7,84.0 77.9,18.6\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"-43.8,-51.9 -106.1,-71.2 -103.0,-2.5 -42.5,18.4\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"29.2,50.9 -35.5,28.3 -34.4,94.3 28.4,118.3\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"32.9,-34.8 -34.1,-55.3 11.5,-82.4 76.9,-63.7\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"36.7,-29.4 35.6,42.6 78.1,11.1 80.5,-58.6\" fill=\"#DDE1E7\"></polygon><polygon class=\"hit\" points=\"30.3,-28.9 -36.6,-49.7 -35.6,20.8 29.3,43.2\" fill=\"#DDE1E7\"></polygon></svg>","f2l-1":"<svg viewBox=\"0 0 400 304\"><rect class=\"hit\" x=\"105\" y=\"9\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"137\" y=\"9\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"169\" y=\"9\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"41\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"center\" x=\"137\" y=\"41\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#F5D63D\"></rect><rect class=\"hit\" x=\"169\" y=\"41\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"73\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"137\" y=\"73\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"169\" y=\"73\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"201\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"233\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"265\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"201\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"center\" x=\"233\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#E2433C\"></rect><rect class=\"hit\" x=\"265\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"201\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"233\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#E2433C\"></rect><rect class=\"hit\" x=\"265\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"137\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"169\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"center\" x=\"137\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#2E6CE0\"></rect><rect class=\"hit\" x=\"169\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"137\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#2E6CE0\"></rect><rect class=\"hit\" x=\"169\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"105\" y=\"201\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"137\" y=\"201\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#FBFBF9\"></rect><rect class=\"hit\" x=\"169\" y=\"201\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"105\" y=\"233\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#FBFBF9\"></rect><rect class=\"center\" x=\"137\" y=\"233\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#FBFBF9\"></rect><rect class=\"solved\" x=\"169\" y=\"233\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#FBFBF9\"></rect><rect class=\"hit\" x=\"105\" y=\"265\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"137\" y=\"265\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#FBFBF9\"></rect><rect class=\"hit\" x=\"169\" y=\"265\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"9\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"41\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"73\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"9\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"center\" x=\"41\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#F58F2A\"></rect><rect class=\"hit\" x=\"73\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"9\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"41\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#F58F2A\"></rect><rect class=\"hit\" x=\"73\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"297\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"329\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"361\" y=\"105\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"297\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"center\" x=\"329\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#33B15D\"></rect><rect class=\"hit\" x=\"361\" y=\"137\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"hit\" x=\"297\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect><rect class=\"solved\" x=\"329\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#33B15D\"></rect><rect class=\"hit\" x=\"361\" y=\"169\" width=\"30\" height=\"30\" rx=\"3\" fill=\"#DDE1E7\"></rect></svg>","ocll-0":"<svg viewBox=\"-170 -170 340 340\"><polygon class=\"\" points=\"119.3,51.6 114.4,92.3 148.5,49.1 154.6,7.7\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"-103.3,83.0 -158.1,50.8 -151.6,91.5 -99.0,123.2\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"77.5,103.4 74.2,143.3 110.5,97.3 115.2,56.6\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"-39.7,120.4 -97.1,86.7 -93.0,126.8 -38.0,160.0\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"125.2,2.0 119.8,46.8 155.3,2.9 162.1,-42.5\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"-11.0,-126.2 -69.4,-155.0 -27.5,-194.1 30.1,-166.9\" fill=\"#F58F2A\"></polygon><polygon class=\"\" points=\"32.8,158.8 31.4,197.6 70.1,148.5 73.2,108.8\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"27.1,159.7 -33.2,124.3 -31.7,163.8 25.9,198.5\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"-108.6,34.0 -166.0,1.2 -158.9,46.0 -103.8,78.3\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"81.5,54.8 77.9,98.7 115.8,51.9 121.0,7.1\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"57.0,-92.6 -4.3,-122.9 36.6,-163.8 97.0,-135.4\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"-59.7,-77.8 -119.1,-108.7 -74.3,-150.5 -15.7,-121.5\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"-41.7,72.1 -102.0,37.7 -97.6,82.0 -39.9,115.8\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"131.8,-52.7 125.8,-3.2 162.9,-47.8 170.3,-97.8\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"128.4,-57.4 64.0,-89.2 103.8,-132.2 167.1,-102.4\" fill=\"#F58F2A\"></polygon><polygon class=\"\" points=\"34.6,111.4 33.0,154.3 73.5,104.1 76.9,60.2\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"9.5,-41.8 -52.9,-74.3 -9.0,-118.2 52.4,-87.7\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"28.5,112.3 -34.9,76.1 -33.3,119.7 27.2,155.2\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"-114.4,-20.3 -174.7,-53.5 -166.8,-4.0 -109.1,28.8\" fill=\"#2E6CE0\"></polygon><polygon class=\"\" points=\"-112.0,-25.8 -172.4,-59.0 -124.3,-103.8 -64.7,-72.8\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"85.9,0.8 81.9,49.6 121.6,1.9 127.3,-47.6\" fill=\"#E2433C\"></polygon><polygon class=\"\" points=\"82.4,-4.0 16.7,-38.1 59.4,-84.3 124.0,-52.3\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"-44.0,18.5 -107.5,-16.5 -102.6,32.5 -42.0,67.0\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"-41.5,12.9 -105.1,-22.1 -58.0,-69.2 4.6,-36.5\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"36.5,58.6 34.7,106.4 77.3,55.1 81.1,6.4\" fill=\"#F5D63D\"></polygon><polygon class=\"\" points=\"30.1,59.5 -36.8,22.5 -35.1,71.0 28.7,107.2\" fill=\"#33B15D\"></polygon><polygon class=\"\" points=\"32.8,53.7 -34.3,16.8 11.7,-32.8 77.6,1.6\" fill=\"#E2433C\"></polygon></svg>","ocll-1":"<svg viewBox=\"0 0 200 200\"><rect x=\"23.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"75.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"23.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"75.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"23.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><rect x=\"75.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><rect x=\"182.0\" y=\"127.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"182.0\" y=\"75.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><rect x=\"182.0\" y=\"23.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"23.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect><rect x=\"75.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"127.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"6.0\" y=\"23.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"6.0\" y=\"75.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"6.0\" y=\"127.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"75.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect><rect x=\"23.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect></svg>","pll-0":"<svg viewBox=\"0 0 200 200\"><rect x=\"23.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"75.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"23.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"23.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"75.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"75.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"23.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"75.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"127.0\" y=\"127.0\" width=\"50.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F5D63D\"></rect><rect x=\"182.0\" y=\"127.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"182.0\" y=\"75.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect><rect x=\"182.0\" y=\"23.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"23.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><rect x=\"75.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"127.0\" y=\"182.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"6.0\" y=\"23.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#33B15D\"></rect><rect x=\"6.0\" y=\"75.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><rect x=\"6.0\" y=\"127.0\" width=\"12.0\" height=\"50.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect><rect x=\"127.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#2E6CE0\"></rect><rect x=\"75.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#F58F2A\"></rect><rect x=\"23.0\" y=\"6.0\" width=\"50.0\" height=\"12.0\" rx=\"2.5\" fill=\"#E2433C\"></rect><line class=\"ll-arrow-halo\" x1=\"48\" y1=\"62.56\" x2=\"48\" y2=\"137.44\"></line><line class=\"ll-arrow\" x1=\"48\" y1=\"62.56\" x2=\"48\" y2=\"137.44\"></line><polygon class=\"ll-head\" points=\"48,137.44 53.5,127.44 42.5,127.44\"></polygon><polygon class=\"ll-head\" points=\"48,62.56 42.5,72.56 53.5,72.56\"></polygon><line class=\"ll-arrow-halo\" x1=\"110.29547473407614\" y1=\"58.29547473407613\" x2=\"141.70452526592388\" y2=\"89.70452526592386\"></line><line class=\"ll-arrow\" x1=\"110.29547473407614\" y1=\"58.29547473407613\" x2=\"141.70452526592388\" y2=\"89.70452526592386\"></line><polygon class=\"ll-head\" points=\"141.70452526592388,89.70452526592386 138.52254475058442,78.74437015753237 130.7443701575324,86.5225447505844\"></polygon><polygon class=\"ll-head\" points=\"110.29547473407614,58.29547473407613 113.4774552494156,69.25562984246761 121.25562984246763,61.477455249415584\"></polygon></svg>"};
+const COL = { U: '#F5D63D', R: '#E2433C', F: '#2E6CE0', D: '#FBFBF9', L: '#F58F2A', B: '#33B15D' };
+function tok(m) {
+  const f = m.replace(/['2]/g, ''); let h = f;
+  if (m.includes("'")) h += '<i class="p" style="font-style:normal">′</i>';
+  if (m.includes('2')) h += '<i class="t" style="font-style:normal">2</i>';
+  return h;
+}
+document.querySelectorAll('[data-scr]').forEach((el) => {
+  const ms = el.dataset.scr.split(/\s+/); const done = Number(el.dataset.done || 0);
+  el.innerHTML = ms.map((m, i) => `<span class="${i < done ? 'd' : ''}${i === done && done > 0 ? ' nx' : ''}">${tok(m)}</span>`).join('');
+});
+// a net in the facelet order U R F D L B, laid out as a cross
+document.querySelectorAll('[data-net]').forEach((el) => {
+  const f = el.dataset.net; const s = Number(el.dataset.s || 12); const g = 1; const face = 3 * s + 2 * g + 4;
+  const at = { U: [1, 0], L: [0, 1], F: [1, 1], R: [2, 1], B: [3, 1], D: [1, 2] }; const order = 'URFDLB';
+  let r = '';
+  for (const [k, [cx, cy]] of Object.entries(at)) {
+    const base = order.indexOf(k) * 9;
+    for (let i = 0; i < 9; i++) {
+      const x = cx * face + (i % 3) * (s + g), y = cy * face + Math.floor(i / 3) * (s + g);
+      r += `<rect x="${x}" y="${y}" width="${s}" height="${s}" rx="${s / 6}" fill="${COL[f[base + i]]}" stroke="#1B222C" stroke-width=".6"/>`;
+    }
+  }
+  el.innerHTML = `<svg width="${4 * face}" height="${3 * face}" viewBox="-1 -1 ${4 * face + 2} ${3 * face + 2}">${r}</svg>`;
+});
+document.querySelectorAll('[data-svg]').forEach((el) => {
+  el.innerHTML = SVGS[el.dataset.svg];
+  const s = el.querySelector('svg'); s.setAttribute('width', '100%'); s.setAttribute('height', '100%');
+});
+const ICO = {
+  play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 9.3h16M4 14.7h16M9.3 4v16M14.7 4v16"/></svg>',
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11v16H5.5C4.7 20 4 19.3 4 18.5z"/><path d="M20 5.5c0-.8-.7-1.5-1.5-1.5H13v16h5.5c.8 0 1.5-.7 1.5-1.5z"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V4M4 20h16"/><path d="M7 15l4-4 3 3 5-6"/></svg>',
+  cam: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8.5 7l1.5-3h4l1.5 3"/></svg>',
+};
+document.querySelectorAll('[data-ico]').forEach((el) => { el.innerHTML = ICO[el.dataset.ico] + el.innerHTML; });
+document.querySelectorAll('[data-ico2]').forEach((el) => { el.innerHTML = ICO[el.dataset.ico2]; });
+// the mode picker: presets as ranges on the strip. [name, what, strip: F=focus, c=in range, o=out]
+const MODES = [
+  ['Solve', 'scrambled → solved · timed, the stages as splits', 'cccccc', true],
+  ['EOCross', 'scrambled → EOCross · plan it, then do it', 'fFoooo'],
+  ['F2L', 'cross done → F2L · the pairs, with their cases', 'ooFooo'],
+  ['F2L into the last layer', 'cross done → solved · then the OLL and PLL you get', 'ooccFf'],
+  ['Last layer', 'OCLL → solved · the cases you pick', 'oooFFo'],
+  ['PLL', 'the PLL → solved · the cases you pick', 'ooooFc'],
+  ['Find an F2L case', 'no scramble: tap where the pieces are', ''],
+];
+const NAMES = ['EO', 'Cross', 'F2L', 'OLL', 'PLL', 'AUF'];
+document.querySelectorAll('[data-modes]').forEach((el) => {
+  el.innerHTML = MODES.map(([n, w, s, on]) => `<div class="opt" style="display:block;${on ? 'background:#fff;margin:0 -8px;padding:9px 8px;border-radius:10px;border:2px solid var(--ink)' : ''}">
+    <div style="display:flex;align-items:baseline;gap:8px"><b style="font-size:15px">${n}</b><span class="tiny">${w}</span></div>
+    ${s ? `<div class="strip" style="margin-top:5px">${[...s].map((c, i) => `<div class="seg ${c === 'o' ? 'out' : c === 'F' ? 'cur' : ''}" style="padding:1px 5px"><b style="font-size:10.5px">${NAMES[i]}</b></div>`).join('')}</div>` : ''}
+  </div>`).join('');
+});
+</script>
+</body>
+</html>
