@@ -38,7 +38,8 @@ check((await count('#scrfollow .done')) === 3, `three turns of the scramble mark
 check(/3 of \d+ applied/.test(await text('#scrfollow small')), `the line says 3 applied: ${await text('#scrfollow small')}`);
 // the scramble done: tracked without a press, and asked for EOCross
 await replay(cubeScr);
-check((await text('#scrfollow small')) === 'Scrambled ✓', 'scrambled');
+check(/^Scrambled ✓/.test(await text('#scrfollow small')), `scrambled: ${await text('#scrfollow small')}`);
+check((await count('#scrfollow .mv')) === 0, 'at the scramble the move list folds into one line');
 check(/following it/.test(await text('#scrmsg')), `tracked at the scramble: ${await text('#scrmsg')}`);
 check(/Solve EOCross on your cube first/.test(await text('#result .hint')), `EOCross asked for: ${await text('#result .hint')}`);
 // EOCross solved on the cube (the inverse of the scramble, which leaves it solved: every pair home)
@@ -106,6 +107,22 @@ await page.click('#allcases'); await wait(400);
 await page.click(`${card4} .llr-alg [data-fav].on`); await wait(300);
 check(!/your pick/.test(await text(`${card4} .llr-name`)), 'unstarred');
 await page.evaluate(() => document.getElementById('ref-close').click()); await wait(200);
+
+// the box on: the cube solved right through brings the next practice scramble, on this tab
+await page.evaluate(() => { const b = document.getElementById('rescramble'); if (!b.checked) b.click(); });
+await page.click('#genF2L'); await wait(100);
+const scr3 = await page.evaluate(() => window.ZZ.f2l.scramble());
+check((await count('#scrfollow .mv')) > 0, 'the practice scramble is a move list again');
+const cube3 = await cubeOf(scr3);
+await replay(cube3);
+await page.evaluate(() => window.ZZ.showTab('pll')); await wait(100);
+await replay(`${cube3} ${await cubeOf(inverse(scr3))}`); await wait(300);
+check((await page.evaluate(() => window.ZZ.activeTab())) === 'f2l', 'back on the F2L tab once solved');
+const scr4 = await page.evaluate(() => window.ZZ.f2l.scramble());
+check(scr4 && scr4 !== scr3, 'and on the next practice scramble');
+await page.evaluate(() => { document.getElementById('rescramble').click(); });
+await replay(`${await cubeOf(scr4)} ${await cubeOf(inverse(scr4))}`); await wait(300);
+check(!/^Apply this to a solved cube/.test(await text('#scrmsg')), `box off: no new practice scramble (${(await text('#scrmsg')).slice(0, 40)})`);
 
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');

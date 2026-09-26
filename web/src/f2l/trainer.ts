@@ -20,9 +20,9 @@ import { offList, offRoute, routeProgress, wrongTurns } from '../cube/route';
 import { pieceType, posName, STICKERS, type Sticker } from '../cube/geometry';
 import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type View } from '../cube/render';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
-import { state } from '../cube/state';
+import { SOLVED, state } from '../cube/state';
 import { stageOf } from '../stage';
-import { shareScramble, showTab, type Stage, stages } from '../shell';
+import { shareScramble, showTab, type Stage, stages, toast } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
@@ -107,6 +107,7 @@ const STYLE = `
   .f2l .scrbtns { display: flex; gap: 8px; flex-wrap: wrap; }
   .f2l .scrmsg { margin: 0; font-size: 14px; color: var(--ink-2); min-height: 1.2em; }
   .f2l .scrmsg.bad { color: #B3261E; }
+  .f2l .rescr { font-size: 14px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
   .f2l .scrfollow { margin: 0; font-size: 15px; letter-spacing: .02em; word-spacing: .12em; line-height: 1.8; }
   .f2l .scrfollow .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 4px; }
   .f2l .scrfollow .mv .p { color: #B3261E; font-weight: 600; } .f2l .scrfollow .mv .d { color: #1A56B8; font-weight: 600; }
@@ -164,6 +165,7 @@ const MARKUP = `
     </div>
     <p class="scrfollow" id="scrfollow" hidden></p>
     <p class="scrmsg" id="scrmsg"></p>
+    <label class="rescr"><input type="checkbox" id="rescramble"> New practice scramble when the cube is solved</label>
   </div>
   <p class="pairrow"><label for="slotsel">Pair to solve</label>
     <select id="slotsel" class="bigsel"></select>
@@ -206,6 +208,8 @@ export function mountF2L(root: HTMLElement): Stage {
   const $ = scoped(root, (id) => `#${id}`, 'f2l markup');
   const svg = $('cube3d') as unknown as SVGSVGElement, netSvg = $('net') as unknown as SVGSVGElement;
   let scrWca = ''; // the scramble on show, WCA letters (the hold it is applied in); '' for none
+  let armedSince = false; // a cube reached the scramble on show: solving it through to solved may bring the next one
+  const RESCR_KEY = 'zzf2l-rescramble';
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
   const advanced = () => (document.getElementById('advanced') as HTMLInputElement | null)?.checked ?? false;
@@ -419,6 +423,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (!tracked || tracked.scr !== b.scr || tracked.pre !== b.pre) { tracked = { ...b, hist: [] }; solvedSlots = new Set(); }
     else tracked.hist = [];
     fed = []; fedBy = 'cube'; pairAt = null; corner = null; edge = null; // the kind is set right by the first feed
+    armedSince = true;
     trackMsg('Your cube is at the scramble: following it.');
     syncFromCube();
   }
@@ -499,6 +504,10 @@ export function mountF2L(root: HTMLElement): Stage {
     const toks = scrWca ? safe(() => tokens(scrWca)) : null;
     if (!toks) { el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false;
+    // the cube at the scramble (applied, or loaded from the follow as the cube's own state): the turns are
+    // not to be read any more, so the list folds into one line (user, 2026-09-26: the follow's scramble is
+    // the whole solve so far, dozens of turns)
+    if (activeSource() && (track?.matched || (fedBy && fed.length))) { el.innerHTML = `<small>Scrambled ✓ (${toks.length} turns) · the pairs follow your cube</small>`; return; }
     // once the cube's turns are the solve, the scramble stays done: the solve is not "off the scramble"
     const t: TrackStatus | null = !activeSource() ? null : fedBy && fed.length ? { applied: toks.length, total: toks.length, off: false, matched: true, half: false } : track;
     el.innerHTML = `${scrambleHtml(toks, t)}<small class="${t?.off ? 'off' : ''}">${trackText(t, toks)}</small>`;
@@ -514,9 +523,10 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** Show `alg` (trainer frame) as the scramble, and track it. */
   function putScramble(alg: string, msg: string): void {
-    scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset();
-    trackMsg(msg); saveUrl(); renderFollow();
+    scrWca = safe(() => clean(toWca(alg))) ?? ''; track = null; watcher.reset(); armedSince = false;
+    trackMsg(msg); saveUrl();
     if (scrWca) applyScramble();
+    renderFollow(); // after the tracking reset: the old cube feed no longer folds the list
   }
   /** A practice scramble (EO and the cross solved, the pairs and the top layer mixed), tracked, and given to the other tabs. */
   function newScramble(): void {
@@ -664,6 +674,22 @@ export function mountF2L(root: HTMLElement): Stage {
     slot = s; corner = { pos: c.corner, o: c.co }; edge = c.edge; fillSlotSelect(); updateEdgeName(); render(); window.scrollTo({ top: 0 });
   }, render);
   onFavsChange(render); // a favourite from the sheet or another device: the case on show leads with it
+  // the whole cube solved from this tab's scramble (the pairs here, the last layer wherever the follow took you):
+  // the next practice scramble, here, when the box says so
+  const rescr = $<HTMLInputElement>('rescramble');
+  rescr.checked = readStored(RESCR_KEY) === '1';
+  rescr.addEventListener('change', () => writeStored(RESCR_KEY, rescr.checked ? '1' : '0'));
+  let wasSolved = true;
+  onSourceChange(() => {
+    const src = activeSource();
+    const solved = src?.state() === SOLVED;
+    const last = src?.items().at(-1);
+    const byTurn = solved && !wasSolved && last?.kind === 'move';
+    wasSolved = solved;
+    if (!byTurn || !rescr.checked || !armedSince || !scrWca) return;
+    // after the follow's own solved handling (it may move the tabs): this tab, with the next scramble
+    setTimeout(() => { showTab('f2l'); newScramble(); window.scrollTo({ top: 0 }); toast('Solved ✓ next practice scramble'); }, 0);
+  });
   $('reset').onclick = () => { corner = null; edge = null; render(); };
   $('restart').onclick = () => { tracked = null; fed = []; fedBy = null; pairAt = null; solvedSlots = new Set(); corner = null; edge = null; slot = SLOTS[0]; fillSlotSelect(); updateEdgeName(); render(); };
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
