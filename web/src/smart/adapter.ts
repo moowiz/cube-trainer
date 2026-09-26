@@ -55,7 +55,7 @@ export function rememberedDevice(): RememberedDevice | null {
     return d && typeof d.id === 'string' && typeof d.name === 'string' ? d : null;
   } catch { return null; }
 }
-export function rememberDevice(d: RememberedDevice | null): void {
+function rememberDevice(d: RememberedDevice | null): void {
   try { if (d) localStorage.setItem(DEVICE_KEY, JSON.stringify(d)); else localStorage.removeItem(DEVICE_KEY); } catch { /* no storage */ }
 }
 
