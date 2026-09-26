@@ -35,7 +35,7 @@ const CASE_COLOURS = ['#2A78D6', '#EB6834', '#1BAF7A', '#4A3AA7', '#D6299A', '#B
 export const colourOf = (k: number): string => CASE_COLOURS[k % CASE_COLOURS.length]!;
 
 /** Every case's line from the stage's attempts (any order), and the wall clock of every timed try in x order. */
-export function caseLines(attempts: readonly AttemptRecord[], cases: readonly LLCase[]): { lines: CaseLine[]; whens: number[] } {
+export function caseLines(attempts: readonly AttemptRecord[], cases: readonly Pick<LLCase, 'id' | 'name'>[]): { lines: CaseLine[]; whens: number[] } {
   const timed = attempts.filter((a) => !a.deleted && a.time !== null && a.caseId).sort((a, b) => a.when - b.when);
   const byCase = new Map<string, CasePoint[]>();
   timed.forEach((a, i) => {

@@ -454,3 +454,67 @@ export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean, auf =
 export function byLength(algs: readonly string[], auf = ''): string[] {
   return algs.map((a, i) => ({ a, i, n: moveCount(fullAlg(auf, a)) })).sort((x, y) => x.n - y.n || x.i - y.i).map((x) => x.a);
 }
+
+// ---- a case across the four slots, and where its pieces are -----------------------------------------------
+// The sheet numbers each slot's tab on its own, so FL case 17 is not FR case 17 mirrored (2026-09-26: 187 of the
+// 249 cases off front-right differ). The slots are mirrors of each other - the same hand motions reflected, as the
+// algs are - so a case's number to show is its front-right twin's: the one the mirror onto front-right lands on.
+
+const MIRROR_TO_FR: Record<SlotName, Record<string, string>> = { FR: {}, FL: { L: 'R', R: 'L' }, BR: { F: 'B', B: 'F' }, BL: { F: 'B', B: 'F', L: 'R', R: 'L' } };
+const FACE_ORDER = 'UDFBRL';
+const mirrorName = (name: string, m: Record<string, string>) => [...name].map((ch) => m[ch] ?? ch).sort((a, b) => FACE_ORDER.indexOf(a) - FACE_ORDER.indexOf(b)).join('');
+let twins: Map<string, number> | null = null;
+/** The front-right case a slot's case mirrors onto: the number the finder and the sheet show for it on every slot. */
+export function twinOf(slot: SlotName, n: number): number {
+  if (!twins) {
+    twins = new Map();
+    const norm = (k: string) => { const [c, e] = k.split('|'); const [pos, o] = c!.split('-'); return `${mirrorName(pos!, {})}-${o}|${mirrorName(e!, {})}`; };
+    const fr = new Map(Object.entries(DATA.slots.FR.lookup).map(([k, v]) => [norm(k), v.n]));
+    for (const s of SLOTS) for (const c of Object.values(DATA.slots[s].cases)) {
+      const m = MIRROR_TO_FR[s];
+      const n2 = fr.get(`${mirrorName(c.corner, m)}-${c.co}|${mirrorName(c.edge, m)}`);
+      if (n2 === undefined) throw new Error(`${s} case ${c.n} has no front-right twin`);
+      twins.set(caseId(s, c.n), n2);
+    }
+  }
+  return twins.get(caseId(slot, n))!;
+}
+/** The slot's case that is front-right case `n` mirrored. */
+export function caseOfTwin(slot: SlotName, n: number): F2LCase | undefined {
+  return Object.values(DATA.slots[slot].cases).find((c) => twinOf(slot, c.n) === n);
+}
+
+/** Where a case's pieces are, as the groups the case sheet lists them in (from the picture, not the sheet's own sections). */
+export type CaseGroup = 'top' | 'ctop-ein' | 'cin-etop' | 'twisted' | 'eother' | 'cother' | 'cin-eother' | 'cother-ein' | 'bothother';
+export const GROUPS: readonly CaseGroup[] = ['top', 'ctop-ein', 'cin-etop', 'twisted', 'eother', 'cother', 'cin-eother', 'cother-ein', 'bothother'];
+export const GROUP_WORD: Record<CaseGroup, string> = {
+  top: 'Both on top',
+  'ctop-ein': 'Corner on top, edge in its slot',
+  'cin-etop': 'Corner in its slot, edge on top',
+  twisted: 'Both in the slot, corner twisted',
+  eother: 'Corner on top, edge in another slot',
+  cother: 'Corner in another slot, edge on top',
+  'cin-eother': 'Corner in its slot, edge in another slot',
+  'cother-ein': 'Corner in another slot, edge in its slot',
+  bothother: 'Both in other slots',
+};
+export function caseGroup(slot: SlotName, c: Pick<F2LCase, 'corner' | 'edge'>): CaseGroup {
+  const cp = c.corner.startsWith('U') ? 'top' : c.corner.slice(1) === slot ? 'own' : 'other';
+  const ep = c.edge.startsWith('U') ? 'top' : c.edge === slot ? 'own' : 'other';
+  const g: Record<string, CaseGroup> = {
+    'top top': 'top', 'top own': 'ctop-ein', 'own top': 'cin-etop', 'own own': 'twisted', 'top other': 'eother',
+    'other top': 'cother', 'own other': 'cin-eother', 'other own': 'cother-ein', 'other other': 'bothother',
+  };
+  return g[`${cp} ${ep}`]!;
+}
+
+/**
+ * Both pieces on top: already joined as a pair (touching, the two stickers they share the same colours), touching
+ * the wrong way, or apart. Null when a piece is not on top.
+ */
+export function pairShape(slot: SlotName, c: Pick<F2LCase, 'corner' | 'co' | 'edge'>): 'joined' | 'touching' | 'apart' | null {
+  if (!c.corner.startsWith('U') || !c.edge.startsWith('U')) return null;
+  if (![...c.edge].every((ch) => c.corner.includes(ch))) return 'apart';
+  const cm = DATA.slots[slot].cmap[`${c.corner}-${c.co}`]!, em = DATA.slots[slot].emap[c.edge]!;
+  return [...c.edge].every((face) => cm[face] === em[face]) ? 'joined' : 'touching';
+}

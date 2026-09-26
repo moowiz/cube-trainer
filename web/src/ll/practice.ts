@@ -43,7 +43,7 @@ function trendOf(timed: readonly number[]): number | null {
 }
 
 /** Per-case stats for `cases`, from the stage's attempts (oldest first); every case is listed, practised or not. */
-export function caseStats(attempts: readonly AttemptRecord[], cases: readonly LLCase[]): CaseStats[] {
+export function caseStats(attempts: readonly AttemptRecord[], cases: readonly Pick<LLCase, 'id' | 'name'>[]): CaseStats[] {
   const byCase = new Map<string, AttemptRecord[]>();
   for (const a of attempts) if (a.caseId && !a.deleted) (byCase.get(a.caseId) ?? byCase.set(a.caseId, []).get(a.caseId)!).push(a);
   return cases.map((c) => {

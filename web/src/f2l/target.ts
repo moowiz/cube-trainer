@@ -10,7 +10,6 @@ import { inverse } from '../cube/alg';
 import { CORNER_COLORS, CORNER_FACELETS, EDGE_COLORS, EDGE_FACELETS } from '../cube/pieces';
 import { state } from '../cube/state';
 import { solveAny } from '../ll/scramble';
-import { DATA } from './data';
 import { caseId, caseOf, fullAlg, invert, SLOTS, type SlotName } from './model';
 
 /** A case to practise: the pair of `slot` in the sheet's case `n` for that slot. */

@@ -19,6 +19,8 @@ import { ensureStyle, scoped } from './dom';
 // where finished attempts go (the solve store); nothing is kept when no sink is set (tests)
 let attemptSink: ((a: AttemptRecord) => void) | null = null;
 export function setAttemptSink(fn: ((a: AttemptRecord) => void) | null): void { attemptSink = fn; }
+/** File an attempt made outside the drill scaffold (the F2L finder's targeted pairs); nothing without a sink. */
+export function fileAttempt(a: AttemptRecord): void { attemptSink?.(a); }
 // and where a drill reads them back (the practice view); nothing without one
 let attemptReader: ((stage: AttemptStage) => Promise<AttemptRecord[]>) | null = null;
 export function setAttemptReader(fn: ((stage: AttemptStage) => Promise<AttemptRecord[]>) | null): void { attemptReader = fn; }
