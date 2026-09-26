@@ -124,6 +124,16 @@ await page.evaluate(() => { document.getElementById('rescramble').checked = fals
 const solveAll = await cubeOf(inverse(scr2));
 await replay(`${cube2} ${solveAll}`);
 check(/All four pairs solved/.test(await text('#result .hint') ?? ''), 'F2L done on the cube');
+// no cube: "Did this" moves the tracked cube on, and the cards follow it (they showed the scramble's cases: user, 2026-09-26)
+await page.$eval('#genF2L', (b) => b.click()); await wait(200); // the replayed cube is not at this scramble: nothing feeds
+if ((await count('#result .alg button')) > (await count('#result .alg'))) {
+  const before = await page.$eval('#tracker > span.cur small', (e) => e.textContent);
+  await page.$eval('#result .alg button:last-child', (b) => b.click()); await wait(200); // Did this on the first alg
+  const cardNow = await page.$eval('#tracker > span.cur small', (e) => e.textContent);
+  const title = await text('#result .case-title h2');
+  const m = /case (\d+)/.exec(cardNow ?? '');
+  check(m && title?.endsWith(`case ${m[1]}`), `after Did this the current card matches the panel: ${cardNow} vs ${title} (was ${before})`);
+} else console.log('    (a cube is still feeding: the Did-this card check not tried)');
 // the tab opened with the cube elsewhere: the cube as it stands is read, not the scramble assumed
 await page.$eval('#genF2L', (b) => b.click()); await wait(100);
 const scrX = await page.evaluate(() => window.ZZ.f2l.scramble());

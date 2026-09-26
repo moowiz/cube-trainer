@@ -375,7 +375,9 @@ export function mountF2L(root: HTMLElement): Stage {
   const openSlots = () => SLOTS.filter((s) => !solvedSlots.has(s));
   /** The state the cards read their cases off: where the pairs were last read (mid-alg the cube itself is between cases), else the cube. */
   function cardState(): string | null {
-    if (tracked && pairAt !== null && corner && edge) { try { return state(pairSetup()); } catch { return null; } }
+    // a cube feeding: where its turns last read the pairs (pairSetup is built from the feed; without a cube the
+    // moves are the "Did this" history, which the tracked cube itself holds)
+    if (fedBy && tracked && pairAt !== null && corner && edge) { try { return state(pairSetup()); } catch { return null; } }
     return beforeF2L() ? null : cube();
   }
   function renderTracker(): void {
