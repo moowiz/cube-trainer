@@ -25,7 +25,7 @@ const replay = async (moves) => { await page.evaluate((t) => window.ZZ.smart.rep
 const text = (sel) => page.$eval(sel, (e) => e.textContent).catch(() => null);
 const count = (sel) => page.$$eval(sel, (es) => es.length);
 /** Pick a pair by its chip above the cube (the dropdown is gone). */
-const pickPair = (word) => page.$$eval('#tracker > span', (es, w) => es.find((e) => e.textContent.includes(w))?.click(), word);
+const pickPair = (word) => page.$$eval('#tracker > span', (es, w) => es.find((e) => e.textContent.startsWith(w))?.click(), word); // the chip's name leads; a shortcut's note may name another slot
 
 await page.goto(`${server.origin}/?tab=f2l`, { waitUntil: 'networkidle0' });
 // a full scramble in the box, EOCross to do: the scramble is the cube's target, the EOCross moves come from the cube
