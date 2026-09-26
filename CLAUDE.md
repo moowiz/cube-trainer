@@ -94,7 +94,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
     shell.ts         tabs, sheets, toast, keys, the `stages` registry (window.ZZ is a facade for tooling)
     eo/              solver (2^12 table, families, plans), eocross (worker client + per-scramble strategy), trainer
     f2l/             the ZZF2L case finder: data (the sheet), model (slots, cases, scramble generators, the
-                     favourite alg per case), pic (the pair pictured on the cube), trainer (on a smart cube: the
+                     favourite alg per case), search (the fewest R/L/U turns for a case, keeping the solved slots or going through
+                     the open ones: the sheet is not assumed complete; scripts/f2l-derive.ts measures the sheet against it per
+                     technique, docs/f2l-techniques.md), pic (the pair pictured on the cube), trainer (on a smart cube: the
                      scramble followed, the cube tracked from it, each pair's case read off it, the alg being done
                      lit and followed; `npm run check:f2l` replays that headlessly), reference (the case sheet: one
                      slot's 83 cases grouped by where the pieces are, filtered; stars and notes like the LL sheet's, a Practise toggle per

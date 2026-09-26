@@ -118,6 +118,8 @@ function falseClaims(slot: SlotName, c: (typeof DATA.slots)['FR']['cases'][strin
   if (has('the first three moves lift both pieces out')) claim(!!S[3]?.cU && !!S[3]?.eU, 'both on top after three moves');
   if (has('takes the corner out')) claim(cUp > 0, 'the corner comes out');
   if (has('pulls it out')) claim(eUp > 0, 'the edge comes out');
+  const sidesAtOnce = toks.some((t, k) => (t[0] === 'R' && net(toks.slice(0, k), 'L') !== 0) || (t[0] === 'L' && net(toks.slice(0, k), 'R') !== 0));
+  claim(has('The two sides overlap') === sidesAtOnce, 'R and L worked at once');
   // other slots: borrowed (lifted and put back) or used (left changed)
   const fs = [SOLVED, ...stepStates(SOLVED, normalizeAlg(full))], all = tokens(normalizeAlg(full));
   const others = SLOTS.filter((s) => s !== slot && s !== cSlot && s !== eSlot);

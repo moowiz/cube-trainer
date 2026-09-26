@@ -245,6 +245,10 @@ function pairAt(f: string, slot: SlotName): PairAt {
   }
   return { cAt: c.name, eAt: posName(ep), cU, eU, cHome: cubieSolved(f, home.corner), eHome: cubieSolved(f, home.edge), white: c.face, joined, ready: readySigs(slot).has(pairSig(f, slot)) };
 }
+/** True when an R (L) turn comes while the L (R) layer is off its start: the two sides worked at once. */
+export function overlaps(toks: readonly string[]): boolean {
+  return toks.some((t, k) => (t[0] === 'R' && netTurns(toks.slice(0, k), 'L') !== 0) || (t[0] === 'L' && netTurns(toks.slice(0, k), 'R') !== 0));
+}
 /** Net quarter turns of `face` in `toks`, mod 4. */
 const netTurns = (toks: readonly string[], face: string): number =>
   toks.filter((t) => t[0] === face).reduce((n, t) => n + (t.endsWith("'") ? 3 : t.endsWith('2') ? 2 : 1), 0) % 4;
@@ -381,6 +385,8 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
     body = `Pieces in wrong slots are popped out with that slot's own moves (${POP[slot]} style), then inserted normally.${tail}`;
   }
 
+  // the two sides at once: one side's slot still open (its turns not back to zero) while the other side turns
+  if (overlaps(toks)) body += ' The two sides overlap: R and L turn different layers, so one side\'s slot is still open while the other side turns, instead of the pop and the insert one after the other.';
   // other slots the alg goes through: lifted and put back (whatever is there comes back), or left changed (a shortcut)
   const occ = new Set([cSlot, eSlot].filter((s): s is string => !!s));
   const bor = borrowedSlots(slot, alg, occ);

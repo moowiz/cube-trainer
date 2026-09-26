@@ -2,10 +2,11 @@
 // sheet's algs are checked against, so a shorter one is never missed (user, 2026-09-26: case 31 on front-left
 // listed only the sheet's 7-move alg; R L' U R' L does it in 5). The sheet is a list of good algs, not a
 // proof that none is shorter.
-// IDA* on the pieces that matter (the pair, the side cross edges, the kept pairs), everything else free. The
-// heuristic is the largest of the kept pairs' pattern tables: one per slot, the distance to home of that slot's
-// pair with the two side cross edges (R and L never touch the front and back ones, U none of them; EO is kept
-// by every turn in the set). Pure; a table is built once per slot (~330k entries, a byte each).
+// IDA* on the pieces that matter (the pair, the cross edges, the kept pairs), everything else free. The heuristic
+// is the largest of the kept pairs' pattern tables: one per slot and move set, the distance to home of that slot's
+// pair with the two side cross edges (R and L never touch the front and back ones, U none of them; EO is kept by
+// every turn in the set). Other move sets (own side only, + D, + F2) are for scripts/f2l-derive.ts, which measures
+// the sheet against each. Pure; a table is built once per slot and move set (~330k entries, a byte each).
 
 import { SOLVED, state } from '../cube/state';
 import type { F2LCase, SlotName } from './data';
@@ -14,9 +15,11 @@ import { crossSolved, edgeState } from '../cube/pieces';
 import { fullAlg, invert, SLOTS, slotSolved } from './model';
 import { idAt, perm, stickersOf } from './ownside';
 
-const MOVES = ['U', "U'", 'U2', 'R', "R'", 'R2', 'L', "L'", 'L2'] as const;
-let perms: number[][] | null = null;
-const P = () => (perms ??= MOVES.map(perm));
+/** The move set the finder searches: ZZ's F2L turns, which keep EO and the front and back cross edges. */
+export const RLU = ['U', "U'", 'U2', 'R', "R'", 'R2', 'L', "L'", 'L2'] as const;
+const PERMS = new Map<string, number[][]>();
+const P = (moves: readonly string[]) => { const k = moves.join(' '); let p = PERMS.get(k); if (!p) PERMS.set(k, (p = moves.map(perm))); return p; };
+const OPP: Record<string, string> = { U: 'D', D: 'U', R: 'L', L: 'R', F: 'B', B: 'F' };
 
 /** One sticker per piece: where it sits says where the piece is and which way it is turned. */
 const ref = (name: string) => stickersOf(name)[0]!;
@@ -37,12 +40,13 @@ function indices(): [Int8Array, Int8Array] {
 const tablePieces = (slot: SlotName) => [ref(`D${slot}`), ref(slot), ref('DR'), ref('DL')];
 const tableKey = (c: Int8Array, e: Int8Array, a: number, b: number, x: number, y: number) => ((c[a]! * 24 + e[b]!) * 24 + e[x]!) * 24 + e[y]!;
 
-const TABLES = new Map<SlotName, Uint8Array>();
-/** Distance to home for every place of the slot's pair and the side cross edges, R/L/U only (255: unreachable). */
-function table(slot: SlotName): Uint8Array {
-  let t = TABLES.get(slot);
+const TABLES = new Map<string, Uint8Array>();
+/** Distance to home for every place of the slot's pair and the side cross edges, in `moves` (255: unreachable). */
+function table(slot: SlotName, moves: readonly string[]): Uint8Array {
+  const key = `${slot}|${moves.join(' ')}`;
+  let t = TABLES.get(key);
   if (t) return t;
-  const [c, e] = indices(), p = P();
+  const [c, e] = indices(), p = P(moves);
   t = new Uint8Array(24 ** 4).fill(255);
   let frontier = [tablePieces(slot)];
   t[tableKey(c, e, frontier[0]![0]!, frontier[0]![1]!, frontier[0]![2]!, frontier[0]![3]!)] = 0;
@@ -58,7 +62,7 @@ function table(slot: SlotName): Uint8Array {
     }
     frontier = next;
   }
-  TABLES.set(slot, t);
+  TABLES.set(key, t);
   return t;
 }
 
@@ -66,29 +70,33 @@ function table(slot: SlotName): Uint8Array {
 export interface Placed { slot: SlotName; corner: number; edge: number }
 
 /**
- * The fewest R, L and U turns that put `pair`'s pieces home with the cross and every pair in `keep` home at the end,
- * the kept pairs and the side cross edges starting home (a kept pair may be lifted on the way; the other slots are
- * free). One of the shortest when there are several; null past `maxDepth`.
+ * The fewest turns of `moves` (R/L/U by default) that put `pair`'s pieces home with the whole cross and every pair in
+ * `keep` home at the end, those starting home (a kept pair may be lifted on the way; the other slots are free). Up
+ * to `limit` of the shortest (all of one length, the first found first); [] past `maxDepth`.
  */
-export function shortestRLU(pair: Placed, keep: readonly SlotName[], maxDepth = 14): string | null {
-  const [c, e] = indices(), p = P();
+export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { moves?: readonly string[]; maxDepth?: number; limit?: number } = {}): string[] {
+  const moves = opts.moves ?? RLU, maxDepth = opts.maxDepth ?? 14, limit = opts.limit ?? 1;
+  const [c, e] = indices(), p = P(moves);
+  const faces = moves.map((m) => m[0]!);
   const slots = [pair.slot, ...keep.filter((s) => s !== pair.slot)];
-  const tabs = slots.map(table);
-  /** state: [DR, DL, corner0, edge0, corner1, edge1, ...] */
-  const cur = [ref('DR'), ref('DL'), pair.corner, pair.edge, ...slots.slice(1).flatMap((s) => [ref(`D${s}`), ref(s)])];
+  const tabs = slots.map((s) => table(s, moves));
+  /** state: [DR, DL, DF, DB, corner0, edge0, corner1, edge1, ...] */
+  const home = [ref('DR'), ref('DL'), ref('DF'), ref('DB'), ...slots.flatMap((s) => [ref(`D${s}`), ref(s)])];
+  const cur = [...home.slice(0, 4), pair.corner, pair.edge, ...home.slice(6)];
   const h = (s: number[]) => {
     let m = 0;
-    for (let i = 0; i < tabs.length; i++) m = Math.max(m, tabs[i]![tableKey(c, e, s[2 + 2 * i]!, s[3 + 2 * i]!, s[0]!, s[1]!)]!);
+    for (let i = 0; i < tabs.length; i++) m = Math.max(m, tabs[i]![tableKey(c, e, s[4 + 2 * i]!, s[5 + 2 * i]!, s[0]!, s[1]!)]!);
     return m;
   };
-  const path: number[] = [];
+  const done = (s: number[]) => s.every((x, i) => x === home[i]);
+  const path: number[] = [], out: string[] = [];
   const dfs = (s: number[], g: number, bound: number, last: number): boolean => {
     const hs = h(s);
-    if (hs === 0) return true;
     if (g + hs > bound) return false;
-    for (let m = 0; m < MOVES.length; m++) {
-      const f = (m / 3) | 0, lf = last < 0 ? -1 : (last / 3) | 0;
-      if (f === lf || (f === 1 && lf === 2)) continue; // no face twice; R and L commute, so R never straight after L
+    if (g === bound) { if (done(s)) out.push(path.map((m) => moves[m]).join(' ')); return out.length >= limit; }
+    for (let m = 0; m < moves.length; m++) {
+      const f = faces[m]!, lf = last < 0 ? '' : faces[last]!;
+      if (f === lf || (OPP[f] === lf && f > lf)) continue; // no face twice; opposite faces commute, so one order only (R before L)
       const pm = p[m]!;
       path.push(m);
       if (dfs(s.map((x) => pm[x]!), g + 1, bound, m)) return true;
@@ -96,11 +104,12 @@ export function shortestRLU(pair: Placed, keep: readonly SlotName[], maxDepth = 
     }
     return false;
   };
-  const h0 = h(cur);
-  if (h0 === 255) return null;
-  for (let bound = h0; bound <= maxDepth; bound++) if (dfs(cur, 0, bound, -1)) return path.map((m) => MOVES[m]).join(' ');
-  return null;
+  if (h(cur) === 255) return [];
+  for (let bound = h(cur); bound <= maxDepth; bound++) { dfs(cur, 0, bound, -1); if (out.length) return out; }
+  return [];
 }
+/** The first of the shortest R/L/U algs (shortestAlgs), or null. */
+export const shortestRLU = (pair: Placed, keep: readonly SlotName[], maxDepth = 14): string | null => shortestAlgs(pair, keep, { maxDepth })[0] ?? null;
 
 /** The shortest alg in the form the sheet writes them: leading U turns as the AUF in brackets ('(U) R U R''). */
 export function asSheetAlg(alg: string): string {
