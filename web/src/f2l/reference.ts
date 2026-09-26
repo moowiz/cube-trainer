@@ -19,7 +19,7 @@ import { ensureStyle, esc } from '../ui/dom';
 import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 import { DATA } from './data';
 import {
-  allAlgs, byLength, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
+  allAlgs, byLength, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, notInSheet, pairShape,
   SLOT_WORD, SLOTS, type SlotName, twinOf, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
@@ -126,10 +126,10 @@ export function openF2LReference(slot: SlotName, pick: (slot: SlotName, c: F2LCa
     const id = caseId(shownSlot, c.n);
     const main = f2lMainAlg(id) ?? c.algs[0]!;
     const fav = f2lIsFavourite(id);
-    const alts = byLength(allAlgs(c).filter((a) => a !== main)).map((a) => {
+    const alts = byLength(allAlgs(shownSlot, c).filter((a) => a !== main)).map((a) => {
       const o = c.others.find((x) => x.alg === a);
       // a shortcut goes through the other slot and leaves it changed: that slot must still be open (unsolved)
-      return { alg: a, note: o ? `goes through the ${o.free.map((s) => SLOT_WORD[s]).join(' and ')} slot${o.free.length > 1 ? 's' : ''}, which must still be open` : a === c.simple && c.simple_src === 'search' ? 'R/L/U only, found by search (not in the sheet)' : c.algs.includes(a) ? 'from the sheet' : '' };
+      return { alg: a, note: o ? `goes through the ${o.free.map((s) => SLOT_WORD[s]).join(' and ')} slot${o.free.length > 1 ? 's' : ''}, which must still be open` : notInSheet(c, a) ? 'R/L/U only, found by search (not in the sheet)' : c.algs.includes(a) ? 'from the sheet' : '' };
     });
     const num = twinOf(shownSlot, c.n);
     const altsBox = altsHtml('f2l', id, alts, `case ${num}`, f2lAlgHtml);

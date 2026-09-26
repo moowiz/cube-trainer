@@ -137,7 +137,7 @@ function falseClaims(slot: SlotName, c: (typeof DATA.slots)['FR']['cases'][strin
 describe('explain() says only what the alg does', () => {
   for (const slot of SLOTS) {
     it(`every alg of every ${SLOT_WORD[slot]} case`, () => {
-      const bad = Object.values(DATA.slots[slot].cases).flatMap((c) => allAlgs(c).flatMap((a) => falseClaims(slot, c, a)));
+      const bad = Object.values(DATA.slots[slot].cases).flatMap((c) => allAlgs(slot, c).flatMap((a) => falseClaims(slot, c, a)));
       expect(bad).toEqual([]);
     });
   }

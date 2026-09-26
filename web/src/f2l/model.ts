@@ -17,6 +17,7 @@ import { randomScramble } from '../scramble';
 import { faceColorName } from '../cube/scheme';
 import { stageOf } from '../stage';
 import type { FaceId } from '../types';
+import { shortestFor } from './search';
 import { DATA, type CornerOrient, type F2LCase, type LookupHit, type SlotName } from './data';
 
 export type { CornerOrient, F2LCase, LookupHit, SlotName };
@@ -562,15 +563,34 @@ export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
   const slot = m[1] as SlotName, c = DATA.slots[slot].cases[m[2]!];
   return c ? { slot, c } : null;
 }
-/** Every alg a case has: the sheet's, then the slot shortcuts, then the searched R/L/U one when there is one. */
-export function allAlgs(c: F2LCase): string[] {
-  const out = [...c.algs, ...c.others.map((o) => o.alg)];
+/**
+ * A case's algs from the position at hand (`auf` the lookup's): the sheet's, and the fewest-turns R/L/U alg found by
+ * search (search.ts) when none of the sheet's is as short - the sheet is a list of good algs, not a proof that none
+ * is shorter (user, 2026-09-26: front-left case 31 had only R U R' U' L' U L; R L' U R' L is 5).
+ */
+export function caseAlgs(slot: SlotName, c: F2LCase, auf = ''): string[] {
+  const s = shortestFor(slot, c);
+  const n = (a: string) => moveCount(fullAlg(auf, a));
+  return s && c.algs.every((a) => n(s) < n(a)) ? [...c.algs, s] : c.algs;
+}
+/** The R/L/U-only alg: the case's own (the sheet's, or one searched offline), or the fewest-turns one when that is shorter. */
+export function simpleAlg(slot: SlotName, c: F2LCase, auf = ''): string {
+  const s = shortestFor(slot, c);
+  return s && moveCount(fullAlg(auf, s)) < moveCount(fullAlg(auf, c.simple)) ? s : c.simple;
+}
+/** True for an alg of a case that the sheet does not list: found by search, offline or here. */
+export const notInSheet = (c: F2LCase, a: string): boolean =>
+  !c.algs.includes(a) && !c.others.some((o) => o.alg === a) && !(a === c.simple && c.simple_src === 'sheet');
+/** Every alg a case has: the sheet's, then the slot shortcuts, then the searched R/L/U ones when there are any. */
+export function allAlgs(slot: SlotName, c: F2LCase): string[] {
+  const out = [...caseAlgs(slot, c), ...c.others.map((o) => o.alg)];
   if (c.simple_src === 'search') out.push(c.simple);
+  out.push(simpleAlg(slot, c));
   return [...new Set(out)];
 }
 export function f2lCaseIds(): string[] { return SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).map((c) => caseId(s, c.n))); }
-/** The table's own main: the shortest sheet alg. */
-export function f2lStandardAlg(id: string): string | undefined { const c = caseOf(id)?.c; return c && byLength(c.algs)[0]; }
+/** The table's own main: the shortest of the case's algs (the searched one only when it beats the sheet's). */
+export function f2lStandardAlg(id: string): string | undefined { const h = caseOf(id); return h ? byLength(caseAlgs(h.slot, h.c))[0] : undefined; }
 /** The alg the finder leads with: the favourite, else the standard. */
 export function f2lMainAlg(id: string): string | undefined { return FAV.get(id) ?? f2lStandardAlg(id); }
 export function f2lIsFavourite(id: string): boolean { return FAV.has(id); }
@@ -578,19 +598,19 @@ export function f2lIsFavourite(id: string): boolean { return FAV.has(id); }
 export function f2lSetMainAlg(id: string, alg: string | null): boolean {
   const hit = caseOf(id);
   if (!hit) return false;
-  if (alg !== null && !allAlgs(hit.c).includes(alg)) return false;
+  if (alg !== null && !allAlgs(hit.slot, hit.c).includes(alg)) return false;
   if (alg === null || alg === f2lStandardAlg(id)) FAV.delete(id); else FAV.set(id, alg);
   return true;
 }
 /**
- * The algs to list for a case, main first: the favourite when there is one, else the sheet's shortest alg
+ * The algs to list for a case, main first: the favourite when there is one, else the shortest of the case's algs
  * from the position at hand (`auf` the lookup's; advanced) or the R/L/U-only one (simple). The rest of the
- * sheet's algs follow, shortest first; the slot shortcuts are the caller's to add (they need free slots).
+ * case's algs follow, shortest first; the slot shortcuts are the caller's to add (they need free slots).
  */
 export function orderedAlgs(slot: SlotName, c: F2LCase, advanced: boolean, auf = ''): string[] {
   const fav = FAV.get(caseId(slot, c.n));
-  const rest = advanced ? byLength(c.algs, auf) : [];
-  const main = fav ?? (advanced ? rest[0]! : c.simple);
+  const rest = advanced ? byLength(caseAlgs(slot, c, auf), auf) : [];
+  const main = fav ?? (advanced ? rest[0]! : simpleAlg(slot, c, auf));
   return [main, ...rest.filter((a) => a !== main)];
 }
 /**

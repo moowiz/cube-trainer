@@ -25,7 +25,7 @@ describe('own-side algs', () => {
       expect(crossSolved(edgeState(end))).toBe(true);
       expect(stepStates(start, o.alg).some((f) => lifted(f, neighbourOf(slot))), `${slot} ${c.n} ${o.alg} lifts the neighbour`).toBe(false);
       // no sheet alg of the same kind is shorter
-      for (const a of allAlgs(c)) {
+      for (const a of allAlgs(slot, c)) {
         const full = fullAlg('', a);
         const own = tokens(full).every((t) => t[0] === 'U' || t[0] === slot[1]);
         if (own && !stepStates(start, full).some((f) => lifted(f, neighbourOf(slot)))) expect(o.moves, `${slot} ${c.n}: ${full} is shorter`).toBeLessThanOrEqual(moveCount(full));
