@@ -8,7 +8,7 @@ import { invertMap } from '../cube/frame';
 import { SOLVED } from '../cube/state';
 import { expectedFacelets, frameMap, relabelMoves, trainerScramble } from '../handoff';
 import { toast } from '../shell';
-import { autoConnect, autoConnectSupport, bluetoothAvailable, connectCube, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
+import { autoConnect, autoConnectSupport, bluetoothAvailable, connectCube, PERMISSIONS_HINT, permittedDevices, pickKnownDevice, rememberedDevice, type ConnectOpts, type CubeLink } from '../smart/adapter';
 import { Capture, replay } from '../smart/capture';
 import { CubeSource } from '../smart/source';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
@@ -80,6 +80,7 @@ function connectOpts(src: CubeSource): ConnectOpts {
       return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac) ? mac : null;
     },
     onStatus: (m) => view.setBusy(m),
+    onWarning: (m) => { console.warn(`[smart] ${m}`); toast(m, 12000); view.setBusy(m); },
   };
 }
 
@@ -123,7 +124,7 @@ async function listenForCube(): Promise<void> {
   const device = pickKnownDevice(devices, remembered);
   if (!device) {
     const names = devices.map((d) => d.name ?? '?').join(', ');
-    explain(devices.length === 0 ? 'no permitted device yet (connect once with the button, then reload)' : `none of the permitted devices [${names}] is the remembered cube${remembered ? ` ${remembered.name}` : ''}`);
+    explain(devices.length === 0 ? `Chrome is not keeping Bluetooth permissions (getDevices is empty): ${PERMISSIONS_HINT}` : `none of the permitted devices [${names}] is the remembered cube${remembered ? ` ${remembered.name}` : ''}`);
     return;
   }
   if (cubeLink || listening) return;

@@ -136,12 +136,12 @@ function scanDocked(): boolean { return !el('scan-sheet').hidden && el('scan-she
 export function scanStarted(): void { el('scan-resume').hidden = false; }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-export function toast(msg: string): void {
+export function toast(msg: string, ms = 4000): void {
   const t = el('toast');
   t.textContent = msg;
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+  toastTimer = setTimeout(() => { t.hidden = true; }, ms);
 }
 
 /** The scramble the open stage expects the cube to be in (trainer frame), or null. */

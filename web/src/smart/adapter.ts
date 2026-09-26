@@ -35,8 +35,13 @@ export interface ConnectOpts {
   /** the MAC dialog, when the library could not read it: null cancels. `why` is the probe's verdict (probeAdvertisement) */
   askMac(deviceName: string, why: string): Promise<string | null>;
   onStatus?(msg: string): void;
+  /** something the user should know once, on the connect that was fine otherwise (the auto-connect will not work, and why) */
+  onWarning?(msg: string): void;
   now?(): number;
 }
+
+/** The Chrome flag that makes the chooser's picks persist (getDevices returns them); the API alone does not. */
+export const PERMISSIONS_HINT = 'turn on chrome://flags/#enable-web-bluetooth-new-permissions-backend, relaunch Chrome, connect once with the button, then reload';
 
 const MAC_KEY = 'cube.smart.mac.v1';
 const DEVICE_KEY = 'cube.smart.device.v1';
@@ -164,8 +169,12 @@ export async function connectCube(opts: ConnectOpts): Promise<CubeLink> {
   const log: Log = (msg) => { console.info(`[smart] ${msg}`); opts.onStatus?.(msg); };
   const conn = await connectSmartCube({ onStatus: opts.onStatus, macAddressProvider: macProvider(opts, log, null) });
   // the chooser's pick is remembered for the auto-connect (its id is what getDevices hands back)
-  const picked = await permittedDevices().then((ds) => ds.find((d) => d.name === conn.deviceName) ?? null).catch(() => null);
-  if (picked) rememberDevice({ id: picked.id, name: conn.deviceName });
+  const support = autoConnectSupport();
+  if (support.ok) {
+    const picked = await permittedDevices().then((ds) => ds.find((d) => d.name === conn.deviceName) ?? null).catch(() => null);
+    if (picked) rememberDevice({ id: picked.id, name: conn.deviceName });
+    else opts.onWarning?.(`Chrome did not keep the permission for ${conn.deviceName}, so it will not auto-connect: ${PERMISSIONS_HINT}`);
+  } else opts.onWarning?.(`This browser cannot auto-connect (${support.why})`);
   return wrap(conn, opts);
 }
 
@@ -227,7 +236,7 @@ export async function permittedDevices(): Promise<BluetoothDevice[]> {
 export function autoConnectSupport(): { ok: true; watch: boolean } | { ok: false; why: string } {
   if (!bluetoothAvailable()) return { ok: false, why: 'this browser has no Web Bluetooth' };
   const bt = navigator.bluetooth as Bluetooth & { getDevices?: unknown };
-  if (typeof bt.getDevices !== 'function') return { ok: false, why: 'this Chrome has no getDevices API: turn on chrome://flags/#enable-web-bluetooth-new-permissions-backend and relaunch' };
+  if (typeof bt.getDevices !== 'function') return { ok: false, why: `this Chrome has no getDevices API: ${PERMISSIONS_HINT}` };
   const watch = typeof (globalThis as { BluetoothDevice?: { prototype?: { watchAdvertisements?: unknown } } }).BluetoothDevice?.prototype?.watchAdvertisements === 'function';
   return { ok: true, watch };
 }
