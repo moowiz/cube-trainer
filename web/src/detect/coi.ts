@@ -9,11 +9,14 @@
 export function ensureCrossOriginIsolated(): void {
   if (self.crossOriginIsolated || !('serviceWorker' in navigator) || location.protocol !== 'https:') return;
   const flag = 'coi-reloaded';
+  const t = performance.now();
   navigator.serviceWorker.register(`${import.meta.env.BASE_URL}coi-serviceworker.js`).then((reg) => {
+    const state = reg.installing ? 'installing' : reg.waiting ? 'waiting' : reg.active ? 'active' : 'none';
+    console.info(`[boot] service worker registered in ${(performance.now() - t).toFixed(0)} ms: ${state}; controller=${String(!!navigator.serviceWorker.controller)}, reloaded=${String(!!sessionStorage.getItem(flag))}`);
     if (navigator.serviceWorker.controller || sessionStorage.getItem(flag)) return;
     sessionStorage.setItem(flag, '1');
     const sw = reg.installing ?? reg.waiting;
-    if (sw) sw.addEventListener('statechange', () => { if (sw.state === 'activated') location.reload(); });
-    else if (reg.active) location.reload();
-  }).catch(() => undefined);
+    if (sw) sw.addEventListener('statechange', () => { if (sw.state === 'activated') { console.info('[boot] service worker activated: reloading once for the isolation headers'); location.reload(); } });
+    else if (reg.active) { console.info('[boot] service worker already active: reloading once for the isolation headers'); location.reload(); }
+  }).catch((err) => console.warn('[boot] service worker registration failed', err));
 }

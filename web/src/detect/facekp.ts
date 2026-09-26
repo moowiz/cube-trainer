@@ -25,6 +25,7 @@
 //
 // The app must keep working when no model file is deployed: load() resolves
 // null on a missing model, and callers fall back to the grid scanner.
+import { timed } from '../debug/boot';
 import * as ort from 'onnxruntime-web';
 import { configureMainThreadWasm, createSession, type Ep, type RunSession } from './session';
 import type { FaceId, Lab } from '../types';
@@ -157,12 +158,12 @@ export class FaceDetector {
     const metaRes = await fetch(`${base}models/facekp.json`);
     if (!metaRes.ok) return null;
     const meta = (await metaRes.json()) as FacekpMeta;
-    const modelRes = await fetch(`${base}models/facekp.onnx`);
+    const modelRes = await timed('facekp.onnx fetch', () => fetch(`${base}models/facekp.onnx`));
     if (!modelRes.ok) return null;
     const model = new Uint8Array(await modelRes.arrayBuffer());
 
     // wasm sessions run in the worker, webgpu on the page (session.ts)
-    const create = (ep: Ep) => createSession(model, ep);
+    const create = (ep: Ep) => timed(`facekp ${ep} session create`, () => createSession(model, ep));
 
     if (preferred !== 'auto') {
       return new FaceDetector(await create(preferred), meta, preferred);
@@ -187,13 +188,13 @@ export class FaceDetector {
     }
 
     const [, , h, w] = meta.input.shape;
-    const bench = async (session: RunSession): Promise<number> => {
+    const bench = (session: RunSession, ep: Ep): Promise<number> => timed(`facekp ${ep} benchmark (15 runs, the first ones compile)`, async () => {
       const feed = { image: new ort.Tensor('float32', new Float32Array(3 * h * w), [1, 3, h, w]) };
       for (let i = 0; i < 5; i++) await session.run(feed); // warmup: shader compile etc.
       const t0 = performance.now();
       for (let i = 0; i < 10; i++) await session.run(feed);
       return (performance.now() - t0) / 10;
-    };
+    });
 
     // webgpu session FIRST: ort-web's jsep build can init plain wasm
     // afterwards, but initializing plain wasm first breaks a later webgpu
@@ -202,10 +203,10 @@ export class FaceDetector {
     let gpuSession: RunSession | null = null;
     try {
       gpuSession = await create('webgpu');
-      ms.webgpu = await bench(gpuSession);
+      ms.webgpu = await bench(gpuSession, 'webgpu');
     } catch { /* WebGPU advertised but unusable */ }
     const wasmSession = await create('wasm');
-    ms.wasm = await bench(wasmSession);
+    ms.wasm = await bench(wasmSession, 'wasm');
     let winner: Ep = 'wasm';
     let session = wasmSession;
     if (gpuSession && ms.webgpu !== undefined && ms.webgpu < ms.wasm) {

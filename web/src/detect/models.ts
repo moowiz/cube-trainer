@@ -8,6 +8,7 @@
 // Loads are serialized: ort-web's wasm module is not reentrant across
 // sessions, so a second load (an EP switch, the self-test) must wait for any
 // in-flight load - including the ~1 s 'auto' benchmark - to finish.
+import { timed } from '../debug/boot';
 import { CubeLocalizer } from './cubebox';
 import { FaceDetector, type Ep } from './facekp';
 
@@ -33,12 +34,12 @@ async function doLoad(ep: Ep | 'auto', previous: TwoStageModels | null): Promise
   previous?.detector.dispose();
   let d: FaceDetector | null;
   try {
-    d = await FaceDetector.load(ep);
+    d = await timed(`face model load (${ep})`, () => FaceDetector.load(ep));
   } catch (err) {
     return { models: null, reason: `stage 2 failed to load: ${String(err instanceof Error ? err.message : err)}` };
   }
   if (!d) return { models: null, reason: 'no model deployed (public/models/facekp.onnx missing) — use the grid scanner' };
-  const l = previous?.localizer.ep === d.ep ? previous.localizer : await CubeLocalizer.load(d.ep);
+  const l = previous?.localizer.ep === d.ep ? previous.localizer : await timed(`cube box model load (${d.ep})`, () => CubeLocalizer.load(d.ep));
   if (previous && l !== previous.localizer) previous.localizer.dispose();
   if (!l) {
     d.dispose();
