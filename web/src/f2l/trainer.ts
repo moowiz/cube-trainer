@@ -358,13 +358,17 @@ export function mountF2L(root: HTMLElement): Stage {
 
   // ---- the header: tracker chips, slot select, scramble panel ----
   /** A slot's case on the tracked cube and the alg the finder would lead with: what to expect before picking it. */
-  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number } | null {
+  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number; shortcut: { alg: string; moves: number; free: string } | null } | null {
     const st = slotState(f, s);
     const found = findCase(s, st.corner, st.edge);
     if (!found) return null;
-    const a = orderedAlgs(s, found.c, advanced(), found.hit.auf)[0]!;
+    const { algs, usable } = algsFor(s, found.c, advanced(), found.hit.auf);
+    const a = algs[0]!;
     const full = fullAlg(found.hit.auf, a);
-    return { n: found.c.n, head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full) };
+    // the shortest shortcut through a slot still open, when it beats the alg (user, 2026-09-26)
+    const cuts = usable.map((o) => { const x = fullAlg(found.hit.auf, o.alg); return { alg: x, moves: moveCount(x), free: o.free.map((z) => SLOT_WORD[z]).join(' + ') }; }).sort((x, y) => x.moves - y.moves);
+    const shortcut = cuts[0] && cuts[0].moves < moveCount(full) ? cuts[0] : null;
+    return { n: found.c.n, head: explain(s, found.c, a).head.replace(/\.$/, ''), alg: full, moves: moveCount(full), shortcut };
   }
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
@@ -403,7 +407,9 @@ export function mountF2L(root: HTMLElement): Stage {
         if (cards && f) {
           const sum = slotSummary(f, s);
           const small = document.createElement('small');
-          small.innerHTML = sum ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves` : 'no case in the sheet';
+          small.innerHTML = sum
+            ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves${sum.shortcut ? `<br>(<b>${esc(sum.shortcut.alg)}</b> · ${sum.shortcut.moves} moves, ${esc(sum.shortcut.free)} free)` : ''}`
+            : 'no case in the sheet';
           el.appendChild(small);
         }
       }

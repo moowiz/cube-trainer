@@ -56,7 +56,7 @@ check(/^FR case \d+$/.test(title2 ?? ''), `the practice scramble's first pair re
 // the pairs as cards: each open one with its case and shortest alg; the arrow keys step through them
 check(await page.$eval('#tracker', (e) => e.classList.contains('cards')), 'tracking: the pairs are cards');
 const cardText = await page.$$eval('#tracker > span:not(.done) small', (es) => es.map((e) => e.textContent));
-check(cardText.length === (await count('#tracker > span:not(.done)')) && cardText.every((t) => /case \d+ · .+ · \d+ moves$/.test(t)), `every open pair shows its case, alg and count (${cardText[0]})`);
+check(cardText.length === (await count('#tracker > span:not(.done)')) && cardText.every((t) => /case \d+ · .+ · \d+ moves(\(.+ · \d+ moves, .+ free\))?$/.test(t)), `every open pair shows its case, alg and count, a shorter slot shortcut in brackets (${cardText[0]})`);
 const curBefore = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
 await page.keyboard.press('ArrowRight'); await wait(150);
 const curAfter = await page.$eval('#tracker > span.cur', (e) => e.getAttribute('aria-label'));
