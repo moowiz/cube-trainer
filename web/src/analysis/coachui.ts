@@ -152,6 +152,10 @@ export function reportHtml(rec: SolveRecord, all: readonly Analysed[]): string {
   const r = solveReport(a, before);
   const vs = (ms: number | null) => (ms === null ? '' : Math.abs(ms) < 50 ? '<span>±0</span>' : `<span class="${ms > 0 ? 'up' : 'dn'}">${ms > 0 ? '+' : '−'}${s1(Math.abs(ms))}</span>`);
   let h = `<div class="rp"><table>`;
+  if (a.inspection !== undefined) {
+    const xs = before.map((b) => b.inspection).filter((x): x is number => typeof x === 'number');
+    h += `<tr><td>Inspection</td><td class="k"></td><td>${s1(a.inspection)}</td><td>${xs.length >= 3 ? vs(a.inspection - median(xs)) : ''}</td><td></td></tr>`;
+  }
   for (const row of r.rows) {
     if (row.label === 'AUF' && row.moves === 0) continue;
     const kase = row.skipped ? row.kase ?? 'skip' : row.together ? 'with the pair before' : row.kase ?? '';

@@ -107,7 +107,7 @@ const STYLE = `
   .rl-tools button.pri { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
   .rl-tools button.on { color: var(--good); border-color: #8BC34A; background: #E8F5E9; }
   .rl-tools button:hover { border-color: var(--ink-2); }
-  .rl.bare .rl-scr, .rl.bare .rl-line, .rl.bare .rl-clock, .rl.bare [data-t="new"], .rl.bare [data-t="voice"], .rl.bare [data-t="tricks"] { display: none; }
+  .rl.bare .rl-scr, .rl.bare .rl-line, .rl.bare .rl-clock, .rl.bare [data-t="new"], .rl.bare [data-t="voice"], .rl.bare [data-t="insp"], .rl.bare [data-t="tricks"] { display: none; }
   @media (max-width: 899px) {
     .rl { gap: 8px; }
     .rl-scr { font-size: 26px; }
@@ -133,6 +133,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       <div class="rl-tools">
         <button type="button" class="pri" data-t="new" id="rail-new" title="A new scramble or case (n)">New</button>
         <button type="button" data-t="voice" id="rail-voice"></button>
+        <button type="button" data-t="insp" id="rail-insp" title="Time the inspection: from the scramble on the cube to your first turn"></button>
         <button type="button" data-t="view" id="rail-view" title="The cube as the app believes it: a net, 3D, or hidden"></button>
         <button type="button" data-t="tricks" id="rail-tricks" title="The scramble finger by finger">✋</button>
       </div>
@@ -342,10 +343,10 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     const c = v.clock;
     const el = $('rail-clock');
     el.className = `rl-clock${c.phase === 'held' ? ' held' : c.phase === 'ready' ? ' ready' : ''}`;
-    $('rail-time').textContent = c.phase === 'held' ? '0.00' : c.phase === 'ready' ? 'ready' : c.phase === 'running' ? formatTime(c.ms ?? 0, 1) : c.ms === null ? '0.00' : formatTime(c.ms);
+    $('rail-time').textContent = c.phase === 'held' ? '0.00' : c.phase === 'ready' ? (c.inspecting ? formatTime(c.ms ?? 0, 1) : 'ready') : c.phase === 'running' ? formatTime(c.ms ?? 0, 1) : c.ms === null ? '0.00' : formatTime(c.ms);
     const cube = !!host.source();
     $('rail-hint').textContent = c.phase === 'held' ? 'release to start'
-      : c.phase === 'ready' ? 'the first turn starts it'
+      : c.phase === 'ready' ? (c.inspecting ? 'inspecting · the first turn starts the solve' : 'the first turn starts it')
       : c.phase === 'running' ? (cube ? '' : 'press to stop')
       : cube ? '' : 'press (or Space) and release to start';
   }
@@ -366,6 +367,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   // ---- tools ----
   $('rail-new').addEventListener('click', () => { if (attempt && !attempt.done) attempt = null; host.newCase(); });
   $('rail-voice').addEventListener('click', () => { host.owner()?.voice?.()?.toggle(); tick(true); });
+  $('rail-insp').addEventListener('click', () => { host.owner()?.inspect?.()?.toggle(); tick(true); });
   $('rail-tricks').addEventListener('click', () => {
     const v = host.owner()?.rail?.();
     if (v?.toks?.length) openFingertricks(v.toks.join(' ').replace(/′/g, "'"), { title: 'The scramble', hold: WCA_HOLD });
@@ -388,6 +390,9 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       const vo = owner?.voice?.();
       $('rail-voice').hidden = !vo;
       if (vo) { $('rail-voice').textContent = vo.on ? '🔊 voice on' : '🔈 voice off'; $('rail-voice').title = vo.label; $('rail-voice').classList.toggle('on', vo.on); }
+      const ins = owner?.inspect?.();
+      $('rail-insp').hidden = !ins;
+      if (ins) { $('rail-insp').textContent = ins.on ? '⏱ inspection on' : '⏱ inspection off'; $('rail-insp').classList.toggle('on', ins.on); }
       $('rail-tricks').hidden = !v.toks?.length;
       drawStrip();
       drawCube();

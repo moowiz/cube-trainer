@@ -12,10 +12,12 @@ export type Tab = (typeof TABS)[number];
 
 /** The clock the cube rail shows for a stage: the time so far (or the last result), and what it is doing. */
 export interface RailClock {
-  /** ms elapsed while running; the last result when idle (null: nothing to show) */
+  /** ms elapsed while running; the last result when idle; ready: the inspection so far, when it is shown (null: nothing to show) */
   ms: number | null;
   /** held: Space or a press is down (release starts); ready: the scramble is on the cube (the first turn starts) */
   phase: 'idle' | 'held' | 'ready' | 'running';
+  /** ready, and `ms` is the inspection so far (the Solve tab's inspection clock, when it is on) */
+  inspecting?: boolean;
 }
 
 /**
@@ -56,6 +58,8 @@ export interface Stage {
   rail?(): RailView;
   /** Space or a press on the rail's timer: down arms (or stops a running clock), up starts. */
   press?(down: boolean): void;
+  /** The inspection clock's one-tap switch on the rail (the Solve tab): whether the time from the scramble on the cube to the first turn is shown. */
+  inspect?(): { on: boolean; toggle(): void };
   /** The voice's one-tap switch on the rail: whether it speaks, what it does, and the toggle; absent: no voice. */
   voice?(): { on: boolean; label: string; toggle(): void };
 }

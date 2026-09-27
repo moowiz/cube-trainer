@@ -29,10 +29,10 @@ import { ensureStyle, scoped } from '../ui/dom';
 import { persisted } from '../ui/settings';
 import { type Mode, MODE_LABEL, MODES, say, ScrambleVoice } from '../ui/voice';
 
-// DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties for now - the
-// timer starts at the first turn and stops at solved; the gap from "scrambled" to the first turn is
-// still recorded on the solve for later.
-interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on'; /** the scramble voice (ui/voice.ts), as the PLL drill's */ voice: Mode }
+// DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties - the timer starts
+// at the first turn and stops at solved; the gap from "scrambled" to the first turn is recorded on the
+// solve. (2026-09-26: shown counting up while you plan the EOCross, with a switch on the rail to hide it.)
+interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on'; /** the inspection clock shown (it is recorded either way) */ inspect: 'off' | 'on'; /** the scramble voice (ui/voice.ts), as the PLL drill's */ voice: Mode }
 const SETTINGS_KEY = 'zz-timer-settings';
 const SESSION_META = 'timer/session';
 // DECISION (user, 2026-09-20): a session is a sitting. It can run for hours, but a solve that comes
@@ -104,7 +104,9 @@ const STYLE = `
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   ensureStyle('timer-style', STYLE);
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on', voice: 'off' });
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on', inspect: 'on', voice: 'off' });
+  if (settings.inspect !== 'off') settings.inspect = 'on';
+  const inspOn = () => settings.inspect === 'on';
 
   root.innerHTML = `
     <div class="tm">
@@ -245,15 +247,16 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   // ---- the attempt ----
   let phase: Phase = 'idle';
   let armedAt: number | null = null;   // inspection start, host ms
+  let armedShown: number | null = null; // the same on this page's clock (performance.now), for the running display
   let startAt: number | null = null;   // first turn / Space, host ms
   let moves: SolveMove[] = [];         // WCA letters, t relative to startAt
   let lastLine = '';
   let justDone: number | null = null; // the solve just finished, for the rail before the store has it back
-  function resetAttempt(): void { phase = 'idle'; armedAt = null; startAt = null; moves = []; }
+  function resetAttempt(): void { phase = 'idle'; armedAt = null; armedShown = null; startAt = null; moves = []; }
 
   function armed(t: number): void {
     if (phase === 'solving') return;
-    phase = 'ready'; armedAt = t; startAt = null; moves = [];
+    phase = 'ready'; armedAt = t; armedShown = performance.now(); startAt = null; moves = [];
     beep(880, 70);
     render();
   }
@@ -262,7 +265,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function feed(text: string, t: number): boolean {
     const txt = text.trim();
     if (!txt) { // back at the scramble: the attempt starts over
-      phase = 'ready'; armedAt ??= t; startAt = null; moves = [];
+      phase = 'ready'; armedAt ??= t; armedShown ??= performance.now(); startAt = null; moves = [];
       render(); return false;
     }
     let toks: string[];
@@ -288,7 +291,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     };
     justDone = effectiveTime(rec);
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
-    lastLine = `${formatTime(effectiveTime(rec))}${tps}`;
+    lastLine = `${formatTime(effectiveTime(rec))}${tps}${inspOn() && inspection !== undefined ? ` · inspection ${formatTime(inspection)}` : ''}`;
     deps.onSolve?.({ id: rec.id, when: rec.when, t0: startAt, t1: tEnd, scramble, time, moves: rec.moves });
     resetAttempt();
     beep(1320, 120);
@@ -530,7 +533,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       el.textContent = '0.00';
     } else if (phase === 'ready') {
       el.classList.add('insp');
-      el.textContent = 'ready';
+      el.textContent = inspOn() && armedShown !== null ? formatTime(performance.now() - armedShown, 1) : 'ready';
     } else if (phase === 'solving' && startAt !== null) {
       el.textContent = formatTime(performance.now() - startAt, 1);
     } else {
@@ -555,14 +558,14 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     renderTime();
     const st = $('state');
     if (held) st.textContent = 'Release to start';
-    else if (phase === 'ready') st.textContent = 'Scrambled · the first turn starts the timer';
+    else if (phase === 'ready') st.textContent = inspOn() ? 'Inspecting · the first turn starts the solve' : 'Scrambled · the first turn starts the timer';
     else if (phase === 'solving') st.textContent = 'Solving… tap to stop';
     else st.textContent = lastLine || (track ? 'Scramble the cube · or press here and release to start' : 'Press here (or Space) and release to start · tap to stop');
     // the last (or selected) solve's controls
     const cur = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
     $('last').hidden = !cur || phase !== 'idle';
     if (cur) {
-      $('lastText').textContent = `${selected ? `#${solves.indexOf(cur) + 1}` : 'Last'}: ${formatTime(effectiveTime(cur))}${cur.moves ? ` · ${cur.moves.length} turns` : ''} · ${stampOf(cur.when)}`;
+      $('lastText').textContent = `${selected ? `#${solves.indexOf(cur) + 1}` : 'Last'}: ${formatTime(effectiveTime(cur))}${cur.moves ? ` · ${cur.moves.length} turns` : ''}${inspOn() && cur.inspection !== undefined ? ` · inspection ${formatTime(cur.inspection)}` : ''} · ${stampOf(cur.when)}`;
       $('lastText').title = fullOf(cur.when);
       $('last').querySelectorAll<HTMLButtonElement>('button[data-pen]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pen) === cur.penalty));
     }
@@ -581,7 +584,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const f = (t: Time | undefined) => formatTime(t);
     $('stats').innerHTML = s.n === 0 ? 'No solves in this session yet.' :
       `<b>${s.n}</b> solves · best <b>${f(s.best)}</b> · mean ${f(s.mean)} · mo3 ${f(s.mo3)} · ao5 <b>${f(s.ao5)}</b> · ao12 <b>${f(s.ao12)}</b> · ao50 ${f(s.ao50)} · ao100 ${f(s.ao100)}<br>` +
-      `best ao5 ${f(s.bestAo5)} · best ao12 ${f(s.bestAo12)}`;
+      `best ao5 ${f(s.bestAo5)} · best ao12 ${f(s.bestAo12)}${inspLine()}`;
     // the list, newest first
     const rows = showAll ? solves : solves.slice(-30);
     $('list').innerHTML = rows.map((v) => {
@@ -592,6 +595,13 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     }).reverse().join('');
     $('more').hidden = showAll || solves.length <= 30;
     if (statsOpen()) void renderStats();
+  }
+  // the inspection over the session's last 12 solves that recorded one: the mean, and the longest
+  function inspLine(): string {
+    if (!inspOn()) return '';
+    const xs = solves.map((v) => v.inspection).filter((x): x is number => typeof x === 'number').slice(-12);
+    if (!xs.length) return '';
+    return ` · inspection mean ${formatTime(xs.reduce((a, b) => a + b, 0) / xs.length)} (last ${xs.length}) · longest ${formatTime(Math.max(...xs))}`;
   }
   const tick = () => { if (phase !== 'idle') renderTime(); requestAnimationFrame(tick); };
   tick();
@@ -612,7 +622,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       offText: voice.offText(),
       note: scramble ? undefined : 'making a scramble…',
       clock: held ? { ms: 0, phase: 'held' }
-        : phase === 'ready' ? { ms: 0, phase: 'ready' }
+        : phase === 'ready' ? (inspOn() && armedShown !== null ? { ms: performance.now() - armedShown, phase: 'ready', inspecting: true } : { ms: 0, phase: 'ready' })
         : phase === 'solving' && startAt !== null ? { ms: performance.now() - startAt, phase: 'running' }
         : (() => {
           const sel = selected ? solves.find((v) => v.id === selected) : undefined;
@@ -622,6 +632,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         })(),
     }),
     press: (down) => { if (down) press(); else release(); },
+    inspect: () => ({
+      on: inspOn(),
+      toggle: () => { settings.inspect = inspOn() ? 'off' : 'on'; saveSettings(); paintSettings(); render(); },
+    }),
     voice: () => ({
       on: settings.voice !== 'off',
       label: settings.voice === 'off' ? 'voice off' : `voice: ${MODE_LABEL[settings.voice]}`,
