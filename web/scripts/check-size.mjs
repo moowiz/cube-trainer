@@ -6,8 +6,12 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-// DECISION: 520 kB minified; measured 501 kB on 2026-09-26 (583 kB on 09-23, before the detector and the smart cube adapter went lazy).
-const CEILING_KB = 520;
+// DECISION: 640 kB minified; measured 624 kB on 2026-09-27 (501 kB on 09-26, ceiling 520). The 09-27 F2L work added
+// the precomputed search table (f2l/searched.ts, 77 kB of the chunk: every case's algs looked up, no search at
+// runtime) and the voice drill, and the coach came (analysis/, ~25 kB). The table is the next candidate to go lazy
+// (docs/maintenance-plan.md 2.5); the lookups it feeds are synchronous today.
+// Earlier: 583 kB on 09-23, before the detector and the smart cube adapter went lazy.
+const CEILING_KB = 640;
 const dir = new URL('../dist/assets/', import.meta.url).pathname;
 
 const main = readdirSync(dir).filter((f) => /^main-.*\.js$/.test(f));

@@ -384,6 +384,16 @@ fixtures; they are a rounding error next to this.
 could lazy-load the algs sheet and the FTO/n×n 3D players
 (`algs/*`), which a phone opening the Solve tab never needs.
 
+2026-09-27: `main` is 624 kB and the ceiling 640 (`scripts/check-size.mjs`).
+The day's F2L work put the precomputed search table in it
+(`f2l/searched.ts`, 77 kB of the chunk: every case's algs by key, so the
+app never searches), with the voice drill and the coach (`analysis/`,
+~25 kB). The table is the next thing to make lazy: the lookups it feeds
+(`model.positionAlgs`, `searchedOwnSide`) are synchronous and called from
+the F2L sheet, the trainer, the pool and the coach, so it needs either an
+async load before the F2L tab mounts or a fetched JSON with a ready
+promise the callers await once.
+
 ---
 
 ## 3. Dead and duplicated code in `web/src`
