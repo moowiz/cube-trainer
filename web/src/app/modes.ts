@@ -23,6 +23,7 @@ import { setFollowRules } from './cubefollow';
 import { mountCoach, type CoachAction } from '../analysis/coachui';
 import { setPicks } from '../f2l/pool';
 import { hold, store } from './context';
+import { canUseCube, useMyCube } from './fromcube';
 import { activeSource, onSourceChange } from './sources';
 
 type ModeId = 'solve' | 'eo' | 'f2l' | 'll' | 'find';
@@ -377,6 +378,7 @@ export function initModes(): void {
     range: () => modeDef(mode).range(),
     focus: () => modeDef(mode).focus(),
     bare: () => mode === 'find',
+    useCube: { can: canUseCube, go: () => { void useMyCube(); } },
     viewKey: () => mode,
     defaultView: () => (window.matchMedia('(min-width: 900px)').matches ? modeDef(mode).view : 'off'),
     bigClock: () => ownerTab() === 'solve',

@@ -83,6 +83,26 @@ const res = await page.$eval('#eo-rTitle', (e) => e.textContent);
 console.log('EOCross result:', res);
 check(/inspection \d/.test(res), 'EOCross: the result shows the inspection');
 
+// "Use my cube": a hand scramble (not the one on show) taken as the scramble, then solved
+await page.evaluate(() => window.ZZ.modes.select('solve'));
+await new Promise((r) => setTimeout(r, 500));
+const before = await page.evaluate(() => window.ZZ.solve.scramble());
+const HAND = "R2 D' B L U2 F' R D2 L' B2 U R'"; // the cube's letters
+const nSolves = await page.evaluate(async () => (await window.ZZ.store.solves()).length);
+await page.evaluate((text) => { void window.ZZ.smart.replay(text, 1); }, capture(HAND, 7000, inverse(HAND)));
+await new Promise((r) => setTimeout(r, 3500));
+check(await page.$eval('#rail-mine', (e) => !e.hidden), 'a hand-scrambled cube: the rail offers Use my cube');
+await page.click('#rail-mine');
+await new Promise((r) => setTimeout(r, 1500));
+const mine = await page.evaluate(() => ({ scr: window.ZZ.solve.scramble(), time: document.getElementById('rail-time').textContent, hint: document.getElementById('rail-hint').textContent, hidden: document.getElementById('rail-mine').hidden }));
+console.log('use my cube:', JSON.stringify(mine));
+check(mine.scr !== before && /^\d+\.\d$/.test(mine.time), 'the cube became the scramble and the inspection is counting');
+check(mine.hidden, 'the button goes once the cube is the scramble');
+await page.waitForFunction((n) => window.ZZ.store.solves().then((v) => v.length > n), { timeout: 15_000 }, nSolves).catch(() => undefined);
+const rec2 = await page.evaluate(async () => (await window.ZZ.store.solves()).sort((a, b) => b.when - a.when)[0]);
+console.log('the solve:', rec2?.time, 'ms, inspection', rec2?.inspection, 'scramble', rec2?.scramble);
+check(!!rec2 && rec2.moves?.length === 16 && typeof rec2.inspection === 'number', 'the hand-scrambled solve is saved with its turns and inspection');
+
 await browser.close();
 server.close();
 console.log(failed ? `${failed} failed` : 'all ok');

@@ -233,6 +233,20 @@ function consume(): void {
   open(src, next, scr, `crossed into ${next}`);
 }
 
+/**
+ * The open tab's scramble was just made from the cube as it is (app/fromcube.ts, "Use my cube"): the cube is at
+ * it now, so the solve starts from here - what reaching it by turns does, without waiting for a turn or a rest.
+ */
+export function adoptScramble(): void {
+  const src = activeSource();
+  if (!src || !engaged) return;
+  consume();
+  const scr = scramble(src);
+  if (scr === null) return;
+  follower.restart(followReport(scr).stage); startIndex = cursor; solveFrom = activeTab();
+  if (activeTab() === 'solve') solveReached(src, scr);
+}
+
 /** Every half second: a pause with the cube behind the mark and off the scramble path is a new solve. */
 function poll(): void {
   const src = activeSource();

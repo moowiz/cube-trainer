@@ -56,6 +56,8 @@ export interface RailHost {
   bigClock(): boolean;
   /** a sheet covers the page, or a field has the keys: Space is not the clock's */
   blocked(): boolean;
+  /** "Use my cube": the cube as it is becomes the scramble (app/fromcube.ts); `can` says when to offer it */
+  useCube?: { can(): boolean; go(): void };
 }
 
 export interface Rail {
@@ -107,7 +109,7 @@ const STYLE = `
   .rl-tools button.pri { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
   .rl-tools button.on { color: var(--good); border-color: #8BC34A; background: #E8F5E9; }
   .rl-tools button:hover { border-color: var(--ink-2); }
-  .rl.bare .rl-scr, .rl.bare .rl-line, .rl.bare .rl-clock, .rl.bare [data-t="new"], .rl.bare [data-t="voice"], .rl.bare [data-t="insp"], .rl.bare [data-t="tricks"] { display: none; }
+  .rl.bare .rl-scr, .rl.bare .rl-line, .rl.bare .rl-clock, .rl.bare [data-t="new"], .rl.bare [data-t="voice"], .rl.bare [data-t="insp"], .rl.bare [data-t="mine"], .rl.bare [data-t="tricks"] { display: none; }
   @media (max-width: 899px) {
     .rl { gap: 8px; }
     .rl-scr { font-size: 26px; }
@@ -133,6 +135,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       <div class="rl-tools">
         <button type="button" class="pri" data-t="new" id="rail-new" title="A new scramble or case (n)">New</button>
         <button type="button" data-t="voice" id="rail-voice"></button>
+        <button type="button" data-t="mine" id="rail-mine" hidden title="Scrambled it your own way? Use the cube as it is as the scramble: inspection starts now">Use my cube</button>
         <button type="button" data-t="insp" id="rail-insp" title="Time the inspection: from the scramble on the cube to your first turn"></button>
         <button type="button" data-t="view" id="rail-view" title="The cube as the app believes it: a net, 3D, or hidden"></button>
         <button type="button" data-t="tricks" id="rail-tricks" title="The scramble finger by finger">✋</button>
@@ -367,6 +370,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   // ---- tools ----
   $('rail-new').addEventListener('click', () => { if (attempt && !attempt.done) attempt = null; host.newCase(); });
   $('rail-voice').addEventListener('click', () => { host.owner()?.voice?.()?.toggle(); tick(true); });
+  $('rail-mine').addEventListener('click', () => host.useCube?.go());
   $('rail-insp').addEventListener('click', () => { host.owner()?.inspect?.()?.toggle(); tick(true); });
   $('rail-tricks').addEventListener('click', () => {
     const v = host.owner()?.rail?.();
@@ -390,6 +394,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       const vo = owner?.voice?.();
       $('rail-voice').hidden = !vo;
       if (vo) { $('rail-voice').textContent = vo.on ? '🔊 voice on' : '🔈 voice off'; $('rail-voice').title = vo.label; $('rail-voice').classList.toggle('on', vo.on); }
+      $('rail-mine').hidden = !host.useCube?.can();
       const ins = owner?.inspect?.();
       $('rail-insp').hidden = !ins;
       if (ins) { $('rail-insp').textContent = ins.on ? '⏱ inspection on' : '⏱ inspection off'; $('rail-insp').classList.toggle('on', ins.on); }

@@ -606,7 +606,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   // the voice's switch on the rail: off, or back to the mode it was last in (read when it never was)
   let lastVoice: Mode = settings.voice !== 'off' ? settings.voice : 'read';
   return {
-    load: (trainerScramble) => setScramble(toWca(trainerScramble), false),
+    // a scramble handed in (another tab's, the cube's own): a scramble still being made must not replace it
+    load: (trainerScramble) => { generation++; setScramble(toWca(trainerScramble), false); },
     render,
     scramble: () => (scramble ? fromWca(scramble) : null),
     newScramble,
