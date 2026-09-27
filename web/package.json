@@ -25,6 +25,7 @@
     "check:strip": "node scripts/check-strip.mjs",
     "check:shift": "node scripts/check-shift.mjs",
     "check:end": "node scripts/check-end.mjs",
+    "check:eonext": "node scripts/check-eonext.mjs",
     "check:rig": "node scripts/check-record.mjs --rig",
     "check:dead": "knip",
     "check:dup": "jscpd src",

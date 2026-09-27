@@ -124,11 +124,14 @@ const capHand = capture(await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), H
 const handOpened = await page.evaluate(async (text) => {
   await window.ZZ.smart.replay(text);
   await new Promise((r) => setTimeout(r, 17_000)); // the replay stamps its turns ahead of the clock; the pause is 15 s after the last
-  return { tab: window.ZZ.activeTab(), eo: (window.ZZ.eo.scramble() ?? '').replace(/\s+/g, ' ').trim(), toast: document.getElementById('toast').textContent };
+  return { tab: window.ZZ.activeTab(), eo: (window.ZZ.eo.scramble() ?? '').replace(/\s+/g, ' ').trim(), toast: document.getElementById('toast').textContent, track: window.ZZ.eo.rail().track };
 }, capHand.text);
 console.log(JSON.stringify(handOpened));
 check(handOpened.tab === 'eo', `the pause after a hand scramble opens the EO tab (${handOpened.tab})`);
-check(stateOf(handOpened.eo) === stateOf(HAND), `the EO tab holds the hand-scrambled cube: ${handOpened.eo}`);
+// (since 2026-09-26 the EO drill's next scramble after an EOCross is made from the cube as it is, once it rests: here
+// that is the hand-scrambled cube, so the tab may hold a scramble that starts where the cube is instead of the cube)
+const fromHand = handOpened.track && !handOpened.track.off && handOpened.track.applied === 0;
+check(stateOf(handOpened.eo) === stateOf(HAND) || fromHand, `the EO tab holds the hand-scrambled cube, or a scramble that starts from it: ${handOpened.eo} ${JSON.stringify(handOpened.track)}`);
 // ...and that picked-up solve, done, ends on the mode's own tab, ready for the next scramble (user, 2026-09-25); real time,
 // with the pause inside the capture, because each replay is a fresh connection
 const HAND2 = "L D' R2 F U"; // not the scramble the EO tab now holds: that would read as the drill's own case

@@ -11,6 +11,7 @@ import { toast } from '../shell';
 import type { ConnectOpts, CubeLink } from '../smart/adapter';
 import { Capture, replay } from '../smart/capture';
 import { CubeSource } from '../smart/source';
+import type { Move } from '../moves/moves';
 import { DEFAULT_SCHEME_NAMES, FACE_ORDER, type ColorName } from '../types';
 import { mountCubeView, type CubeView } from '../ui/cubeview';
 import { downloadText } from '../ui/download';
@@ -277,6 +278,17 @@ export function initSmart(): void {
       // the capture's clock becomes this page's: its first event lands now
       const offset = performance.now() - (cap.events[0]?.t ?? 0);
       return replay(cap.events, (e) => src.feed({ ...e, t: e.t + offset }), { speed }).done;
+    },
+    /** turn the replayed cube (its own letters, half turns as two quarters, `gap` ms apart): a check that reacts to the page mid-session */
+    async turn(alg: string, gap = 80) {
+      if (!cube) return;
+      for (const t of alg.split(/\s+/).filter(Boolean)) {
+        for (const q of t.endsWith('2') ? [t[0]!, t[0]!] : [t]) {
+          const now = performance.now();
+          cube.feed({ kind: 'move', t: now, move: q as Move, tRaw: Math.round(now), tLocal: now });
+          await new Promise((ok) => setTimeout(ok, gap));
+        }
+      }
     },
     status: () => cube?.status() ?? null,
     items: () => cube?.items() ?? [],

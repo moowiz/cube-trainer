@@ -4,21 +4,24 @@
 // the drill scaffold; the cube is a facelet string, the solving is on the
 // 12-edge model.
 
-import { faceMoves, movesStr, randomMoves, tokens, type Move } from '../cube/alg';
+import { faceMoves, inverse, movesStr, randomMoves, tokens, type Move } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { badEdgePositions, crossSolved, edgeState, eoSolved, type EdgeState } from '../cube/pieces';
 import { DEFAULT_VIEW, orbit, render3d, renderNet, type Cell, type View } from '../cube/render';
 import { STICKERS, key } from '../cube/geometry';
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
-import { state } from '../cube/state';
+import { SOLVED, state } from '../cube/state';
+import { beliefInTrainer } from '../handoff';
+import { solveState } from '../state';
 import { stageOf } from '../stage';
-import { shareScramble, showTab, type Stage } from '../shell';
+import { activeTab, shareScramble, showTab, type Stage } from '../shell';
 import { mountDrill, type Drill } from '../ui/drill';
 import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook } from './eocross';
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type SolutionSet } from './solver';
 import { persisted } from '../ui/settings';
 import { hold } from '../app/context';
+import { activeSource } from '../app/sources';
 import { inspectSwitch } from '../ui/inspect';
 import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher } from '../timer/track-ui';
@@ -67,6 +70,11 @@ export function mountEO(root: HTMLElement): Stage {
 
   // ---- state ----
   let scramble = '';           // trainer frame (white down, chosen colour front)
+  // a scramble made from the cube as it was (after the last EOCross, say): `scramble` is the moves that made that cube
+  // and then the new ones; the first `prefix` turns are that cube's own, already on it - shown and followed from there
+  let prefix = 0;
+  let making = 0; // a scramble from the cube being worked out (its generation)
+  let busy = false; // ... and still being worked out
   let facelets = '';           // the scramble's state
   let start: EdgeState = { eo: 0, slots: [4, 5, 6, 7] };
   let shown: string | null = null; // facelets after the moves typed, once checked
@@ -98,8 +106,12 @@ export function mountEO(root: HTMLElement): Stage {
     }).catch(() => undefined);
   }
 
-  function load(scr: string): void {
+  /** `pre`: the first turns of `scr` that are the cube's own (a scramble made from the cube); `keep`: the result stays up. */
+  function load(scr: string, pre = 0, keep = false): void {
+    making++;
+    const kept = keep && drill.result.visible() ? { t: drill.$('rTitle').textContent ?? '', s: drill.$('rSub').textContent ?? '' } : null;
     scramble = scr.trim();
+    prefix = pre;
     facelets = state(scramble);
     start = edgeState(facelets);
     shown = null;
@@ -107,13 +119,16 @@ export function mountEO(root: HTMLElement): Stage {
     xsol = null; assisted = false; recorded = false; track = null;
     if (settings.goal === 'cross' || xc.status !== 'off') requestCross();
     drill.begin();
+    if (kept) drill.result.show(kept.t, kept.s);
     drill.setShowLabel(solLabel());
     resetStrategy();
     render();
   }
+  /** The new scramble as shown and followed: the turns after the cube's own. */
+  const shownScramble = (): string => (prefix ? tokens(scramble).slice(prefix).join(' ') : scramble);
 
-  function newScramble(): void {
-    // a scramble with the wanted number of bad edges (any = at least two); 20-24 turns
+  /** A random position with the wanted number of bad edges (any = at least two), as 20-24 turns from solved. */
+  function randomTarget(): string {
     const randomScramble = () => randomMoves(20 + Math.floor(Math.random() * 5));
     let scr = movesStr(randomScramble());
     for (let attempt = 0; attempt < 400; attempt++) {
@@ -121,8 +136,37 @@ export function mountEO(root: HTMLElement): Stage {
       const bad = stageOf(state(movesStr(seq))).eoBad;
       if (settings.target === 'any' ? bad >= 2 : bad === Number(settings.target)) { scr = movesStr(seq); break; }
     }
-    load(scr);
-    shareScramble(scr, 'eo');
+    return scr;
+  }
+  /**
+   * The next scramble. With a cube connected and not solved (the EOCross just done on it), from the cube as it is
+   * (user, 2026-09-26: "if I solve EOCross I want to scramble again, and it should mix up the cube"): the same kind
+   * of random position, reached by the moves Kociemba finds from the cube, so the whole cube is mixed and following
+   * the scramble starts where the cube is. Otherwise from solved.
+   */
+  function newScramble(keep = false): void {
+    const target = randomTarget();
+    // the cube as it is now (not as this tab last saw it: another tab may have been open since)
+    const src = activeSource(), now = src?.state() ?? null;
+    const cube = src && now ? beliefInTrainer(now, src.colourOf, hold()) : null;
+    if (!src || !now || !cube || cube === SOLVED) { load(target, 0, keep); shareScramble(target, 'eo'); return; }
+    const gen = ++making;
+    busy = true;
+    void (async () => {
+      try {
+        // the cube's state as turns from solved (A), then the turns from it to the target: the solution of A backwards
+        // after the target undone - (target⁻¹ · A) solved is A⁻¹ · target, which takes the cube to the target
+        const own = inverse(await solveState(cube));
+        const next = await solveState(state(`${inverse(target)} ${own}`));
+        if (gen !== making || src.state() !== now || activeSource() !== src) return; // turned meanwhile, or another scramble asked for
+        const full = `${own} ${next}`.trim();
+        load(full, tokens(own).length, keep);
+        shareScramble(full, 'eo');
+        // the cube is at the start already: the rail says so now, not at its next turn
+        track = watcher.status(scramble, now, src.colourOf, hold());
+      } catch { if (gen === making) { load(target, 0, keep); shareScramble(target, 'eo'); } }
+      finally { busy = false; }
+    })();
   }
 
   // ---- check the moves typed after solving on the real cube ----
@@ -132,7 +176,7 @@ export function mountEO(root: HTMLElement): Stage {
     drill.flash('');
     const after = state(`${scramble} ${toks.join(' ')}`);
     shown = after;
-    const { n, t, ts } = drill.attempt(txt);
+    const { n, t, ts, source } = drill.attempt(txt);
     const rep = stageOf(after);
     drill.result.handoff.innerHTML = ''; drill.result.body.innerHTML = '';
     if (rep.eoBad > 0) {
@@ -149,15 +193,41 @@ export function mountEO(root: HTMLElement): Stage {
     const optX = xsol ? `, optimal EOCross is ${xsol.length}` : '';
     if (rep.cross < 4) {
       drill.result.show(`EO solved${ts}`, `${n} moves so far (optimal EO is ${solution.length}${optX}). Cross is ${rep.cross}/4: add the cross moves to hand the cube to F2L.`);
-      render(); return;
+      render();
+      if (done) nextFromCube(source); // the goal is EO alone
+      return;
     }
     drill.result.show(`EOCross done in ${n} moves${ts}`, `Optimal EO alone is ${solution.length} moves${optX}.${assisted ? ' You peeked at a solution.' : ''}`);
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn eo-primary'; btn.style.marginTop = '8px';
     btn.textContent = 'Continue to F2L with this cube';
-    btn.addEventListener('click', () => { shareScramble(`${scramble} ${toks.join(' ')}`, 'eo'); showTab('f2l'); window.scrollTo({ top: 0 }); });
+    const reached = `${scramble} ${toks.join(' ')}`;
+    btn.addEventListener('click', () => { shareScramble(reached, 'eo'); showTab('f2l'); window.scrollTo({ top: 0 }); });
     drill.result.handoff.appendChild(btn);
     render();
+    nextFromCube(source);
   }
+  /**
+   * EOCross done on a cube: the next scramble from it, the result left up - once the cube has come to rest (the cube
+   * turned on to solved gets an ordinary scramble), and only while this tab is still the one open on the same
+   * scramble: a stretch of the mode's carries the cube on into F2L instead.
+   */
+  let pendingNext: string | null = null;
+  function nextFromCube(source: string): void { if (source !== 'typed') pendingNext = scramble; }
+  // DECISION: a second still is "at rest". (Not remade when the cube is then turned elsewhere: a scramble that changes
+  // under you on a wrong first turn is worse, and a hand scramble left 15 s is picked up by the follow as ever.)
+  const REST_MS = 1000;
+  const restedFor = (): number => {
+    const items = activeSource()?.items() ?? [];
+    for (let i = items.length - 1; i >= 0; i--) { const it = items[i]!; if (it.kind === 'move') return performance.now() - it.t; }
+    return Infinity;
+  };
+  setInterval(() => {
+    if (activeTab() !== 'eo' || root.hidden || busy) return;
+    if (pendingNext !== null) {
+      if (pendingNext !== scramble) { pendingNext = null; return; }
+      if (restedFor() >= REST_MS) { pendingNext = null; newScramble(true); }
+    }
+  }, 300);
 
   /** The moves in the box up to the point the goal is first reached, or null if they aren't plain face turns. */
   function userSolve(): Move[] | null {
@@ -286,8 +356,8 @@ export function mountEO(root: HTMLElement): Stage {
     if (settings.count === 'on') { el.innerHTML = rep.eoBad === 0 ? `<b>EO solved</b> · cross ${rep.cross}/4` : `<b>${rep.eoBad}</b> bad edge${rep.eoBad === 1 ? '' : 's'}`; el.classList.toggle('zero', rep.eoBad === 0); }
     else { el.innerHTML = shown ? '<span style="color:var(--ink-2)">after your moves</span>' : ''; el.classList.remove('zero'); }
     drill.$('scramble').innerHTML = 'Scramble: <span></span>';
-    drill.$('scramble').querySelector('span')!.textContent = toWca(scramble);
-    drill.$('orient').textContent = `Apply it to a solved cube held ${WCA_HOLD} (the standard scrambling orientation). Then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right), the way you hold it for F2L: the picture shows what you should see.`;
+    drill.$('scramble').querySelector('span')!.textContent = toWca(shownScramble());
+    drill.$('orient').textContent = prefix ? `Made from your cube as it is: apply it to the cube in your hands, held ${WCA_HOLD}. Then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right): the picture shows what you should see.` : `Apply it to a solved cube held ${WCA_HOLD} (the standard scrambling orientation). Then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right), the way you hold it for F2L: the picture shows what you should see.`;
     drill.$('sub').textContent = `Orient every edge to the ${faceColorName('F')}/${faceColorName('B')} axis${settings.goal === 'cross' ? ' and build the white cross' : ''}. White down, ${faceColorName('F')} facing you.`;
     for (const id of ['peekBack', 'resetView', 'hint']) drill.$(id).style.display = settings.view === '3d' ? '' : 'none';
     if (results.length) {
@@ -324,10 +394,15 @@ export function mountEO(root: HTMLElement): Stage {
   newScramble();
   drill.setShowLabel(solLabel());
 
-  const watch = (facelets: string | null, colourOf: Record<FaceId, ColorName>) => { track = scramble ? watcher.status(scramble, facelets, colourOf, hold()) : null; };
+  // the scramble followed from where the cube is: the tracker reads the whole alg (the cube's own turns first), the
+  // rail shows the new turns only (as F2L's rail shows a targeted case's setup)
+  const watch = (facelets: string | null, colourOf: Record<FaceId, ColorName>) => {
+    track = scramble ? watcher.status(scramble, facelets, colourOf, hold()) : null;
+  };
+  const shift = (x: TrackStatus | null): TrackStatus | null => (x && prefix ? { ...x, applied: Math.max(0, x.applied - prefix), total: x.total - prefix } : x);
   return {
     load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,
-    rail: () => ({ toks: scramble ? toWca(scramble).split(' ').filter(Boolean) : null, track, clock: drill.clock() }),
+    rail: () => ({ toks: scramble ? toWca(shownScramble()).split(' ').filter(Boolean) : null, track: shift(track), clock: drill.clock() }),
     press: (down) => drill.press(down),
     inspect: inspectSwitch,
   };
