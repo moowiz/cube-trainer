@@ -1,4 +1,4 @@
-// The algs sheet: the cheat sheet (the 3x3's last layer, 2x2, 4x4, 5x5,
+// The algs sheet: the other puzzles' cheat sheet (2x2, 4x4, 5x5,
 // Pyraminx, Skewb, FTO) in index.html's #algs-sheet. A puzzle picker,
 // the puzzle's notation and intro, then its sections of cases: for the
 // cubes a picture of the case (the alg's inverse on the n×n model, in the
@@ -9,7 +9,6 @@
 import { applyFto, ftoTokens, invertFto, twizzleFto } from '../cube/fto';
 import { applyNxN, expandNxN, invertTokens, rawNxN } from '../cube/nxn';
 import { onSchemeChange } from '../cube/scheme';
-import { ensurePicStyle, picSvg } from '../ll/pic';
 import { algsHooks } from '../shell';
 import { PUZZLES } from './data';
 import { ftoAnimatable } from './fto3d';
@@ -93,8 +92,7 @@ export function caseSvg(p: Puzzle, c: AlgCase): string | null {
   if (p.id === 'fto') inner = picFto(applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'));
   else if (p.n) {
     const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(p, c.alg)));
-    inner = c.pic === 'll' || c.pic === 'll-arrows' ? picSvg(state, c.pic === 'll-arrows' ? 'pll' : 'ocll')
-      : c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
+    inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
   } else return null;
   return `<svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${inner}</svg>`;
 }
@@ -111,7 +109,7 @@ function caseHtml(p: Puzzle, c: AlgCase, idx: number): string {
   const link = viewerUrl(p, c);
   const playable = p.id === 'fto' || !!p.n;
   return `<div class="algs-case${svg ? ' pic' : ''}">
-    ${svg ? `<div class="algs-pic${c.pic?.startsWith('ll') ? ' ll-pic' : ''}">${svg}</div>` : ''}
+    ${svg ? `<div class="algs-pic">${svg}</div>` : ''}
     <div class="algs-name">${esc(c.name)}<small>${algLength(p, c.alg)} moves</small></div>
     <div class="algs-alg">${esc(c.alg)}</div>
     ${c.alt?.length ? `<div class="algs-alt">${c.alt.map((a) => `<b>or</b> ${esc(a)}`).join('<br>')}</div>` : ''}
@@ -142,7 +140,6 @@ export function initAlgs(): void {
   const panel = document.getElementById('algs-panel');
   if (!panel) throw new Error('index.html is missing the algs sheet');
   ensureStyle('algs-style', STYLE);
-  ensurePicStyle(); // the 3x3's last-layer pictures carry PLL's arrows
   let chosen: AlgPuzzleId = PUZZLES[0]!.id;
   const stored = readStored(KEY);
   if (PUZZLES.some((p) => p.id === stored)) chosen = stored as AlgPuzzleId;
