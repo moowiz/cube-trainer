@@ -58,7 +58,7 @@ const eoGoal = (): string => {
 const f2lKind = (): 'all' | 'picked' => (readStored(F2L_KIND) === 'picked' ? 'picked' : 'all');
 
 const ALL: readonly SplitStage[] = ['eo', 'f2l', 'ocll', 'pll'];
-const STAGE_NAME: Record<SplitStage, string> = { eo: 'EOCross', cross: 'Cross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
+const STAGE_NAME: Record<SplitStage, string> = { eo: 'EO', cross: 'Cross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
 const rank = (s: SplitStage): number => ALL.indexOf(s);
 /** Where a stretch stops, per stage it starts at (the picker's cells): the stage after which the help stops following the cube. */
 type StopStart = 'eo' | 'f2l' | 'ocll';
@@ -202,14 +202,20 @@ function renderPicker(): void {
   const cur = currentRow();
   const key = (r: RowId) => `<kbd>${ROWS.indexOf(r) + 1}</kbd>`;
   const whole = (r: RowId) => `<button type="button" class="mp-item${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>`;
+  // the columns: EO and the cross apart (2026-09-27); on the EO row the Cross cell is the EO page's goal run on to the cross
+  const COLS: readonly SplitStage[] = ['eo', 'cross', 'f2l', 'ocll', 'pll'];
+  const col = (s: SplitStage) => COLS.indexOf(s);
   const rows = (['eo', 'f2l', 'ocll', 'pll'] as const).map((r) => {
-    const stop = r === 'pll' ? 'pll' : stopOf(r);
-    const cells = ALL.map((s) => {
-      if (rank(s) < rank(r)) return '<i class="mp-gap"></i>';
+    const stop0 = r === 'pll' ? 'pll' : stopOf(r);
+    const stop: SplitStage = r === 'eo' && stop0 === 'eo' && eoGoal() !== 'EO' ? 'cross' : stop0;
+    const cells = COLS.map((s) => {
+      if (col(s) < col(r)) return '<i class="mp-gap"></i>';
       // (user, 2026-09-26) EOCross on to solved is a whole solve: the Solve row, whose coach helps from EOCross on
       if (r === 'eo' && s === 'pll') return '<span class="mp-cell same" title="From a scramble to solved is a whole solve: the Solve row, with the coach on for each stage\'s help">= Solve</span>';
-      const title = s === r ? `${STAGE_NAME[r]} alone` : `${STAGE_NAME[r]}, then on through ${s === 'pll' ? 'PLL to solved' : STAGE_NAME[s]}`;
-      return `<button type="button" class="mp-cell${rank(s) <= rank(stop) ? ' in' : ''}${s === stop ? ' end' : ''}" data-row="${r}" data-stop="${s}" title="${title}">${STAGE_NAME[s]}</button>`;
+      const title = r === 'eo' && s === 'eo' ? 'EO alone: timed until the edges are oriented'
+        : r === 'eo' && s === 'cross' ? 'EO, then the cross: timed until the cross is in (each timed on the strip)'
+        : s === r ? `${STAGE_NAME[r]} alone` : `${STAGE_NAME[r]}, then on through ${s === 'pll' ? 'PLL to solved' : STAGE_NAME[s]}`;
+      return `<button type="button" class="mp-cell${col(s) <= col(stop) ? ' in' : ''}${s === stop ? ' end' : ''}" data-row="${r}" data-stop="${s}" title="${title}">${STAGE_NAME[s]}</button>`;
     }).join('');
     return `<button type="button" class="mp-name${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>${cells}`;
   }).join('');
@@ -220,7 +226,13 @@ function renderPicker(): void {
 /** A picker row (and a stop, from its cells): the mode it is, with its case. */
 function pickRow(r: RowId, stop?: SplitStage): void {
   if (r === 'ocll' || r === 'pll') writeStored(SET_KEY, r);
-  if (stop && (r === 'eo' || r === 'f2l' || r === 'ocll')) setStop(r, stop);
+  if (r === 'eo' && (stop === 'eo' || stop === 'cross')) {
+    // EO alone, or on to the cross: the EO page's "Timed until" (its own button, so the page hears it); EOCross in one
+    // go stays as it is when the cross is picked
+    setStop('eo', 'eo');
+    const g = stop === 'eo' ? 'eo' : eoGoal() === 'EOCross' ? 'cross' : 'two';
+    document.querySelector<HTMLElement>(`#eo-settings [data-set="goal"] [data-v="${g}"]`)?.click();
+  } else if (stop && (r === 'eo' || r === 'f2l' || r === 'ocll')) setStop(r, stop);
   selectMode(rowMode(r));
 }
 
