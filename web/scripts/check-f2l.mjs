@@ -295,6 +295,21 @@ check((await text('#result .case-title h2')) === titleB && !/EOCross/.test((awai
 await replay(`${cubeB} ${await cubeOf('D')}`);
 check(/white layer is turned: D' puts the cross back/.test((await text('#result')) ?? '') && !!(await text('#result .case-title h2')), `the white layer turned: pairs still read, with the fix said (${await text('#result .case-title h2')})`);
 
+// the algs hidden (user, 2026-09-27): each pair its fewest moves and the kind of alg, the fewest pair marked; no moves on show
+await page.evaluate(() => { const b = document.getElementById('showalgs'); b.checked = false; b.dispatchEvent(new Event('change', { bubbles: true })); }); await wait(150);
+const hid = await page.evaluate(() => ({
+  cards: [...document.querySelectorAll('#tracker > span:not(.done) small')].map((e) => e.textContent),
+  best: document.querySelectorAll('#tracker > span.best').length,
+  shown: [...document.querySelectorAll('#result .alg')].filter((e) => e.offsetParent !== null).length,
+  fewest: document.querySelector('#result .fewest')?.textContent,
+}));
+console.log('    hidden:', JSON.stringify(hid));
+check(hid.cards.length > 0 && hid.cards.every((t) => /^case \d+ · .+\d+ moves/.test(t) && !/[RLU]'? [RLU]/.test(t)), 'algs hidden: the cards say the case, the kind and the count, no moves');
+check(hid.cards.length < 2 || hid.best >= 1, 'the pair with the fewest moves is marked');
+check(hid.shown === 0 && /^Fewest: \d+ moves · /.test(hid.fewest ?? ''), `the panel: no alg rows, the fewest and its kind (${hid.fewest})`);
+await page.evaluate(() => { const b = document.getElementById('showalgs'); b.checked = true; b.dispatchEvent(new Event('change', { bubbles: true })); }); await wait(150);
+check((await page.$$eval('#result .alg', (es) => es.filter((e) => e.offsetParent !== null).length)) > 0, 'algs shown again');
+
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
 process.exit(failed ? 1 : 0);

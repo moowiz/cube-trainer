@@ -311,8 +311,11 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
     head = 'Half-turn shuffle.';
     body = 'Half turns (with U turns) move pieces between the top layer and the slots without changing which way they face. Both pieces already face the right way, so this shuffle is enough to route them home.';
   } else if (usesD) {
-    head = 'D-layer conjugate.';
+    const shape = dShape(full);
+    head = shape === 'D2' ? 'D2 conjugate.' : shape === 'DD' ? 'Double D conjugate.' : 'D conjugate.';
     body = `The D turns swing the bottom layer round while the other moves work${dBack}.`;
+    if (shape === 'D2') body += ' A D2 carries a slot to the opposite corner of the bottom layer, the less intuitive way round: picture which slot it brings under the one you work in.';
+    else if (shape === 'DD') body += ' There is more than one D turn out and back: the bottom layer moves twice, so follow which slot is under which each time.';
   } else if (qFB) {
     const inv = invert(qFB);
     head = qFB[0] === 'F' ? 'F conjugate.' : 'B conjugate.';
@@ -585,6 +588,18 @@ export function algTools(alg: string): AlgTool[] {
   if (has(/^[FB]'?$/)) out.push('FB');
   if (has(/^[rludfbMESxyz]/)) out.push('wide');
   return out;
+}
+
+/**
+ * How an alg turns the bottom layer: 'D' (one quarter turn out and one back, the plain conjugate), 'D2' (a half
+ * turn in it: the slot opposite comes under, less intuitive), 'DD' (more D turns than out and back), or null for none
+ * (user, 2026-09-27: some D conjugates are harder to see than others).
+ */
+export function dShape(alg: string): 'D' | 'D2' | 'DD' | null {
+  const d = tokens(normalizeAlg(alg)).filter((t) => t[0] === 'D');
+  if (!d.length) return null;
+  if (d.includes('D2')) return 'D2';
+  return d.length <= 2 ? 'D' : 'DD';
 }
 
 // ---- the searched algs: computed once by scripts/f2l-searched.ts (search.ts), looked up here -----------------------

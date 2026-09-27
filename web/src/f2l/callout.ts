@@ -7,20 +7,22 @@
 // whether it goes through an open slot. An answer is right when it names any technique that alg has - a keyhole
 // is a D conjugate too - or the case's number.
 
-import { findCase, listFor, slotState, SLOT_WORD, SLOTS, twinOf, type SlotName, type Solution } from './model';
+import { dShape, findCase, listFor, slotState, SLOT_WORD, SLOTS, twinOf, type SlotName, type Solution } from './model';
 
-export type Technique = 'keyhole' | 'dconj' | 'fconj' | 'f2' | 'wide' | 'sides' | 'shortcut' | 'insert' | 'regular';
+export type Technique = 'keyhole' | 'd2conj' | 'ddconj' | 'dconj' | 'fconj' | 'f2' | 'wide' | 'sides' | 'shortcut' | 'insert' | 'regular';
 /** What the voice says for a technique. */
 export const TECH_WORD: Record<Technique, string> = {
-  keyhole: 'keyhole', dconj: 'D conjugate', fconj: 'F conjugate', f2: 'F2', wide: 'wide', sides: 'both sides',
+  keyhole: 'keyhole', d2conj: 'D2 conjugate', ddconj: 'double D', dconj: 'D conjugate', fconj: 'F conjugate', f2: 'F2', wide: 'wide', sides: 'both sides',
   shortcut: 'shortcut', insert: 'insert', regular: 'regular',
 };
 /** How the voice says it (the synthesiser reads "F2" as "F2" the model number). */
-const TECH_SAID: Partial<Record<Technique, string>> = { f2: 'F two', dconj: 'D conjugate', fconj: 'F conjugate' };
+const TECH_SAID: Partial<Record<Technique, string>> = { f2: 'F two', d2conj: 'D two conjugate', dconj: 'D conjugate', fconj: 'F conjugate' };
 export const techSaid = (t: Technique): string => TECH_SAID[t] ?? TECH_WORD[t];
 /** For the settings note: what each technique means, in the order they are listed. */
 export const TECH_NOTE: [Technique, string][] = [
   ['keyhole', 'D turns, through an open slot next to it'],
+  ['d2conj', 'a D2 among the D turns: the slot opposite comes under (also a D conjugate)'],
+  ['ddconj', 'D turns out and back more than once (also a D conjugate)'],
   ['dconj', 'D turns, every other slot kept'],
   ['fconj', 'an F or B quarter turn, undone later'],
   ['f2', 'F2 or B2'],
@@ -32,10 +34,15 @@ export const TECH_NOTE: [Technique, string][] = [
 ];
 
 /** Every technique an alg shows, the one to say first: keyhole before D conjugate, and so on down TECH_NOTE. */
-export function techniques(s: Pick<Solution, 'tools' | 'needs' | 'n'>): Technique[] {
+export function techniques(s: Pick<Solution, 'tools' | 'needs' | 'n'> & { full?: string }): Technique[] {
   const out: Technique[] = [];
   const t = new Set(s.tools);
-  if (t.has('D')) out.push(...(s.needs.length ? (['keyhole', 'dconj'] as const) : (['dconj'] as const)));
+  if (t.has('D')) {
+    if (s.needs.length) out.push('keyhole');
+    const shape = s.full ? dShape(s.full) : 'D';
+    if (shape === 'D2') out.push('d2conj'); else if (shape === 'DD') out.push('ddconj');
+    out.push('dconj');
+  }
   if (t.has('FB')) out.push('fconj');
   if (t.has('F2')) out.push('f2');
   if (t.has('wide')) out.push('wide');
@@ -71,6 +78,8 @@ const SLOT_RE: [RegExp, SlotName][] = [
 const TECH_RE: [RegExp, Technique][] = [
   [/\bkey\s*(hole|whole|hold|hall)s?\b|\bkeyhole/, 'keyhole'],
   [/\b(f|ef|eff|front|b|be|bee)\s*-?\s*(conjugate|conjugates|conjugated)\b/, 'fconj'],
+  [/\b(d|dee|de|the)\s*-?\s*(2|two|too|to)\s*-?\s*(conjugate|conjugates|conjugated)\b|\bd2\s*conjugat/, 'd2conj'],
+  [/\bdouble\s*(d|dee|de|the)\b/, 'ddconj'],
   [/\b(d|dee|de|the|down)\s*-?\s*(conjugate|conjugates|conjugated)\b|\bconjugate\b|\bd\s*(turn|layer)s?\b/, 'dconj'],
   [/\b(f|ef|eff|b|be|bee)\s*-?\s*(2|two|too|to)\b|\bf2\b|\bb2\b/, 'f2'],
   [/\b(wide|slice|slices|wides)\b/, 'wide'],

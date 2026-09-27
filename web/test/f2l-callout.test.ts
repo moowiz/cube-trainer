@@ -17,6 +17,9 @@ describe('heardF2L', () => {
     expect(heardF2L('front right F two')).toMatchObject({ slot: 'FR', tech: 'f2', n: null });
     expect(heardF2L('back left insert')).toMatchObject({ slot: 'BL', tech: 'insert' });
     expect(heardF2L('front left both sides')).toMatchObject({ slot: 'FL', tech: 'sides', n: null });
+    expect(heardF2L('front left D2 conjugate')).toMatchObject({ slot: 'FL', tech: 'd2conj', n: null });
+    expect(heardF2L('back right d two conjugate')).toMatchObject({ slot: 'BR', tech: 'd2conj', n: null });
+    expect(heardF2L('back right double D')).toMatchObject({ slot: 'BR', tech: 'ddconj' });
   });
   it('reads a case number', () => {
     expect(heardF2L('front left 17')).toMatchObject({ slot: 'FL', tech: null, n: 17 });
@@ -32,12 +35,14 @@ describe('techniques', () => {
   it('a keyhole is a D conjugate through an open slot', () => {
     expect(techniques({ tools: ['D'], needs: ['FR'], n: 5 })).toEqual(['keyhole', 'dconj']);
     expect(techniques({ tools: ['D'], needs: [], n: 8 })).toEqual(['dconj']);
+    expect(techniques({ tools: ['D'], needs: [], n: 8, full: "D2 R U R' D2 R U' R'" })).toEqual(['d2conj', 'dconj']);
+    expect(techniques({ tools: ['D'], needs: ['BR'], n: 8, full: "D R U R' D' D R U' R' D'" })).toEqual(['keyhole', 'ddconj', 'dconj']);
     expect(techniques({ tools: [], needs: [], n: 3 })).toEqual(['insert']);
     expect(techniques({ tools: [], needs: [], n: 7 })).toEqual(['regular']);
     expect(techniques({ tools: [], needs: ['BL'], n: 5 })).toEqual(['shortcut']);
   });
   it('every technique has a line in the note', () => {
-    const all: Technique[] = ['keyhole', 'dconj', 'fconj', 'f2', 'wide', 'sides', 'shortcut', 'insert', 'regular'];
+    const all: Technique[] = ['keyhole', 'd2conj', 'ddconj', 'dconj', 'fconj', 'f2', 'wide', 'sides', 'shortcut', 'insert', 'regular'];
     expect(TECH_NOTE.map(([t]) => t).sort()).toEqual([...all].sort());
   });
 });

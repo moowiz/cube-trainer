@@ -107,6 +107,10 @@ const STYLE = `
   /* the voice drill: a pair's case hidden until it is named */
   .f2l .result.askhide > :not(.askmsg) { display: none; }
   .f2l .askmsg { font-size: 15px; color: var(--ink-2); }
+  /* the algs hidden: the fewest moves and the kind, the rows kept (hidden) so the cube's turns are still followed */
+  .f2l .result.noalgs .alg, .f2l .result.noalgs h3, .f2l .result.noalgs table.trace { display: none; }
+  .f2l .fewest { font-size: 16px; margin: 4px 0 14px; } .f2l .fewest span { color: var(--ink-2); font-size: 14px; }
+  .f2l .tracker.cards > span.best:not(.cur) { border-color: #1B7A3E; }
   .f2l .tracker > span.done { opacity: .45; text-decoration: line-through; cursor: default; }
   .f2l .tracker > span.cur { color: var(--ink); border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); font-weight: 600; }
   .f2l .tracker .sw3 { display: inline-flex; gap: 2px; }
@@ -270,6 +274,8 @@ export function mountF2L(root: HTMLElement): Stage {
   const cubeHidden = () => root.classList.contains('nocube');
   // the two checkboxes live in the page's settings sheet, outside root; absent means the defaults
   const showHints = () => (document.getElementById('showhints') as HTMLInputElement | null)?.checked ?? true;
+  // the algs hidden (user, 2026-09-27): each pair's fewest moves and the kind of alg, the moves left to you
+  const showAlgs = () => (document.getElementById('showalgs') as HTMLInputElement | null)?.checked ?? true;
 
   // ---- state ----
   let slot: SlotName = 'FR';
@@ -379,6 +385,7 @@ export function mountF2L(root: HTMLElement): Stage {
     if (corner) q.set('c', `${corner.pos}-${corner.o}`);
     if (edge) q.set('e', edge);
     if (!showHints()) q.set('h', '0');
+    if (!showAlgs()) q.set('a', '0');
     if (scrWca) { q.set('scr', scrWca); q.set('w', '1'); } // w: the scramble is WCA (old links stored the trainer frame)
     if (tracked) { q.set('t', '1'); if (tracked.hist.length) q.set('hist', tracked.hist.join('|')); } // hist is WCA too (under w=1)
     const s = q.toString();
@@ -397,6 +404,8 @@ export function mountF2L(root: HTMLElement): Stage {
       // 'f' (the colour scheme) is scheme.ts's now: not read here, not written
       const sh = document.getElementById('showhints') as HTMLInputElement | null;
       if (q.get('h') === '0' && sh) sh.checked = false;
+      const sa = document.getElementById('showalgs') as HTMLInputElement | null;
+      if (q.get('a') === '0' && sa) sa.checked = false;
       const s = q.get('s');
       if (s && isSlot(s)) slot = s;
       if (q.get('d')) solvedSlots = new Set(q.get('d')!.split(',').filter(isSlot));
@@ -428,14 +437,18 @@ export function mountF2L(root: HTMLElement): Stage {
 
   // ---- the header: tracker chips, slot select, scramble panel ----
   /** A slot's case on the tracked cube and the alg the finder would lead with: what to expect before picking it. */
-  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number; through: string } | null {
+  function slotSummary(f: string, s: SlotName): { n: number; head: string; alg: string; moves: number; through: string; fewest: { moves: number; head: string } } | null {
     const st = slotState(f, s);
     const found = findCase(s, st.corner, st.edge);
     if (!found) return null;
-    const lead = rowsFor(s, found.c, found.hit.auf).lead;
+    const { lead, rows } = rowsFor(s, found.c, found.hit.auf);
     if (!lead) return null;
-    return { n: twinOf(s, found.c.n), head: explain(s, found.c, lead.alg).head.replace(/\.$/, ''), alg: lead.full, moves: lead.n, through: lead.needs.map((z) => SLOT_WORD[z]).join(' + ') };
+    const head = (x: Solution) => explain(s, found.c, x.alg).head.replace(/\.$/, '');
+    const few = fewestOf(rows) ?? lead;
+    return { n: twinOf(s, found.c.n), head: head(lead), alg: lead.full, moves: lead.n, through: lead.needs.map((z) => SLOT_WORD[z]).join(' + '), fewest: { moves: few.n, head: few === lead ? head(lead) : head(few) } };
   }
+  /** The usable row with the fewest moves (the lead may be a starred alg that is longer). */
+  const fewestOf = (rows: (Solution & { usable: boolean })[]): Solution | null => rows.filter((x) => x.usable).reduce<Solution | null>((a, x) => (!a || x.n < a.n ? x : a), null);
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
     // a pair tapped is a pair shown, the voice drill's hiding or not
@@ -459,6 +472,11 @@ export function mountF2L(root: HTMLElement): Stage {
     const f = cardState();
     const cards = !!f;
     t.classList.toggle('cards', cards);
+    // each open pair's summary, and the fewest moves among them (the pair to do next, by count)
+    const sums = new Map<SlotName, ReturnType<typeof slotSummary>>();
+    if (f) for (const s of SLOTS) if (!solvedSlots.has(s)) sums.set(s, safe(() => slotSummary(f, s)));
+    const counts = [...sums.values()].flatMap((x) => (x ? [x.fewest.moves] : []));
+    const best = counts.length ? Math.min(...counts) : -1, open = counts.length;
     for (const s of SLOTS) {
       const el = document.createElement('span');
       const head = document.createElement('b');
@@ -476,9 +494,12 @@ export function mountF2L(root: HTMLElement): Stage {
         el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickSlot(s); } });
         // tracking: the case waiting in the slot, so the pair to solve can be chosen by its alg
         if (cards && f) {
-          const sum = slotSummary(f, s);
+          const sum = sums.get(s) ?? null;
           const small = document.createElement('small');
+          if (sum && sum.fewest.moves === best && open > 1) el.classList.add('best');
           small.innerHTML = sum && voice.hidden(s, sum.n) ? 'say what you would do, or tap to see'
+            : sum && !showAlgs()
+            ? `case ${sum.n} · ${esc(sum.fewest.head)}<br><b>${sum.fewest.moves} moves</b>${sum.fewest.moves === best && open > 1 ? ' · the fewest' : ''}`
             : sum
             ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves${sum.through ? ` (through the open ${esc(sum.through)})` : ''}`
             : 'no case in the sheet';
@@ -933,7 +954,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   function showResult(): void {
     const D = DATA.slots[slot];
-    const r = $('result'); r.innerHTML = ''; r.classList.remove('askhide');
+    const r = $('result'); r.innerHTML = ''; r.classList.remove('askhide', 'noalgs');
     const hint = (t: string) => { const p = document.createElement('p'); p.className = 'hint'; p.textContent = t; r.appendChild(p); };
     const hb = $('hintbox'); hb.hidden = true; hb.innerHTML = '';
     const left = corner && edge ? null : beforeF2L(); // a pair under way keeps its case through a broken cross
@@ -974,6 +995,15 @@ export function mountF2L(root: HTMLElement): Stage {
     if (fix) { const d = document.createElement('p'); d.className = 'where'; d.textContent = `The white layer is turned: ${fix} puts the cross back.`; r.appendChild(d); }
     const { lead, rows } = rowsFor(slot, c, hit.auf);
     const ex = explain(slot, c, (lead ?? rows[0])?.alg ?? c.algs[0]!);
+    r.classList.toggle('noalgs', !showAlgs());
+    const few = fewestOf(rows);
+    if (!showAlgs() && few) {
+      const p = document.createElement('p'); p.className = 'fewest';
+      const kind = (x: Solution) => explain(slot, c, x.alg).head.replace(/\.$/, '');
+      const needs = few.needs.length ? ` (through the open ${few.needs.map((z) => SLOT_WORD[z]).join(' + ')})` : '';
+      p.innerHTML = `Fewest: <b>${few.n} moves</b> · ${esc(kind(few))}${esc(needs)}${lead && lead !== few && lead.n !== few.n ? `<br><span>your starred alg: ${lead.n} moves · ${esc(kind(lead))}</span>` : ''}`;
+      r.appendChild(p);
+    }
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
     hb.hidden = !showHints() || hide;
     const wrap = document.createElement('div');
@@ -1115,7 +1145,7 @@ export function mountF2L(root: HTMLElement): Stage {
   // the cube went away: its turns stay on the tracked cube, "Did this" comes back
   onSourceChange(() => { if (!activeSource()) { fedBy = null; track = null; renderFollow(); if (tracked) render(); } });
   // the settings-sheet checkboxes are outside root (and may be mounted after us): listen on the document
-  document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints') render(); });
+  document.addEventListener('change', (e) => { const id = (e.target as HTMLElement | null)?.id; if (id === 'showhints' || id === 'showalgs') render(); });
   // the move filter: its chips in the settings, and the list redrawn when it (or the case sheet's copy) changes
   loadAlgFilter();
   const drawTools = () => { const el = document.getElementById('f2l-tools'); if (el) el.innerHTML = toolChipsHtml('data-tool'); };

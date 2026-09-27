@@ -146,7 +146,7 @@ describe('explain() says only what the alg does', () => {
   it('names what it covers: a D-layer slide, a corner slid under from the top, a back-face flip and a shortcut', () => {
     const e = (slot: SlotName, n: number, alg: string) => explain(slot, DATA.slots[slot].cases[n]!, alg);
     expect(e('FL', 41, "R U' R' U D R U' R' D'").head).toBe('Slide the corner under.');
-    expect(e('FR', 48, "D R U R' D' R U' R'").head).toBe('D-layer conjugate.'); // the edge rides out and back: no slide
+    expect(e('FR', 48, "D R U R' D' R U' R'").head).toBe('D conjugate.'); // the edge rides out and back: no slide
     expect(e('FL', 18, "R' D R U' R' D' R").head).toBe('Corner under the edge.');
     expect(e('BR', 26, "(U') r' U2 r B2").head).toBe('B2 flip.');
     const cut = DATA.slots.FR.cases['51']!.others[0]!; // the pair sits in front-left; this one also goes through back-right
