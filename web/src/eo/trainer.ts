@@ -19,6 +19,7 @@ import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type SolutionSet } from './solver';
 import { persisted } from '../ui/settings';
 import { hold } from '../app/context';
+import { inspectSwitch } from '../ui/inspect';
 import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher } from '../timer/track-ui';
 import type { ColorName, FaceId } from '../types';
@@ -43,6 +44,7 @@ export function mountEO(root: HTMLElement): Stage {
     movesLabel: 'Moves you did (EO, then the cross)', placeholder: "e.g. F R' B U F  R2 D L' D2",
     note: 'Solve EO on your cube (then the cross if you want to carry on into F2L). Space starts and stops the timer.',
     showLabel: 'Show optimal EO solutions',
+    inspection: true,
     left: `
       <div class="eo-stage"><svg id="eo-cube" viewBox="-170 -170 340 340" aria-label="cube"></svg></div>
       <div class="eo-corner">
@@ -327,5 +329,6 @@ export function mountEO(root: HTMLElement): Stage {
     load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,
     rail: () => ({ toks: scramble ? toWca(scramble).split(' ').filter(Boolean) : null, track, clock: drill.clock() }),
     press: (down) => drill.press(down),
+    inspect: inspectSwitch,
   };
 }

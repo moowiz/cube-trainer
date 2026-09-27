@@ -26,13 +26,15 @@ import type { TrackStatus } from './track';
 import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from './track-ui';
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
+import { AttemptClock } from '../ui/clock';
+import { inspectOn, inspectSwitch, onInspectChange } from '../ui/inspect';
 import { persisted } from '../ui/settings';
 import { type Mode, MODE_LABEL, MODES, say, ScrambleVoice } from '../ui/voice';
 
 // DECISION (user, 2026-09-17): no inspection countdown and no inspection penalties - the timer starts
 // at the first turn and stops at solved; the gap from "scrambled" to the first turn is recorded on the
 // solve. (2026-09-26: shown counting up while you plan the EOCross, with a switch on the rail to hide it.)
-interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on'; /** the inspection clock shown (it is recorded either way) */ inspect: 'off' | 'on'; /** the scramble voice (ui/voice.ts), as the PLL drill's */ voice: Mode }
+interface Settings { autonext: 'off' | 'on'; beep: 'off' | 'on'; /** the scramble voice (ui/voice.ts), as the PLL drill's */ voice: Mode }
 const SETTINGS_KEY = 'zz-timer-settings';
 const SESSION_META = 'timer/session';
 // DECISION (user, 2026-09-20): a session is a sitting. It can run for hours, but a solve that comes
@@ -104,9 +106,9 @@ const STYLE = `
 
 export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   ensureStyle('timer-style', STYLE);
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on', inspect: 'on', voice: 'off' });
-  if (settings.inspect !== 'off') settings.inspect = 'on';
-  const inspOn = () => settings.inspect === 'on';
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { autonext: 'on', beep: 'on', voice: 'off' });
+  const inspOn = inspectOn;
+  onInspectChange(() => render());
 
   root.innerHTML = `
     <div class="tm">
@@ -176,7 +178,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const was = track;
     track = scramble ? watcher.status(fromWca(scramble), facelets, colourOf, deps.hold()) : null;
     if (!scramble) return;
-    voice.update(was, track, turn, phase !== 'idle', firstRead);
+    voice.update(was, track, turn, phase() !== 'idle', firstRead);
     renderScramble();
   }
 
@@ -245,18 +247,17 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   $('solBtn').addEventListener('click', () => { solutionOpen = !solutionOpen; renderSolution(); if (solutionOpen) void showSolution(); });
 
   // ---- the attempt ----
-  let phase: Phase = 'idle';
-  let armedAt: number | null = null;   // inspection start, host ms
-  let armedShown: number | null = null; // the same on this page's clock (performance.now), for the running display
-  let startAt: number | null = null;   // first turn / Space, host ms
+  // the clock (ui/clock.ts): armed at the scramble, started by the first turn or a press's release
+  const clk = new AttemptClock({ inspection: true, canStart: () => !!scramble });
+  const phase = (): Phase => (clk.running() ? 'solving' : clk.armed() ? 'ready' : 'idle');
   let moves: SolveMove[] = [];         // WCA letters, t relative to startAt
   let lastLine = '';
   let justDone: number | null = null; // the solve just finished, for the rail before the store has it back
-  function resetAttempt(): void { phase = 'idle'; armedAt = null; armedShown = null; startAt = null; moves = []; }
+  function resetAttempt(): void { clk.reset(); moves = []; }
 
   function armed(t: number): void {
-    if (phase === 'solving') return;
-    phase = 'ready'; armedAt = t; armedShown = performance.now(); startAt = null; moves = [];
+    if (clk.running()) return;
+    clk.arm(t); moves = [];
     beep(880, 70);
     render();
   }
@@ -265,12 +266,13 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function feed(text: string, t: number): boolean {
     const txt = text.trim();
     if (!txt) { // back at the scramble: the attempt starts over
-      phase = 'ready'; armedAt ??= t; armedShown ??= performance.now(); startAt = null; moves = [];
+      clk.back(t); moves = [];
       render(); return false;
     }
     let toks: string[];
     try { toks = tokens(txt); } catch { return false; }
-    if (startAt === null) { startAt = t; phase = 'solving'; moves = []; }
+    if (clk.turn(t)) moves = [];
+    const startAt = clk.startAt!;
     for (let i = moves.length; i < toks.length; i++) moves.push({ m: toWca(toks[i]!), t: Math.max(0, Math.round(t - startAt)) });
     render();
     let solved: boolean;
@@ -281,9 +283,10 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   }
 
   function finish(tEnd: number): void {
+    const startAt = clk.startAt;
     if (startAt === null) return;
     const time = Math.max(0, Math.round(tEnd - startAt));
-    const inspection = armedAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
+    const inspection = clk.inspection();
     const penalty: Penalty = 0; // +2 / DNF are the buttons under the time, never automatic
     const rec: SolveRecord = {
       id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Math.min(Date.now(), Date.now() - (performance.now() - startAt)), scramble, time, penalty,
@@ -311,20 +314,12 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   // ---- the tap pad and Space: press arms (the digits go green), RELEASE starts, a tap stops ----
   // DECISION (user, 2026-09-17): the timer starts on release, never on the press, so a thumb resting
   // on the phone does not start it; a solve stops on the press itself, as every timer does.
-  let held = false;       // pressed, waiting for the release that starts
-  let swallowUp = false;  // the press that stopped a solve: its release must not start another
   function press(): void {
-    if (phase === 'solving') { finish(performance.now()); swallowUp = true; return; }
-    if (!scramble || held) return;
-    held = true;
+    if (clk.press(true) === 'stop') finish(clk.endAt ?? performance.now());
     render();
   }
   function release(): void {
-    if (swallowUp) { swallowUp = false; return; }
-    if (!held) return;
-    held = false;
-    if (phase === 'solving' || !scramble) { render(); return; }
-    phase = 'solving'; startAt = performance.now(); moves = [];
+    if (clk.press(false) === 'start') moves = [];
     render();
   }
   const pad = $('pad');
@@ -335,7 +330,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     press();
   });
   pad.addEventListener('pointerup', (ev) => { ev.preventDefault(); release(); });
-  pad.addEventListener('pointercancel', () => { held = false; swallowUp = false; render(); });
+  pad.addEventListener('pointercancel', () => { clk.cancelPress(); render(); });
   pad.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
   const active = () => !root.hidden && !sheetOpen();
@@ -344,7 +339,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   const keyable = (ev: KeyboardEvent) => active() && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes((ev.target as HTMLElement).tagName);
   document.addEventListener('keydown', (ev) => {
     if (!keyable(ev)) return;
-    if (ev.key === 'Escape') { held = false; resetAttempt(); render(); }
+    if (ev.key === 'Escape') { resetAttempt(); render(); }
     else if (ev.key.toLowerCase() === 'n') newScramble();
   });
   $('next').onclick = newScramble;
@@ -528,14 +523,14 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   function renderTime(): void {
     const el = $('time');
     el.className = 'tm-time';
-    $('pad').className = `tm-pad${held ? ' held' : ''}${phase === 'solving' ? ' solving' : ''}`;
-    if (held) {
+    $('pad').className = `tm-pad${clk.held ? ' held' : ''}${phase() === 'solving' ? ' solving' : ''}`;
+    if (clk.held) {
       el.textContent = '0.00';
-    } else if (phase === 'ready') {
+    } else if (phase() === 'ready') {
       el.classList.add('insp');
-      el.textContent = inspOn() && armedShown !== null ? formatTime(performance.now() - armedShown, 1) : 'ready';
-    } else if (phase === 'solving' && startAt !== null) {
-      el.textContent = formatTime(performance.now() - startAt, 1);
+      el.textContent = clk.inspecting() ? formatTime(clk.inspectingMs(), 1) : 'ready';
+    } else if (phase() === 'solving') {
+      el.textContent = formatTime(clk.elapsed() ?? 0, 1);
     } else {
       const last = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
       el.textContent = last ? formatTime(effectiveTime(last)) : '0.00';
@@ -557,19 +552,19 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (solutionOpen) void showSolution();
     renderTime();
     const st = $('state');
-    if (held) st.textContent = 'Release to start';
-    else if (phase === 'ready') st.textContent = inspOn() ? 'Inspecting · the first turn starts the solve' : 'Scrambled · the first turn starts the timer';
-    else if (phase === 'solving') st.textContent = 'Solving… tap to stop';
+    if (clk.held) st.textContent = 'Release to start';
+    else if (phase() === 'ready') st.textContent = inspOn() ? 'Inspecting · the first turn starts the solve' : 'Scrambled · the first turn starts the timer';
+    else if (phase() === 'solving') st.textContent = 'Solving… tap to stop';
     else st.textContent = lastLine || (track ? 'Scramble the cube · or press here and release to start' : 'Press here (or Space) and release to start · tap to stop');
     // the last (or selected) solve's controls
     const cur = solves.find((s) => s.id === (selected ?? solves[solves.length - 1]?.id));
-    $('last').hidden = !cur || phase !== 'idle';
+    $('last').hidden = !cur || phase() !== 'idle';
     if (cur) {
       $('lastText').textContent = `${selected ? `#${solves.indexOf(cur) + 1}` : 'Last'}: ${formatTime(effectiveTime(cur))}${cur.moves ? ` · ${cur.moves.length} turns` : ''}${inspOn() && cur.inspection !== undefined ? ` · inspection ${formatTime(cur.inspection)}` : ''} · ${stampOf(cur.when)}`;
       $('lastText').title = fullOf(cur.when);
       $('last').querySelectorAll<HTMLButtonElement>('button[data-pen]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pen) === cur.penalty));
     }
-    renderReport(cur && phase === 'idle' ? cur : null);
+    renderReport(cur && phase() === 'idle' ? cur : null);
     // sessions
     const sel = sessSel;
     const now = Date.now();
@@ -603,7 +598,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (!xs.length) return '';
     return ` · inspection mean ${formatTime(xs.reduce((a, b) => a + b, 0) / xs.length)} (last ${xs.length}) · longest ${formatTime(Math.max(...xs))}`;
   }
-  const tick = () => { if (phase !== 'idle') renderTime(); requestAnimationFrame(tick); };
+  const tick = () => { if (phase() !== 'idle') renderTime(); requestAnimationFrame(tick); };
   tick();
 
   void deps.store.then((st) => { st.onChange(() => { void loadSolves(); }); return loadSessions(); }).then(() => newScramble());
@@ -621,9 +616,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       track,
       offText: voice.offText(),
       note: scramble ? undefined : 'making a scramble…',
-      clock: held ? { ms: 0, phase: 'held' }
-        : phase === 'ready' ? (inspOn() && armedShown !== null ? { ms: performance.now() - armedShown, phase: 'ready', inspecting: true } : { ms: 0, phase: 'ready' })
-        : phase === 'solving' && startAt !== null ? { ms: performance.now() - startAt, phase: 'running' }
+      clock: phase() !== 'idle' || clk.held ? clk.view()
         : (() => {
           const sel = selected ? solves.find((v) => v.id === selected) : undefined;
           const last = sel ?? solves[solves.length - 1];
@@ -632,10 +625,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         })(),
     }),
     press: (down) => { if (down) press(); else release(); },
-    inspect: () => ({
-      on: inspOn(),
-      toggle: () => { settings.inspect = inspOn() ? 'off' : 'on'; saveSettings(); paintSettings(); render(); },
-    }),
+    inspect: inspectSwitch,
     voice: () => ({
       on: settings.voice !== 'off',
       label: settings.voice === 'off' ? 'voice off' : `voice: ${MODE_LABEL[settings.voice]}`,

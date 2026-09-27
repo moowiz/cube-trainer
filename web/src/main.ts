@@ -23,6 +23,7 @@ import { mountLL } from './ll/trainer';
 import { algsHooks, initShell, stages } from './shell';
 import { mountTimer } from './timer/trainer';
 import { setAttemptReader, setAttemptSink } from './ui/drill';
+import { wireInspectRows } from './ui/inspect';
 
 initBootLog();
 // the favourite algs from the store onto the case table (async: the drills hear it and re-derive their case)
@@ -58,6 +59,7 @@ initCubeFollow(); mark('cube follow');
 initRecordButton(); mark('record button');
 initWake(); mark('wake lock');
 initModes(); mark('modes (the rail, the mode chip, the settings sheets)');
+wireInspectRows();
 setTimeout(() => mark('first idle tick after main.ts (the timeouts queued at mount ran: the drills\' first scrambles)'), 0);
 
 // For the headless checks and the console: what the store holds.

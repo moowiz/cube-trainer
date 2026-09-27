@@ -5,6 +5,8 @@
 // tap-to-fill on anything carrying data-alg. A stage fills the left column,
 // answers the callbacks, and never touches timer or box mechanics.
 
+import { AttemptClock } from './clock';
+import { inspectOn } from './inspect';
 import { moveCount, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
@@ -51,6 +53,8 @@ export interface DrillSpec {
   left: string;
   /** HTML inserted right after the hint chips (a note area, say) */
   afterHints?: string;
+  /** the inspection clock (ui/clock.ts): while armed, the time since the scramble reached the cube counts up (the ⏱ switch permitting) */
+  inspection?: boolean;
 }
 
 export interface DrillHandlers {
@@ -74,16 +78,9 @@ export interface DrillHandlers {
   onApply?(alg: string): void;
 }
 
-interface Timer {
-  running(): boolean;
-  elapsed(): number | null;
-  toggle(): void;
-  reset(): void;
-}
 
 export interface Drill {
   $(name: string): HTMLElement;
-  timer: Timer;
   /** The clock as the cube rail shows it: held (a press waiting for its release), ready (armed), running, or the last time. */
   clock(): RailClock;
   /** Space or a press on the rail's timer: down stops a running clock or arms one, up starts it (the Solve tab's rule). */
@@ -248,20 +245,18 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
   const labels = Object.fromEntries(hints.map((c) => [c.key, c.label]));
 
   // timer, and where the attempt's moves came from
-  let startAt: number | null = null, endAt: number | null = null;
-  let armedAt: number | null = null;
+  const clk = new AttemptClock({ inspection: !!spec.inspection });
   let fedBy: 'cube' | 'camera' | null = null;
   let lastAttempt: { n: number; t: number | null; source: 'typed' | 'cube' | 'camera'; recognition?: number; execution?: number } | null = null;
-  const timer: Timer = {
-    running: () => startAt !== null && endAt === null,
-    elapsed: () => (startAt === null ? null : ((endAt ?? performance.now()) - startAt) / 1000),
-    toggle() {
-      if (timer.running()) { endAt = performance.now(); $('timerBtn').textContent = 'Start timer'; box.focus(); }
-      else { startAt = performance.now(); endAt = null; $('timerBtn').textContent = 'Stop'; }
-    },
-    reset() { startAt = null; endAt = null; $('timerBtn').textContent = 'Start timer'; },
+  // the Start / Stop button follows the clock, whatever started or stopped it
+  const tick = () => {
+    const t = clk.elapsed(), el = document.getElementById(id('timer'));
+    if (el) el.textContent = t === null ? '0.00' : (t / 1000).toFixed(2);
+    const b = document.getElementById(id('timerBtn'));
+    if (b) { const want = clk.running() ? 'Stop' : 'Start timer'; if (b.textContent !== want) b.textContent = want; }
+    requestAnimationFrame(tick);
   };
-  const tick = () => { const t = timer.elapsed(); const el = document.getElementById(id('timer')); if (el) el.textContent = t === null ? '0.00' : t.toFixed(2); requestAnimationFrame(tick); };
+  const toggleTimer = () => { const was = clk.running(); clk.toggle(); if (was) box.focus(); };
 
   const flash = (m: string) => { $('flash').textContent = m; };
   const active = () => !root.hidden && !sheetOpen();
@@ -283,8 +278,8 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
 
   // wiring
   $('next').onclick = () => h.onNew();
-  $('timerBtn').onclick = () => timer.toggle();
-  $('timerReset').onclick = () => timer.reset();
+  $('timerBtn').onclick = toggleTimer;
+  $('timerReset').onclick = () => clk.reset();
   $('check').onclick = check;
   $('clear').onclick = () => { box.value = ''; result.hide(); flash(''); h.onClear?.(); };
   // the moves typed (tap a listed solution to put it there), else the scramble as it is shown - WCA hold
@@ -355,47 +350,29 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     const tag = (ev.target as HTMLElement).tagName;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) { if (ev.target === box && ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); check(); } return; }
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    if (ev.key === 'Escape') { timer.reset(); held = false; return; }
+    if (ev.key === 'Escape') { clk.reset(); return; }
     if (ev.key.toLowerCase() === 'n') { h.onNew(); return; }
     h.onKey?.(ev);
   });
 
-  // the press: down arms (release starts), a press while running stops, and its release does nothing
-  let held = false, swallow = false;
   const drill: Drill = {
-    $, timer, flash, result, active,
-    clock() {
-      if (held) return { ms: 0, phase: 'held' };
-      if (timer.running()) return { ms: (performance.now() - startAt!), phase: 'running' };
-      if (armedAt !== null && startAt === null) return { ms: 0, phase: 'ready' };
-      const t = timer.elapsed();
-      return { ms: t === null ? null : t * 1000, phase: 'idle' };
-    },
-    press(down) {
-      if (down) {
-        if (timer.running()) { timer.toggle(); swallow = true; return; }
-        held = true;
-        return;
-      }
-      if (swallow) { swallow = false; return; }
-      if (!held) return;
-      held = false;
-      timer.toggle();
-    },
+    $, flash, result, active,
+    clock: () => clk.view(),
+    press: (down) => { if (clk.press(down) === 'stop') box.focus(); },
     moves: () => box.value,
     setMoves: (t) => { box.value = t; },
     feed(text, t, source) {
       const txt = text.trim();
       box.value = txt;
       fedBy = source ?? fedBy ?? 'cube';
-      if (!txt) { timer.reset(); result.hide(); flash(''); return false; }
-      if (!timer.running()) { startAt = t; endAt = null; $('timerBtn').textContent = 'Stop'; }
+      if (!txt) { clk.back(t); result.hide(); flash(''); return false; }
+      if (!clk.running()) clk.start(t);
       if (!h.isDone?.(txt)) return false;
-      endAt = t; $('timerBtn').textContent = 'Start timer';
+      clk.stop(t);
       h.onCheck(txt);
       return true;
     },
-    armed(t) { armedAt = t; },
+    armed(t) { clk.arm(t); },
     save(extra) {
       if (!attemptSink || !lastAttempt) return;
       const a = lastAttempt;
@@ -429,18 +406,19 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     showOpen, closeShow,
     setShowLabel: (t) => { $('showSol').textContent = t; },
     begin() {
-      timer.reset(); box.value = ''; result.hide(); result.handoff.innerHTML = ''; result.body.innerHTML = '';
+      clk.reset(); box.value = ''; result.hide(); result.handoff.innerHTML = ''; result.body.innerHTML = '';
       closeShow(); drill.resetHints(); flash('');
-      armedAt = null; fedBy = null; lastAttempt = null;
+      fedBy = null; lastAttempt = null;
     },
     attempt(text) {
-      if (timer.running()) timer.toggle();
-      const t = timer.elapsed();
+      clk.stop();
+      const ms = clk.elapsed(), t = ms === null ? null : ms / 1000;
       const source = fedBy ?? 'typed';
-      const recognition = fedBy && armedAt !== null && startAt !== null ? Math.max(0, Math.round(startAt - armedAt)) : undefined;
-      const execution = fedBy && startAt !== null && endAt !== null ? Math.max(0, Math.round(endAt - startAt)) : undefined;
+      const recognition = fedBy ? clk.inspection() : undefined;
+      const execution = fedBy ? clk.execution() : undefined;
       lastAttempt = { n: moveCount(text), t, source, recognition, execution };
-      return { ...lastAttempt, ts: t === null ? '' : `, ${t.toFixed(2)}s` };
+      const insp = spec.inspection && inspectOn() && recognition !== undefined ? `, inspection ${(recognition / 1000).toFixed(1)}s` : '';
+      return { ...lastAttempt, ts: `${t === null ? '' : `, ${t.toFixed(2)}s`}${insp}` };
     },
   };
   tick();

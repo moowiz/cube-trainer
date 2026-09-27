@@ -14,6 +14,7 @@
 // (white up, green front), the way scrambles are applied at a competition,
 // so it is converted on the way in and out.
 
+import { AttemptClock } from '../ui/clock';
 import { inverse, moveCount, tokens } from '../cube/alg';
 import { fromWca, toWca, WCA_HOLD } from '../cube/frame';
 import { offList, offRoute, routeProgress, wrongTurns } from '../cube/route';
@@ -519,23 +520,10 @@ export function mountF2L(root: HTMLElement): Stage {
   const boxes = () => (scrWca ? { scr: scrWca, pre: '' } : null);
   /** The cube that feeds this stage is at the scramble (and the EOCross moves under it): track it from here without a press. */
   // ---- the clock the cube rail shows: from the cube's first turn after the scramble to the four pairs in, or a press ----
-  let clk: { start: number | null; end: number | null; armed: boolean; held: boolean; swallow: boolean } = { start: null, end: null, armed: false, held: false, swallow: false };
-  const clockReset = () => { clk = { start: null, end: null, armed: false, held: false, swallow: false }; };
-  function clock(): RailClock {
-    if (clk.held) return { ms: 0, phase: 'held' };
-    if (clk.start !== null && clk.end === null) return { ms: performance.now() - clk.start, phase: 'running' };
-    if (clk.armed && clk.start === null) return { ms: 0, phase: 'ready' };
-    return { ms: clk.start !== null && clk.end !== null ? clk.end - clk.start : null, phase: 'idle' };
-  }
-  function press(down: boolean): void {
-    if (down) {
-      if (clk.start !== null && clk.end === null) { clk.end = performance.now(); clk.swallow = true; return; }
-      clk.held = true; return;
-    }
-    if (clk.swallow) { clk.swallow = false; return; }
-    if (!clk.held) return;
-    clk.held = false; clk.start = performance.now(); clk.end = null;
-  }
+  const clk = new AttemptClock();
+  const clockReset = () => clk.reset();
+  const clock = (): RailClock => clk.view();
+  const press = (down: boolean): void => { clk.press(down); };
   /** The scramble as the rail shows it: the setup part only (a targeted case set up from the cube), done when the cube is at it. */
   function railView(): RailView {
     const all = scrWca ? safe(() => tokens(scrWca)) : null;
@@ -547,7 +535,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
 
   function armed(t: number): void {
-    clockReset(); clk.armed = true;
+    clk.arm(t);
     const b = boxes();
     if (!b || !b.scr) return;
     if (target && !target.done) { target.at = t; target.first = null; }
@@ -577,7 +565,7 @@ export function mountF2L(root: HTMLElement): Stage {
     const f = cube();
     if (!f) return false;
     // the clock: the first turn starts it, back at the scramble resets it, the four pairs in stop it
-    if (!toks.length) { clk.start = null; clk.end = null; } else { clk.start ??= t; if (clk.end === null && SLOTS.every((sl) => pairIn(f, sl))) clk.end = t; }
+    if (!toks.length) clk.back(t); else { clk.turn(t); if (SLOTS.every((sl) => pairIn(f, sl))) clk.stop(t); }
     if (target && !target.done) {
       if (!toks.length) target.first = null; else target.first ??= t;
       if (pairIn(f, target.slot)) finishTarget(t, source, toks.join(' '));

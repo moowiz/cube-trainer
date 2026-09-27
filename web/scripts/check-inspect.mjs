@@ -63,6 +63,26 @@ console.log('last:', last, '| inspection recorded:', rec?.inspection);
 check(typeof rec?.inspection === 'number', 'the solve records its inspection');
 check(/inspection \d/.test(last), 'and shows it under the time');
 
+// the EOCross mode: the same count on the rail, the same switch
+await page.evaluate(() => window.ZZ.modes.select('eo'));
+await new Promise((r) => setTimeout(r, 300));
+const EO = "F R U' L B";
+await page.evaluate((s) => window.ZZ.eo.load(s), EO);
+const eoCube = await page.evaluate((s) => window.ZZ.smart.cubeAlg(s), EO);
+await page.evaluate((text) => { void window.ZZ.smart.replay(text, 1); }, capture(eoCube, 4000, inverse(eoCube)));
+await new Promise((r) => setTimeout(r, 2000));
+const e1 = await page.$eval('#rail-time', (e) => e.textContent);
+await new Promise((r) => setTimeout(r, 1000));
+const e2 = await page.$eval('#rail-time', (e) => e.textContent);
+console.log('EOCross rail while inspecting:', e1, '->', e2);
+check(/^\d+\.\d$/.test(e1) && Number(e2) > Number(e1), 'EOCross: the inspection counts up on the rail');
+check(await page.$eval('#rail-insp', (e) => !e.hidden && e.textContent.includes('on')), 'EOCross: the ⏱ switch is on the rail');
+await page.screenshot({ path: `${process.env.TMPDIR ?? '/tmp'}/inspect-eo.png` });
+await page.waitForFunction(() => /inspection \d/.test(document.getElementById('eo-rTitle')?.textContent ?? ''), { timeout: 8000 }).catch(() => undefined);
+const res = await page.$eval('#eo-rTitle', (e) => e.textContent);
+console.log('EOCross result:', res);
+check(/inspection \d/.test(res), 'EOCross: the result shows the inspection');
+
 await browser.close();
 server.close();
 console.log(failed ? `${failed} failed` : 'all ok');
