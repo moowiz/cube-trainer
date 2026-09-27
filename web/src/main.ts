@@ -3,6 +3,8 @@
 // live view, the scanner bridge (docs/housekeeping-plan.md 3). Everything
 // with a decision in it lives in src/app/.
 
+import { analysedSolves } from './analysis/cache';
+import { ensureCoachStyle, reportHtml } from './analysis/coachui';
 import { initBootLog, mark } from './debug/boot';
 import { hold, panel, store } from './app/context';
 import { rig } from './app/rig';
@@ -35,7 +37,11 @@ stages.f2l = mountF2L(panel('f2l-panel')); mark('F2L finder mounted');
 stages.eo = mountEO(panel('eo-panel')); mark('EO trainer mounted');
 // a solve or a drill attempt done: a good moment for nav.js to look for a new deploy (the chip offers the reload)
 const solved = () => document.dispatchEvent(new Event('zz-solved'));
-stages.solve = mountTimer(panel('solve-panel'), { store, hold, onSolve: (s) => { void rig.current()?.solve(s); solved(); } }); mark('Solve tab mounted');
+stages.solve = mountTimer(panel('solve-panel'), {
+  store, hold, onSolve: (s) => { void rig.current()?.solve(s); solved(); },
+  // the coach's report under a solve (the 50 analysed solves before it are its yardstick)
+  report: async (rec) => { ensureCoachStyle(); return reportHtml(rec, await analysedSolves(store)); },
+}); mark('Solve tab mounted');
 // the Algs sheet (the other puzzles' data and the FTO player with it) loads on first open: a phone
 // on the Solve tab never needs it (maintenance plan 2.5). Before initShell: ?tab=algs opens it there.
 algsHooks.onOpen = () => { void import('./algs/sheet').then((m) => { m.initAlgs(); algsHooks.onOpen(); }); };

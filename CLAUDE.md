@@ -139,6 +139,9 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      solved, F2L alone, ...; the cube solved brings the next), Find an F2L case; the mode chip
                      and the stretch picker, each mode's settings sheet (the stages' own rows moved into it),
                      the ? help, the Cases and Progress places, the rail's host)
+    analysis/        the coach (M11): solve (a solve's phases, pairs and last-layer cases off its turns), coach
+                     (medians, the cases worth the most, the advice with its reasons), cache, coachui (the Coach
+                     sheet, the report under a solve)
     rig/             the recording rig's client: stream (ordered POSTs to the dev server's sink),
                      session (one folder per sitting: video chunks, cube events, solves, evidence)
     debug/           HSV/Lab views, frame dump, fps counter, selftest (the hook check-detect.mjs drives)

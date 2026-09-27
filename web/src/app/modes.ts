@@ -20,7 +20,9 @@ import type { SplitStage } from '../timer/splits';
 import { mountRail, type CubeView, type Rail } from '../ui/rail';
 import { readStored, readStoredJson, writeStored } from '../ui/settings';
 import { setFollowRules } from './cubefollow';
-import { hold } from './context';
+import { mountCoach, type CoachAction } from '../analysis/coachui';
+import { setPicks } from '../f2l/pool';
+import { hold, store } from './context';
 import { activeSource, onSourceChange } from './sources';
 
 type ModeId = 'solve' | 'eo' | 'f2l' | 'll' | 'find';
@@ -303,14 +305,39 @@ function progressSeg(s: 'solves' | 'll' | 'f2l'): void {
   if (s === 'll') { open('pll-practice'); open('ocll-practice'); }
   if (s === 'f2l') open('f2lpractice');
 }
+// the Coach (analysis/coachui.ts): mounted on first open, redrawn on every open
+let drawCoach: (() => Promise<void>) | null = null;
+function openCoach(): void {
+  closeSheet('ref-sheet'); closeSheet('algs-sheet'); closeSheet('stats-sheet');
+  drawCoach ??= mountCoach(document.getElementById('coach-panel')!, { store, act: coachAct });
+  openSheet('coach-sheet');
+  void drawCoach();
+}
+/** An advice's button: the cases put in the F2L practice pool, or the mode that practises it. */
+function coachAct(a: CoachAction): void {
+  closeSheet('coach-sheet');
+  if (a.kind === 'f2l-cases') {
+    setPicks(a.ids);
+    writeStored(F2L_KIND, 'picked');
+    paintSegs();
+    selectMode('f2l');
+    stages.f2l?.newScramble();
+    toast(`${a.ids.length} case${a.ids.length === 1 ? '' : 's'} picked to practice`);
+    return;
+  }
+  if (a.mode === 'll' && a.set) writeStored(SET_KEY, a.set);
+  selectMode(a.mode);
+}
 function dest(d: string): void {
+  closeSheet('coach-sheet');
   if (d === 'cases') openCases();
   else if (d === 'progress') openProgress();
+  else if (d === 'coach') openCoach();
   else { closeSheet('ref-sheet'); closeSheet('algs-sheet'); closeSheet('stats-sheet'); closeSheet('modes-sheet'); }
 }
 /** The bottom nav and the desktop's places light up with the sheet that is open. */
 function paintDests(): void {
-  const on = !document.getElementById('stats-sheet')!.hidden ? 'progress' : (!document.getElementById('ref-sheet')!.hidden || !document.getElementById('algs-sheet')!.hidden) ? 'cases' : 'practice';
+  const on = !document.getElementById('coach-sheet')!.hidden ? 'coach' : !document.getElementById('stats-sheet')!.hidden ? 'progress' : (!document.getElementById('ref-sheet')!.hidden || !document.getElementById('algs-sheet')!.hidden) ? 'cases' : 'practice';
   document.querySelectorAll<HTMLElement>('#bnav [data-dest], .dests [data-dest]').forEach((b) => b.classList.toggle('on', b.dataset.dest === on));
 }
 
@@ -420,7 +447,10 @@ export function initModes(): void {
     if (b) progressSeg(b.dataset.v as 'solves');
   });
   const obs = new MutationObserver(paintDests);
-  for (const id of ['ref-sheet', 'algs-sheet', 'stats-sheet']) obs.observe(document.getElementById(id)!, { attributes: true, attributeFilter: ['hidden'] });
+  document.getElementById('coach-close')!.onclick = () => closeSheet('coach-sheet');
+  // the solve report's "Why" (timer/trainer.ts draws it)
+  document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('[data-coach-open]')) openCoach(); });
+  for (const id of ['ref-sheet', 'algs-sheet', 'stats-sheet', 'coach-sheet']) obs.observe(document.getElementById(id)!, { attributes: true, attributeFilter: ['hidden'] });
   // keys: 1-6 the picker's rows, ? the help
   document.addEventListener('keydown', (e) => {
     if (sheetOpen() || e.metaKey || e.ctrlKey || e.altKey || ['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) return;
@@ -436,4 +466,4 @@ export function initModes(): void {
 }
 
 // for the headless checks and the console
-(window.ZZ as Record<string, unknown>).modes = { select: selectMode, pick: pickRow, current: currentMode, openSetup, openCases, openProgress };
+(window.ZZ as Record<string, unknown>).modes = { select: selectMode, pick: pickRow, current: currentMode, openSetup, openCases, openProgress, openCoach };

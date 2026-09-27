@@ -45,6 +45,8 @@ export interface TimerDeps {
   hold(): Hold;
   /** a solve just finished: its window on the host clock, for the recording rig to cut the video by */
   onSolve?(s: { id: string; when: number; t0: number; t1: number; scramble: string; time: number; moves?: unknown }): void;
+  /** the coach's report on a solve (analysis/coachui.ts), as HTML: shown under the last or selected solve */
+  report?(rec: SolveRecord): Promise<string>;
 }
 
 /** ready = the scramble is on the cube (or Space was pressed once with inspection): the first turn starts the timer */
@@ -122,6 +124,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         <span id="tm-lastText"></span>
         <button class="btn" type="button" data-pen="0">OK</button><button class="btn" type="button" data-pen="2">+2</button><button class="btn" type="button" data-pen="-1">DNF</button><button class="btn" type="button" data-del="1">Delete</button>
       </div>
+      <div id="tm-report" hidden></div>
       <div class="tm-sess"><select id="tm-session" aria-label="Session"></select><button class="btn" type="button" id="tm-newsess" title="Split here. A solve after a two-hour pause starts a new session by itself.">New session</button></div>
       <div class="tm-stats"><span id="tm-stats"></span> <button class="btn eo-link" type="button" id="tm-graph" title="The times over the session or over everything, with the running averages as lines">Graph</button></div>
       <ol class="tm-list" id="tm-list"></ol>
@@ -535,6 +538,16 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       el.textContent = last ? formatTime(effectiveTime(last)) : '0.00';
     }
   }
+  // the coach's report on the last (or selected) solve: drawn when that solve or its edit changes
+  let reportKey = '';
+  function renderReport(cur: SolveRecord | null): void {
+    const el = $('report');
+    const key = cur ? `${cur.id}|${cur.editedAt}` : '';
+    if (!cur || !deps.report || !cur.moves?.length) { el.hidden = true; reportKey = key; return; }
+    if (key === reportKey) { el.hidden = !el.innerHTML; return; }
+    reportKey = key;
+    void deps.report(cur).then((h) => { if (reportKey !== key) return; el.innerHTML = h; el.hidden = !h; }).catch(() => { el.hidden = true; });
+  }
   function render(): void {
     renderScramble();
     renderSolution();
@@ -553,6 +566,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       $('lastText').title = fullOf(cur.when);
       $('last').querySelectorAll<HTMLButtonElement>('button[data-pen]').forEach((b) => b.classList.toggle('on', Number(b.dataset.pen) === cur.penalty));
     }
+    renderReport(cur && phase === 'idle' ? cur : null);
     // sessions
     const sel = sessSel;
     const now = Date.now();

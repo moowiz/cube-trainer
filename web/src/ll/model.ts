@@ -66,6 +66,25 @@ export function identify(kind: LLKind, alg: string): LLCase | null {
   return caseKeys(kind).get(kind === 'ocll' ? orientationPattern(f) : f) ?? null;
 }
 
+/** Which case a facelet string (trainer frame) is at, or null: identify() for a state read off a cube rather than made by an alg. */
+export function identifyFacelets(kind: LLKind, f: string): LLCase | null {
+  return caseKeys(kind).get(kind === 'ocll' ? orientationPattern(f) : f) ?? null;
+}
+
+/**
+ * How often each case comes up after the stage before it, the skip included (id 'skip'): the share of the
+ * last-layer states it covers, counted off the case keys (OCLL: 27 orientations; PLL: the permutations with an
+ * AUF either side). What a case costs a solve on average is this times its time.
+ */
+export function caseOdds(kind: LLKind): Map<string, number> {
+  const n = new Map<string, number>();
+  for (const c of caseKeys(kind).values()) n.set(c.id, (n.get(c.id) ?? 0) + 1);
+  const skip = kind === 'ocll' ? 1 : 4; // the oriented pattern; solved in each AUF
+  n.set('skip', skip);
+  const total = [...n.values()].reduce((a, b) => a + b, 0);
+  return new Map([...n].map(([k, v]) => [k, v / total]));
+}
+
 /**
  * The case a solved cube is at after doing `c`'s alg: what the drill chains to. Its alg undoes
  * `c`'s, so the two can be practised back to back without a scramble; a case that chains to

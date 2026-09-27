@@ -543,6 +543,22 @@ the phase medians and trends (6.8 already reserves the spot); Progress ->
 Last layer / F2L merge in the real-solve cases. The replay scrubber sits
 on the cube rail's live cube. Not in M11: LLM commentary (Later / maybe).
 
+**Built 2026-09-26** (the user asked for a Coach tab, a report after
+each solve, and "what to improve next, with reasoning"; so a Coach place
+after all, beside Cases and Progress): `web/src/analysis/` - solve.ts
+(the phases, each pair's and last-layer step's case, its shortest alg,
+look / idle / misturns, two-look last layers and the case passed
+through), coach.ts (phase medians, the cases ranked by the seconds a
+solve fixing them is worth - frequency x the gap to your own quick look
+plus the shortest alg at your own turning speed, the easy algs first -
+and the advice list), cache.ts, coachui.ts (the Coach sheet; the report
+under the last or selected solve on the Solve tab). `npm run check:coach`.
+Pairs are dated by their FIRST solving, not the last (ZZ's R/L turns lift a
+solved neighbour as a matter of course; the design's rule put two pairs on
+one turn in all 33 recorded solves). Still open from the list below: the
+stage strip's splits from the analysis, the real-solve cases in the
+practice tables, trends per session, EOCross against optimal.
+
 **Done when:** every solve in the store with turns shows its splits and
 the card; the stage strip's splits come from the analysis; a pair or
 last-layer case met in a real solve appears in its practice table; a
