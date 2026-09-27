@@ -52,6 +52,10 @@ export interface PhaseRow {
   tps: number;
 }
 
+/** The solves from a full scramble: one that left EOCross (or more) solved is not a solve to measure the phases by. */
+export const fullSolves = (list: readonly SolveAnalysis[]): SolveAnalysis[] => list.filter((a) => a.from === 'eo');
+
+/** Each phase's medians; `list` should be full solves (fullSolves). */
 export function phaseTable(list: readonly SolveAnalysis[]): PhaseRow[] {
   const total = median(list.map((a) => a.total));
   return (Object.keys(PHASE_WORD) as PhaseKey[]).map((key) => {
@@ -217,7 +221,9 @@ export interface Advice {
 // DECISION: advice needs a handful of solves to say anything; below this the coach only shows the solve itself
 export const MIN_SOLVES = 5;
 
-export function advise(list: readonly SolveAnalysis[]): Advice[] {
+export function advise(all: readonly SolveAnalysis[]): Advice[] {
+  // the phases from full solves only; the cases from every solve (a pair or a last layer done is one, whatever the scramble gave)
+  const list = fullSolves(all);
   if (list.length < MIN_SOLVES) return [];
   const out: Advice[] = [];
   const rows = phaseTable(list);
@@ -256,7 +262,7 @@ export function advise(list: readonly SolveAnalysis[]): Advice[] {
 
   // the cases: the best one of each kind to fix
   for (const kind of ['f2l', 'ocll', 'pll'] as CaseKind[]) {
-    let cs = caseTable(list, kind).filter((r) => r.n >= (kind === 'f2l' ? 2 : 1));
+    let cs = caseTable(all, kind).filter((r) => r.n >= (kind === 'f2l' ? 2 : 1));
     // a last layer still done in two looks for several cases: one piece of advice for the set, not one per case
     const twoLook = kind === 'f2l' ? [] : cs.filter((r) => r.multi >= 0.5 && r.par !== null && r.gain.moves > 0);
     if (twoLook.length >= 3) {
@@ -332,10 +338,10 @@ interface ReportRow {
   together?: boolean;
 }
 
-export interface Report { rows: ReportRow[]; total: number; vsTotal: number | null; note: string | null }
+export interface Report { rows: ReportRow[]; total: number; vsTotal: number | null; note: string | null; given: string | null }
 
 function caseLabel(p: Phase): string | undefined {
-  if (p.skipped) return p.id === 'pair' ? 'solved already' : 'skip';
+  if (p.skipped) return p.id === 'pair' ? 'solved already' : p.id === 'eocross' ? 'the scramble had it' : 'skip';
   if (!p.caseId) return undefined;
   if (p.id === 'pair') return `F2L ${p.twin}`;
   const k = p.id as 'ocll' | 'pll';
@@ -343,7 +349,8 @@ function caseLabel(p: Phase): string | undefined {
 }
 
 /** One solve, each phase against the solver's medians over `list` (the solve itself left out by the caller or not). */
-export function solveReport(a: SolveAnalysis, list: readonly SolveAnalysis[]): Report {
+export function solveReport(a: SolveAnalysis, all: readonly SolveAnalysis[]): Report {
+  const list = fullSolves(all);
   const enough = list.length >= 3;
   const byCase = (p: Phase): number | null => {
     if (!enough || !p.caseId || p.skipped) return null;
@@ -358,9 +365,10 @@ export function solveReport(a: SolveAnalysis, list: readonly SolveAnalysis[]): R
   const rows: ReportRow[] = a.phases.map((p) => {
     const ref = byCase(p) ?? byPhase(p.id, p.n);
     const label = p.id === 'pair' ? `Pair ${p.n}${p.slot ? ` · ${SLOT_WORD[p.slot]}` : ''}` : PHASE_WORD[p.id === 'eocross' ? 'eocross' : (p.id as PhaseKey)];
-    return { label, kase: caseLabel(p), time: p.time, vs: ref === null || p.together ? null : p.time - ref, moves: p.moves, par: p.par ?? null, look: p.look, misturns: p.misturns, skipped: p.skipped, together: p.together };
+    return { label, kase: caseLabel(p), time: p.time, vs: ref === null || p.together || p.skipped ? null : p.time - ref, moves: p.moves, par: p.par ?? null, look: p.look, misturns: p.misturns, skipped: p.skipped, together: p.together };
   });
-  const tot = enough ? median(list.map((b) => b.total)) : null;
+  // a solve from a scramble that gave part of it away is not compared with full solves
+  const tot = enough && a.from === 'eo' ? median(list.map((b) => b.total)) : null;
   // the note: the phase that lost the most against its median, and why
   let note: string | null = null;
   const worst = rows.map((r, i) => ({ r, p: a.phases[i]! })).filter((x) => x.r.vs !== null && x.r.vs > 800).sort((x, y) => y.r.vs! - x.r.vs!)[0];
@@ -374,5 +382,7 @@ export function solveReport(a: SolveAnalysis, list: readonly SolveAnalysis[]): R
     if (p.idle > 0.5 * p.time && !bits.length) bits.push(`${s1(p.idle)} s of it not turning`);
     note = `${r.label}${r.kase ? ` (${r.kase})` : ''} cost the most: ${s1(r.time)} s, ${s1(r.vs!)} s over your usual${bits.length ? `, with ${bits.join(' and ')}` : ''}.`;
   }
-  return { rows, total: a.total, vsTotal: tot === null ? null : a.total - tot, note };
+  const given = a.from === 'eo' ? null
+    : `The scramble started at ${PHASE_WORD[a.from as PhaseKey]}: EOCross${a.from !== 'f2l' ? ' and F2L' : ''} ${a.from === 'f2l' ? 'was' : 'were'} already solved${a.from === 'f2l' ? (() => { const n = a.phases.filter((p) => p.id === 'pair' && p.skipped).length; return n ? `, with ${n} pair${n > 1 ? 's' : ''}` : ''; })() : ''}. Not a full solve: it is left out of your phase numbers, and its time is not your usual.`;
+  return { rows, total: a.total, vsTotal: tot === null ? null : a.total - tot, note, given };
 }

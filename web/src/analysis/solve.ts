@@ -70,6 +70,8 @@ export interface SolveAnalysis {
   total: number;
   /** ms from the scramble on the cube to the first turn, when recorded */
   inspection?: number;
+  /** the stage the scramble left the cube at: 'eo' for a full solve; past it, the earlier phases were given (skipped) */
+  from: 'eo' | 'f2l' | 'ocll' | 'pll';
   /** face turns as recorded (quarter turns from a smart cube) */
   turns: number;
   /** HTM over the solve, same-face runs merged */
@@ -145,7 +147,11 @@ export function analyseSolve(rec: Pick<SolveRecord, 'scramble' | 'moves' | 'time
     return { id, start: times[a]!, end: times[b]!, time: times[b]! - times[a]!, turns, moves: turns.length, look, idle, misturns };
   };
 
-  phases.push(mk('eocross', 0, E));
+  const eocross = mk('eocross', 0, E);
+  if (E === 0) eocross.skipped = true; // the scramble had EOCross solved
+  phases.push(eocross);
+  const st0 = stageOf(states[0]!).stage;
+  const startStage = st0 === 'solved' ? 'pll' : st0;
 
   // the pairs, in the order they were first solved. DECISION: the FIRST time, not the last (the design doc's
   // "a pair broken and remade counts at its remaking"): in ZZ the next pair's R or L turns lift a solved
@@ -216,7 +222,7 @@ export function analyseSolve(rec: Pick<SolveRecord, 'scramble' | 'moves' | 'time
   phases.push(mk('auf', P, N));
 
   const all = mk('eocross', 0, N);
-  return { phases, total: times[N]!, inspection: rec.inspection, turns: N, moves: phases.reduce((s, p) => s + p.moves, 0), idle: all.idle };
+  return { phases, from: startStage, total: times[N]!, inspection: rec.inspection, turns: N, moves: phases.reduce((s, p) => s + p.moves, 0), idle: all.idle };
 }
 
 /** HTM of a table alg (rotations free). */

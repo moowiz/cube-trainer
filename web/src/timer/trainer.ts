@@ -20,6 +20,7 @@ import type { ColorName, FaceId } from '../types';
 import { downloadText } from '../ui/download';
 import { exportCsTimer, importCsTimer } from './cstimer';
 import { applySeq, type Move } from '../moves/moves';
+import { stageOf } from '../stage';
 import { mountGraph, type GraphData } from './graph';
 import { formatTime, sessionStats, type Time } from './stats';
 import type { TrackStatus } from './track';
@@ -288,9 +289,12 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const time = Math.max(0, Math.round(tEnd - startAt));
     const inspection = clk.inspection();
     const penalty: Penalty = 0; // +2 / DNF are the buttons under the time, never automatic
+    // a scramble that left part of the cube solved (EOCross already done): recorded, so it is not taken for a perfect EOCross
+    let from: SolveRecord['from'];
+    try { const st = stageOf(state(fromWca(scramble))).stage; if (st === 'f2l' || st === 'ocll' || st === 'pll') from = st; } catch { from = undefined; }
     const rec: SolveRecord = {
       id: newId(), puzzle: '333', session: session?.id ?? 'main', when: Math.min(Date.now(), Date.now() - (performance.now() - startAt)), scramble, time, penalty,
-      moves: moves.length ? moves.slice() : undefined, source: moves.length ? 'cube' : 'keyboard', inspection, editedAt: Date.now(),
+      moves: moves.length ? moves.slice() : undefined, source: moves.length ? 'cube' : 'keyboard', inspection, ...(from ? { from } : {}), editedAt: Date.now(),
     };
     justDone = effectiveTime(rec);
     const tps = rec.moves && time > 0 ? ` · ${rec.moves.length} turns · ${(rec.moves.length / (time / 1000)).toFixed(1)} TPS` : '';
@@ -585,7 +589,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     $('list').innerHTML = rows.map((v) => {
       const i = solves.indexOf(v) + 1;
       const t = v.penalty === -1 ? 'DNF' : `${formatTime(effectiveTime(v))}${v.penalty === 2 ? '+' : ''}`;
-      const m = v.moves ? `${v.moves.length} · ${(v.moves.length / Math.max(0.001, v.time / 1000)).toFixed(1)} tps` : v.source === 'import' ? 'csTimer' : '';
+      const fr = fromOf(v);
+      const m = `${fr ? `from ${fr === 'f2l' ? 'F2L' : fr.toUpperCase()} · ` : ''}${v.moves ? `${v.moves.length} · ${(v.moves.length / Math.max(0.001, v.time / 1000)).toFixed(1)} tps` : v.source === 'import' ? 'csTimer' : ''}`;
       return `<li data-id="${v.id}" class="${v.id === selected ? 'sel' : ''}" title="${fullOf(v.when)}"><span class="n">${i}</span><span class="t">${t}</span><span class="s" title="${v.scramble}">${v.scramble}</span><span class="m">${m}</span><span class="w">${stampOf(v.when, now)}</span></li>`;
     }).reverse().join('');
     $('more').hidden = showAll || solves.length <= 30;
@@ -597,6 +602,18 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     const xs = solves.map((v) => v.inspection).filter((x): x is number => typeof x === 'number').slice(-12);
     if (!xs.length) return '';
     return ` · inspection mean ${formatTime(xs.reduce((a, b) => a + b, 0) / xs.length)} (last ${xs.length}) · longest ${formatTime(Math.max(...xs))}`;
+  }
+  // the stage a solve's scramble started at, when past EOCross: stored since 2026-09-26, read off the scramble before
+  const fromMemo = new Map<string, SolveRecord['from'] | null>();
+  function fromOf(v: SolveRecord): SolveRecord['from'] | null {
+    if (v.from) return v.from;
+    if (v.source === 'import') return null;
+    let f = fromMemo.get(v.scramble);
+    if (f === undefined) {
+      try { const st = stageOf(state(fromWca(v.scramble))).stage; f = st === 'f2l' || st === 'ocll' || st === 'pll' ? st : null; } catch { f = null; }
+      fromMemo.set(v.scramble, f);
+    }
+    return f;
   }
   const tick = () => { if (phase() !== 'idle') renderTime(); requestAnimationFrame(tick); };
   tick();

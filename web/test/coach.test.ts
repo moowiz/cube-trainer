@@ -6,7 +6,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { inverse, tokens } from '../src/cube/alg';
-import { toWca } from '../src/cube/frame';
+import { fromWca, toWca } from '../src/cube/frame';
+import { stageOf } from '../src/stage';
 import { state } from '../src/cube/state';
 import { advise, caseTable, phaseTable, solveReport } from '../src/analysis/coach';
 import { analyseSolve, type SolveAnalysis } from '../src/analysis/solve';
@@ -63,6 +64,20 @@ describe('analyseSolve', () => {
     expect(p.caseId).toMatch(/^FR-\d+$/);
     expect(p.par).toBe(4);
     expect(a.phases.reduce((s, q) => s + q.time, 0)).toBe(a.total);
+  });
+
+  it('a scramble that left EOCross solved: recorded as such, left out of the phase numbers, its cases kept', () => {
+    // the user's solve #7 (2026-09-26): an F2L practice scramble handed to the Solve tab - EOCross and a pair solved
+    expect(stageOf(state(fromWca("B2 R B2 L2 U2 B2 F2 U D2 R2 L2 D2 L2 F2 R' B2 R U2 R'"))).stage).toBe('f2l');
+    const part = analyseSolve(solveOf("U R U' R'"))!;
+    expect(part.from).toBe('f2l');
+    expect(phase(part, 'eocross').skipped).toBe(true);
+    const r = solveReport(part, Array(4).fill(part));
+    expect(r.given).toMatch(/started at F2L/);
+    expect(r.vsTotal).toBeNull();
+    expect(r.rows[0]!.vs).toBeNull();
+    expect(advise(Array(8).fill(part))).toEqual([]); // no full solves: no phase advice
+    expect(caseTable(Array(3).fill(part), 'f2l').reduce((n, c) => n + c.n, 0)).toBe(3); // its pair still counts
   });
 
   it('a wrong turn undone at once is counted', () => {

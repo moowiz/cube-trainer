@@ -38,6 +38,12 @@ export interface SolveRecord {
   source: 'cube' | 'keyboard' | 'camera' | 'import';
   /** ms from the scramble being matched (inspection start) to the first turn */
   inspection?: number;
+  /**
+   * The stage the scramble left the cube at, when it was not a full solve: the scramble had EOCross (or more)
+   * solved already - a practice scramble from another tab, say. The coach leaves such a solve out of the phase
+   * numbers; absent on a normal solve (and on solves stored before 2026-09-26, where the analysis reads it off the scramble).
+   */
+  from?: 'f2l' | 'ocll' | 'pll';
   /** the local recording this solve is in, when one was running */
   capture?: string;
   /** wall clock of the last edit, ms: last write wins across devices */

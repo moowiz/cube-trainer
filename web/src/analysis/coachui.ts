@@ -8,7 +8,7 @@ import { ensureStyle, esc } from '../ui/dom';
 import { persisted } from '../ui/settings';
 import { analysedOne, analysedSolves, type Analysed } from './cache';
 import { PAUSE_MS } from './solve';
-import { advise, caseAdvice, caseTable, KIND_WORD, median, MIN_SOLVES, PHASE_WORD, phaseTable, quantile, s1, solveReport, type Advice, type CaseKind, type CaseRow } from './coach';
+import { advise, caseAdvice, caseTable, fullSolves, KIND_WORD, median, MIN_SOLVES, PHASE_WORD, phaseTable, quantile, s1, solveReport, type Advice, type CaseKind, type CaseRow } from './coach';
 
 /** What an advice's button does: the app (app/modes.ts) knows how. */
 export type CoachAction = { kind: 'f2l-cases'; ids: string[] } | { kind: 'mode'; mode: 'eo' | 'f2l' | 'll'; set?: 'ocll' | 'pll' };
@@ -81,13 +81,16 @@ export function mountCoach(root: HTMLElement, deps: { store: Promise<Store>; act
   async function draw(): Promise<void> {
     root.querySelectorAll<HTMLElement>('[data-k]').forEach((g) => g.querySelectorAll<HTMLElement>('[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === (st as Record<string, string>)[g.dataset.k!])));
     const all = await analysedSolves(deps.store);
-    const list = (st.scope === 'all' ? all : all.slice(-Number(st.scope))).map((x) => x.a);
-    root.querySelector('.co-n')!.textContent = all.length ? `${list.length} solve${list.length === 1 ? '' : 's'} with turns recorded` : '';
+    const scoped = (st.scope === 'all' ? all : all.slice(-Number(st.scope))).map((x) => x.a);
+    // the phases from full solves; a scramble that left EOCross solved (a practice scramble) counts for its cases only
+    const list = fullSolves(scoped);
+    const part = scoped.length - list.length;
+    root.querySelector('.co-n')!.textContent = all.length ? `${list.length} solve${list.length === 1 ? '' : 's'} with turns recorded${part ? ` (and ${part} from a scramble that had EOCross solved: their cases count, their phases do not)` : ''}` : '';
     if (list.length < MIN_SOLVES) {
       body.innerHTML = `<p class="note">The coach reads the turns a smart cube records in timed solves. ${list.length ? `${list.length} so far; it needs ${MIN_SOLVES}.` : 'None yet.'} Do a few solves on the Solve tab with the cube connected.</p>`;
       return;
     }
-    advices = advise(list);
+    advices = advise(scoped);
     const [top, ...rest] = advices;
     let h = '<h3>Next to work on</h3>';
     if (top) {
@@ -101,7 +104,7 @@ export function mountCoach(root: HTMLElement, deps: { store: Promise<Store>; act
       rows.map((r) => `<tr><td>${PHASE_WORD[r.key]}</td><td>${s1(r.time)}</td><td><span class="share" style="width:${Math.round(40 * r.share / maxShare)}px"></span>${Math.round(r.share * 100)}%</td><td>${fmt(r.moves)}</td><td>${r.tps.toFixed(1)}</td><td>${s1(r.idle)}</td><td>${s1(r.good)}</td></tr>`).join('') +
       `<tr><td><b>Solve</b></td><td><b>${s1(median(list.map((a) => a.total)))}</b></td><td></td><td>${fmt(median(list.map((a) => a.moves)))}</td><td></td><td>${s1(median(list.map((a) => a.idle)))}</td><td>${s1(quantile(list.map((a) => a.total), 0.25))}</td></tr></table></div>`;
     // the cases
-    const cases = caseTable(list, st.kind);
+    const cases = caseTable(scoped, st.kind);
     const sorted = st.sort === 'focus' ? cases : st.sort === 'slow' ? [...cases].sort((a, b) => b.time - a.time) : [...cases].sort((a, b) => b.n - a.n);
     h += `<h3>Cases</h3><div class="bar"><div class="eo-seg" data-k="kind"><button type="button" data-v="f2l">F2L</button><button type="button" data-v="ocll">OCLL</button><button type="button" data-v="pll">PLL</button></div>
       <div class="eo-seg" data-k="sort"><button type="button" data-v="focus" title="the seconds a solve fixing it is worth, the easy fixes first">worth most</button><button type="button" data-v="slow">slowest</button><button type="button" data-v="seen">most seen</button></div></div>`;
@@ -166,6 +169,7 @@ export function reportHtml(rec: SolveRecord, all: readonly Analysed[]): string {
   }
   h += `<tr><td><b>Solve</b></td><td class="k"></td><td><b>${s1(r.total)}</b></td><td>${vs(r.vsTotal)}</td><td>${a.moves}</td></tr></table>`;
   if (before.length < 3) h += `<p class="nx">After a few more solves each line is compared with your usual.</p>`;
+  if (r.given) h += `<p class="nt">${esc(r.given)}</p>`;
   if (r.note) h += `<p class="nt">${esc(r.note)}</p>`;
   const adv = before.length >= MIN_SOLVES ? advise([...before, a])[0] : undefined;
   if (adv) h += `<p class="nx">Next to work on: <b>${esc(adv.title)}</b> (~${s1(adv.gain)} s a solve). <button type="button" class="btn eo-link" data-coach-open="1">Why</button></p>`;
