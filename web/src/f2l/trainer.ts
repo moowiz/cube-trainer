@@ -23,7 +23,7 @@ import { clickedFacelet, DEFAULT_VIEW, orbit, render3d, renderNet, type View } f
 import { faceColorName, faceHex, onSchemeChange } from '../cube/scheme';
 import { SOLVED, state } from '../cube/state';
 import { stageOf } from '../stage';
-import { activeTab, onTabChange, shareScramble, sheetOpen, showTab, type RailClock, type RailView, type Stage, stages, toast } from '../shell';
+import { activeTab, carriedSolve, onTabChange, shareScramble, sheetOpen, showTab, type RailClock, type RailView, type Stage, stages, toast } from '../shell';
 import { openFingertricks } from '../ui/fingertricks';
 import { DATA } from './data';
 import {
@@ -1049,6 +1049,8 @@ export function mountF2L(root: HTMLElement): Stage {
     const byTurn = solved && !wasSolved && last?.kind === 'move';
     wasSolved = solved;
     if (!byTurn || !rescr.checked || !armedSince || !scrWca) return;
+    // the Solve's timed solve carried through this tab by the coach: the Solve tab takes it back, with the time
+    if (carriedSolve()) return;
     // after the follow's own solved handling (it may move the tabs): this tab, with the next scramble
     setTimeout(() => { showTab('f2l'); if (targetMode) newTargetScramble(); else newScramble(); window.scrollTo({ top: 0 }); toast(`Solved ✓ next ${targetMode ? 'picked case' : 'practice scramble'}`); }, 0);
   });

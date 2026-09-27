@@ -58,12 +58,12 @@ const STYLE = `
   .tm { max-width: 560px; margin: 0 auto; }
   @media (min-width: 820px) { .tm { max-width: 720px; } }
   .tm-scr { font-size: 26px; font-weight: 600; line-height: 1.5; word-spacing: .4em; padding: 6px 4px; text-align: center; min-height: 46px; letter-spacing: .01em; }
-  .tm-scr .done { color: var(--ink-2); font-weight: 400; text-decoration: underline; text-underline-offset: 5px; }
+  .tm-scr .done { color: var(--ink-2); text-decoration: underline; text-underline-offset: 5px; }
   .tm-scr .gen { color: var(--ink-2); font-size: 15px; font-weight: 400; word-spacing: normal; }
   /* the modifier is what gets misread across a desk: the prime is a real prime, big and red; the 2 is blue */
   .mv .p { color: #B3261E; font-size: 1.15em; font-weight: 700; letter-spacing: 0; }
   .mv .d { color: #1A56B8; font-weight: 700; }
-  .done .p, .done .d { color: inherit; font-weight: 400; }
+  .done .p, .done .d { color: inherit; } /* the weight kept: a lighter prime is narrower, and the scramble shifted as moves were done */
   .tm-track { text-align: center; font-size: 13px; color: var(--ink-2); min-height: 18px; }
   .tm-track.off { color: #7A4B00; font-weight: 600; }
   /* a solution on demand: the cube's belief with a smart cube, the scramble's state without */

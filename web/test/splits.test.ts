@@ -9,7 +9,7 @@ import { toWca } from '../src/cube/frame';
 import { state } from '../src/cube/state';
 import { beliefInTrainer, toSourceLetters } from '../src/handoff';
 import { stageOf } from '../src/stage';
-import { SplitClock, splitsOf } from '../src/timer/splits';
+import { BACK_TURNS, SplitClock, splitsOf } from '../src/timer/splits';
 
 const T = "R U R' U' R' F R2 U' R' U' R U R' F'"; // trainer letters
 
@@ -57,5 +57,27 @@ describe('the belief as the trainer sees it', () => {
         expect(stageOf(seen!).stage).toBe(stageOf(state(alg)).stage);
       }
     }
+  });
+
+  it('the pairs count up and do not drop while the next pair lifts one; a real step back re-times what follows', () => {
+    const c = new SplitClock('f2l', 0);
+    c.turned('f2l', 100, 1); c.turned('f2l', 200, 2);
+    c.turned('eo', 250, 1); // an R turn: the cross edge and a pair lifted
+    expect(c.pairs()).toBe(2);
+    c.turned('f2l', 300, 2);
+    c.turned('ocll', 400, 4);
+    expect(c.splits()).toEqual({ f2l: 400 });
+    // an OCLL alg dips back for a few turns: nothing moves
+    for (let i = 0; i < 10; i++) c.turned('eo', 500 + i, 2);
+    expect(c.current()).toBe('ocll');
+    expect(c.back()).toBe(false);
+    // behind for BACK_TURNS turns: the solve is back in F2L, its split gone until it is crossed again
+    for (let i = 0; i < BACK_TURNS; i++) c.turned('f2l', 600 + i, 3);
+    expect(c.current()).toBe('f2l');
+    expect(c.back()).toBe(true);
+    expect(c.splits()).toEqual({});
+    c.turned('ocll', 900, 4);
+    expect(c.back()).toBe(false);
+    expect(c.splits()).toEqual({ f2l: 900 });
   });
 });
