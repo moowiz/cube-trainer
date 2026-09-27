@@ -99,9 +99,10 @@ const wrong = ['L', 'B', 'R', 'F'].filter((f) => !heads.includes(f) && f !== alg
 await replay(`${cube2} ${await cubeOf(algToks[0])} ${await cubeOf(wrong)}`);
 check(new RegExp(`Off the alg after ${wrong}.*undo with ${wrong}`).test((await text('#result .offalg')) ?? ''), `wrong turn called: ${await text('#result .offalg')}`);
 check((await text('#result .case-title h2')) === title2, 'the case stays for a turn off');
-// strayed further than the finder tolerates: the cube is read afresh (the cross is broken, so EOCross is asked for)
+// strayed further than the finder tolerates, the cross broken: the pair under way stays up (an alg of your own may
+// break the cross for a while, user 2026-09-27), it is not "solve EOCross first"
 await replay(`${cube2} ${await cubeOf(algToks[0])} ${await cubeOf(`${wrong} D R2 F2 D'`)}`);
-check(/Solve EOCross on your cube first/.test(await text('#result .hint') ?? ''), `strayed: read afresh: ${await text('#result .hint')}`);
+check((await text('#result .case-title h2')) === title2 && !/Solve EOCross/.test((await text('#result')) ?? ''), `strayed with the cross broken: the pair stays: ${await text('#result .case-title h2') ?? await text('#result .hint')}`);
 // a few moves into another open slot's alg: that slot takes over (its case read at the same state)
 await replay(cube2);
 await pickPair('front-left'); await wait(200);
@@ -281,6 +282,19 @@ const conj = { title: await text('#result .case-title h2'), on: await page.$eval
 check(conj.title === 'front-left case 48' && conj.on === CONJ, `its D' is the alg under way, not the pair done: ${JSON.stringify(conj)}`);
 await replay(`${await cubeOf(inverse(CONJ))} ${await cubeOf(CONJ)}`);
 check(/All four pairs solved/.test(await text('#result .hint') ?? ''), `the whole conjugate: the pair in (${await text('#result .hint')})`);
+
+// the cross broken by moves off every listed alg (user, 2026-09-27: a D conjugate of their own read as "solve EOCross
+// first" mid-alg): the pair under way stays up; the white layer alone turned is read with it turned back
+await page.$eval('#genF2L', (b) => b.click()); await wait(100);
+const scrB = await page.evaluate(() => window.ZZ.f2l.scramble());
+const cubeB = await cubeOf(scrB);
+await replay(cubeB);
+const titleB = await text('#result .case-title h2');
+await replay(`${cubeB} ${await cubeOf("D L U L' U' R U")}`);
+check((await text('#result .case-title h2')) === titleB && !/EOCross/.test((await text('#result')) ?? ''), `a broken cross mid-alg keeps the pair: ${await text('#result .case-title h2') ?? await text('#result .hint')}`);
+await replay(`${cubeB} ${await cubeOf('D')}`);
+check(/white layer is turned: D' puts the cross back/.test((await text('#result')) ?? '') && !!(await text('#result .case-title h2')), `the white layer turned: pairs still read, with the fix said (${await text('#result .case-title h2')})`);
+
 await browser.close(); server.close();
 console.log(failed ? `${failed} FAILED` : 'all ok');
 process.exit(failed ? 1 : 0);

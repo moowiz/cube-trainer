@@ -48,6 +48,7 @@ import { hold as holdOf } from '../app/context';
 import { activeSource, onSourceChange, syncDriver } from '../app/sources';
 import { expectedFacelets, trainerScramble } from '../handoff';
 import { solveAny } from '../ll/scramble';
+import { applySeq, type Move } from '../moves/moves';
 import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher, markRouteDone, moveHtml, scrambleHtml, trackText } from '../timer/track-ui';
 import type { ColorName, FaceId } from '../types';
@@ -312,7 +313,7 @@ export function mountF2L(root: HTMLElement): Stage {
   let setupFrom = 0;
   // the voice drill (voice.ts): the pairs named out loud and judged, or called out; read off the cards' cube
   const voice = mountF2LVoice({
-    cube: () => { const f = tracked ? cardState() : null; return f ? { f, solved: solvedSlots } : null; },
+    cube: () => { const f = tracked ? cardState() : null, now = cube(); return f ? { f, solved: solvedSlots, turned: !!(now && dFix(now)) } : null; },
     active: () => activeTab() === 'f2l' && !carriedSolve(),
     changed: () => render(),
   });
@@ -450,7 +451,8 @@ export function mountF2L(root: HTMLElement): Stage {
     // a cube feeding: where its turns last read the pairs (pairSetup is built from the feed; without a cube the
     // moves are the "Did this" history, which the tracked cube itself holds)
     if (fedBy && tracked && pairAt !== null && corner && edge) { try { return state(pairSetup()); } catch { return null; } }
-    return beforeF2L() ? null : cube();
+    const f = beforeF2L() ? null : cube();
+    return f ? readable(f) : null;
   }
   function renderTracker(): void {
     const t = $('tracker'); t.innerHTML = '';
@@ -499,15 +501,39 @@ export function mountF2L(root: HTMLElement): Stage {
   function beforeF2L(): string | null {
     const f = cube();
     if (!f) return null;
+    if (dFix(f) !== null) return null;
     const r = stageOf(f);
-    if (r.eoBad === 0 && r.cross === 4) return null;
     const parts = [r.eoBad > 0 ? `${r.eoBad} edge${r.eoBad === 1 ? '' : 's'} to flip` : '', r.cross < 4 ? `${4 - r.cross} cross edge${r.cross === 3 ? '' : 's'} to place` : ''].filter(Boolean);
     return `Solve EOCross on your cube first: ${parts.join(', ')}. The pairs are read off the cube once it is done.`;
   }
+  // DECISION: a pair's alg may break the cross for this many turns before the cube is taken to be back at EOCross
+  // (the longest tabled F2L alg is 13; a solver's own detour, a few more)
+  const BROKEN_TURNS = 20;
+  /**
+   * The D turn that puts the cross back when that is all that is wrong (user, 2026-09-27: a D conjugate or a
+   * keyhole off the listed algs read as "solve EOCross first" mid-alg): '' for a cross in place, null when EO or the
+   * cross is really broken. The pairs are read with it done, so the pieces in the bottom layer go with the cross.
+   */
+  function dFix(f: string): string | null {
+    const ok = (g: string) => { const r = stageOf(g); return r.eoBad === 0 && r.cross === 4; };
+    if (ok(f)) return '';
+    return ['D', 'D2', "D'"].find((d) => ok(applySeq(f, tokens(d) as Move[]))) ?? null;
+  }
+  /** The cube as the pairs are read off it: with the D turn that puts the cross back done. */
+  const readable = (f: string): string => { const d = dFix(f); return d ? applySeq(f, tokens(d) as Move[]) : f; };
   function syncFromCube(): void {
-    const f = cube();
-    if (!f) return;
-    if (beforeF2L()) { corner = null; edge = null; pairAt = null; render(); return; }
+    const raw = cube();
+    if (!raw) return;
+    // the cross broken with a pair under way: an alg of the solver's own (a D conjugate off the listed ones lifts a
+    // cross edge for a few turns) - the pair stays up, its case read with the cross in place, unless the cube stays
+    // broken for longer than any alg would
+    const underWay = !!(corner && edge && pairAt !== null && !solvedSlots.has(slot) && fedBy);
+    if (beforeF2L()) {
+      if (underWay && fed.length - pairAt! <= BROKEN_TURNS) { render(); return; }
+      corner = null; edge = null; pairAt = null; render(); return;
+    }
+    if (dFix(raw) && underWay && !slotSolved(readable(raw), slot)) { render(); return; }
+    const f = readable(raw);
     const before = new Set(solvedSlots);
     for (const s of SLOTS) if (slotSolved(f, s)) solvedSlots.add(s); else solvedSlots.delete(s);
     // a pair undone (to do it over) is the pair to show, whatever slot was up
@@ -944,6 +970,8 @@ export function mountF2L(root: HTMLElement): Stage {
     const t = document.createElement('div'); t.className = 'case-title';
     t.innerHTML = `<h2>${SLOT_WORD[slot]} case ${twinOf(slot, c.n)}</h2><span>${GROUP_WORD[caseGroup(slot, c)].toLowerCase()}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
+    const now = cube(), fix = now ? dFix(now) : '';
+    if (fix) { const d = document.createElement('p'); d.className = 'where'; d.textContent = `The white layer is turned: ${fix} puts the cross back.`; r.appendChild(d); }
     const { lead, rows } = rowsFor(slot, c, hit.auf);
     const ex = explain(slot, c, (lead ?? rows[0])?.alg ?? c.algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;

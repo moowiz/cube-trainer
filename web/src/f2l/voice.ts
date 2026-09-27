@@ -23,7 +23,7 @@ const { settings, save } = persisted<VoiceSettings>('zzf2l-voice', { ask: false,
 
 export interface F2LVoiceHost {
   /** the tracked cube (trainer frame) and its solved pairs, or null when nothing is tracked */
-  cube(): { f: string; solved: ReadonlySet<SlotName> } | null;
+  cube(): { f: string; solved: ReadonlySet<SlotName>; turned?: boolean } | null;
   /** the tab is on screen and drilling (not a solve carried through it) */
   active(): boolean;
   /** something changed that the page shows (a pair named, the tally) */
@@ -80,7 +80,7 @@ export function mountF2LVoice(host: F2LVoiceHost): F2LVoice {
   function callNow(): void {
     if (settings.call === 'off' || !host.active()) return;
     const cube = host.cube();
-    if (!cube) return;
+    if (!cube || cube.turned) return; // the bottom layer turned: mid-alg
     const r = stageOf(cube.f);
     if (r.eoBad || r.cross < 4) return; // mid-alg, or EOCross still to do: the pairs are no cases yet
     const picked = settings.call === 'picked' ? pickedTwins() : null;
