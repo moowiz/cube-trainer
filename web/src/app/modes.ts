@@ -51,11 +51,14 @@ const llFrom = (): string => {
   const st = readStoredJson(`zz-${llSet()}-settings`) as { from?: string } | null;
   return st?.from ?? llSet();
 };
-const eoGoal = (): string => ((readStoredJson('zz-eo-settings') as { goal?: string } | null)?.goal === 'cross' ? 'EOCross' : 'EO');
+const eoGoal = (): string => {
+  const g = (readStoredJson('zz-eo-settings') as { goal?: string } | null)?.goal;
+  return g === 'cross' ? 'EOCross' : g === 'two' ? 'EO + cross' : 'EO';
+};
 const f2lKind = (): 'all' | 'picked' => (readStored(F2L_KIND) === 'picked' ? 'picked' : 'all');
 
 const ALL: readonly SplitStage[] = ['eo', 'f2l', 'ocll', 'pll'];
-const STAGE_NAME: Record<SplitStage, string> = { eo: 'EOCross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
+const STAGE_NAME: Record<SplitStage, string> = { eo: 'EOCross', cross: 'Cross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
 const rank = (s: SplitStage): number => ALL.indexOf(s);
 /** Where a stretch stops, per stage it starts at (the picker's cells): the stage after which the help stops following the cube. */
 type StopStart = 'eo' | 'f2l' | 'ocll';
@@ -76,10 +79,14 @@ const stretch = (start: SplitStage, stop: SplitStage): SplitStage[] => ALL.filte
 const stretchName = (name: string, start: SplitStage, stop: SplitStage): string => (stop === start ? name : `${name} → ${stop === 'pll' ? 'solved' : STAGE_NAME[stop]}`);
 const onTo = (start: SplitStage, stop: SplitStage): string => (stop === start ? '' : `, then on to ${stop === 'pll' ? 'the end' : STAGE_NAME[stop]}`);
 
+/** A stretch with the EO stage as the strip times it: EO, then the cross (split since 2026-09-27). */
+const withCross = (r: SplitStage[]): SplitStage[] => r.flatMap((x) => (x === 'eo' ? (['eo', 'cross'] as SplitStage[]) : [x]));
+/** The EO mode's stretch: EO alone when the goal is EO and the stretch stops there, else EO and the cross on. */
+const eoRange = (): SplitStage[] => (eoGoal() === 'EO' && stopOf('eo') === 'eo' ? ['eo'] : withCross(stretch('eo', stopOf('eo'))));
 const MODES: readonly ModeDef[] = [
   // DECISION: the Solve mode shows the cube's net on a desktop (room for it beside the timer); on a phone it starts hidden, a tap away
-  { id: 'solve', name: () => 'Solve', what: () => 'timed, the stages as splits', range: () => ALL, focus: () => null, home: () => 'solve', view: 'net' },
-  { id: 'eo', name: () => stretchName(eoGoal(), 'eo', stopOf('eo')), what: () => `plan it, then do it${onTo('eo', stopOf('eo'))}`, range: () => stretch('eo', stopOf('eo')), focus: () => 'eo', home: () => 'eo', view: 'off' },
+  { id: 'solve', name: () => 'Solve', what: () => 'timed, the stages as splits', range: () => withCross([...ALL]), focus: () => null, home: () => 'solve', view: 'net' },
+  { id: 'eo', name: () => stretchName(eoGoal(), 'eo', stopOf('eo')), what: () => `plan it, then do it${onTo('eo', stopOf('eo'))}`, range: () => eoRange(), focus: () => 'eo', home: () => 'eo', view: 'off' },
   { id: 'f2l', name: () => stretchName('F2L', 'f2l', stopOf('f2l')), what: () => `the pairs, with their cases${onTo('f2l', stopOf('f2l'))}`, range: () => stretch('f2l', stopOf('f2l')), focus: () => 'f2l', home: () => 'f2l', view: 'off' },
   {
     id: 'll', name: () => (llSet() === 'pll' ? 'PLL' : stretchName('OCLL', 'ocll', stopOf('ocll'))), what: () => 'the cases you pick',
@@ -350,7 +357,7 @@ function paintDests(): void {
  * when solved".) A stage alone keeps its result up, as it always has.
  */
 function stretchSolved(from: Tab | null): boolean {
-  if (mode === 'solve' || mode === 'find' || from === null || from === 'solve' || !inMode(from) || modeDef(mode).range().length < 2) return false;
+  if (mode === 'solve' || mode === 'find' || from === null || from === 'solve' || !inMode(from) || modeDef(mode).range().filter((x) => x !== 'cross').length < 2) return false; // the cross is EOCross's own half, not a stage of its own
   const home = modeDef(mode).home();
   if (activeTab() !== home) { showTab(home); window.scrollTo({ top: 0 }); }
   if (home === 'eo') { stages.eo?.newScramble(); toast('Solved ✓ next scramble'); }

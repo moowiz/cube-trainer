@@ -7,7 +7,7 @@
 
 import { AttemptClock } from './clock';
 import { inspectOn } from './inspect';
-import { moveCount, tokens } from '../cube/alg';
+import { htm, tokens } from '../cube/alg';
 import { toWca, WCA_HOLD } from '../cube/frame';
 import { STICKERS } from '../cube/geometry';
 import { DEFAULT_VIEW, render3d, type Cell } from '../cube/render';
@@ -416,7 +416,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
       const source = fedBy ?? 'typed';
       const recognition = fedBy ? clk.inspection() : undefined;
       const execution = fedBy ? clk.execution() : undefined;
-      lastAttempt = { n: moveCount(text), t, source, recognition, execution };
+      lastAttempt = { n: htm(text), t, source, recognition, execution };
       const insp = spec.inspection && inspectOn() && recognition !== undefined ? `, inspection ${(recognition / 1000).toFixed(1)}s` : '';
       return { ...lastAttempt, ts: `${t === null ? '' : `, ${t.toFixed(2)}s`}${insp}` };
     },

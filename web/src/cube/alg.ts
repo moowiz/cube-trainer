@@ -68,6 +68,17 @@ export function moveCount(alg: string): number {
   return tokens(alg).filter((t) => !/^[xyz]/.test(t)).length;
 }
 
+/**
+ * Face turns as done (HTM): a smart cube reports a half turn as two quarter turns of the same face and direction, so
+ * each such pair counts once ("R R" is one R2); a turn and its undo ("R R'") still count as the two turns they were.
+ */
+export function htm(alg: string): number {
+  const t = tokens(alg).filter((x) => !/^[xyz]/.test(x));
+  let n = 0;
+  for (let i = 0; i < t.length; i++) { n++; if (!/2/.test(t[i]!) && t[i + 1] === t[i]) i++; }
+  return n;
+}
+
 /** The alg as face turns, or null if it has anything else (slices, wide moves, rotations). */
 export function faceMoves(alg: string): Move[] | null {
   const out: Move[] = [];

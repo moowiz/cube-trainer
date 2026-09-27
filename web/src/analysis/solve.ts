@@ -62,6 +62,8 @@ export interface Phase {
   /** OCLL / PLL: the algs it took (2 for a two-look), and the cases passed through between them */
   algs?: number;
   via?: string[];
+  /** EOCross: its first half (user, 2026-09-27: EO, then the cross, practised as two phases) - ms and moves to EO */
+  eo?: { time: number; moves: number };
 }
 
 export interface SolveAnalysis {
@@ -151,6 +153,10 @@ export function analyseSolve(rec: Pick<SolveRecord, 'scramble' | 'moves' | 'time
 
   const eocross = mk('eocross', 0, E);
   if (E === 0) eocross.skipped = true; // the scramble had EOCross solved
+  else {
+    const X = firstAt(0, (i) => stageOf(states[i]!).eoBad === 0);
+    if (X <= E) { const half = mk('eocross', 0, X); eocross.eo = { time: half.time, moves: half.moves }; }
+  }
   phases.push(eocross);
   const st0 = stageOf(states[0]!).stage;
   const startStage = st0 === 'solved' ? 'pll' : st0;

@@ -297,7 +297,7 @@ console.log(JSON.stringify({ ...stretch, log: followLog }));
 check(followLog.filter((l) => /crossed into/.test(l)).map((l) => l.match(/stage=(\w+)/)[1]).join(' ') === 'f2l ocll', `EOCross → OCLL opened F2L and OCLL as the cube got there, and not PLL: ${followLog.join(' | ')}`);
 const stretchTime = (((nStretch - 1) * 180 + LOOK * 2) / 1000).toFixed(2);
 check(stretch.time === stretchTime, `one clock for the stretch, its first turn to the one that finished OCLL: ${stretch.time} (want ${stretchTime})`);
-check(/^EOCross [\d.]+ F2L [\d.]+ OCLL [\d.]+ PLL$/.test(stretch.strip), `the rail's strip has each split up to the stop: "${stretch.strip}"`);
+check(/^EO [\d.]+ Cross [\d.]+ F2L [\d.]+ OCLL [\d.]+ PLL$/.test(stretch.strip), `the rail's strip has each split up to the stop: "${stretch.strip}"`);
 check(stretch.tab === 'eo' && stretch.eo !== eoBefore && /→ OCLL/.test(stretch.chip), `solved: back to EOCross with the next scramble (${stretch.tab}, "${stretch.chip}")`);
 await page.evaluate(() => window.ZZ.modes.pick('eo', 'eo'));
 

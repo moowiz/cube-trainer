@@ -29,7 +29,9 @@ describe('splits', () => {
     const total = Object.values(sp).reduce((a, b) => a + b, 0);
     expect(total).toBe(moves.length * 50);
     // every stage the cube started behind is there
-    expect(Object.keys(sp)).toEqual(['eo', 'f2l', 'ocll', 'pll'].filter((s) => s in sp));
+    expect(Object.keys(sp)).toEqual(['eo', 'cross', 'f2l', 'ocll', 'pll'].filter((s) => s in sp));
+    expect(sp.eo).toBeDefined(); // EO and the cross timed apart
+    expect(sp.cross).toBeDefined();
   });
 
   it('a stage skipped takes no time, and a dip back never moves a split', () => {

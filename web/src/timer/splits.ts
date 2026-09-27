@@ -10,11 +10,20 @@ import { tokens } from '../cube/alg';
 import { fromWca } from '../cube/frame';
 import { state } from '../cube/state';
 import { applySeq, type Move } from '../moves/moves';
-import { stageOf, type Stage } from '../stage';
+import { stageOf, type Stage, type StageReport } from '../stage';
 
-export const SPLIT_STAGES = ['eo', 'f2l', 'ocll', 'pll'] as const;
+// EOCross is timed as two phases (user, 2026-09-27: "EO, then getting the cross - two distinct phases for now"):
+// EO until the edges are oriented, Cross until the white cross is in as well
+export const SPLIT_STAGES = ['eo', 'cross', 'f2l', 'ocll', 'pll'] as const;
 export type SplitStage = (typeof SPLIT_STAGES)[number];
-const RANK: Record<Stage, number> = { eo: 0, f2l: 1, ocll: 2, pll: 3, solved: 4 };
+/** Where a solve is, one finer than the cube's stage: its EO stage split at the edges oriented. */
+export type Phase = SplitStage | 'solved';
+export const PHASE_RANK: Record<Phase, number> = { eo: 0, cross: 1, f2l: 2, ocll: 3, pll: 4, solved: 5 };
+const RANK = PHASE_RANK;
+/** The phase a stage report is at: the EO stage with the edges oriented is the cross's. */
+export const phaseOf = (r: Pick<StageReport, 'stage' | 'eoBad'>): Phase => (r.stage === 'eo' && r.eoBad === 0 ? 'cross' : r.stage);
+/** A stage as a phase (a cube stage: its EO is the EO phase). */
+const asPhase = (s: Stage | Phase): Phase => s;
 
 // DECISION: behind the furthest point for this many quarter turns in a row is a real step back, not an alg passing
 // through earlier stages. Measured on the 33 recorded solves (2026-09-26): an alg's dip lasts at most 19 (a two-look
@@ -37,11 +46,11 @@ export class SplitClock {
   private behind = 0;
   private backAt: number | null = null;
   /** `from`: the stage the cube is at when the clock starts. */
-  constructor(from: Stage, pairs = 0) { this.rank = RANK[from]; this.pairMark = from === 'f2l' ? pairs : 0; }
-  private level(rank: number, pairs: number): number { return rank * 5 + (rank === 1 ? pairs : 0); }
+  constructor(from: Stage | Phase, pairs = 0) { this.rank = RANK[asPhase(from)]; this.pairMark = from === 'f2l' ? pairs : 0; }
+  private level(rank: number, pairs: number): number { return rank * 5 + (rank === RANK.f2l ? pairs : 0); }
   /** The cube reached `stage` (with `pairs` F2L pairs in) at `t` (ms from the first turn); true when that ended a stage. */
-  turned(stage: Stage, t: number, pairs = 0): boolean {
-    const r = RANK[stage];
+  turned(stage: Stage | Phase, t: number, pairs = 0): boolean {
+    const r = RANK[asPhase(stage)];
     if (this.level(r, pairs) >= this.level(this.rank, this.pairMark)) this.behind = 0;
     else if (++this.behind >= BACK_TURNS) {
       // a real step back: the solve is where the cube is
@@ -49,16 +58,16 @@ export class SplitClock {
       this.rank = r; this.pairMark = pairs; this.behind = 0; this.backAt = r;
       return false;
     }
-    if (r === 1 && this.rank === 1) this.pairMark = Math.max(this.pairMark, pairs);
+    if (r === RANK.f2l && this.rank === RANK.f2l) this.pairMark = Math.max(this.pairMark, pairs);
     if (r <= this.rank) return false;
     for (let k = this.rank; k < r; k++) this.ends[SPLIT_STAGES[k]!] = t;
     this.rank = r;
-    this.pairMark = r === 1 ? pairs : 0;
+    this.pairMark = r === RANK.f2l ? pairs : 0;
     if (this.backAt !== null && r > this.backAt) this.backAt = null;
     return true;
   }
   /** The stage the cube is in now (the furthest reached); 'solved' at the end. */
-  current(): Stage { return this.rank >= 4 ? 'solved' : SPLIT_STAGES[this.rank]!; }
+  current(): Phase { return this.rank >= RANK.solved ? 'solved' : SPLIT_STAGES[this.rank]!; }
   /** The F2L pairs made so far (while in F2L). */
   pairs(): number { return this.pairMark; }
   /** The solve stepped back to the current stage and has not got past it again. */
@@ -86,11 +95,11 @@ export function splitsOf(scrambleWca: string, moves: readonly { m: string; t: nu
   try {
     let f = state(fromWca(scrambleWca));
     const r0 = stageOf(f);
-    const clock = new SplitClock(r0.stage, r0.pairs);
+    const clock = new SplitClock(phaseOf(r0), r0.pairs);
     for (const mv of moves) {
       for (const m of tokens(fromWca(mv.m))) f = applySeq(f, [m as Move]);
       const r = stageOf(f);
-      clock.turned(r.stage, mv.t, r.pairs);
+      clock.turned(phaseOf(r), mv.t, r.pairs);
     }
     return clock.splits();
   } catch { return null; }

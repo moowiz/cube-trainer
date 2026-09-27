@@ -22,7 +22,7 @@ import { beliefInTrainer, relabelTurns, type Hold } from '../handoff';
 import type { MoveSource } from '../moves/source';
 import type { RailView, Stage, Tab } from '../shell';
 import { stageOf, type Stage as CubeStage, type StageReport } from '../stage';
-import { SPLIT_STAGES, SplitClock, splitText, type SplitStage } from '../timer/splits';
+import { PHASE_RANK, phaseOf, SPLIT_STAGES, SplitClock, splitText, type Phase, type SplitStage } from '../timer/splits';
 import { formatTime } from '../timer/stats';
 import type { TrackStatus } from '../timer/track';
 import { moveHtml, shownIndex } from '../timer/track-ui';
@@ -123,7 +123,7 @@ const STYLE = `
   }
 `;
 
-const LABEL: Record<SplitStage, string> = { eo: 'EOCross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
+const LABEL: Record<SplitStage, string> = { eo: 'EO', cross: 'Cross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
 const RANK: Record<CubeStage, number> = { eo: 0, f2l: 1, ocll: 2, pll: 3, solved: 4 };
 const VIEW_KEY = 'zz-rail-view';
 
@@ -195,11 +195,11 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     try { return now ? stageOf(now.facelets) : null; } catch { return null; }
   }
   // the stage the owner's scramble starts at (cached by the scramble)
-  let scrStage: { scr: string; stage: CubeStage | null } = { scr: '', stage: null };
-  function scrambleStage(): CubeStage | null {
+  let scrStage: { scr: string; stage: Phase | null } = { scr: '', stage: null };
+  function scrambleStage(): Phase | null {
     const scr = host.owner()?.scramble() ?? null;
     if (!scr) return null;
-    if (scr !== scrStage.scr) { let st: CubeStage | null; try { st = stageOf(state(scr)).stage; } catch { st = null; } scrStage = { scr, stage: st }; }
+    if (scr !== scrStage.scr) { let st: Phase | null; try { st = phaseOf(stageOf(state(scr))); } catch { st = null; } scrStage = { scr, stage: st }; }
     return scrStage.stage;
   }
   let lastView: RailView | null = null;
@@ -212,17 +212,18 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     // otherwise, the cube's own stage
     const tr = lastView?.track;
     const onScramble = !!tr && !tr.off && (tr.matched || tr.applied > 0 || tr.half);
-    const cur: CubeStage | null = attempt && !attempt.done ? attempt.clock.current() : onScramble ? scrambleStage() ?? rep?.stage ?? null : rep?.stage ?? null;
-    const curRank = cur ? RANK[cur] : -1;
+    const here = rep ? phaseOf(rep) : null;
+    const cur: Phase | null = attempt && !attempt.done ? attempt.clock.current() : onScramble ? scrambleStage() ?? here : here;
+    const curRank = cur ? PHASE_RANK[cur] : -1;
     // in an attempt: the pairs made and a real step back, as the clock has them (an alg lifting a pair is not one)
     const live = !!attempt && !attempt.done;
     const pairs = live ? attempt!.clock.pairs() : rep?.pairs ?? 0;
     const back = live && attempt!.clock.back();
     $('rail-strip').innerHTML = SPLIT_STAGES.map((s) => {
-      const r = RANK[s];
+      const r = PHASE_RANK[s];
       const split = splits[s];
       const out = !range.includes(s);
-      const cls = ['rl-seg', s, out ? 'out' : '', split !== undefined ? 'done' : r === curRank ? 'cur' : r < curRank && !out ? 'done' : '', r === curRank && back ? 'back' : '', s === focus ? 'fz' : ''].filter(Boolean).join(' ');
+      const cls = ['rl-seg', s, out ? 'out' : '', split !== undefined ? 'done' : r === curRank ? 'cur' : r < curRank && !out ? 'done' : '', r === curRank && back ? 'back' : '', s === focus || (focus === 'eo' && s === 'cross' && !out) ? 'fz' : ''].filter(Boolean).join(' ');
       let sub = '';
       if (split !== undefined) sub = split === 0 ? 'skip' : splitText(split);
       else if (s === 'f2l' && r === curRank) sub = `<span class="rl-pips">${[0, 1, 2, 3].map((i) => `<i class="${i < pairs ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -254,14 +255,14 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     if (!live && ((v.clock.phase === 'running' && (lastPhase !== 'running' || !attempt)) || startedOnTurn)) {
       const rep = before ?? reportNow();
       const t0 = startedOnTurn && turnT !== undefined ? turnT : performance.now() - (v.clock.ms ?? 0);
-      attempt = { t0, clock: new SplitClock(rep && rep.stage !== 'solved' ? rep.stage : 'eo', rep?.pairs ?? 0), done: false, total: null, carried: false, between: false };
+      attempt = { t0, clock: new SplitClock(rep && rep.stage !== 'solved' ? phaseOf(rep) : 'eo', rep?.pairs ?? 0), done: false, total: null, carried: false, between: false };
     } else if (live && attempt!.between && v.clock.phase === 'running') attempt!.between = false;
     let ended = false;
     const end = (total: number | null) => {
       const a = attempt!, rep = reportNow();
       a.done = true;
       a.total = total;
-      if (rep && total !== null) a.clock.turned(rep.stage, total, rep.pairs);
+      if (rep && total !== null) a.clock.turned(phaseOf(rep), total, rep.pairs);
       ended = true;
     };
     const rep = reportNow();
@@ -275,7 +276,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       // done, the cross still to do). A press, the cube past the stretch or solved, the Solve's own clock: the end.
       const stopped = switched ? lastOwner! : owner;
       const onward = turnT !== undefined && !!host.source() && !!rep && rep.stage !== 'solved' && owner !== 'solve' && range.includes(rep.stage)
-        && ((!!before && RANK[rep.stage] > RANK[before.stage]) || (!!last && stopped !== 'solve' && RANK[stopped] < RANK[last]));
+        && ((!!before && RANK[rep.stage] > RANK[before.stage]) || (!!last && stopped !== 'solve' && RANK[stopped] < RANK[last === 'cross' ? 'eo' : last]));
       if (onward) { attempt.carried = true; attempt.between = true; }
       else end(attempt.carried ? (turnT ?? performance.now()) - attempt.t0 : v.clock.ms);
     }
@@ -297,7 +298,7 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
     if (v) { lastView = v; syncAttempt(v, t); noteUsed(v); noteOff(v, src, it?.kind === 'move' ? it.move : undefined); }
     if (attempt && !attempt.done && src) {
       const rep = reportNow();
-      if (rep) attempt.clock.turned(rep.stage, Math.max(0, t - attempt.t0), rep.pairs);
+      if (rep) attempt.clock.turned(phaseOf(rep), Math.max(0, t - attempt.t0), rep.pairs);
     }
     before = reportNow();
     drawCube();

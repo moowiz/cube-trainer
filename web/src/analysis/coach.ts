@@ -344,6 +344,7 @@ export interface Report { rows: ReportRow[]; total: number; vsTotal: number | nu
 
 function caseLabel(p: Phase): string | undefined {
   if (p.skipped) return p.id === 'pair' ? 'solved already' : p.id === 'eocross' ? 'the scramble had it' : 'skip';
+  if (p.id === 'eocross' && p.eo) return `EO ${s1(p.eo.time)} s (${p.eo.moves}) · cross ${s1(p.time - p.eo.time)} s (${p.moves - p.eo.moves})`;
   if (!p.caseId) return undefined;
   if (p.id === 'pair') return `F2L ${p.twin}`;
   const k = p.id as 'ocll' | 'pll';
