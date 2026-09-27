@@ -92,6 +92,7 @@ const STYLE = `
   .tm-stats { font-size: 13px; color: var(--ink-2); line-height: 1.7; padding: 2px 2px 8px; }
   .tm-stats b { color: var(--ink); font-weight: 600; }
   .tm-stats .eo-link { padding: 0 4px; font-size: 13px; }
+  .tm-stats .tm-sessq { font: inherit; font-size: 13px; color: var(--ink); padding: 2px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); max-width: 60%; margin-right: 6px; }
   .st-scope { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 14px; }
   .st-scope .n { color: var(--ink-2); font-size: 13px; }
   .tm-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
@@ -131,13 +132,15 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
       </div>
       <div id="tm-report" hidden></div>
       <div class="tm-sess"><select id="tm-session" aria-label="Session"></select><button class="btn" type="button" id="tm-newsess" title="Split here. A solve after a two-hour pause starts a new session by itself.">New session</button></div>
-      <div class="tm-stats"><span id="tm-stats"></span> <button class="btn eo-link" type="button" id="tm-graph" title="The times over the session or over everything, with the running averages as lines">Graph</button></div>
+      <div class="tm-stats"><select id="tm-sessq" class="tm-sessq" aria-label="Session" title="The session these solves go in (New session and the rest: Progress)"></select><span id="tm-stats"></span> <button class="btn eo-link" type="button" id="tm-graph" title="The times over the session or over everything, with the running averages as lines">Graph</button></div>
       <ol class="tm-list" id="tm-list"></ol>
       <div class="tm-more" id="tm-more" hidden><button class="btn eo-link" type="button" id="tm-moreBtn">Show all</button></div>
     </div>`;
   const $ = scoped(root, (n) => `#tm-${n}`, 'timer');
   // the session row is moved to the Progress sheet (app/modes.ts): held here, not looked up under this tab
   const sessSel = $('session') as HTMLSelectElement, newSess = $('newsess');
+  // the session on the Solve screen too, whatever it holds (user, 2026-09-27: with no solves nothing said which it was)
+  const sessQuick = $('sessq') as HTMLSelectElement;
 
   // ---- the scramble ----
   let scramble = '';                        // WCA notation
@@ -405,6 +408,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     await loadSolves();
   }
   sessSel.addEventListener('change', () => { void pickSession(sessSel.value); });
+  sessQuick.addEventListener('change', () => { void pickSession(sessQuick.value); });
   newSess.onclick = () => {
     const name = window.prompt('Name for the new session:', `session ${sessions.length + 1}`);
     if (!name) return;
@@ -570,13 +574,12 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     }
     renderReport(cur && phase() === 'idle' ? cur : null);
     // sessions
-    const sel = sessSel;
     const now = Date.now();
-    sel.innerHTML = sessions.map((s) => {
+    const opts = sessions.map((s) => {
       const sp = spans.get(s.id);
       return `<option value="${s.id}">${s.name}${sp ? ` · ${spanOf(sp.first, sp.last, now)} · ${sp.n}` : ' · empty'}</option>`;
     }).join('');
-    if (session) sel.value = session.id;
+    for (const sel of [sessSel, sessQuick]) { sel.innerHTML = opts; if (session) sel.value = session.id; }
     // stats
     const times: Time[] = solves.map(effectiveTime);
     const s = sessionStats(times);

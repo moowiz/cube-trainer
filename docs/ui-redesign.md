@@ -1097,4 +1097,8 @@ check:practice pass unchanged.
   progress.
 - **No box around the next move**, which you found too much: the greyed,
   underlined moves already say which one is next.
+- **The session is on the Solve screen again**, as a small dropdown at the
+  start of the stats line, kept in sync with the one in Progress (which
+  keeps New session). With no solves, nothing on the Solve screen said
+  which session you were in or offered a switch.
 
