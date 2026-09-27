@@ -37,11 +37,21 @@ describe('analyseSolve', () => {
   });
 
   it('a two-look PLL: two algs, and the case passed through between them', () => {
-    const a = analyseSolve(solveOf(`${TPERM} ${UA}`))!;
+    const s = solveOf(`${TPERM} ${UA}`);
+    const n1 = tokens(toWca(TPERM)).length;
+    s.moves = s.moves.map((m, i) => ({ ...m, t: m.t + (i >= n1 ? 1500 : 0) })); // a look between the two algs
+    const a = analyseSolve(s)!;
     const pll = phase(a, 'pll');
     expect(pll.algs).toBe(2);
     expect(pll.via).toEqual([identifyFacelets('pll', state(inverse(UA)))!.id]);
     expect(pll.caseId).toBe(identifyFacelets('pll', state(inverse(`${TPERM} ${UA}`)))!.id);
+  });
+
+  it('a stop inside one alg is not a second look (Y perm passes through a last-layer state halfway)', () => {
+    const Y = PLL_CASES.find((c) => c.id === 'Y')!.alg;
+    const s = solveOf(Y);
+    s.moves = s.moves.map((m, i) => ({ ...m, t: m.t + (i >= 9 ? 1500 : 0) })); // a hesitation after F R U' R' U' R U R' F'
+    expect(phase(analyseSolve(s)!, 'pll').algs).toBe(1);
   });
 
   it('OCLL then PLL: each its own case, the look before the OCLL skipping the AUF', () => {

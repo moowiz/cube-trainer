@@ -82,6 +82,8 @@ export interface SolveAnalysis {
 
 // DECISION: 300 ms between turns is a regrip; beyond it is looking (the design doc's pause threshold).
 export const PAUSE_MS = 300;
+// DECISION: a stop of this long at a last-layer state between two algs is a second look (see `looks` below)
+const LOOK_MS = 500;
 
 const RANK = { eo: 0, f2l: 1, ocll: 2, pll: 3, solved: 4 } as const;
 
@@ -201,7 +203,9 @@ export function analyseSolve(rec: Pick<SolveRecord, 'scramble' | 'moves' | 'time
   }
   phases.push(pll);
   // the looks: a last-layer step done as more than one alg passes through the stage's own states (F2L whole, and for
-  // PLL the corners oriented) between them; a stretch of U turns alone is an AUF, not an alg
+  // PLL the corners oriented) between them AND stops there to look; a stretch of U turns alone is an AUF, not an alg.
+  // DECISION: the stop is LOOK_MS before the next turn that is not U. Without it a one-look alg that passes through a
+  // last-layer state on its way (Y perm is two OLL algs back to back) read as two looks in the user's solves (2026-09-26).
   const looks = (p: Phase, a: number, b: number, kind: 'ocll' | 'pll') => {
     if (p.skipped) return;
     const at = kind === 'ocll' ? 2 : 3;
@@ -210,10 +214,16 @@ export function analyseSolve(rec: Pick<SolveRecord, 'scramble' | 'moves' | 'time
     for (let i = a + 1; i <= b; i++) {
       if (toks[i]!.some((m) => m[0] !== 'U')) turned = true;
       if (turned && rank[i]! >= at) {
+        if (i === b) { algs++; break; }
+        let j = i + 1;
+        while (j <= b && toks[j]!.every((m) => m[0] === 'U')) j++;
+        if (j <= b && times[j]! - times[i]! < LOOK_MS) continue; // straight on: the same alg
         algs++; turned = false;
-        if (i < b) { const c = identifyFacelets(kind, states[i]!); if (c) via.push(c.id); }
+        const c = identifyFacelets(kind, states[i]!); if (c) via.push(c.id);
       }
     }
+    // a stop inside the case's own alg is a hesitation, not a second alg: two looks also take moves beyond it
+    if (algs > 1 && p.par !== undefined && p.moves - p.par < 3) { algs = 1; via.length = 0; }
     p.algs = Math.max(1, algs);
     if (via.length) p.via = via;
   };

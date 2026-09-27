@@ -179,6 +179,8 @@ export function caseAdvice(r: CaseRow): { what: string; why: string } {
   const g = r.gain;
   const where = r.kind === 'f2l' && r.slot ? ` (${SLOT_WORD[r.slot as keyof typeof SLOT_WORD]}${r.ids.length > 1 ? ' mostly' : ''})` : '';
   const seen = `seen ${r.n}×${r.kind === 'f2l' ? '' : `, comes up ${pct(r.perSolve)} of solves`}`;
+  // "learn" wants a real gap in moves: one or two over the alg is an AUF, a regrip, not a different way of doing it
+  const moreMoves = r.par !== null && r.moves - r.par >= 3;
   if (r.multi >= 0.5 && r.par !== null && r.alg && g.moves > 0) {
     const via = r.via ? ` through ${CASES[r.kind as 'ocll' | 'pll'].find((c) => c.id === r.via)?.name ?? r.via}` : '';
     return {
@@ -186,7 +188,7 @@ export function caseAdvice(r: CaseRow): { what: string; why: string } {
       why: `You solve it with two algs${via} (${r.multi < 1 ? `${pct(r.multi)} of the time, ` : ''}${fmtN(r.moves)} moves); the one-look alg is ${r.par}. That is ${s1(g.moves)} s each time, and it comes up ${pct(r.perSolve)} of solves (seen ${r.n}×).`,
     };
   }
-  if (g.moves >= g.look && g.moves >= g.speed && r.par !== null && r.alg) {
+  if (moreMoves && g.moves >= g.look && g.moves >= g.speed && r.alg) {
     const e = ease(r.par, r.tools);
     return {
       what: `Learn ${r.alg} for ${r.name}${where}`,
@@ -264,7 +266,7 @@ export function advise(all: readonly SolveAnalysis[]): Advice[] {
   for (const kind of ['f2l', 'ocll', 'pll'] as CaseKind[]) {
     let cs = caseTable(all, kind).filter((r) => r.n >= (kind === 'f2l' ? 2 : 1));
     // a last layer still done in two looks for several cases: one piece of advice for the set, not one per case
-    const twoLook = kind === 'f2l' ? [] : cs.filter((r) => r.multi >= 0.5 && r.par !== null && r.gain.moves > 0);
+    const twoLook = kind === 'f2l' ? [] : cs.filter((r) => r.multi >= 0.5 && r.par !== null && r.moves - r.par >= 3);
     if (twoLook.length >= 3) {
       const all = CASES[kind as 'ocll' | 'pll'].length;
       const worth = twoLook.slice(0, 4);
