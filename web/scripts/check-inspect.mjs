@@ -1,6 +1,6 @@
 // Headless check of the Solve tab's inspection clock: serves web/dist, puts a
 // scramble on a replayed smart cube, and asserts that the rail's clock counts
-// the inspection up while the cube waits at the scramble, that the rail's ⏱
+// the inspection up while the cube waits at the scramble, that the settings'
 // switch turns it into a plain "ready" (and back), and that the solve records
 // and shows its inspection. Screenshot: $TMPDIR/inspect-phone.png.
 //
@@ -45,12 +45,13 @@ await new Promise((r) => setTimeout(r, 1000));
 const t2 = await page.$eval('#rail-time', (e) => e.textContent);
 console.log('rail clock while inspecting:', t1, '->', t2, '|', await page.$eval('#rail-hint', (e) => e.textContent));
 check(/^\d+\.\d$/.test(t1) && Number(t2) > Number(t1), 'the inspection counts up on the rail');
-check((await page.$eval('#rail-insp', (e) => e.textContent)).includes('on'), 'the rail switch says it is on');
+check(await page.$eval('#rail-box', (e) => !e.querySelector('#rail-insp')), 'no inspection button on the rail (it is in the settings)');
+const setInspect = (v) => page.evaluate((x) => document.querySelector(`[data-inspect] button[data-v="${x}"]`).click(), v);
 await page.screenshot({ path: `${process.env.TMPDIR ?? '/tmp'}/inspect-phone.png` });
-await page.click('#rail-insp');
+await setInspect('off');
 await new Promise((r) => setTimeout(r, 300));
-check((await page.$eval('#rail-time', (e) => e.textContent)) === 'ready', 'switched off: just "ready"');
-await page.click('#rail-insp');
+check((await page.$eval('#rail-time', (e) => e.textContent)) === 'ready', 'switched off in the settings: just "ready"');
+await setInspect('on');
 await new Promise((r) => setTimeout(r, 300));
 check(/^\d+\.\d$/.test(await page.$eval('#rail-time', (e) => e.textContent)), 'back on: counting again');
 // the undo comes after the pause: the time and the inspection are recorded and shown
@@ -76,7 +77,7 @@ await new Promise((r) => setTimeout(r, 1000));
 const e2 = await page.$eval('#rail-time', (e) => e.textContent);
 console.log('EOCross rail while inspecting:', e1, '->', e2);
 check(/^\d+\.\d$/.test(e1) && Number(e2) > Number(e1), 'EOCross: the inspection counts up on the rail');
-check(await page.$eval('#rail-insp', (e) => !e.hidden && e.textContent.includes('on')), 'EOCross: the ⏱ switch is on the rail');
+check((await page.$$eval('[data-inspect] button.on', (es) => es.map((e) => e.dataset.v))).every((v) => v === 'on'), 'EOCross: the settings row says on');
 await page.screenshot({ path: `${process.env.TMPDIR ?? '/tmp'}/inspect-eo.png` });
 await page.waitForFunction(() => /inspection \d/.test(document.getElementById('eo-rTitle')?.textContent ?? ''), { timeout: 8000 }).catch(() => undefined);
 const res = await page.$eval('#eo-rTitle', (e) => e.textContent);

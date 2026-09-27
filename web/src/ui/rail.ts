@@ -139,7 +139,6 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
         <button type="button" class="pri" data-t="new" id="rail-new" title="A new scramble or case (n)">New</button>
         <button type="button" data-t="voice" id="rail-voice"></button>
         <button type="button" data-t="mine" id="rail-mine" hidden title="Scrambled it your own way? Use the cube as it is as the scramble: inspection starts now">Use my cube</button>
-        <button type="button" data-t="insp" id="rail-insp" title="Time the inspection: from the scramble on the cube to your first turn"></button>
         <button type="button" data-t="view" id="rail-view" title="The cube as the app believes it: a net, 3D, or hidden"></button>
         <button type="button" data-t="tricks" id="rail-tricks" title="The scramble finger by finger">✋</button>
       </div>
@@ -394,7 +393,6 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
   $('rail-new').addEventListener('click', () => { if (attempt && !attempt.done) attempt = null; host.newCase(); });
   $('rail-voice').addEventListener('click', () => { host.owner()?.voice?.()?.toggle(); tick(true); });
   $('rail-mine').addEventListener('click', () => host.useCube?.go());
-  $('rail-insp').addEventListener('click', () => { host.owner()?.inspect?.()?.toggle(); tick(true); });
   $('rail-tricks').addEventListener('click', () => {
     const v = host.owner()?.rail?.();
     if (v?.toks?.length) openFingertricks(v.toks.join(' ').replace(/′/g, "'"), { title: 'The scramble', hold: WCA_HOLD });
@@ -419,9 +417,6 @@ export function mountRail(root: HTMLElement, host: RailHost): Rail {
       $('rail-voice').hidden = !vo;
       if (vo) { $('rail-voice').textContent = vo.on ? '🔊 voice on' : '🔈 voice off'; $('rail-voice').title = vo.label; $('rail-voice').classList.toggle('on', vo.on); }
       $('rail-mine').hidden = !host.useCube?.can();
-      const ins = owner?.inspect?.();
-      $('rail-insp').hidden = !ins;
-      if (ins) { $('rail-insp').textContent = ins.on ? '⏱ inspection on' : '⏱ inspection off'; $('rail-insp').classList.toggle('on', ins.on); }
       $('rail-tricks').hidden = !v.toks?.length;
       drawStrip();
       drawCube();

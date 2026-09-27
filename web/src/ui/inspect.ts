@@ -1,6 +1,6 @@
 // The inspection clock's switch (user, 2026-09-26): one setting for the Solve tab and the EOCross drill -
 // the time from the scramble on the cube to the first turn, shown counting up while you plan. Off only
-// hides it; the time is recorded either way. The rail's ⏱ button and each mode's settings row flip it.
+// hides it; the time is recorded either way. Each mode's settings row flips it (the rail's button went to the settings, 2026-09-27: the rail was cramped).
 
 import { readStored, writeStored } from './settings';
 
@@ -16,8 +16,6 @@ export function setInspect(v: boolean): void {
   for (const l of listeners) l();
 }
 export function onInspectChange(l: () => void): void { listeners.add(l); }
-/** What a stage hands the rail for its ⏱ button. */
-export const inspectSwitch = (): { on: boolean; toggle(): void } => ({ on, toggle: () => setInspect(!on) });
 
 /** Wire every settings row `[data-inspect]` (an .eo-seg with Off / On buttons) to the switch. */
 export function wireInspectRows(): void {

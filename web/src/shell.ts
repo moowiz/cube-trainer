@@ -59,7 +59,6 @@ export interface Stage {
   /** Space or a press on the rail's timer: down arms (or stops a running clock), up starts. */
   press?(down: boolean): void;
   /** The inspection clock's one-tap switch on the rail (the Solve tab): whether the time from the scramble on the cube to the first turn is shown. */
-  inspect?(): { on: boolean; toggle(): void };
   /** The voice's one-tap switch on the rail: whether it speaks, what it does, and the toggle; absent: no voice. */
   voice?(): { on: boolean; label: string; toggle(): void };
 }

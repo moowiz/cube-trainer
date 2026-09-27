@@ -28,7 +28,7 @@ import { makeTrackWatcher, moveHtml, scrambleHtml, trackText } from './track-ui'
 import { autoSessionName, dayOf, fullOf, gapOf, spanOf, stampOf } from './when';
 import { ensureStyle, scoped } from '../ui/dom';
 import { AttemptClock } from '../ui/clock';
-import { inspectOn, inspectSwitch, onInspectChange } from '../ui/inspect';
+import { inspectOn, onInspectChange } from '../ui/inspect';
 import { persisted } from '../ui/settings';
 import { type Mode, MODE_LABEL, MODES, say, ScrambleVoice } from '../ui/voice';
 
@@ -646,7 +646,6 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
         })(),
     }),
     press: (down) => { if (down) press(); else release(); },
-    inspect: inspectSwitch,
     voice: () => ({
       on: settings.voice !== 'off',
       label: settings.voice === 'off' ? 'voice off' : `voice: ${MODE_LABEL[settings.voice]}`,

@@ -53,7 +53,7 @@ export interface DrillSpec {
   left: string;
   /** HTML inserted right after the hint chips (a note area, say) */
   afterHints?: string;
-  /** the inspection clock (ui/clock.ts): while armed, the time since the scramble reached the cube counts up (the ⏱ switch permitting) */
+  /** the inspection clock (ui/clock.ts): while armed, the time since the scramble reached the cube counts up (the inspection setting permitting) */
   inspection?: boolean;
 }
 

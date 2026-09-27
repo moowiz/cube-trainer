@@ -12,7 +12,7 @@ import type { RailClock } from '../shell';
 import { inspectOn } from './inspect';
 
 export interface ClockOpts {
-  /** the mode shows the inspection counting up while armed (the Solve tab, EOCross); the ⏱ switch has the last word */
+  /** the mode shows the inspection counting up while armed (the Solve tab, EOCross); the inspection setting has the last word */
   inspection?: boolean;
   /** a press may hold / start now (the Solve tab: only with a scramble on show) */
   canStart?(): boolean;

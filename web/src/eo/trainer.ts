@@ -22,7 +22,6 @@ import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type Sol
 import { persisted } from '../ui/settings';
 import { hold } from '../app/context';
 import { activeSource } from '../app/sources';
-import { inspectSwitch } from '../ui/inspect';
 import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher } from '../timer/track-ui';
 import type { ColorName, FaceId } from '../types';
@@ -457,6 +456,5 @@ export function mountEO(root: HTMLElement): Stage {
     load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,
     rail: () => ({ toks: scramble ? toWca(shownScramble()).split(' ').filter(Boolean) : null, track: shift(track), clock: drill.clock() }),
     press: (down) => drill.press(down),
-    inspect: inspectSwitch,
   };
 }
