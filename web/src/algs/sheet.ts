@@ -38,6 +38,10 @@ const STYLE = `
   details.algs-sec summary h3::before { content: '▸ '; }
   details.algs-sec[open] summary h3::before { content: '▾ '; }
   .algs-sec .blurb { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; line-height: 1.45; max-width: 760px; }
+  .algs-steps { font-size: 14px; color: var(--ink-2); line-height: 1.5; max-width: 760px; margin: 0 0 10px; padding-left: 22px; }
+  .algs-steps li { margin: 0 0 8px; }
+  .algs-steps b { color: var(--ink); font-weight: 600; }
+  .algs-steps code { font: inherit; color: var(--ink); font-weight: 600; }
   .algs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; align-items: start; }
   .algs-case { display: grid; grid-template-columns: 1fr; gap: 3px 12px; align-content: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
   .algs-case.pic { grid-template-columns: 92px 1fr; }
@@ -124,7 +128,9 @@ function puzzleHtml(p: Puzzle): string {
     ${p.intro ? `<p class="algs-intro">${p.intro}</p>` : ''}
     <div class="algs-notation">${p.notation}</div>
     ${p.sections.map((s) => {
-      const body = `${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c, allCases(p).indexOf(c))).join('')}</div>`;
+      const steps = s.steps ? `<ol class="algs-steps">${s.steps.map((t) => `<li>${t}</li>`).join('')}</ol>` : '';
+      const grid = s.cases.length ? `<div class="algs-grid">${s.cases.map((c) => caseHtml(p, c, allCases(p).indexOf(c))).join('')}</div>` : '';
+      const body = `${s.blurb ? `<p class="blurb">${s.blurb}</p>` : ''}${steps}${grid}`;
       return s.folded
         ? `<details class="algs-sec"><summary><h3>${esc(s.title)}<small>${s.cases.length} cases</small></h3></summary>${body}</details>`
         : `<section class="algs-sec"><h3>${esc(s.title)}</h3>${body}</section>`;

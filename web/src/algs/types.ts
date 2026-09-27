@@ -45,6 +45,8 @@ interface AlgSection {
   /** one or two sentences: when this section applies, what to know */
   blurb?: string;
   cases: AlgCase[];
+  /** a method walked through: numbered steps (HTML), drawn above the section's cases */
+  steps?: string[];
   /** shown folded, with the title as the toggle: the full tables that are there for reference, not for learning */
   folded?: boolean;
 }
