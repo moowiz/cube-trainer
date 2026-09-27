@@ -40,6 +40,7 @@ import { secs } from '../ll/practice';
 import { newId } from '../store/types';
 import { fileAttempt } from '../ui/drill';
 import { openF2LReference } from './reference';
+import { mountF2LVoice, onVoiceSettings, wireF2LVoiceRows } from './voice';
 import { onFavsChange } from '../ll/favs';
 import { ensureStyle, esc, scoped } from '../ui/dom';
 import { readStored, writeStored } from '../ui/settings';
@@ -101,7 +102,10 @@ const STYLE = `
   .f2l .tracker > span small { display: block; font-size: 12px; font-weight: 400; color: var(--ink-2); letter-spacing: .02em; line-height: 1.35; }
   .f2l .tracker > span.cur small { color: var(--ink); }
   .f2l .tracker > span small b { font-weight: 600; }
-  .f2l .trackkeys { font-size: 12px; color: var(--ink-2); margin: 6px 0 0; }
+  .f2l .trackkeys { font-size: 12px; color: var(--ink-2); margin: 6px 0 0; white-space: pre-line; }
+  /* the voice drill: a pair's case hidden until it is named */
+  .f2l .result.askhide > :not(.askmsg) { display: none; }
+  .f2l .askmsg { font-size: 15px; color: var(--ink-2); }
   .f2l .tracker > span.done { opacity: .45; text-decoration: line-through; cursor: default; }
   .f2l .tracker > span.cur { color: var(--ink); border-color: var(--ink); box-shadow: 0 0 0 2px var(--ink); font-weight: 600; }
   .f2l .tracker .sw3 { display: inline-flex; gap: 2px; }
@@ -306,6 +310,14 @@ export function mountF2L(root: HTMLElement): Stage {
   // a setup from where the cube stood: the scramble is that state's own scramble and then the setup, and only the
   // setup (the turns after the first `setupFrom`) is shown and followed - the driver arms on the state, not the path
   let setupFrom = 0;
+  // the voice drill (voice.ts): the pairs named out loud and judged, or called out; read off the cards' cube
+  const voice = mountF2LVoice({
+    cube: () => { const f = tracked ? cardState() : null; return f ? { f, solved: solvedSlots } : null; },
+    active: () => activeTab() === 'f2l' && !carriedSolve(),
+    changed: () => render(),
+  });
+  wireF2LVoiceRows();
+  onVoiceSettings(() => render());
 
   // ---- pictures ----
   const cells = () => caseCells(slot, corner, edge, SLOTS.filter((s) => !solvedSlots.has(s)));
@@ -425,6 +437,9 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /** Pick a slot as the pair to solve: the pieces read off the tracked cube, or cleared to tap in. */
   function pickSlot(s: SlotName): void {
+    // a pair tapped is a pair shown, the voice drill's hiding or not
+    const f = cardState(), sum = f ? safe(() => slotSummary(f, s)) : null;
+    if (sum) voice.reveal(s, sum.n);
     slot = s; corner = null; edge = null; updateEdgeName();
     if (tracked) syncFromCube(); else render();
   }
@@ -461,7 +476,8 @@ export function mountF2L(root: HTMLElement): Stage {
         if (cards && f) {
           const sum = slotSummary(f, s);
           const small = document.createElement('small');
-          small.innerHTML = sum
+          small.innerHTML = sum && voice.hidden(s, sum.n) ? 'say what you would do, or tap to see'
+            : sum
             ? `case ${sum.n} · ${esc(sum.head)}<br><b>${esc(sum.alg)}</b> · ${sum.moves} moves${sum.through ? ` (through the open ${esc(sum.through)})` : ''}`
             : 'no case in the sheet';
           el.appendChild(small);
@@ -471,7 +487,7 @@ export function mountF2L(root: HTMLElement): Stage {
     }
     let keys = t.nextElementSibling as HTMLElement | null;
     if (!keys?.classList.contains('trackkeys')) { keys = document.createElement('p'); keys.className = 'trackkeys'; t.insertAdjacentElement('afterend', keys); }
-    keys.textContent = cards && openSlots().length > 1 ? '← → step through the open pairs' : '';
+    keys.textContent = [cards && openSlots().length > 1 ? '← → step through the open pairs' : '', tracked ? voice.line() : ''].filter(Boolean).join('\n');
   }
   function updateEdgeName(): void {
     $('edgename').textContent = `${faceColorName(slot[0])}-${faceColorName(slot[1])}`;
@@ -536,6 +552,7 @@ export function mountF2L(root: HTMLElement): Stage {
 
   function armed(t: number): void {
     clk.arm(t);
+    voice.reset();
     const b = boxes();
     if (!b || !b.scr) return;
     if (target && !target.done) { target.at = t; target.first = null; }
@@ -890,7 +907,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   function showResult(): void {
     const D = DATA.slots[slot];
-    const r = $('result'); r.innerHTML = '';
+    const r = $('result'); r.innerHTML = ''; r.classList.remove('askhide');
     const hint = (t: string) => { const p = document.createElement('p'); p.className = 'hint'; p.textContent = t; r.appendChild(p); };
     const hb = $('hintbox'); hb.hidden = true; hb.innerHTML = '';
     const left = corner && edge ? null : beforeF2L(); // a pair under way keeps its case through a broken cross
@@ -914,13 +931,23 @@ export function mountF2L(root: HTMLElement): Stage {
     currentHit = found?.hit ?? null;
     if (!found) { hint('No case in the sheet matches this position.'); return; }
     const { hit, c } = found;
+    // the voice drill: the case (and its alg, and the hint) stays hidden until the pair is named; the rows are
+    // still made, hidden, so the cube's turns are followed along them
+    const hide = tracked !== null && voice.hidden(slot, twinOf(slot, c.n));
+    if (hide) {
+      r.classList.add('askhide');
+      const m = document.createElement('p'); m.className = 'askmsg';
+      m.innerHTML = `Name the ${SLOT_WORD[slot]} pair out loud, or <button type="button" class="linkbtn">show it</button>.`;
+      m.querySelector('button')!.addEventListener('click', () => { voice.reveal(slot, twinOf(slot, c.n)); render(); });
+      r.appendChild(m);
+    }
     const t = document.createElement('div'); t.className = 'case-title';
     t.innerHTML = `<h2>${SLOT_WORD[slot]} case ${twinOf(slot, c.n)}</h2><span>${GROUP_WORD[caseGroup(slot, c)].toLowerCase()}</span>${tracked ? `<span class="trackbadge">tracking · ${movesDone()} moves so far</span>` : ''}`; r.appendChild(t);
     const w = document.createElement('p'); w.className = 'where'; w.textContent = describe(corner, edge); r.appendChild(w);
     const { lead, rows } = rowsFor(slot, c, hit.auf);
     const ex = explain(slot, c, (lead ?? rows[0])?.alg ?? c.algs[0]!);
     hb.innerHTML = `<b>${ex.head.replace(/\.$/, '')}</b>`;
-    hb.hidden = !showHints();
+    hb.hidden = !showHints() || hide;
     const wrap = document.createElement('div');
     // every solution the filter lets through, fewest moves first after the lead; one that needs a solved slot greyed
     for (const x of rows.filter((r) => r.usable)) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, x === lead), c));
@@ -940,6 +967,7 @@ export function mountF2L(root: HTMLElement): Stage {
   }
 
   function render(): void {
+    voice.update();
     renderTarget();
     renderTracker();
     drawPictures();
@@ -951,7 +979,7 @@ export function mountF2L(root: HTMLElement): Stage {
   function loadScramble(scramble: string): void {
     const was = scrWca;
     scrWca = safe(() => clean(toWca(scramble))) ?? ''; track = null; watcher.reset();
-    if (scrWca !== was) { target = null; setupFrom = 0; } // another scramble (the follow's, another tab's): not the targeted one
+    if (scrWca !== was) { target = null; setupFrom = 0; voice.reset(); } // another scramble (the follow's, another tab's): not the targeted one
     saveUrl(); renderFollow();
     applyScramble();
   }
@@ -972,7 +1000,7 @@ export function mountF2L(root: HTMLElement): Stage {
     syncDriver();
     if (tracked) trackMsg('Read from your cube as it stands.');
   }
-  onTabChange((t) => { if (t === 'f2l') readCube(); });
+  onTabChange((t) => { if (t === 'f2l') readCube(); voice.update(); });
   // a cube (re)connected mid-F2L (user, 2026-09-26: it asked for the scramble again): a fresh connection arms only
   // at the scramble, which the cube is past, so its first report is read as it stands - even when it matches the
   // tracked cube, whose turns were the old connection's. Not a solved cube, nor one still applying the scramble.

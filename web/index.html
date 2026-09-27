@@ -170,6 +170,8 @@
   #setup-sheet .ll-voice { display: flex; flex-direction: column; align-items: stretch; gap: 0; font-weight: 600; padding-top: 10px; }
   #setup-sheet .ll-voice > label { font-weight: 400; }
   #setup-sheet .ll-chunks, #setup-sheet .ll-say, #setup-sheet .ll-cases { font-size: 14px; margin: 10px 2px; }
+  #setup-sheet .f2l-say { font-size: 13px; color: var(--ink-2); margin: 0 2px 10px; } #setup-sheet .f2l-say summary { cursor: pointer; }
+  #setup-sheet .f2l-say p { margin: 6px 0; line-height: 1.45; } #setup-sheet .f2l-say table { border-collapse: collapse; } #setup-sheet .f2l-say th { text-align: left; padding: 2px 10px 2px 0; color: var(--ink); font-weight: 600; white-space: nowrap; } #setup-sheet .f2l-say td { padding: 2px 0; }
   #setup-sheet .ll-showpic { display: flex; justify-content: space-between; margin: 0; padding: 9px 2px; font-size: 15px; color: var(--ink); border-bottom: 1px solid var(--line); }
   #setup-sheet .rescr, #setup-sheet .hidecube { display: block; padding: 9px 2px; font-size: 15px; border-bottom: 1px solid var(--line); }
   #setup-sheet #tm-follow { justify-content: space-between; margin: 0; padding: 9px 2px; font-size: 15px; color: var(--ink); border-bottom: 1px solid var(--line); }
@@ -275,6 +277,11 @@
         <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="showhints" checked> Show the hint above the cube</label></div></div>
         <div class="eo-opt"><div><div class="lbl">Algs to show</div><span class="sub">Every way to solve the case is listed; an alg shows when each kind of move it uses is on. One side and U are always on.</span></div>
           <div class="f2l-tools" id="f2l-tools"></div></div>
+        <div class="eo-opt"><div><div class="lbl">Voice: name the case</div><span class="sub">With a smart cube: say a pair and what you'd do for it (“front left D conjugate”) and hear yes or no. A pair's case stays hidden on the page until you name it. Listening uses the browser's speech recognition (Google's servers, on Android).</span></div>
+          <div class="eo-seg" data-f2lvoice="ask"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
+        <details class="f2l-say"><summary>What to say</summary><div id="f2l-voice-words"></div></details>
+        <div class="eo-opt"><div><div class="lbl">Voice: call out cases</div><span class="sub">When the cube is at F2L and still, the pairs whose case you picked (Cases → F2L → Practice), or every case, are said once each: “front left D conjugate, front right keyhole”.</span></div>
+          <div class="eo-seg" data-f2lvoice="call"><button type="button" data-v="off">Off</button><button type="button" data-v="picked">Picked</button><button type="button" data-v="all">All</button></div></div>
       </section>
       <section class="set-sec" data-setup="ll">
         <div class="eo-opt"><div><div class="lbl">Drill</div><span class="sub">OCLL alone, or PLL (which can start from OCLL or the last pair, for recognition).</span></div>

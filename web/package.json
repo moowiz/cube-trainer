@@ -20,6 +20,7 @@
     "check:practice": "node scripts/check-practice.mjs",
     "check:ll": "node scripts/check-ll.mjs",
     "check:f2l": "node scripts/check-f2l.mjs",
+    "check:f2lvoice": "node scripts/check-f2lvoice.mjs",
     "check:coach": "node scripts/check-coach.mjs",
     "check:inspect": "node scripts/check-inspect.mjs",
     "check:strip": "node scripts/check-strip.mjs",

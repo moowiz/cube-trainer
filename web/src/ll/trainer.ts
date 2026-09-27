@@ -55,6 +55,7 @@ import { algAngle } from './features';
 import { onFavsChange } from './favs';
 import { noteFor, onNotesChange, setNote } from './notes';
 import { GIVE_UP_WORDS, heardCase, wordsFor } from './hear';
+import { canHear, listen } from '../ui/ear';
 import { ensurePicStyle, picSvg } from './pic';
 import { solveAny } from './scramble';
 import { caseStats, DEFAULT_DIR, RECENT, secs, SORT_KEYS, sortStats, type SortKey, trendText, workOn } from './practice';
@@ -183,10 +184,7 @@ function sayNote(kind: LLKind): string {
 }
 
 
-// ---- hearing the case's name (the quiz): the browser's speech recognition, which on Android Chrome is Google's
-// servers - the one thing here that leaves the phone; an opt-in by the setting (user, 2026-09-21) ----
-interface Recognizer { lang: string; continuous: boolean; maxAlternatives: number; interimResults: boolean; start(): void; abort(): void; onresult: ((e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null; onerror: ((e: { error: string }) => void) | null; onend: (() => void) | null }
-const recognizerCtor = (): (new () => Recognizer) | null => { const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer }; return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null; };
+// ---- hearing the case's name (the quiz): ui/ear.ts ----
 /** A case name as the voice should say it: the PLL ids letter by letter ("N A", not "nah"), the OCLL names as words. */
 const spokenName = (kind: LLKind, c: { id: string; name: string }): string => (kind === 'pll' ? `${c.id.split('').join(' ')} perm` : c.name);
 /**
@@ -350,42 +348,35 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   let quizOpen = false;        // the case was asked and not yet answered: nothing is read until it is
   let quizSaid: string | null = null; // what the quiz heard, for the result
   let quizOutcome: 'right' | 'wrong' | 'gaveUp' | 'cube' | undefined; // and for the record
-  let listener: Recognizer | null = null;
+  let stopEar = (): void => undefined;
+  let askGen = 0; // the quiz being asked, so an old one's time limit leaves a new one alone
   /** Ask the case's name and listen; right, wrong or given up, the alg is then read. */
   function askCase(): void {
     const c = sol?.case;
-    const Ctor = recognizerCtor();
-    if (!c || lead.length || !Ctor) { if (!Ctor) say('no speech recognition here'); quizOpen = false; return; }
+    if (!c || lead.length || !canHear()) { if (!canHear()) say('no speech recognition here'); quizOpen = false; return; }
     quizOpen = true;
     say('what case?');
-    // DECISION: the mic stays open up to this long: recognising a case takes a few seconds of looking, and Chrome
-    // on a phone ends a session after a short silence, so the session is restarted until an answer or the limit
+    // DECISION: the mic stays open up to this long: recognising a case takes a few seconds of looking
     const LISTEN_MS = 30_000;
-    const started = performance.now();
-    const listen = () => {
-      if (!quizOpen) return;
-      if (performance.now() - started > LISTEN_MS) { answer('giveup'); return; }
-      const r = new Ctor(); listener = r;
-      r.lang = 'en-US'; r.continuous = true; r.maxAlternatives = 5; r.interimResults = false;
-      r.onresult = (e) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const alts = Array.from(e.results[i] ?? [], (x) => x.transcript);
+    const gen = ++askGen;
+    setTimeout(() => { if (quizOpen && askGen === gen) answer('giveup'); }, LISTEN_MS + 700);
+    setTimeout(() => {
+      if (!quizOpen || askGen !== gen) return;
+      stopEar = listen({
+        alts: 5,
+        heard: (alts) => {
           const heard = alts.map((a) => heardCase(a, CASES[kind].map((x) => x.id))).find((h) => h !== null) ?? null;
           quizSaid = alts[0] ?? null;
-          if (heard !== null) { answer(heard); return; }
-          say('say it again?');
-        }
-      };
-      r.onerror = (e) => { if (quizOpen && (e.error === 'not-allowed' || e.error === 'audio-capture')) { say('no microphone'); answer('giveup'); } }; // a no-speech end just restarts
-      r.onend = () => { if (listener === r) { listener = null; if (quizOpen) setTimeout(listen, 100); } };
-      try { r.start(); } catch { answer('giveup'); }
-    };
-    setTimeout(listen, 700); // after "what case?" has been said
+          if (heard !== null) answer(heard); else say('say it again?');
+        },
+        fatal: () => { if (quizOpen) { say('no microphone'); answer('giveup'); } },
+      });
+    }, 700); // after "what case?" has been said
   }
   /** The quiz's answer: `heard` is a case id, a wrong name, or 'giveup'; the alg is read from here on. */
   function answer(heard: string): void {
     if (!quizOpen) return;
-    quizOpen = false; listener?.abort(); listener = null;
+    quizOpen = false; stopEar();
     asked = true; drawPic();
     const c = sol?.case;
     const name = c ? spokenName(kind, c) : '';
@@ -405,34 +396,23 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   // voice on, the mic stays open for "ready" (the case is scrambled by hand and looked at): the case is
   // asked, and after the answer the whole alg is read in one go - nothing to follow move by move - and
   // "next" brings the next case. Only the open tab listens; a cube or camera taking over ends it.
-  let standbyRec: Recognizer | null = null;
-  let standbyOn = false;
+  let stopStandbyEar: (() => void) | null = null;
   let handsFree = false; // this quiz came from "ready": the alg is read whole, the attempt recorded untimed
   const READY = /\b(ready|go|okay|ok|start|ask)\b/, NEXT = /\b(next|new case|another|done)\b/;
   function standby(): void {
-    const Ctor = recognizerCtor();
     const want = settings.ask && !activeSource() && !quizOpen && !root.hidden;
-    if (!want || !Ctor) { stopStandby(); return; }
-    if (standbyOn) return;
-    standbyOn = true;
-    const listen = () => {
-      if (!standbyOn) return;
-      const r = new Ctor(); standbyRec = r;
-      r.lang = 'en-US'; r.continuous = true; r.maxAlternatives = 3; r.interimResults = false;
-      r.onresult = (e) => {
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const t = Array.from(e.results[i] ?? [], (x) => x.transcript).join(' ').toLowerCase();
-          if (NEXT.test(t)) { newCase(); return; }
-          if (READY.test(t)) { stopStandby(); handsFree = true; askCase(); return; }
-        }
-      };
-      r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'audio-capture') stopStandby(); }; // a no-speech end just restarts
-      r.onend = () => { if (standbyRec === r) { standbyRec = null; if (standbyOn) setTimeout(listen, 100); } };
-      try { r.start(); } catch { stopStandby(); }
-    };
-    listen();
+    if (!want || !canHear()) { stopStandby(); return; }
+    if (stopStandbyEar) return;
+    stopStandbyEar = listen({
+      heard: (alts) => {
+        const t = alts.join(' ').toLowerCase();
+        if (NEXT.test(t)) { newCase(); return; }
+        if (READY.test(t)) { stopStandby(); handsFree = true; askCase(); }
+      },
+      fatal: () => { stopStandbyEar = null; },
+    });
   }
-  function stopStandby(): void { standbyOn = false; standbyRec?.abort(); standbyRec = null; }
+  function stopStandby(): void { const s = stopStandbyEar; stopStandbyEar = null; s?.(); }
   /** The alg on show read in one go (hands-free: no turns to read it by), chunks by name, then the mic is back on standby. */
   function readWhole(): void {
     handsFree = false;
@@ -496,7 +476,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
   function heard(text: string): void {
     let toks: string[];
     try { toks = tokens(text); } catch { return; }
-    if (quizOpen && toks.length) { quizOpen = false; listener?.abort(); listener = null; quizSaid = 'answered with the cube'; quizOutcome = 'cube'; asked = true; drawPic(); }
+    if (quizOpen && toks.length) { quizOpen = false; stopEar(); quizSaid = 'answered with the cube'; quizOutcome = 'cube'; asked = true; drawPic(); }
     if (armedNow && toks.length) reveal();
     if (settings.say.alg === 'echo' && toks.length > fedCount) echo(toks.slice(fedCount));
     fedCount = toks.length;
@@ -543,7 +523,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     // face-turn scramble for the same state instead. DECISION: solved on a timeout, not here:
     // the first solve builds the pruning tables (~500 ms), which would otherwise sit in the page's mount.
     scramble = null; track = null; lastRead = null; scrVoice.reset(); lastBad = 0; fedCount = 0; armedNow = false;
-    quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
+    quizOpen = false; quizSaid = null; quizOutcome = undefined; stopEar();
     const gen = ++scrambleGen;
     setTimeout(() => {
       if (gen !== scrambleGen) return;
@@ -620,7 +600,7 @@ export function mountLL(root: HTMLElement, kind: LLKind): Stage {
     view.rx = TOP_VIEW.rx; view.ry = TOP_VIEW.ry;
     scramble = setup; track = null; lastBad = 0; fedCount = 0; scrVoice.reset(); armedNow = false;
     if (!lined) lastRead = null; // lined up: the first move was read already, and is the same
-    quizOpen = false; quizSaid = null; quizOutcome = undefined; listener?.abort(); listener = null;
+    quizOpen = false; quizSaid = null; quizOutcome = undefined; stopEar();
     scrambleGen++;
     drill.begin(); render();
     drill.$('next').textContent = 'Next alg';
