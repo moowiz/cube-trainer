@@ -69,7 +69,7 @@ export function picIso(n: number, state: string): string {
  * left of L, BR right of R), so a last-layer case on U shows its corners' other stickers and the triangles that
  * ride with them.
  */
-export function picFto(state: FtoState): string {
+export function picFto(state: FtoState, hex: Record<FtoFace, string> = FTO_HEX): string {
   const t = 13, gap = 3, s = t + gap + 1, e = 200 - s, mid = 100;
   const P: Record<string, [number, number]> = { N: [mid, mid], ul: [s, s], ur: [e, s], dl: [s, e], dr: [e, e] };
   // the back corner K folds out differently behind each strip: three strip heights past the edge, so the row nearest the edge is one strip tall
@@ -82,7 +82,7 @@ export function picFto(state: FtoState): string {
     const pts = st.bary.map((w) => [w[0] * corners[0]![0] + w[1] * corners[1]![0] + w[2] * corners[2]![0], w[0] * corners[0]![1] + w[1] * corners[1]![1] + w[2] * corners[2]![1]] as [number, number]);
     const cx = (pts[0]![0] + pts[1]![0] + pts[2]![0]) / 3, cy = (pts[0]![1] + pts[1]![1] + pts[2]![1]) / 3;
     const inset = pts.map(([x, y]) => { const d = Math.hypot(x - cx, y - cy), k = Math.min(0.5, 1.7 / d); return `${(x + (cx - x) * k).toFixed(1)},${(y + (cy - y) * k).toFixed(1)}`; });
-    out += `<polygon points="${inset.join(' ')}" fill="${FTO_HEX[FTO_FACES[state[st.idx]!]!]}" stroke="#2b3340" stroke-width="1" stroke-linejoin="round"/>`;
+    out += `<polygon points="${inset.join(' ')}" fill="${hex[FTO_FACES[state[st.idx]!]!]}" stroke="#2b3340" stroke-width="1" stroke-linejoin="round"/>`;
   }
   return out;
 }

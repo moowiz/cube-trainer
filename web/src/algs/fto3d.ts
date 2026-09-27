@@ -22,7 +22,7 @@
 // ORIGINAL op's rotation from k=1 down to 0 draws exactly the reverse of
 // the forward animation, ending on the already-updated state at k=0.
 
-import { applyOp, FTO_FACES, FTO_HEX, FTO_NORMAL, FTO_STICKERS, ftoOps, ftoPoint, inverseOp, rotate, type FtoFrame, type FtoOp, type FtoState, type Vec } from '../cube/fto';
+import { applyOp, FTO_FACES, FTO_HEX, FTO_NORMAL, FTO_STICKERS, ftoOps, ftoPoint, inverseOp, rotate, type FtoFace, type FtoFrame, type FtoOp, type FtoState, type Vec } from '../cube/fto';
 import type { Poly } from '../cube/render';
 import type { Animatable, AnimOp } from './player';
 
@@ -48,7 +48,7 @@ const STICKER_GEOM: readonly { idx: number; pts: readonly [Vec, Vec, Vec]; n: Ve
 }));
 
 /** The polygons of a scene: sticker geometry, spun by any move in progress, then turned by the whole-puzzle rotations done so far (latest first — see cube/fto.ts's toStart, which this mirrors). */
-export function ftoPolys(scene: FtoScene): Poly[] {
+export function ftoPolys(scene: FtoScene, hex: Record<FtoFace, string> = FTO_HEX): Poly[] {
   const spin = scene.anim && scene.anim.op.sel !== 'all' ? scene.anim : null;
   const moving = spin ? new Set(spin.op.moving) : null;
   const rots = scene.anim && scene.anim.op.sel === 'all' ? [...scene.rots, { axis: scene.anim.op.axis, angle: scene.anim.op.angle * scene.anim.k }] : scene.rots;
@@ -64,7 +64,7 @@ export function ftoPolys(scene: FtoScene): Poly[] {
       pts = pts.map((p) => rots.reduceRight((q, r) => rotate(q, r.axis, r.angle), p));
       n = rots.reduceRight((q, r) => rotate(q, r.axis, r.angle), n);
     }
-    return { pts, n, fill: FTO_HEX[FTO_FACES[scene.state[g.idx]!]!], idx: g.idx };
+    return { pts, n, fill: hex[FTO_FACES[scene.state[g.idx]!]!], idx: g.idx };
   });
 }
 
@@ -73,8 +73,8 @@ interface FtoAnimOp extends AnimOp {
   readonly fop: FtoOp;
 }
 
-/** The FTO as an Animatable for mountPlayer: `alg` in `frame`'s notation, starting from `start`. */
-export function ftoAnimatable(alg: string, frame: FtoFrame, start: FtoState): Animatable<FtoState> {
+/** The FTO as an Animatable for mountPlayer: `alg` in `frame`'s notation, starting from `start`, in `hex`'s colours. */
+export function ftoAnimatable(alg: string, frame: FtoFrame, start: FtoState, hex: Record<FtoFace, string> = FTO_HEX): Animatable<FtoState> {
   const ops: FtoAnimOp[] = ftoOps(alg, frame).map((fop) => ({ token: fop.token, axis: fop.axis, angle: fop.angle, rotation: fop.sel === 'all', moving: fop.moving, fop }));
   return {
     ops,
@@ -90,7 +90,7 @@ export function ftoAnimatable(alg: string, frame: FtoFrame, start: FtoState): An
       state: scene.state,
       rots: scene.rots,
       anim: scene.anim ? { op: (scene.anim.op as FtoAnimOp).fop, k: scene.anim.k } : undefined,
-    }),
+    }, hex),
     // DECISION: nearly straight at the front corner, as the sheet's pictures are, tilted just enough to read as a solid
     scale: 140,
     view: { rx: 8, ry: -10 },

@@ -4,6 +4,8 @@
 // the claim each case makes about what it touches, so a typo in an alg
 // cannot ship as a "parity" that scrambles the cube.
 
+import type { FtoFace } from '../cube/fto';
+
 // not store/types.ts's PuzzleId (WCA / csTimer codes: 'pyram', 'minx'): these name the sheet's sections
 export type AlgPuzzleId = '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
 
@@ -33,6 +35,9 @@ export interface AlgCase {
   setup?: string;
   /** NxN and FTO: the claim the test verifies */
   check?: Check;
+  /** FTO only: the colour on each face letter for the picture and the 3D player, when the case is shown in a
+   *  solver's own hold rather than the standard (white on U, green on F); cube/fto.ts FTO_HEX by default */
+  scheme?: Record<FtoFace, string>;
   /** FTO only: the alg is written in lowcubes' edge-in-front letters, not Ben's (cube/fto.ts EIF_TO_BEN); shown as written */
   frame?: 'eif';
   /** where the alg came from */

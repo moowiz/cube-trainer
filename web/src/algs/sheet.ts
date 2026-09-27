@@ -89,7 +89,7 @@ export function viewerUrl(p: Puzzle, c: AlgCase): string | null {
 export function caseSvg(p: Puzzle, c: AlgCase): string | null {
   if (c.pic === 'none') return null;
   let inner: string;
-  if (p.id === 'fto') inner = picFto(applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'));
+  if (p.id === 'fto') inner = picFto(applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'), c.scheme);
   else if (p.n) {
     const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(p, c.alg)));
     inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
@@ -163,7 +163,7 @@ export function initAlgs(): void {
       const c = allCases(p)[Number(play.dataset.play)]!;
       const host = play.closest('.algs-case')!.querySelector<HTMLElement>('.algs-player')!;
       const handle = p.id === 'fto'
-        ? mountPlayer(host, ftoAnimatable(c.alg, c.frame ?? 'ben', applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben')))
+        ? mountPlayer(host, ftoAnimatable(c.alg, c.frame ?? 'ben', applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'), c.scheme))
         : mountPlayer(host, nxnAnimatable(p.n!, c.alg, rawNxN(p.n!, c.setup ?? '', applyNxN(p.n!, setupAlg(p, c.alg)))));
       player = { destroy: () => handle.destroy(), button: play };
       play.classList.add('on');
