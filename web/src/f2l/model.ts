@@ -598,6 +598,16 @@ function sheetForm(from: string, auf: string): string {
 }
 const searchKey = (slot: SlotName, c: F2LCase, auf: string) => `${slot}${c.n}|${auf}`;
 
+/**
+ * What an alg costs to do, for ordering algs of the same length: HTM, and a D2 counts half a turn more than a D
+ * (user, 2026-09-27: a D2 conjugate was listed where a D one of the same length did it; a D2 is two flicks of the
+ * ring finger, or a regrip).
+ */
+export function execCost(alg: string): number {
+  const t = tokens(normalizeAlg(alg));
+  return t.filter((x) => !/^[xyz]/.test(x)).length + 0.5 * t.filter((x) => x === 'D2').length;
+}
+
 /** One way to solve a case from a position: the alg, what it is made of, and the slots it needs open. */
 export interface Solution {
   /** in the sheet's form for the position's AUF: fullAlg(auf, alg) is `full` */
@@ -639,7 +649,7 @@ export function positionAlgs(slot: SlotName, c: F2LCase, auf = ''): Solution[] {
   const seen = new Set<string>();
   const uniq = all.filter((x) => (seen.has(x.full) ? false : (seen.add(x.full), true)));
   const beaten = (x: Solution) => x.from === 'search' && uniq.some((y) => y !== x && y.n <= x.n && within(y.tools, x.tools) && within(y.needs, x.needs) && (y.from !== 'search' || y.n < x.n || y.tools.length < x.tools.length || y.needs.length < x.needs.length || uniq.indexOf(y) < uniq.indexOf(x)));
-  list = uniq.filter((x) => !beaten(x)).sort((x, y) => x.n - y.n || FROM_ORDER[x.from] - FROM_ORDER[y.from]);
+  list = uniq.filter((x) => !beaten(x)).sort((x, y) => x.n - y.n || execCost(x.full) - execCost(y.full) || FROM_ORDER[x.from] - FROM_ORDER[y.from]);
   POS.set(key, list);
   return list;
 }

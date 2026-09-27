@@ -10,7 +10,7 @@ import { moveCount, tokens } from '../src/cube/alg';
 import { state } from '../src/cube/state';
 import { DATA } from '../src/f2l/data';
 import type { SlotName } from '../src/f2l/data';
-import { algTools, fullAlg, invert, overlaps, SLOTS, slotSolved } from '../src/f2l/model';
+import { algTools, execCost, fullAlg, invert, overlaps, SLOTS, slotSolved } from '../src/f2l/model';
 import { ownSideAlg } from '../src/f2l/ownside';
 import { occupiedSlots, placedIn, RLU, RLUD, shortestAlgs } from '../src/f2l/search';
 
@@ -46,7 +46,8 @@ for (const slot of SLOTS) {
           // every shortest one (up to 200), one kept per mix of move kinds
           const byTools = new Map<string, string>();
           const algs = shortestAlgs(pair, keep, { moves: SETS[k], maxDepth: cap - 1, limit: 200, accept: oneAtATime ? (a) => !overlaps(tokens(a)) : undefined });
-          for (const alg of algs) { const t = algTools(alg).join(); if (!byTools.has(t)) byTools.set(t, alg); }
+          // the cheapest to do of each mix (a D where a D2 would do, execCost)
+          for (const alg of algs) { const t = algTools(alg).join(), was = byTools.get(t); if (was === undefined || execCost(alg) < execCost(was)) byTools.set(t, alg); }
           for (const alg of byTools.values()) {
             const end = state(`${picture} ${alg}`);
             found.push({ alg, n: moveCount(alg), tools: algTools(alg), broken: open.filter((s) => !slotSolved(end, s)), open, set: k });
