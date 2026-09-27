@@ -145,7 +145,7 @@ export function targetState(targets: readonly Target[], rnd: () => number = Math
 }
 
 /** A scramble (trainer frame) for `facelets`: a short solution of it, backwards. */
-export function scrambleTo(facelets: string, rnd: () => number = Math.random): string {
+function scrambleTo(facelets: string, rnd: () => number = Math.random): string {
   return inverse(solveAny(facelets, rnd));
 }
 

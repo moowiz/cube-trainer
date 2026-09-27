@@ -57,8 +57,6 @@ export function drawTarget(targets: readonly Target[], last: Target | null, rnd:
 
 // ---- the practice so far: attempts are filed by the slot's case id; the table merges the four mirrors ----
 
-/** A case's name everywhere a number is shown: its front-right twin's number. */
-export const caseLabel = (slot: SlotName, n: number): string => String(twinOf(slot, n));
 /** The practice table's rows: the 83 front-right cases, each standing for its mirrors on the other slots. */
 export function practiceCases(): { id: string; name: string; group: string }[] {
   return Object.values(DATA.slots.FR.cases).sort((a, b) => a.n - b.n).map((c) => ({ id: caseId('FR', c.n), name: String(c.n), group: GROUP_WORD[caseGroup('FR', c)] }));

@@ -131,7 +131,7 @@ export function shortestAlgs(pair: Placed, keep: readonly SlotName[], opts: { mo
 }
 
 /** The shortest alg in the form the sheet writes them: leading U turns as the AUF in brackets ('(U) R U R''). */
-export function asSheetAlg(alg: string): string {
+function asSheetAlg(alg: string): string {
   const toks = alg.split(' ').filter(Boolean);
   return toks[0]?.[0] === 'U' ? `(${toks[0]}) ${toks.slice(1).join(' ')}` : toks.join(' ');
 }

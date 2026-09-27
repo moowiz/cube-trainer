@@ -17,7 +17,7 @@ export const TECH_WORD: Record<Technique, string> = {
 };
 /** How the voice says it (the synthesiser reads "F2" as "F2" the model number). */
 const TECH_SAID: Partial<Record<Technique, string>> = { f2: 'F two', d2conj: 'D two conjugate', dconj: 'D conjugate', fconj: 'F conjugate' };
-export const techSaid = (t: Technique): string => TECH_SAID[t] ?? TECH_WORD[t];
+const techSaid = (t: Technique): string => TECH_SAID[t] ?? TECH_WORD[t];
 /** For the settings note: what each technique means, in the order they are listed. */
 export const TECH_NOTE: [Technique, string][] = [
   ['keyhole', 'D turns, through an open slot next to it'],

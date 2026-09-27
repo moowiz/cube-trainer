@@ -14,7 +14,7 @@ import { callText, heardF2L, judge, openCalls, TECH_NOTE, TECH_WORD, type PairCa
 import { SLOT_WORD, type SlotName } from './model';
 import { pickedTwins } from './pool';
 
-export type CallMode = 'off' | 'picked' | 'all';
+type CallMode = 'off' | 'picked' | 'all';
 interface VoiceSettings { ask: boolean; call: CallMode }
 const { settings, save } = persisted<VoiceSettings>('zzf2l-voice', { ask: false, call: 'off' }, (s) => {
   s.ask = !!s.ask;
@@ -112,7 +112,6 @@ export function mountF2LVoice(host: F2LVoiceHost): F2LVoice {
 
 const listeners = new Set<() => void>();
 export const onVoiceSettings = (l: () => void): void => { listeners.add(l); };
-export const voiceSettings = (): Readonly<VoiceSettings> => settings;
 /** Wire the F2L settings' voice rows ([data-f2lvoice="ask" | "call"]) and fill the note of words. */
 export function wireF2LVoiceRows(): void {
   const rows = [...document.querySelectorAll<HTMLElement>('[data-f2lvoice]')];

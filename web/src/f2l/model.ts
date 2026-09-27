@@ -697,9 +697,6 @@ export function listFor(slot: SlotName, c: F2LCase, auf: string, solved: Readonl
 /** The own-side alg from the position (ownside.ts): R/U or L/U only, never lifting the neighbouring pair; as done, AUF included. */
 export const searchedOwnSide = (slot: SlotName, c: F2LCase, auf = ''): string | null => SEARCHED[`${searchKey(slot, c, auf)}|own`] ?? null;
 
-/** True for an alg of a case that the sheet does not list: found by search, offline or here. */
-export const notInSheet = (c: F2LCase, a: string): boolean =>
-  !c.algs.includes(a) && !c.others.some((o) => o.alg === a) && !(a === c.simple && c.simple_src === 'sheet');
 /** Every alg a case has (its solutions from the sheet's picture, whatever the filter), and its sheet R/L/U one. */
 export function allAlgs(slot: SlotName, c: F2LCase): string[] {
   return [...new Set([...positionAlgs(slot, c, '').map((x) => x.alg), c.simple])];
