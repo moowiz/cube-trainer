@@ -29,7 +29,7 @@
   /* ---- the top bar: the mode, the places (desktop), the cube, the gear ---- */
   .topbar { position: sticky; top: 0; z-index: 50; height: var(--top-h); display: flex; align-items: center; gap: 8px; padding: 0 14px; background: var(--bg); border-bottom: 1px solid var(--line); }
   .mode-chip { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 58vw; border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 6px 12px 6px 14px; font: inherit; font-size: 16px; color: var(--ink); cursor: pointer; white-space: nowrap; }
-  .mode-chip b { font-weight: 600; }
+  .mode-chip b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .mode-chip small { color: var(--ink-2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .mode-chip i { font-style: normal; color: var(--ink-2); font-size: 12px; }
   .brand { display: none; font-weight: 700; font-size: 15px; margin-right: 6px; }
@@ -54,7 +54,8 @@
   @keyframes sync-spin { to { transform: rotate(360deg); } }
   @media (min-width: 900px) {
     .brand, .mtabs, .dests, .dsep { display: flex; }
-    .mode-chip { max-width: 280px; }
+    /* one width whatever the mode says, so the tabs after it stay put (user, 2026-09-26: they moved on a switch) */
+    .mode-chip { width: 280px; max-width: none; flex: none; } .mode-chip i { margin-left: auto; }
     .ico .txt { display: inline; }
   }
 
