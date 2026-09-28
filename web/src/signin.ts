@@ -5,16 +5,15 @@
 // (the service worker skips it), signs in here, and returns to the app,
 // which reads the signed-in user from the shared IndexedDB persistence.
 
+import { sameOriginPath } from './returnpath';
+
 const params = new URLSearchParams(location.search);
 const status = document.getElementById('status')!;
 const btn = document.getElementById('go') as HTMLButtonElement;
 const backLink = document.getElementById('back') as HTMLAnchorElement;
 
 /** Where to return: a same-origin path only, else the app's root. */
-function back(): string {
-  const r = params.get('return');
-  return r && r.startsWith('/') && !r.startsWith('//') ? r : import.meta.env.BASE_URL;
-}
+const back = (): string => sameOriginPath(params.get('return'), location.origin, import.meta.env.BASE_URL);
 backLink.href = back();
 
 const done = (who: string) => { status.textContent = `Signed in as ${who}. Back to the trainer…`; location.replace(back()); };

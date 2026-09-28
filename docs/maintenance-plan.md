@@ -19,6 +19,26 @@ Baseline before the audit: 374 commits, 51 test files / 1000 tests green in
 19.6 s, typecheck and lint clean, deploy green. `web/src` is ~21.7k lines in
 ~120 files; `web/test` ~7k lines.
 
+## Status 2026-09-27: 8.1 item 1, the sign-in redirect
+
+Gates green before and after on a `main` that gained ~90 commits since
+the 25th (the UI redesign, the coach, F2L search, FTO). Drift: 77 files /
+1172 tests in ~11 s, `moves-replay` 10.2 s still the critical path, then
+`ll.test.ts` 8.6 s; `main` 626 kB against a 640 kB ceiling (14 kB of
+room: 8.2 item 16's lazy loads are getting urgent); jscpd under 1% with
+9 clones; `console.*` outside `debug/` 14, all traces the headless checks
+parse or warnings; one TODO; pack 232 MB; files over 1000 lines:
+`ui/scanner.ts` 1366, `f2l/trainer.ts` 1174 (new), `ll/trainer.ts` 1112,
+`f2l/searched.ts` 1067 (generated, fine). `npm outdated`: only the majors
+(typescript 7, `@types/node` 26). Worktrees: `ui-redesign` and
+`/tmp/claude-1000/wt` are prunable, `ui-redesign` is merged (delete it).
+
+**8.1 item 1:** the return check moved to `src/returnpath.ts`
+(`sameOriginPath`: resolve against the origin, keep it only if the origin
+matches), with `test/returnpath.test.ts` for `/x`, `//x`, `/\x`,
+`https://x` and `javascript:`. Next: 8.1 item 2 (`esc()` in the Solve
+tab's session and scramble markup).
+
 ## Status 2026-09-23: the gates are in CI, and a `/maintain` skill
 
 `npm run maintain` (= `check:dead` knip, `check:dup` jscpd over 1% of
