@@ -16,7 +16,7 @@ import { state } from '../cube/state';
 import { activeTab, sheetOpen, stages, trainerHold, type RailClock } from '../shell';
 import { newId, type AttemptRecord, type AttemptStage } from '../store/types';
 import { moveWhat, openFingertricks } from './fingertricks';
-import { ensureStyle, scoped } from './dom';
+import { ensureStyle, scoped, zoomAt } from './dom';
 
 // where finished attempts go (the solve store); nothing is kept when no sink is set (tests)
 let attemptSink: ((a: AttemptRecord) => void) | null = null;
@@ -336,9 +336,10 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
     render3d(s1 as SVGSVGElement, cellsOf(before), DEFAULT_VIEW); render3d(s2 as SVGSVGElement, cellsOf(after), DEFAULT_VIEW);
     peek.querySelector('b')!.textContent = move; peek.querySelector('.cap span')!.textContent = moveWhat(move);
     document.body.appendChild(peek);
-    const r = mv.getBoundingClientRect(), w = peek.offsetWidth, hgt = peek.offsetHeight;
-    const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
-    const y = r.bottom + 8 + hgt > window.innerHeight ? r.top - hgt - 8 : r.bottom + 8;
+    // the rect and the window are in screen px, the peek's offsets and style in the page's (zoomAt)
+    const z = zoomAt(peek), r = mv.getBoundingClientRect(), w = peek.offsetWidth, hgt = peek.offsetHeight;
+    const x = Math.max(8, Math.min(window.innerWidth / z - w - 8, (r.left + r.width / 2) / z - w / 2));
+    const y = r.bottom / z + 8 + hgt > window.innerHeight / z ? r.top / z - hgt - 8 : r.bottom / z + 8;
     peek.style.left = `${x}px`; peek.style.top = `${Math.max(8, y)}px`;
   }
   $('result').addEventListener('mouseover', (e) => { const mv = (e.target as HTMLElement).closest<HTMLElement>('.mv'); if (mv) showPeek(mv); });

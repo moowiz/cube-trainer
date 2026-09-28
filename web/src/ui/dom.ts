@@ -27,3 +27,14 @@ export function ensureStyle(id: string, css: string): void {
   s.textContent = css;
   document.head.appendChild(s);
 }
+
+/**
+ * The page's zoom at `el` (index.html zooms <html> on wide screens). Pointer coordinates, getBoundingClientRect
+ * and window.innerWidth are in screen px; offsetWidth and style.left are in the element's own px, smaller by
+ * this factor. A tooltip placed from a pointer position must divide by it, or it lands to the right of the
+ * pointer by 20-40% of the way across on a wide monitor.
+ */
+export function zoomAt(el: HTMLElement): number {
+  const w = el.offsetWidth;
+  return w ? el.getBoundingClientRect().width / w : 1;
+}

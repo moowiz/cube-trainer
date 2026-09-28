@@ -7,7 +7,7 @@
 // view. No chart library: the page has no framework either.
 
 import { averageOf, formatTime, type Time } from './stats';
-import { ensureStyle, esc } from '../ui/dom';
+import { ensureStyle, esc, zoomAt } from '../ui/dom';
 import { readStoredJson, writeStored } from '../ui/settings';
 
 export interface Window { key: string; n: number; colour: string }
@@ -301,12 +301,13 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     tip.hidden = false;
     // beside the pointer, on the left when it would run off the right edge; on a phone the finger
     // is on the crosshair, so the tip sits at the top of the plot on the other side instead
-    const wrap = plot.getBoundingClientRect();
-    const left = ev.clientX - wrap.left, top = ev.clientY - wrap.top;
-    const narrow = wrap.width < 520;
-    const flip = narrow ? left > wrap.width / 2 : left + 12 + tip.offsetWidth > wrap.width;
-    tip.style.left = `${flip ? Math.max(0, left - tip.offsetWidth - 12) : Math.min(left + 12, wrap.width - tip.offsetWidth)}px`;
-    tip.style.top = `${narrow ? 0 : Math.max(0, Math.min(wrap.height - tip.offsetHeight, top - 20))}px`;
+    // in the plot's own px: the pointer and the rect are in screen px, the tip's offsets and style are not (zoomAt)
+    const z = zoomAt(plot), wrap = plot.getBoundingClientRect();
+    const left = (ev.clientX - wrap.left) / z, top = (ev.clientY - wrap.top) / z, w = wrap.width / z, h = wrap.height / z;
+    const narrow = w < 520;
+    const flip = narrow ? left > w / 2 : left + 12 + tip.offsetWidth > w;
+    tip.style.left = `${flip ? Math.max(0, left - tip.offsetWidth - 12) : Math.min(left + 12, w - tip.offsetWidth)}px`;
+    tip.style.top = `${narrow ? 0 : Math.max(0, Math.min(h - tip.offsetHeight, top - 20))}px`;
   }
   plot.addEventListener('pointermove', show);
   plot.addEventListener('pointerdown', show);

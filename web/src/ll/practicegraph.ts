@@ -9,7 +9,7 @@
 import type { AttemptRecord } from '../store/types';
 import { averageOf } from '../timer/stats';
 import { secondsLabel, secondsStep } from '../timer/graph';
-import { ensureStyle, esc } from '../ui/dom';
+import { ensureStyle, esc, zoomAt } from '../ui/dom';
 import { readStoredJson, writeStored } from '../ui/settings';
 import type { LLCase } from './cases';
 
@@ -213,12 +213,13 @@ export function mountCaseGraph(root: HTMLElement, shownKey: string): { draw(d: C
     const n = Math.min(AVG_N, k + MIN_N - 1);
     tip.innerHTML = `<div><b>${esc(best.line.name)}</b> · ${esc(data.dayOf(p.when))}</div><div>ao${n} <b>${(p.v! / 1000).toFixed(2)}</b> · this try ${(p.t / 1000).toFixed(2)}</div>`;
     tip.hidden = false;
-    const wrap = plot.getBoundingClientRect();
-    const left = ev.clientX - wrap.left, top = ev.clientY - wrap.top;
-    const narrow = wrap.width < 520;
-    const flip = narrow ? left > wrap.width / 2 : left + 12 + tip.offsetWidth > wrap.width;
-    tip.style.left = `${flip ? Math.max(0, left - tip.offsetWidth - 12) : Math.min(left + 12, wrap.width - tip.offsetWidth)}px`;
-    tip.style.top = `${narrow ? 0 : Math.max(0, Math.min(wrap.height - tip.offsetHeight, top - 20))}px`;
+    // in the plot's own px: the pointer and the rect are in screen px, the tip's offsets and style are not (zoomAt)
+    const z = zoomAt(plot), wrap = plot.getBoundingClientRect();
+    const left = (ev.clientX - wrap.left) / z, top = (ev.clientY - wrap.top) / z, w = wrap.width / z, h = wrap.height / z;
+    const narrow = w < 520;
+    const flip = narrow ? left > w / 2 : left + 12 + tip.offsetWidth > w;
+    tip.style.left = `${flip ? Math.max(0, left - tip.offsetWidth - 12) : Math.min(left + 12, w - tip.offsetWidth)}px`;
+    tip.style.top = `${narrow ? 0 : Math.max(0, Math.min(h - tip.offsetHeight, top - 20))}px`;
   }
   plot.addEventListener('pointermove', show);
   plot.addEventListener('pointerdown', show);
