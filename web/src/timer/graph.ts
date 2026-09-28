@@ -210,7 +210,7 @@ const STYLE = `
   .gr-table table { border-collapse: collapse; width: 100%; margin-top: 6px; font-variant-numeric: tabular-nums; }
   .gr-table th, .gr-table td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--line); }
   .gr-table th { color: var(--ink-2); font-weight: 500; font-size: 12px; }
-  .gr-table td:nth-child(2), .gr-table th:nth-child(2) { text-align: left; }
+  .gr-table td:nth-child(2), .gr-table th:nth-child(2), .gr-table td.s, .gr-table th.s { text-align: left; }
   .gr-table .note { color: var(--ink-2); font-size: 12px; padding: 4px 0; }
   .gr-table .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 6px 0; }
 `;
@@ -224,6 +224,8 @@ export interface GraphData {
   dated?: boolean;
   /** "19 Sep" for a wall clock */
   dayOf(when: number): string;
+  /** the session each solve is in, same order (the all-time view: the table names it, so a time can be found) */
+  sessions?: string[];
 }
 
 const SHOWN_KEY = 'zz-graph-shown';
@@ -273,10 +275,10 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     const to = n - page * TABLE_ROWS, from = Math.max(0, to - TABLE_ROWS);
     const cells: string[] = [];
     for (let i = to - 1; i >= from; i--) {
-      cells.push(`<tr><td>${i + 1}</td><td>${esc(data.dayOf(data.whens[i]!))}</td><td>${formatTime(data.times[i])}</td>${WINDOWS.map((w) => `<td>${formatTime(g!.series[w.key]![i])}</td>`).join('')}</tr>`);
+      cells.push(`<tr><td>${i + 1}</td><td>${esc(data.dayOf(data.whens[i]!))}</td>${data.sessions ? `<td class="s">${esc(data.sessions[i] ?? '')}</td>` : ''}<td>${formatTime(data.times[i])}</td>${WINDOWS.map((w) => `<td>${formatTime(g!.series[w.key]![i])}</td>`).join('')}</tr>`);
     }
     const pager = pages > 1 ? `<div class="pager"><button type="button" class="btn" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Newer</button><span class="note">${from + 1}–${to} of ${n}</span><button type="button" class="btn" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Older</button></div>` : '';
-    rows.innerHTML = `${pager}<table><thead><tr><th>#</th><th>when</th><th>time</th>${WINDOWS.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>${pager}`;
+    rows.innerHTML = `${pager}<table><thead><tr><th>#</th><th>when</th>${data.sessions ? '<th class="s">session</th>' : ''}<th>time</th>${WINDOWS.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>${pager}`;
   }
   table.addEventListener('toggle', () => { if (table.open) drawTable(); });
   rows.addEventListener('click', (e) => {

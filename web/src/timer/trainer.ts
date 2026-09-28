@@ -457,7 +457,8 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
     if (statsScope === 'all') rows = (await (await deps.store).allSolves()).filter((v) => !v.deleted).sort((a, b) => a.when - b.when);
     const n = statsPanel.querySelector<HTMLElement>('#st-n')!;
     n.textContent = rows.length ? `${rows.length} solves${statsScope === 'session' && session ? ` in ${session.name}` : ''}` : '';
-    drawGraph({ times: rows.map(effectiveTime), whens: rows.map((v) => v.when), dated: statsScope === 'all', dayOf: (w) => dayOf(w) });
+    const names = new Map(sessions.map((s) => [s.id, s.name]));
+    drawGraph({ times: rows.map(effectiveTime), whens: rows.map((v) => v.when), dated: statsScope === 'all', dayOf: (w) => dayOf(w), ...(statsScope === 'all' ? { sessions: rows.map((v) => names.get(v.session) ?? '?') } : {}) });
   }
   $('graph').onclick = () => { openSheet('stats-sheet'); void renderStats(); };
 
