@@ -28,6 +28,7 @@
     "check:end": "node scripts/check-end.mjs",
     "check:eonext": "node scripts/check-eonext.mjs",
     "check:picker": "node scripts/check-picker.mjs",
+    "check:drillhist": "node scripts/check-drillhist.mjs",
     "check:rig": "node scripts/check-record.mjs --rig",
     "check:dead": "knip",
     "check:dup": "jscpd src",

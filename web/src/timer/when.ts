@@ -7,7 +7,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const two = (n: number): string => String(n).padStart(2, '0');
 
 /** "14:32" */
-function clockOf(when: number): string {
+export function clockOf(when: number): string {
   const d = new Date(when);
   return `${two(d.getHours())}:${two(d.getMinutes())}`;
 }

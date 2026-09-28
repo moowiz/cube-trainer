@@ -480,7 +480,7 @@ export function mountTimer(root: HTMLElement, deps: TimerDeps): Stage {
   });
   hist('hist-export')?.addEventListener('click', async () => {
     const st = await deps.store;
-    downloadText(`cube-coach-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 1, sessions: await st.allSessions(), solves: await st.allSolves() }));
+    downloadText(`cube-coach-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 1, sessions: await st.allSessions(), solves: await st.allSolves(), attempts: await st.allAttempts() }));
   });
   hist('hist-export-cs')?.addEventListener('click', async () => {
     const st = await deps.store;

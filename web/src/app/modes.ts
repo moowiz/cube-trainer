@@ -22,6 +22,7 @@ import { mountRail, type CubeView, type Rail } from '../ui/rail';
 import { readStored, readStoredJson, writeStored } from '../ui/settings';
 import { setFollowRules } from './cubefollow';
 import { mountTrend } from '../analysis/trendui';
+import { mountDrillHistory } from './drillhist';
 import { mountCoach, type CoachAction } from '../analysis/coachui';
 import { setPicks } from '../f2l/pool';
 import { hold, store } from './context';
@@ -287,7 +288,7 @@ function casesBar(head: Element | null, on: string): void {
   }
   bar.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.cases === on));
 }
-type ProgSeg = 'solves' | 'll' | 'f2l' | 'phases';
+type ProgSeg = 'solves' | 'll' | 'f2l' | 'phases' | 'drills';
 function openProgress(seg?: ProgSeg): void {
   closeSheet('ref-sheet'); closeSheet('algs-sheet');
   const s = seg ?? (mode === 'll' ? 'll' : mode === 'f2l' ? 'f2l' : 'solves');
@@ -297,9 +298,12 @@ function openProgress(seg?: ProgSeg): void {
 }
 // Phases (analysis/trendui.ts): a phase's time over the days; mounted on first open, redrawn on every open
 let drawTrend: (() => Promise<void>) | null = null;
+// Drills (drillhist.ts): every drill attempt, with a delete
+let drawDrills: (() => Promise<void>) | null = null;
 function progressSeg(s: ProgSeg): void {
   document.querySelectorAll<HTMLElement>('#prog-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === s));
-  for (const k of ['solves', 'll', 'f2l', 'phases']) document.getElementById(`prog-${k}`)!.hidden = k !== s;
+  for (const k of ['solves', 'll', 'f2l', 'phases', 'drills']) document.getElementById(`prog-${k}`)!.hidden = k !== s;
+  if (s === 'drills') { drawDrills ??= mountDrillHistory(document.getElementById('prog-drills')!, { store }); void drawDrills(); }
   if (s === 'phases') { drawTrend ??= mountTrend(document.getElementById('prog-phases')!, { store }); void drawTrend(); }
   // a practice table draws when its fold opens
   const open = (id: string) => { const d = document.getElementById(id) as HTMLDetailsElement | null; if (d) { d.open = false; d.open = true; } };
