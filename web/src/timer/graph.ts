@@ -212,6 +212,7 @@ const STYLE = `
   .gr-table th { color: var(--ink-2); font-weight: 500; font-size: 12px; }
   .gr-table td:nth-child(2), .gr-table th:nth-child(2) { text-align: left; }
   .gr-table .note { color: var(--ink-2); font-size: 12px; padding: 4px 0; }
+  .gr-table .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 6px 0; }
 `;
 
 export interface GraphData {
@@ -229,7 +230,7 @@ const SHOWN_KEY = 'zz-graph-shown';
 const HEIGHT = 280;
 // DECISION: the table view lists the newest rows only past this many; ten thousand rows of seven
 // cells is more DOM than a phone should build for a fallback.
-const TABLE_ROWS = 300;
+const TABLE_ROWS = 100; // a page of the table
 
 /** Draw the graph, its legend and its table into `root`; returns the redraw for new data. */
 export function mountGraph(root: HTMLElement): (data: GraphData) => void {
@@ -263,16 +264,27 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
     plot.innerHTML = graphSvg(g);
     if (table.open) drawTable();
   }
+  // the table: every solve, newest first, a page at a time (page 0 is the newest TABLE_ROWS)
+  let page = 0;
   function drawTable(): void {
     if (!g) { rows.innerHTML = ''; return; }
-    const n = data.times.length, from = Math.max(0, n - TABLE_ROWS);
+    const n = data.times.length, pages = Math.max(1, Math.ceil(n / TABLE_ROWS));
+    page = Math.min(page, pages - 1);
+    const to = n - page * TABLE_ROWS, from = Math.max(0, to - TABLE_ROWS);
     const cells: string[] = [];
-    for (let i = n - 1; i >= from; i--) {
+    for (let i = to - 1; i >= from; i--) {
       cells.push(`<tr><td>${i + 1}</td><td>${esc(data.dayOf(data.whens[i]!))}</td><td>${formatTime(data.times[i])}</td>${WINDOWS.map((w) => `<td>${formatTime(g!.series[w.key]![i])}</td>`).join('')}</tr>`);
     }
-    rows.innerHTML = `${from ? `<div class="note">The last ${TABLE_ROWS} of ${n}.</div>` : ''}<table><thead><tr><th>#</th><th>when</th><th>time</th>${WINDOWS.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>`;
+    const pager = pages > 1 ? `<div class="pager"><button type="button" class="btn" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Newer</button><span class="note">${from + 1}–${to} of ${n}</span><button type="button" class="btn" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Older</button></div>` : '';
+    rows.innerHTML = `${pager}<table><thead><tr><th>#</th><th>when</th><th>time</th>${WINDOWS.map((w) => `<th>${w.key}</th>`).join('')}</tr></thead><tbody>${cells.join('')}</tbody></table>${pager}`;
   }
   table.addEventListener('toggle', () => { if (table.open) drawTable(); });
+  rows.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-page]');
+    if (!b || b.disabled) return;
+    page = Number(b.dataset.page); drawTable();
+    table.scrollIntoView({ block: 'nearest' });
+  });
 
   // the hover layer: the nearest solve by x, a crosshair on it, the tooltip beside the pointer
   function hide(): void {
@@ -315,5 +327,5 @@ export function mountGraph(root: HTMLElement): (data: GraphData) => void {
 
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => { if (data.times.length) draw(); }).observe(plot);
   drawLegend();
-  return (d) => { data = d; draw(); };
+  return (d) => { data = d; page = 0; draw(); };
 }
