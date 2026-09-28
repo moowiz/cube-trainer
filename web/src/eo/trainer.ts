@@ -199,7 +199,8 @@ export function mountEO(root: HTMLElement): Stage {
       recorded = true;
       const opt = toCross() && xsol ? xsol.length : solution.length;
       results.push({ t: t ?? 0, n, opt });
-      drill.save({ scramble, moves: toks.join(' '), optimal: opt, assisted });
+      const eoSplit = source !== 'typed' && fedFirst !== null && fedEo !== null && toCross() ? Math.max(0, Math.round(fedEo - fedFirst)) : undefined;
+      drill.save({ scramble, moves: toks.join(' '), optimal: opt, assisted, eoSplit });
     }
     const optX = xsol ? `, optimal EOCross is ${xsol.length}` : '';
     if (rep.cross < 4) {
@@ -457,9 +458,20 @@ export function mountEO(root: HTMLElement): Stage {
   const watch = (facelets: string | null, colourOf: Record<FaceId, ColorName>) => {
     track = scramble ? watcher.status(scramble, facelets, colourOf, hold()) : null;
   };
+  // the EO phase's end on a cube-fed attempt, for the record (Progress's phase graph): the first turn and the turn
+  // that oriented the last edge, on the source's clock
+  let fedFirst: number | null = null, fedEo: number | null = null;
+  function feed(text: string, t: number, source?: 'cube' | 'camera'): boolean {
+    if (!text.trim()) { fedFirst = fedEo = null; }
+    else {
+      fedFirst ??= t;
+      if (fedEo === null) { try { if (stageOf(state(`${scramble} ${text}`)).eoBad === 0) fedEo = t; } catch { /* not a cube's moves */ } }
+    }
+    return drill.feed(text, t, source);
+  }
   const shift = (x: TrackStatus | null): TrackStatus | null => (x && prefix ? { ...x, applied: Math.max(0, x.applied - prefix), total: x.total - prefix } : x);
   return {
-    load, render, scramble: () => scramble, newScramble, feed: (text, t, source) => drill.feed(text, t, source), armed: (t) => drill.armed(t), watch,
+    load, render, scramble: () => scramble, newScramble, feed, armed: (t) => { fedFirst = fedEo = null; drill.armed(t); }, watch,
     rail: () => ({ toks: scramble ? toWca(shownScramble()).split(' ').filter(Boolean) : null, track: shift(track), clock: drill.clock() }),
     press: (down) => drill.press(down),
   };

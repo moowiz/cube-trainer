@@ -109,7 +109,7 @@ export interface Drill {
    * File the attempt just judged by attempt() with the store: the scramble it started from, the
    * moves, what the drill knew (the optimal count, the case) and whether a hint or solution was seen.
    */
-  save(extra: { scramble: string; moves: string; optimal?: number; caseId?: string; assisted: boolean; start?: AttemptRecord['start']; quiz?: AttemptRecord['quiz'] }): void;
+  save(extra: { scramble: string; moves: string; optimal?: number; caseId?: string; assisted: boolean; start?: AttemptRecord['start']; quiz?: AttemptRecord['quiz']; eoSplit?: number }): void;
   /** put an alg in the moves box, copy it, say so */
   fill(alg: string, msg: string): void;
   /**
@@ -380,7 +380,7 @@ export function mountDrill(root: HTMLElement, spec: DrillSpec, h: DrillHandlers)
         id: newId(), puzzle: '333', stage: spec.stage, when: Date.now(), scramble: extra.scramble, moves: extra.moves,
         time: a.t === null ? null : Math.round(a.t * 1000), recognition: a.recognition, execution: a.execution,
         caseId: extra.caseId, optimal: extra.optimal, assisted: extra.assisted, source: a.source, editedAt: Date.now(),
-        ...(extra.start && { start: extra.start }), ...(extra.quiz && { quiz: extra.quiz }),
+        ...(extra.start && { start: extra.start }), ...(extra.quiz && { quiz: extra.quiz }), ...(extra.eoSplit !== undefined && { eoSplit: extra.eoSplit }),
       });
     },
     fill(alg, msg) {

@@ -21,6 +21,7 @@ import { eoToCross, PHASES, phaseRank, setStop, stopOf, type StopStart } from '.
 import { mountRail, type CubeView, type Rail } from '../ui/rail';
 import { readStored, readStoredJson, writeStored } from '../ui/settings';
 import { setFollowRules } from './cubefollow';
+import { mountTrend } from '../analysis/trendui';
 import { mountCoach, type CoachAction } from '../analysis/coachui';
 import { setPicks } from '../f2l/pool';
 import { hold, store } from './context';
@@ -286,16 +287,20 @@ function casesBar(head: Element | null, on: string): void {
   }
   bar.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.cases === on));
 }
-function openProgress(seg?: 'solves' | 'll' | 'f2l'): void {
+type ProgSeg = 'solves' | 'll' | 'f2l' | 'phases';
+function openProgress(seg?: ProgSeg): void {
   closeSheet('ref-sheet'); closeSheet('algs-sheet');
   const s = seg ?? (mode === 'll' ? 'll' : mode === 'f2l' ? 'f2l' : 'solves');
   // the Solve tab's Graph opens this sheet and draws the solves
   document.getElementById('tm-graph')?.click();
   progressSeg(s);
 }
-function progressSeg(s: 'solves' | 'll' | 'f2l'): void {
+// Phases (analysis/trendui.ts): a phase's time over the days; mounted on first open, redrawn on every open
+let drawTrend: (() => Promise<void>) | null = null;
+function progressSeg(s: ProgSeg): void {
   document.querySelectorAll<HTMLElement>('#prog-seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === s));
-  for (const k of ['solves', 'll', 'f2l']) document.getElementById(`prog-${k}`)!.hidden = k !== s;
+  for (const k of ['solves', 'll', 'f2l', 'phases']) document.getElementById(`prog-${k}`)!.hidden = k !== s;
+  if (s === 'phases') { drawTrend ??= mountTrend(document.getElementById('prog-phases')!, { store }); void drawTrend(); }
   // a practice table draws when its fold opens
   const open = (id: string) => { const d = document.getElementById(id) as HTMLDetailsElement | null; if (d) { d.open = false; d.open = true; } };
   if (s === 'll') { open('pll-practice'); open('ocll-practice'); }
@@ -441,7 +446,7 @@ export function initModes(): void {
   });
   document.getElementById('prog-seg')!.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-v]');
-    if (b) progressSeg(b.dataset.v as 'solves');
+    if (b) progressSeg(b.dataset.v as ProgSeg);
   });
   const obs = new MutationObserver(paintDests);
   document.getElementById('coach-close')!.onclick = () => closeSheet('coach-sheet');

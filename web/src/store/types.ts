@@ -87,6 +87,8 @@ export interface AttemptRecord {
   source: 'typed' | 'cube' | 'camera';
   /** the drill started a step early (the corners to orient, the last pair) and the case came up after it; or a rep of the alg on the cube in hand, no scramble */
   start?: 'ocll' | 'pair' | 'repeat';
+  /** EOCross fed by a cube: ms from the first turn to the edges oriented (the EO phase; the rest is the cross) */
+  eoSplit?: number;
   /** the recognition quiz: the case was named right, wrong, given up on, or answered by turning */
   quiz?: 'right' | 'wrong' | 'gaveUp' | 'cube';
   editedAt: number;

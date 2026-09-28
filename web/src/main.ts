@@ -70,5 +70,7 @@ setTimeout(() => mark('first idle tick after main.ts (the timeouts queued at mou
   favs: () => store.then((st) => st.listFavs()),
   notes: () => store.then((st) => st.listNotes()),
   putFav: (f: unknown) => store.then((st) => st.putFav(f as Parameters<typeof st.putFav>[0])),
+  putSolve: (x: unknown) => store.then((st) => st.putSolve(x as Parameters<typeof st.putSolve>[0])),
+  putAttempt: (x: unknown) => store.then((st) => st.putAttempt(x as Parameters<typeof st.putAttempt>[0])),
   dirty: () => store.then((st) => st.dirty()),
 };

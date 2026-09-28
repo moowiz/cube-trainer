@@ -141,7 +141,7 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      the ? help, the Cases and Progress places, the rail's host), stops (where each stretch stops - the picker's cells, the phases EO, Cross, F2L, OCLL, PLL; the EO page's attempt ends at its stop, there is no second setting for it)
     analysis/        the coach (M11): solve (a solve's phases, pairs and last-layer cases off its turns), coach
                      (medians, the cases worth the most, the advice with its reasons), cache, coachui (the Coach
-                     sheet, the report under a solve)
+                     sheet, the report under a solve), trend + trendui (Progress → Phases: a phase's time over the days)
     rig/             the recording rig's client: stream (ordered POSTs to the dev server's sink),
                      session (one folder per sitting: video chunks, cube events, solves, evidence)
     debug/           HSV/Lab views, frame dump, fps counter, selftest (the hook check-detect.mjs drives)
