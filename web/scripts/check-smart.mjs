@@ -39,12 +39,8 @@ page.on('pageerror', (e) => console.error('[pageerror]', e.message));
 if (process.env.DEBUG) page.on('console', (m) => console.log('[page]', m.text()));
 await page.goto(`${server.origin}/?tab=eo`, { waitUntil: 'networkidle0' });
 
-// the EO tab's goal: EOCross, so the drill is done only when the undo is complete (with the goal EO
+// the EO row stops at the cross (the default), so the drill is done only when the undo is complete (stopping at EO
 // alone it would check itself the moment EO is solved, part way through the undo - also right)
-// (the EO mode's own settings sheet since the redesign, docs/ui-redesign.md)
-await page.evaluate(() => window.ZZ.modes.openSetup());
-await page.click('#eo-settings [data-set="goal"] [data-v="cross"]');
-await page.click('#setup-close');
 
 // a scramble in the trainer's letters, and the same turns as the cube would report them
 const TRAINER_SCRAMBLE = "R U F' L2 B";

@@ -17,6 +17,7 @@ import { state } from '../cube/state';
 import { activeTab, carriedSolve, closeSheet, onTabChange, openAlgs, openSheet, ownerTab, sheetOpen, showTab, stages, toast, type Tab } from '../shell';
 import { stageOf } from '../stage';
 import type { SplitStage } from '../timer/splits';
+import { eoToCross, PHASES, phaseRank, setStop, stopOf, type StopStart } from './stops';
 import { mountRail, type CubeView, type Rail } from '../ui/rail';
 import { readStored, readStoredJson, writeStored } from '../ui/settings';
 import { setFollowRules } from './cubefollow';
@@ -45,48 +46,30 @@ interface ModeDef {
   view: CubeView;
 }
 
-const MODE_KEY = 'zz-mode', SET_KEY = 'zz-ll-set', F2L_KIND = 'zzf2l-kind', STOP_KEY = 'zz-stop';
+const MODE_KEY = 'zz-mode', SET_KEY = 'zz-ll-set', F2L_KIND = 'zzf2l-kind';
 const llSet = (): LLSet => (readStored(SET_KEY) === 'ocll' ? 'ocll' : 'pll');
 const llFrom = (): string => {
   const st = readStoredJson(`zz-${llSet()}-settings`) as { from?: string } | null;
   return st?.from ?? llSet();
 };
-const eoGoal = (): string => {
-  const g = (readStoredJson('zz-eo-settings') as { goal?: string } | null)?.goal;
-  return g === 'cross' ? 'EOCross' : g === 'two' ? 'EO + cross' : 'EO';
-};
+/** The EO row's name: EO alone, or EOCross (EO, then the cross) and on. */
+const eoName = (): string => (eoToCross() ? 'EOCross' : 'EO');
 const f2lKind = (): 'all' | 'picked' => (readStored(F2L_KIND) === 'picked' ? 'picked' : 'all');
 
-const ALL: readonly SplitStage[] = ['eo', 'f2l', 'ocll', 'pll'];
+const ALL = PHASES;
 const STAGE_NAME: Record<SplitStage, string> = { eo: 'EO', cross: 'Cross', f2l: 'F2L', ocll: 'OCLL', pll: 'PLL' };
-const rank = (s: SplitStage): number => ALL.indexOf(s);
-/** Where a stretch stops, per stage it starts at (the picker's cells): the stage after which the help stops following the cube. */
-type StopStart = 'eo' | 'f2l' | 'ocll';
-// DECISION: the stops start where the modes were before stretches (2026-09-26): EOCross and F2L alone, OCLL on into PLL
-const STOP_DEFAULT: Record<StopStart, SplitStage> = { eo: 'eo', f2l: 'f2l', ocll: 'pll' };
-function stopOf(start: StopStart): SplitStage {
-  const st = readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null;
-  const s = st?.[start];
-  return s && ALL.includes(s) && rank(s) >= rank(start) && !(start === 'eo' && s === 'pll') ? s : STOP_DEFAULT[start];
-}
-function setStop(start: StopStart, stop: SplitStage): void {
-  const st = (readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null) ?? {};
-  writeStored(STOP_KEY, JSON.stringify({ ...st, [start]: stop }));
-}
+const rank = phaseRank;
 /** The stages from `start` through `stop`. */
-const stretch = (start: SplitStage, stop: SplitStage): SplitStage[] => ALL.filter((s) => rank(s) >= rank(start) && rank(s) <= rank(stop));
-/** "F2L", or "F2L → OCLL", or "EOCross → solved". */
-const stretchName = (name: string, start: SplitStage, stop: SplitStage): string => (stop === start ? name : `${name} → ${stop === 'pll' ? 'solved' : STAGE_NAME[stop]}`);
-const onTo = (start: SplitStage, stop: SplitStage): string => (stop === start ? '' : `, then on to ${stop === 'pll' ? 'the end' : STAGE_NAME[stop]}`);
+const stretch = (start: SplitStage, stop: SplitStage): SplitStage[] => ALL.filter((s) => rank(s) >= rank(start) && rank(s) <= rank(stop) && (s !== 'cross' || start === 'eo'));
+/** "F2L", or "F2L → OCLL", or "EOCross → solved" (the EO row's own two phases are its name: EO, or EOCross). */
+const ownStop = (start: SplitStage, stop: SplitStage): boolean => stop === start || (start === 'eo' && stop === 'cross');
+const stretchName = (name: string, start: SplitStage, stop: SplitStage): string => (ownStop(start, stop) ? name : `${name} → ${stop === 'pll' ? 'solved' : STAGE_NAME[stop]}`);
+const onTo = (start: SplitStage, stop: SplitStage): string => (ownStop(start, stop) ? '' : `, then on to ${stop === 'pll' ? 'the end' : STAGE_NAME[stop]}`);
 
-/** A stretch with the EO stage as the strip times it: EO, then the cross (split since 2026-09-27). */
-const withCross = (r: SplitStage[]): SplitStage[] => r.flatMap((x) => (x === 'eo' ? (['eo', 'cross'] as SplitStage[]) : [x]));
-/** The EO mode's stretch: EO alone when the goal is EO and the stretch stops there, else EO and the cross on. */
-const eoRange = (): SplitStage[] => (eoGoal() === 'EO' && stopOf('eo') === 'eo' ? ['eo'] : withCross(stretch('eo', stopOf('eo'))));
 const MODES: readonly ModeDef[] = [
   // DECISION: the Solve mode shows the cube's net on a desktop (room for it beside the timer); on a phone it starts hidden, a tap away
-  { id: 'solve', name: () => 'Solve', what: () => 'timed, the stages as splits', range: () => withCross([...ALL]), focus: () => null, home: () => 'solve', view: 'net' },
-  { id: 'eo', name: () => stretchName(eoGoal(), 'eo', stopOf('eo')), what: () => `plan it, then do it${onTo('eo', stopOf('eo'))}`, range: () => eoRange(), focus: () => 'eo', home: () => 'eo', view: 'off' },
+  { id: 'solve', name: () => 'Solve', what: () => 'timed, the stages as splits', range: () => ALL, focus: () => null, home: () => 'solve', view: 'net' },
+  { id: 'eo', name: () => stretchName(eoName(), 'eo', stopOf('eo')), what: () => `plan it, then do it${onTo('eo', stopOf('eo'))}`, range: () => stretch('eo', stopOf('eo')), focus: () => 'eo', home: () => 'eo', view: 'off' },
   { id: 'f2l', name: () => stretchName('F2L', 'f2l', stopOf('f2l')), what: () => `the pairs, with their cases${onTo('f2l', stopOf('f2l'))}`, range: () => stretch('f2l', stopOf('f2l')), focus: () => 'f2l', home: () => 'f2l', view: 'off' },
   {
     id: 'll', name: () => (llSet() === 'pll' ? 'PLL' : stretchName('OCLL', 'ocll', stopOf('ocll'))), what: () => 'the cases you pick',
@@ -197,19 +180,18 @@ const ROW_WHAT: Record<RowId, () => string> = {
   pll: () => { const f = (readStoredJson('zz-pll-settings') as { from?: string } | null)?.from; return f === 'pair' ? 'recognised from the last pair' : f === 'ocll' ? 'recognised from OCLL' : 'a PLL case'; },
   find: () => 'no scramble: tap where the pieces are',
 };
-const ROW_NAME: Record<RowId, () => string> = { solve: () => 'Solve', eo: eoGoal, f2l: () => 'F2L', ocll: () => 'OCLL', pll: () => 'PLL', find: () => 'Find an F2L case' };
+const ROW_NAME: Record<RowId, () => string> = { solve: () => 'Solve', eo: eoName, f2l: () => 'F2L', ocll: () => 'OCLL', pll: () => 'PLL', find: () => 'Find an F2L case' };
 function renderPicker(): void {
   const cur = currentRow();
   const key = (r: RowId) => `<kbd>${ROWS.indexOf(r) + 1}</kbd>`;
   const whole = (r: RowId) => `<button type="button" class="mp-item${r === cur ? ' on' : ''}" data-row="${r}">${key(r)}<b>${ROW_NAME[r]()}</b><span class="w">${ROW_WHAT[r]()}</span></button>`;
   // the columns: EO and the cross apart (2026-09-27); on the EO row the Cross cell is the EO page's goal run on to the cross
-  const COLS: readonly SplitStage[] = ['eo', 'cross', 'f2l', 'ocll', 'pll'];
-  const col = (s: SplitStage) => COLS.indexOf(s);
+  const COLS = PHASES;
+  const col = phaseRank;
   const rows = (['eo', 'f2l', 'ocll', 'pll'] as const).map((r) => {
-    const stop0 = r === 'pll' ? 'pll' : stopOf(r);
-    const stop: SplitStage = r === 'eo' && stop0 === 'eo' && eoGoal() !== 'EO' ? 'cross' : stop0;
+    const stop: SplitStage = r === 'pll' ? 'pll' : stopOf(r);
     const cells = COLS.map((s) => {
-      if (col(s) < col(r)) return '<i class="mp-gap"></i>';
+      if (col(s) < col(r) || (s === 'cross' && r !== 'eo')) return '<i class="mp-gap"></i>';
       // (user, 2026-09-26) EOCross on to solved is a whole solve: the Solve row, whose coach helps from EOCross on
       if (r === 'eo' && s === 'pll') return '<span class="mp-cell same" title="From a scramble to solved is a whole solve: the Solve row, with the coach on for each stage\'s help">= Solve</span>';
       const title = r === 'eo' && s === 'eo' ? 'EO alone: timed until the edges are oriented'
@@ -226,13 +208,7 @@ function renderPicker(): void {
 /** A picker row (and a stop, from its cells): the mode it is, with its case. */
 function pickRow(r: RowId, stop?: SplitStage): void {
   if (r === 'ocll' || r === 'pll') writeStored(SET_KEY, r);
-  if (r === 'eo' && (stop === 'eo' || stop === 'cross')) {
-    // EO alone, or on to the cross: the EO page's "Timed until" (its own button, so the page hears it); EOCross in one
-    // go stays as it is when the cross is picked
-    setStop('eo', 'eo');
-    const g = stop === 'eo' ? 'eo' : eoGoal() === 'EOCross' ? 'cross' : 'two';
-    document.querySelector<HTMLElement>(`#eo-settings [data-set="goal"] [data-v="${g}"]`)?.click();
-  } else if (stop && (r === 'eo' || r === 'f2l' || r === 'ocll')) setStop(r, stop);
+  if (stop && (r === 'eo' || r === 'f2l' || r === 'ocll')) setStop(r, stop);
   selectMode(rowMode(r));
 }
 
@@ -410,7 +386,7 @@ export function initModes(): void {
   // F2L into the last layer was its own mode until the stretches (2026-09-26): F2L, stopping after PLL
   if (m === 'f2lll') { setStop('f2l', 'pll'); m = 'f2l'; }
   // and EOCross on to solved, for an evening: the Solve
-  if (m === 'eo' && (readStoredJson(STOP_KEY) as Partial<Record<StopStart, SplitStage>> | null)?.eo === 'pll') { setStop('eo', 'eo'); m = 'solve'; }
+  if (m === 'eo' && (readStoredJson('zz-stop') as Partial<Record<StopStart, SplitStage>> | null)?.eo === 'pll') { setStop('eo', 'eo'); m = 'solve'; }
   if (want && tabs.includes(want)) m = modeForTab(want as Tab);
   else if (!m || !MODES.some((d) => d.id === m)) m = modeForTab((readStored('zz-tab') as Tab | null) ?? 'solve');
   // the first case is the one the stage made at mount (or the page address asked for): kept

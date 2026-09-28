@@ -18,10 +18,8 @@ page.on('pageerror', (e) => { console.log('[pageerror]', e.message); failed++; }
 await page.setViewport({ width: 400, height: 900 });
 await page.goto(`${server.origin}/`, { waitUntil: 'networkidle0' });
 await page.evaluate(() => window.ZZ.modes.select('eo'));
-// the goal EOCross, as the user drills it
-await page.evaluate(() => window.ZZ.modes.openSetup());
-await page.click('#eo-settings [data-set="goal"] [data-v="cross"]');
-await page.click('#setup-close');
+// on to the cross, as the user drills it (the mode's stop; the default)
+await page.evaluate(() => window.ZZ.modes.pick('eo', 'cross'));
 await new Promise((r) => setTimeout(r, 500));
 const rail = () => page.evaluate(() => ({ scr: [...document.querySelectorAll('#rail-scr .mv')].map((e) => e.textContent.replace('′', "'")).join(' '), line: document.querySelector('#rail .rl-line')?.textContent ?? '', hint: document.getElementById('rail-hint').textContent, mine: !document.getElementById('rail-mine').hidden, title: document.getElementById('eo-rTitle')?.textContent ?? '' }));
 // a connection from solved, then the drill's scramble turned in
@@ -73,10 +71,6 @@ if (r.mine) {
   check(/first turn|inspecting/.test(r.hint), 'Use my cube: the hand scramble is the scramble, armed');
 }
 // EO, then the cross, as two phases (user, 2026-09-27): the strip times each, the result splits the moves
-await page.evaluate(() => window.ZZ.modes.openSetup());
-await page.click('#eo-settings [data-set="goal"] [data-v="two"]');
-await page.click('#setup-close');
-await new Promise((res) => setTimeout(res, 500));
 const inv = (a) => a.split(/\s+/).filter(Boolean).reverse().map((m) => (m.endsWith("'") ? m[0] : m.endsWith('2') ? m : m + "'")).join(' ');
 const G = "R U R' U2 L' U L", C = "R2 D L2", O = 'F B';
 // the same cube by another route (Kociemba's), so doing EO and the cross never retraces the scramble's own turns
@@ -102,7 +96,7 @@ check(/Cross=done:\d+\.\d/.test(await strip()), 'the cross gets its own split');
 await new Promise((res) => setTimeout(res, 1500));
 const two = await page.evaluate(() => ({ title: document.getElementById('eo-rTitle').textContent, sub: document.getElementById('eo-rSub').textContent, tab: window.ZZ.activeTab() }));
 console.log('after the cross:', await strip(), JSON.stringify(two));
-check(/^EO \+ cross done/.test(two.title) && /EO in \d+ \(optimal 2\), then the cross in \d+/.test(two.sub) && two.tab === 'eo', `the result splits the moves, on the EO page (${two.sub})`);
+check(/^EOCross done/.test(two.title) && /EO in \d+ \(optimal 2\), then the cross in \d+/.test(two.sub) && two.tab === 'eo', `the result splits the moves, on the EO page (${two.sub})`);
 await page.waitForFunction(() => /optimal from your EO \d/.test(document.getElementById('eo-rSub').textContent), { timeout: 20000 }).catch(() => undefined);
 check(/optimal from your EO 3/.test(await page.$eval('#eo-rSub', (e) => e.textContent)), `and the cross's optimum from your EO: ${await page.$eval('#eo-rSub', (e) => e.textContent)}`);
 

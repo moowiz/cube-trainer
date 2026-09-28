@@ -138,7 +138,7 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      Solve, a stretch of the solve (a stage to start at, one to stop after: EOCross on to
                      solved, F2L alone, ...; the cube solved brings the next), Find an F2L case; the mode chip
                      and the stretch picker, each mode's settings sheet (the stages' own rows moved into it),
-                     the ? help, the Cases and Progress places, the rail's host)
+                     the ? help, the Cases and Progress places, the rail's host), stops (where each stretch stops - the picker's cells, the phases EO, Cross, F2L, OCLL, PLL; the EO page's attempt ends at its stop, there is no second setting for it)
     analysis/        the coach (M11): solve (a solve's phases, pairs and last-layer cases off its turns), coach
                      (medians, the cases worth the most, the advice with its reasons), cache, coachui (the Coach
                      sheet, the report under a solve)

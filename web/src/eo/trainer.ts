@@ -20,31 +20,36 @@ import { EOCrossClient, STRATEGY_SHORT, caseStrategy, eoOutlook, type EoOutlook 
 import { EO_STRATEGY_SHORT, eoCaseStrategy } from './patterns';
 import { applyMoves, canonical, crossTail, fbPlan, solveEO, type Group, type SolutionSet } from './solver';
 import { persisted } from '../ui/settings';
+import { eoToCross, onStopChange } from '../app/stops';
 import { hold } from '../app/context';
 import { activeSource } from '../app/sources';
 import type { TrackStatus } from '../timer/track';
 import { makeTrackWatcher } from '../timer/track-ui';
 import type { ColorName, FaceId } from '../types';
 
-// goals: EO alone; EO, then the cross as its own phase (user, 2026-09-27: "EO, then getting the cross - two distinct
-// phases for now", the optimal EOCross in one being out of reach); or EOCross in one go
-interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; goal: 'eo' | 'two' | 'cross' }
+// where an attempt ends is the mode's stop (app/stops.ts: EO alone, or on to the cross); `combined` lists the optimal
+// EOCross in one go instead of EO, then the cross from there (user, 2026-09-27: "EO, then getting the cross - two
+// distinct phases for now", the combined optimum out of reach; a switch, off to begin with)
+interface Settings { count: 'on' | 'off'; mark: 'on' | 'off'; view: '3d' | 'net'; target: string; combined: 'on' | 'off' }
+type GoalKey = 'eo' | 'two' | 'cross';
 const SETTINGS_KEY = 'zz-eo-settings';
 const PER_GROUP = 6;
 
 const GOALS = {
   eo: { name: 'EO', solved: (st: EdgeState) => eoSolved(st) },
-  two: { name: 'EO + cross', solved: (st: EdgeState) => eoSolved(st) && crossSolved(st) },
+  two: { name: 'EOCross', solved: (st: EdgeState) => eoSolved(st) && crossSolved(st) },
   cross: { name: 'EOCross', solved: (st: EdgeState) => eoSolved(st) && crossSolved(st) },
 };
 
 export function mountEO(root: HTMLElement): Stage {
-  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { count: 'off', mark: 'off', view: '3d', target: 'any', goal: 'eo' });
-  const goal = () => GOALS[settings.goal] ?? GOALS.eo;
+  const { settings, save: saveSettings } = persisted<Settings>(SETTINGS_KEY, { count: 'off', mark: 'off', view: '3d', target: 'any', combined: 'off' });
+  /** EO alone (the mode stops at EO), EO then the cross, or the cross with the combined solutions. */
+  const goalKey = (): GoalKey => (!eoToCross() ? 'eo' : settings.combined === 'on' ? 'cross' : 'two');
+  const goal = () => GOALS[goalKey()];
   /** The attempt runs on to the cross (EO + cross, EOCross). */
-  const toCross = () => settings.goal !== 'eo';
+  const toCross = eoToCross;
   /** The goal the optimal solutions are for: EOCross in one, else EO (EO + cross: EO's, then the cross from there). */
-  const solGoal = () => (settings.goal === 'cross' ? GOALS.cross : GOALS.eo);
+  const solGoal = () => (goalKey() === 'cross' ? GOALS.cross : GOALS.eo);
 
   const drill: Drill = mountDrill(root, {
     id: 'eo', stage: 'eo', title: 'EO trainer', blurb: '', newLabel: 'New scramble',
@@ -97,8 +102,8 @@ export function mountEO(root: HTMLElement): Stage {
   const xc = new EOCrossClient();
   xc.onStatus = onXStatus;
 
-  const goalSol = () => (settings.goal === 'cross' ? xsol : solution);
-  const solLabel = () => `${drill.showOpen() ? 'Hide' : 'Show'} optimal ${settings.goal === 'two' ? 'EO, then cross,' : goal().name} solutions`;
+  const goalSol = () => (goalKey() === 'cross' ? xsol : solution);
+  const solLabel = () => `${drill.showOpen() ? 'Hide' : 'Show'} optimal ${goalKey() === 'two' ? 'EO, then cross,' : goal().name} solutions`;
 
   function requestCross(): void {
     const mine = facelets;
@@ -203,14 +208,14 @@ export function mountEO(root: HTMLElement): Stage {
       if (done) nextFromCube(source); // the goal is EO alone
       return;
     }
-    if (settings.goal === 'two') {
+    if (toCross()) {
       // the two phases: where the edges were first all oriented splits the moves
       let st = start, k = 0;
       const ms = faceMoves(toks.join(' ')) ?? [];
       while (k < ms.length && !eoSolved(st)) st = applyMoves(st, [ms[k++]!]);
       const kHtm = htm(toks.slice(0, k).join(' ')); // the cube's half turns come as two quarters: counted as one, as the optimum is
       const eoPart = `EO in ${kHtm} (optimal ${solution.length})`;
-      drill.result.show(`EO + cross done in ${n} moves${ts}`, `${eoPart}, then the cross in ${n - kHtm}.${assisted ? ' You peeked at a solution.' : ''}`);
+      drill.result.show(`EOCross done in ${n} moves${ts}`, `${eoPart}, then the cross in ${n - kHtm}.${assisted ? ' You peeked at a solution.' : ''}`);
       const at = scramble;
       void crossAfter(st).then((x) => {
         if (at !== scramble || !x) return;
@@ -263,7 +268,7 @@ export function mountEO(root: HTMLElement): Stage {
   }
 
   // ---- the solutions list ----
-  const groupOf = (moves: readonly Move[]): Group => (settings.goal === 'cross' ? crossTail(moves) : fbPlan(start, moves));
+  const groupOf = (moves: readonly Move[]): Group => (goalKey() === 'cross' ? crossTail(moves) : fbPlan(start, moves));
 
   function showSolutions(): void {
     const el = drill.result.body;
@@ -293,7 +298,7 @@ export function mountEO(root: HTMLElement): Stage {
     const total = gs.count, listed = gs.solutions.length, families = fam.size;
     drill.result.show(`Optimal ${solGoal().name}: ${gs.length} moves`,
       `${total} optimal solution${total === 1 ? '' : 's'}${gs.truncated ? ` (first ${listed} listed)` : ''}${families < listed ? `, ${families} line${families === 1 ? '' : 's'} once turns that work either way (*) and commuting pairs are merged` : ''}.${mineTxt ? ' Yours is marked.' : ''}`);
-    const order = [...groups.values()].sort((a, b) => (settings.goal === 'cross' ? a.group.order - b.group.order : b.lines.size - a.lines.size));
+    const order = [...groups.values()].sort((a, b) => (goalKey() === 'cross' ? a.group.order - b.group.order : b.lines.size - a.lines.size));
     for (const g of order) {
       const box = document.createElement('div'); box.className = 'grp';
       if (order.length > 1 || g.group.text) { const h = document.createElement('div'); h.className = 'grp-h'; h.textContent = `${g.group.text || 'no F/B turns'} · ${g.lines.size} line${g.lines.size === 1 ? '' : 's'}`; box.appendChild(h); }
@@ -312,7 +317,7 @@ export function mountEO(root: HTMLElement): Stage {
       el.appendChild(box);
     }
     const n = document.createElement('p'); n.style.cssText = 'margin:6px 0 0;font-size:13px;color:var(--ink-2)';
-    if (settings.goal === 'two') el.appendChild(thenCross(mine));
+    if (goalKey() === 'two') el.appendChild(thenCross(mine));
     n.textContent = `${starred ? 'A * means that turn works in either direction (in any combination). ' : ''}${bracketed ? 'Turns in (brackets) can be done in any order. ' : ''}Tap a line to put it in the moves box, ▶ to see it on the picture; hover a move to see what it does.`;
     el.appendChild(n);
   }
@@ -359,7 +364,7 @@ export function mountEO(root: HTMLElement): Stage {
   // ---- hints ----
   function hintText(kind: string): string {
     if (kind === 'bad') { const b = stageOf(facelets).eoBad; return `${b} bad edge${b === 1 ? '' : 's'}`; }
-    if (kind === 'len') return settings.goal === 'cross' ? `EO ${solution.length} · EOCross ${xsol ? xsol.length : '…'}` : settings.goal === 'two' ? `EO ${solution.length}, then the cross` : `${solution.length} moves`;
+    if (kind === 'len') return goalKey() === 'cross' ? `EO ${solution.length} · EOCross ${xsol ? xsol.length : '…'}` : goalKey() === 'two' ? `EO ${solution.length}, then the cross` : `${solution.length} moves`;
     assisted = true;
     const gs = goalSol();
     if (!gs) return xc.note();
@@ -379,7 +384,7 @@ export function mountEO(root: HTMLElement): Stage {
     if (!open) return;
     const note = drill.$('strat');
     if (open.dataset.strat === 'long') assisted = true;
-    if (settings.goal === 'cross') note.innerHTML = open.dataset.strat === 'short' ? STRATEGY_SHORT : xsol ? caseStrategy(start, solution, xsol, outlook) : `<p style="margin:0">${xc.note()}</p>`;
+    if (goalKey() === 'cross') note.innerHTML = open.dataset.strat === 'short' ? STRATEGY_SHORT : xsol ? caseStrategy(start, solution, xsol, outlook) : `<p style="margin:0">${xc.note()}</p>`;
     else note.innerHTML = open.dataset.strat === 'short' ? EO_STRATEGY_SHORT : eoCaseStrategy(start, solution);
     note.hidden = false;
   }
@@ -410,7 +415,7 @@ export function mountEO(root: HTMLElement): Stage {
     drill.$('scramble').innerHTML = 'Scramble: <span></span>';
     drill.$('scramble').querySelector('span')!.textContent = toWca(shownScramble());
     drill.$('orient').textContent = prefix ? `Made from your cube as it is: apply it to the cube in your hands, held ${WCA_HOLD}. Then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right): the picture shows what you should see.` : `Apply it to a solved cube held ${WCA_HOLD} (the standard scrambling orientation). Then turn it white down with ${faceColorName('F')} facing you (${faceColorName('R')} on the right), the way you hold it for F2L: the picture shows what you should see.`;
-    drill.$('sub').textContent = `Orient every edge to the ${faceColorName('F')}/${faceColorName('B')} axis${settings.goal === 'cross' ? ' and build the white cross' : settings.goal === 'two' ? ', then build the white cross' : ''}. White down, ${faceColorName('F')} facing you.`;
+    drill.$('sub').textContent = `Orient every edge to the ${faceColorName('F')}/${faceColorName('B')} axis${goalKey() === 'cross' ? ' and build the white cross' : goalKey() === 'two' ? ', then build the white cross' : ''}. White down, ${faceColorName('F')} facing you.`;
     for (const id of ['peekBack', 'resetView', 'hint']) drill.$(id).style.display = settings.view === '3d' ? '' : 'none';
     if (results.length) {
       const mt = results.reduce((a, r) => a + r.t, 0) / results.length, mn = results.reduce((a, r) => a + r.n, 0) / results.length, mo = results.reduce((a, r) => a + r.opt, 0) / results.length;
@@ -440,9 +445,10 @@ export function mountEO(root: HTMLElement): Stage {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button'); if (!b) return;
     (settings as unknown as Record<string, string>)[seg.dataset.set!] = b.dataset.v!;
     syncSeg(); saveSettings();
-    if (seg.dataset.set === 'target') newScramble(); else if (seg.dataset.set === 'goal') goalChanged(); else render();
+    if (seg.dataset.set === 'target') newScramble(); else if (seg.dataset.set === 'combined') goalChanged(); else render();
   }));
   syncSeg();
+  onStopChange(goalChanged); // the mode picker's stop: EO alone, or on to the cross
   newScramble();
   drill.setShowLabel(solLabel());
 
