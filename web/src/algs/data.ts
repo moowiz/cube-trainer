@@ -26,7 +26,7 @@ const SEARCH = 'https://github.com/moowiz/cube-trainer/blob/main/web/src/algs/da
 const roux: Puzzle = {
   id: '333', name: 'Roux', n: 3, viewer: '3x3x3',
   notation: 'Face turns as usual. <code>M</code> is the middle slice between the two blocks, turned the way <code>L</code> turns (so <code>M\'</code> brings the front edge up); <code>r</code> is the right face and that slice together (<code>Rw</code>), so <code>r U r\'</code> is <code>R U R\'</code> with the slice along. Held with the blocks on the left and right: the first block\'s centre is on the left, the top colour is whatever the corners show, since the middle slice is free until the end. Every alg here was run on the cube model and keeps both blocks.',
-  intro: '<b>Roux</b>: a 1x2x3 block on the left (a centre, the edge below it and the two corner-edge pairs either side), the same on the right, then <b>CMLL</b> (the four top corners in one alg, the edges ignored: 42 cases, the same seven orientations as the OCLL drill), then <b>LSE</b>, the last six edges with only <code>M</code> and <code>U</code>: orient them, put the left and right top edges in, and finish the middle slice. Nothing but CMLL is memorised; LSE\'s algs below are for reference and for the cases you get stuck on.',
+  intro: '<b>Roux</b>: a 1x2x3 block on the left (a centre, the edge below it and the two corner-edge pairs either side), the same on the right, then <b>CMLL</b> (the four top corners in one alg, the edges ignored: 42 cases, the same seven orientations as the OCLL drill), then <b>LSE</b>, the last six edges with only <code>M</code> and <code>U</code>: orient them, put the left and right top edges in, and finish the middle slice. Nothing but CMLL is memorised; LSE\'s algs below are for reference and for the cases you get stuck on. The CMLL tables are folded (a tap on a heading opens it) so the LSE cards are close to hand mid-solve.',
   sections: [
     {
       title: 'The method, step by step',
@@ -42,6 +42,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: all four up',
+      folded: true,
       blurb: 'All four corners have the top colour up: only their order is wrong. Two cases, and both are 3x3 PLLs in disguise (a T perm and a Y perm), because a corner swap that keeps the blocks must move top edges too.',
       cases: [
         { name: 'O Adjacent', alg: "R U R' F' R U R' U' R' F R2 U' R'", alt: ["R U R' U' R' F R2 U' R' U' R U R' F' U"], note: 'Same colour: front-left and right-back; front-right and back-right; right-front and back-left; left-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -50,6 +51,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: H',
+      folded: true,
       blurb: 'No corner has the top colour up, and the four top-colour stickers make two pairs, one on the front and one on the back.',
       cases: [
         { name: 'H Columns', alg: "U R U R' U R U' R' U R U2 R'", alt: ["R U2 R' U' R U R' U' R U' R' U"], note: 'Top colour at front-left, front-right, back-right and back-left. Same colour: right-front and left-front; right-back and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -60,6 +62,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: Pi',
+      folded: true,
       blurb: 'No corner up; two top-colour stickers make a pair on the left, the other two sit at front-right and back-left.',
       cases: [
         { name: 'Pi Right Bar', alg: "F R U R' U' R U R' U' F'", alt: ["r' U r2 U' r2 U' r2 U r' U2"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: front-left and back-left. Opposite colours: right-front and right-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -72,6 +75,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: U',
+      folded: true,
       blurb: 'The two front corners are up; the two back corners show their top colour on the back.',
       cases: [
         { name: 'U Up Slash', alg: "U2 R2 D R' U2 R D' R' U2 R'", alt: ["U2 R r D r' U2 r D' r' U2 R'"], note: 'Top colour at back-right and back-left. Same colour: front-right and right-back; right-front and left-back. Opposite colours: front-left and right-front; front-left and left-back; front-right and left-front; right-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -84,6 +88,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: T',
+      folded: true,
       blurb: 'The two front corners are up; the back-right corner shows its top colour on the right and the back-left one on the left.',
       cases: [
         { name: 'T Left Bar', alg: "U' R U R' U' R' F R F'", alt: ["U' r U R' U' r' F R F'"], note: 'Top colour at right-back and left-back. Same colour: front-right and back-left; right-front and back-right. Opposite colours: front-left and right-front; front-left and back-right; front-right and left-front; back-left and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -96,6 +101,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: Sune',
+      folded: true,
       blurb: 'One corner up, the front-right one; the other three show their top colour at right-back, back-left and left-front, each one place round from its corner.',
       cases: [
         { name: 'S Left Bar', alg: "U R U R' U R U2 R'", alt: ["R' U2 R U R' U R U"], note: 'Top colour at right-back, back-left and left-front. Same colour: right-front and back-right. Opposite colours: front-left and right-front; front-left and back-right; front-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -108,6 +114,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: Anti-Sune',
+      folded: true,
       blurb: 'One corner up, the front-left one; the other three show their top colour at right-front, back-right and left-back.',
       cases: [
         { name: 'AS Right Bar', alg: "U R' U' R U' R' U2 R", alt: ["U2 R U2 R' U' R U' R' U'"], note: 'Top colour at right-front, back-right and left-back. Same colour: back-left and left-front. Opposite colours: front-left and right-back; front-right and back-left; front-right and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
@@ -120,6 +127,7 @@ const roux: Puzzle = {
     },
     {
       title: 'CMLL: L',
+      folded: true,
       blurb: 'Two corners up on a diagonal, back-left and front-right; the other two show their top colour at back-right and left-front.',
       cases: [
         { name: 'L Best', alg: "U' F' r U r' U' r' F r", alt: ["U2 F R U' R' U' R U R' F' U2"], note: 'Top colour at back-right and left-front. Same colour: front-left and right-back; right-front and back-left. Opposite colours: front-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
