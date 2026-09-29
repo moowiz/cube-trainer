@@ -37,15 +37,16 @@ export const TECH_NOTE: [Technique, string][] = [
 export function techniques(s: Pick<Solution, 'tools' | 'needs' | 'n'> & { full?: string }): Technique[] {
   const out: Technique[] = [];
   const t = new Set(s.tools);
-  if (t.has('D')) {
+  if (t.has('D') || t.has('D2')) {
     if (s.needs.length) out.push('keyhole');
-    const shape = s.full ? dShape(s.full) : 'D';
+    // the kind names the shape (algTools reads dShape; the D2 kind holds the several-D shape too); `full` tells them apart
+    const shape = s.full ? dShape(s.full) : t.has('D2') ? 'D2' : 'D';
     if (shape === 'D2') out.push('d2conj'); else if (shape === 'DD') out.push('ddconj');
     out.push('dconj');
   }
   if (t.has('FB')) out.push('fconj');
-  if (t.has('F2')) out.push('f2');
-  if (t.has('wide')) out.push('wide');
+  if (t.has('F2') || t.has('F2x')) out.push('f2');
+  if (t.has('wide') || t.has('slice')) out.push('wide');
   if (t.has('LR')) out.push('sides');
   if (!out.length && s.needs.length) out.push('shortcut');
   if (!t.size && s.n <= 4) out.push('insert');

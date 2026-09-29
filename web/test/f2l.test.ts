@@ -246,35 +246,48 @@ describe('the favourite alg (the case sheet\'s star)', () => {
     expect(algTools("R L' U R' L")).toEqual(['LR']);
     expect(algTools("R U R'")).toEqual([]);
     expect(algTools("R U R' U' L' U L")).toEqual([]); // one side, then the other: not at once
-    expect(algTools("F2 U F2 U' F2")).toEqual(['F2']);
+    expect(algTools("F2 U F2 U' F2")).toEqual(['F2x']); // three half turns: more than one pair
+    expect(algTools("R U R2 F2 R F2")).toEqual(['F2']); // one F2 pair
+    expect(algTools("R U B2 R' B2 R2 F2 R F2")).toEqual(['F2x']); // a pair on each face
     expect(algTools("R' F R F'")).toEqual(['FB']);
-    expect(algTools("r U R' U' M")).toEqual(['wide']);
+    expect(algTools("r U R' U' M")).toEqual(['wide', 'slice']);
+    expect(algTools("R2 u R2 u' R2")).toEqual(['wide']);
+    expect(algTools("(U) L' U S' L2 S L2 U' L")).toEqual(['slice']);
+    // the D turns by their shape, as the explanations already tell them apart: one out and back, or a D2 / several
+    // (the sheet has no several-D alg without a D2, so those share the D2 kind)
+    expect(algTools("R' D' R U' R' D R")).toEqual(['D']);
+    expect(algTools("R' D2 R U' R' D2 R")).toEqual(['D2']);
+    expect(algTools("R' D' R U R' D R U' R' D' R U R' D R")).toEqual(['D2']);
     const c = DATA.slots.FR.cases['39']!;
-    expect(positionAlgs('FR', c, '').some((x) => x.tools.includes('F2'))).toBe(true);
-    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.includes('F2'))).toBe(false); // hidden to begin with
-    setHiddenTools(['D', 'LR']);
-    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.includes('F2'))).toBe(true);
-    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.some((t) => t === 'D' || t === 'LR'))).toBe(false);
-    setHiddenTools(['F2']);
+    const anyF2 = (x: { tools: string[] }) => x.tools.includes('F2') || x.tools.includes('F2x');
+    expect(positionAlgs('FR', c, '').some(anyF2)).toBe(true);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some(anyF2)).toBe(false); // hidden to begin with (both F2 kinds)
+    setHiddenTools(['D', 'D2', 'LR']);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some(anyF2)).toBe(true);
+    expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.some((t) => t === 'D' || t === 'D2' || t === 'LR'))).toBe(false);
+    setHiddenTools(['F2', 'F2x']);
   });
 });
 
 describe('what the move filter does (the chips say it)', () => {
   it('hiddenBy names the hidden kinds of move in a solution; toolCounts counts the algs and cases a chip alone decides', async () => {
     const { algTools, hiddenBy, positionAlgs, setHiddenTools, toolCounts, SLOTS } = await import('../src/f2l/model');
-    setHiddenTools(['F2', 'wide']);
+    setHiddenTools(['F2', 'F2x', 'wide']);
     expect(hiddenBy({ tools: algTools("R2 u R2 u' R2") })).toEqual(['wide']);
     expect(hiddenBy({ tools: algTools("R U R'") })).toEqual([]);
-    // the ten wide/slice/rotation algs on the sheet (2026-09-28), all from the sheet itself, in nine cases (front-left 13 has two): two on the front-right slot
+    // the ten wide/slice/rotation algs on the sheet (2026-09-28), all from the sheet itself: eight wide turns in
+    // seven cases (front-left 13 has two), three with a slice or rotation (one of them, back-left 27, wide too)
     const all = toolCounts(), fr = toolCounts(['FR']);
-    expect(all.wide).toEqual({ algs: 10, cases: 9 });
+    expect(all.wide).toEqual({ algs: 8, cases: 7 });
+    expect(all.slice).toEqual({ algs: 2, cases: 2 }); // back-left 27's l U2 R' U2 x is hidden by wide as well, so slice alone would not show it
     expect(fr.wide).toEqual({ algs: 2, cases: 2 });
     // an alg hidden by two chips counts for neither: turning one on alone would not show it
-    const both = SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).flatMap((c) => positionAlgs(s, c, ''))).filter((x) => x.tools.includes('wide') && x.tools.includes('F2'));
-    const wideAll = SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).flatMap((c) => positionAlgs(s, c, ''))).filter((x) => x.tools.includes('wide'));
-    expect(wideAll.length - both.length).toBe(all.wide.algs);
-    setHiddenTools(['F2']);
-    // with wide shown, its count is the same: the number says what the chip alone shows or hides
-    expect(toolCounts().wide.algs).toBe(10);
+    const every = SLOTS.flatMap((s) => Object.values(DATA.slots[s].cases).flatMap((c) => positionAlgs(s, c, '')));
+    const both = every.filter((x) => x.tools.includes('wide') && (x.tools.includes('F2') || x.tools.includes('F2x')));
+    expect(every.filter((x) => x.tools.includes('wide')).length - both.length).toBe(all.wide.algs);
+    setHiddenTools(['F2', 'F2x']);
+    // with wide and slice shown their counts say what each chip alone would hide: the shared alg now counts for both
+    expect(toolCounts().wide.algs).toBe(8);
+    expect(toolCounts().slice.algs).toBe(3);
   });
 });

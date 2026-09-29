@@ -4,7 +4,10 @@
 import { readStored, writeStored } from '../ui/settings';
 import { ALG_TOOLS, hiddenTools, setHiddenTools, toolCounts, TOOL_WORD, type AlgTool, type SlotName } from './model';
 
-const KEY = 'zzf2l-hide';
+const KEY = 'zzf2l-hide2';
+// the filter before 2026-09-28, when D, F2/B2 and wide/slice were one kind each: a stored kind widens to its parts
+const OLD_KEY = 'zzf2l-hide';
+const WIDENED: Record<string, AlgTool[]> = { D: ['D', 'D2'], F2: ['F2', 'F2x'], wide: ['wide', 'slice'] };
 const listeners: (() => void)[] = [];
 let loaded = false;
 /** The stored filter into the model, once. */
@@ -12,7 +15,9 @@ export function loadAlgFilter(): void {
   if (loaded) return;
   loaded = true;
   const v = readStored(KEY);
-  if (v !== null) setHiddenTools(v.split(',').filter(Boolean) as AlgTool[]);
+  if (v !== null) { setHiddenTools(v.split(',').filter(Boolean) as AlgTool[]); return; }
+  const old = readStored(OLD_KEY);
+  if (old !== null) setHiddenTools(old.split(',').filter(Boolean).flatMap((t) => WIDENED[t] ?? [t as AlgTool]));
 }
 /** Show or hide a kind of move, stored; everyone listening redraws. */
 export function toggleTool(t: AlgTool): void {

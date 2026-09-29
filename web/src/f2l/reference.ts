@@ -19,7 +19,7 @@ import { ensureStyle, esc } from '../ui/dom';
 import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 import { DATA } from './data';
 import {
-  type AlgTool, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
+  ALG_TOOLS, algTools, type AlgTool, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
   hiddenBy, positionAlgs, shownAlg, SLOT_WORD, TOOL_WORD, SLOTS, type SlotName, type Solution, twinOf, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
@@ -49,7 +49,6 @@ function facingWord(slot: SlotName, f: Facing, top: boolean | null): string {
 const SHAPE_WORD = { joined: 'joined as a pair', touching: 'touching, not paired', apart: 'apart' } as const;
 const SIMPLE = /^[RLU][2']*$/;
 const isSimple = (a: string) => normalizeAlg(a).split(' ').every((t) => SIMPLE.test(t));
-const usesFace = (a: string, re: RegExp) => normalizeAlg(a).split(' ').some((t) => re.test(t));
 
 // ---- the filters: each chip is a predicate on a case; a case shows when every chip on matches ----
 interface Filter { key: string; group: string; label: (slot: SlotName) => string; test(slot: SlotName, c: F2LCase): boolean }
@@ -60,9 +59,8 @@ const FILTERS: Filter[] = [
   ...(['white', 'fb', 'rl'] as const).map((f): Filter => ({ key: `w-${f}`, group: 'Corner facing up/down', label: (slot) => facingWord(slot, f, null), test: (slot, c) => facing(slot, c) === f })),
   ...(['joined', 'touching', 'apart'] as const).map((sh): Filter => ({ key: `p-${sh}`, group: 'Both on top', label: () => SHAPE_WORD[sh], test: (slot, c) => pairShape(slot, c) === sh })),
   { key: 'a-simple', group: 'Algs', label: () => 'R/L/U only', test: (slot, c) => isSimple(mainAlg(slot, c)) },
-  { key: 'a-d', group: 'Algs', label: () => 'D turns', test: (slot, c) => usesFace(mainAlg(slot, c), /^D/) },
-  { key: 'a-fb', group: 'Algs', label: () => 'F/B turns', test: (slot, c) => usesFace(mainAlg(slot, c), /^[FB]/) },
-  { key: 'a-wide', group: 'Algs', label: () => 'wide/slice', test: (slot, c) => usesFace(mainAlg(slot, c), /^[rlfbuMSEx]/) },
+  // one chip per kind of move Algs with knows, on the case's main alg (user, 2026-09-28: "filter by all the alg filter things")
+  ...ALG_TOOLS.map((t): Filter => ({ key: `a-t-${t}`, group: 'Algs', label: () => TOOL_WORD[t], test: (slot, c) => algTools(mainAlg(slot, c)).includes(t) })),
   { key: 'a-short', group: 'Algs', label: () => 'a slot shortcut', test: (_slot, c) => c.others.length > 0 },
   { key: 'a-fav', group: 'Algs', label: () => 'your pick', test: (slot, c) => f2lIsFavourite(caseId(slot, c.n)) },
   // the cases the Algs-with chips are doing something to: one of their algs is hidden (listed greyed in the fold)

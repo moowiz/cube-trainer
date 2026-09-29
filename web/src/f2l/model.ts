@@ -574,19 +574,32 @@ export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
 }
 // ---- what an alg is made of: the kinds of move the finder's filter can hide ------------------------------------------
 
-/** A kind of move beyond one side at a time and U: R and L at once (one side's slot open while the other turns), D, F2/B2 (keep EO), F/B quarter turns (flip edges), wide/slice. */
-export type AlgTool = 'LR' | 'D' | 'F2' | 'FB' | 'wide';
-export const ALG_TOOLS: readonly AlgTool[] = ['LR', 'D', 'F2', 'FB', 'wide'];
-export const TOOL_WORD: Record<AlgTool, string> = { LR: 'R and L at once', D: 'D turns', F2: 'F2 / B2', FB: 'F / B quarter turns', wide: 'wide, slice, rotation' };
+/**
+ * A kind of move beyond one side at a time and U, the grain the filter works at (user, 2026-09-28: "there are
+ * simple and advanced D moves"): R and L at once (one side's slot open while the other turns); the D turns by
+ * their shape (dShape: one out and one back, or a D2 among them / several, the harder ones to see - the sheet has
+ * no several-D alg without a D2, so they share a kind); F2/B2 as one pair of the same half turn or as more than
+ * that; F/B quarter turns (flip edges); wide turns; slices and rotations. Measured on the sheet 2026-09-28:
+ * 326 / 254 / 108 / 211 / 159 / 6 / 10 / 3 algs.
+ */
+export type AlgTool = 'LR' | 'D' | 'D2' | 'F2' | 'F2x' | 'FB' | 'wide' | 'slice';
+export const ALG_TOOLS: readonly AlgTool[] = ['LR', 'D', 'D2', 'F2', 'F2x', 'FB', 'wide', 'slice'];
+export const TOOL_WORD: Record<AlgTool, string> = {
+  LR: 'R and L at once', D: 'D conjugate', D2: 'D2 / more D turns',
+  F2: 'one F2 / B2 pair', F2x: 'more F2 / B2', FB: 'F / B quarter turns', wide: 'wide turns', slice: 'slice, rotation',
+};
 /** The kinds of move in an alg; [] for U and one side at a time (a pop on one side, then the insert on the other, is []). */
 export function algTools(alg: string): AlgTool[] {
   const t = tokens(normalizeAlg(alg)), has = (re: RegExp) => t.some((x) => re.test(x));
   const out: AlgTool[] = [];
   if (overlaps(t)) out.push('LR');
-  if (has(/^D/)) out.push('D');
-  if (has(/^[FB]2$/)) out.push('F2');
+  const d = dShape(alg);
+  if (d) out.push(d === 'D' ? 'D' : 'D2');
+  const h = t.filter((x) => /^[FB]2$/.test(x));
+  if (h.length) out.push(h.length === 2 && h[0] === h[1] ? 'F2' : 'F2x');
   if (has(/^[FB]'?$/)) out.push('FB');
-  if (has(/^[rludfbMESxyz]/)) out.push('wide');
+  if (has(/^[rludfb]/)) out.push('wide');
+  if (has(/^[MESxyz]/)) out.push('slice');
   return out;
 }
 
@@ -670,7 +683,7 @@ export function positionAlgs(slot: SlotName, c: F2LCase, auf = ''): Solution[] {
 }
 
 // the kinds of move the finder and the case sheet leave out (the settings' filter; F2/B2 hidden to begin with)
-let HIDDEN = new Set<AlgTool>(['F2']);
+let HIDDEN = new Set<AlgTool>(['F2', 'F2x']);
 export const hiddenTools = (): ReadonlySet<AlgTool> => HIDDEN;
 export function setHiddenTools(t: Iterable<AlgTool>): void { HIDDEN = new Set([...t].filter((x) => ALG_TOOLS.includes(x))); }
 /** A solution the filter lets through. */
