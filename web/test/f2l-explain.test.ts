@@ -126,8 +126,19 @@ function falseClaims(slot: SlotName, c: (typeof DATA.slots)['FR']['cases'][strin
   const used = SLOTS.filter((s) => s !== slot && s !== cSlot && s !== eSlot && !slotSolved(fs.at(-1)!, s));
   const borrowed = others.filter((s) => !used.includes(s) && fs.some((f) => liftedU(f, s)));
   const lifts = borrowed.flatMap((b) => fs.slice(1).flatMap((f, i) => (!liftedU(fs[i]!, b) && liftedU(f, b) ? [all[i]!] : [])));
-  claim(has('Along the way it lifts') === borrowed.length > 0, `borrowed: ${borrowed.join(',') || 'none'}`);
-  for (const b of borrowed) claim(new RegExp(`lifts the [a-z -]*${SLOT_WORD[b]}`).test(body), `names the borrowed ${SLOT_WORD[b]} slot`);
+  // a setup sentence ("L is a setup: ... would leave the front-left pair out of place") stands in for the lifts one:
+  // check the inner moves alone put the pair in from the position and break exactly the slots it names
+  const setupM = /(?:^|\. )([^.]*?) is a setup: ([^.]*?) on its own would put the pair in but leave the ([a-z -]+?) pairs? out of place/.exec(body);
+  if (setupM) {
+    const innerEnd = stepStates(s0, setupM[2]!).at(-1)!;
+    claim(slotSolved(innerEnd, slot), 'the inner moves alone put the pair in');
+    const named = SLOTS.filter((s) => setupM[3]!.includes(SLOT_WORD[s])).sort().join();
+    const broken = others.filter((s) => slotSolved(s0, s) && !slotSolved(innerEnd, s)).sort().join();
+    claim(named === broken, `the setup protects ${broken || 'nothing'} (says ${named})`);
+    claim(toks.join(' ').startsWith(setupM[1]!) && toks.join(' ').endsWith(invert(setupM[1]!)), "the setup is the alg's opening moves, undone at the end");
+  }
+  claim(has('Along the way it lifts') === (borrowed.length > 0 && !setupM), `borrowed: ${borrowed.join(',') || 'none'}`);
+  for (const b of borrowed) claim(setupM ? body.includes(SLOT_WORD[b]) : new RegExp(`lifts the [a-z -]*${SLOT_WORD[b]}`).test(body), `names the borrowed ${SLOT_WORD[b]} slot`);
   if (has('the half turns do that')) claim(lifts.every((t) => /2/.test(t)), `half turns lift the borrowed slot (${lifts.join(' ')})`);
   claim(has('slot shortcut') === used.length > 0, `shortcut through: ${used.join(',') || 'none'}`);
   for (const s of used) claim(body.includes(`runs through the ${SLOT_WORD[s]}`) || body.includes(`and ${SLOT_WORD[s]} slots`), `names the used ${SLOT_WORD[s]} slot`);

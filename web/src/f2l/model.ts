@@ -393,7 +393,26 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
   // other slots the alg goes through: lifted and put back (whatever is there comes back), or left changed (a shortcut)
   const occ = new Set([cSlot, eSlot].filter((s): s is string => !!s));
   const bor = borrowedSlots(slot, alg, occ);
-  if (bor.length) {
+  // a setup and its undo round the alg (A X A'): what the setup is FOR is the slot the inner moves alone would break
+  // from here, not the pair it happens to lift (user, 2026-09-28: "the important thing is the front left slot, not
+  // the back left slot"). Said only when the inner moves alone would put the pair in.
+  const setup = (() => {
+    let k = 0;
+    while (k < (n - 1) / 2 && toks[n - 1 - k] === invert(toks[k]!)) k++;
+    if (!k || toks.slice(0, k).every((t) => t[0] === 'U')) return null;
+    const inner = toks.slice(k, n - k);
+    const end = stepStates(s0, inner.join(' ')).at(-1)!;
+    const at = pairAt(end, slot);
+    if (!at.cHome || !at.eHome) return null;
+    const broken = SLOTS.filter((s) => s !== slot && !occ.has(s) && slotSolved(s0, s) && !slotSolved(end, s));
+    return broken.length ? { moves: toks.slice(0, k).join(' '), undo: toks.slice(n - k).join(' '), inner: inner.join(' '), broken } : null;
+  })();
+  if (setup) {
+    const names = setup.broken.map((s) => SLOT_WORD[s]).join(' and ');
+    const rest = bor.filter((s) => !setup.broken.includes(s));
+    body += ` ${setup.moves} is a setup: ${setup.inner} on its own would put the pair in but leave the ${names} pair${setup.broken.length > 1 ? 's' : ''} out of place, so ${setup.moves} moves ${setup.broken.length > 1 ? 'them' : 'it'} out of the way first and ${setup.undo} brings ${setup.broken.length > 1 ? 'them' : 'it'} back.`;
+    if (rest.length) body += ` The ${rest.map((s) => SLOT_WORD[s]).join(' and ')} pair${rest.length > 1 ? 's ride' : ' rides'} out and back meanwhile, untouched in the end.`;
+  } else if (bor.length) {
     const names = `${bor.map((s) => SLOT_WORD[s]).join(' and ')} ${bor.length > 1 ? "slots'" : "slot's"}`;
     const fs = [SOLVED, ...stepStates(SOLVED, normalizeAlg(full))], all = algTokens(full);
     const liftMoves = bor.flatMap((b) => fs.slice(1).flatMap((f, i) => (!liftedU(fs[i]!, b) && liftedU(f, b) ? [all[i]!] : [])));

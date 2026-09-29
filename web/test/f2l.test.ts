@@ -291,3 +291,13 @@ describe('what the move filter does (the chips say it)', () => {
     expect(toolCounts().slice.algs).toBe(3);
   });
 });
+
+describe('a setup and its undo: what it is for', () => {
+  it("front-right 13's L U' D R U R' D' L': the L protects the front-left pair (the inner moves alone would leave it out), the back-left pair only rides along", () => {
+    const c = DATA.slots.FR.cases['13']!;
+    const e = explain('FR', c, "L U' D R U R' D' L'");
+    expect(e.body).toContain("L is a setup: U' D R U R' D' on its own would put the pair in but leave the front-left pair out of place, so L moves it out of the way first and L' brings it back.");
+    expect(e.body).toContain('The back-left pair rides out and back meanwhile');
+    expect(e.body).not.toContain('Along the way it lifts');
+  });
+});
