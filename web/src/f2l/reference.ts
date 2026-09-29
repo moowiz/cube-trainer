@@ -19,7 +19,7 @@ import { ensureStyle, esc } from '../ui/dom';
 import { algHtml, altsHtml, chipHtml, foldOpen, nameBoxHtml, noteHtml, openRefSheet, starHtml } from '../ui/refsheet';
 import { DATA } from './data';
 import {
-  ALG_TOOLS, algTools, type AlgTool, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
+  ALG_TOOLS, type AlgTool, caseGroup, caseId, caseOf, describe, type F2LCase, f2lIsFavourite, f2lMainAlg, fullAlg, GROUP_WORD, GROUPS, invert, isSlot, normalizeAlg, pairShape,
   hiddenBy, positionAlgs, shownAlg, SLOT_WORD, TOOL_WORD, SLOTS, type SlotName, type Solution, twinOf, withAuf,
 } from './model';
 import { caseCells, SLOT_VIEW } from './pic';
@@ -58,13 +58,15 @@ const FILTERS: Filter[] = [
   ...(['top', 'own', 'other'] as const).map((p): Filter => ({ key: `e-${p}`, group: 'Edge', label: () => PLACE_WORD[p], test: (slot, c) => edgePlace(slot, c) === p })),
   ...(['white', 'fb', 'rl'] as const).map((f): Filter => ({ key: `w-${f}`, group: 'Corner facing up/down', label: (slot) => facingWord(slot, f, null), test: (slot, c) => facing(slot, c) === f })),
   ...(['joined', 'touching', 'apart'] as const).map((sh): Filter => ({ key: `p-${sh}`, group: 'Both on top', label: () => SHAPE_WORD[sh], test: (slot, c) => pairShape(slot, c) === sh })),
-  { key: 'a-simple', group: 'Algs', label: () => 'R/L/U only', test: (slot, c) => isSimple(mainAlg(slot, c)) },
-  // one chip per kind of move Algs with knows, on the case's main alg (user, 2026-09-28: "filter by all the alg filter things")
-  ...ALG_TOOLS.map((t): Filter => ({ key: `a-t-${t}`, group: 'Algs', label: () => TOOL_WORD[t], test: (slot, c) => algTools(mainAlg(slot, c)).includes(t) })),
-  { key: 'a-short', group: 'Algs', label: () => 'a slot shortcut', test: (_slot, c) => c.others.length > 0 },
-  { key: 'a-fav', group: 'Algs', label: () => 'your pick', test: (slot, c) => f2lIsFavourite(caseId(slot, c.n)) },
+  { key: 'a-simple', group: 'Main alg', label: () => 'R/L/U only', test: (slot, c) => isSimple(mainAlg(slot, c)) },
+  { key: 'a-fav', group: 'Main alg', label: () => 'your pick', test: (slot, c) => f2lIsFavourite(caseId(slot, c.n)) },
+  // one chip per kind of move Algs with knows (user, 2026-09-28: "filter by all the alg filter things"), on ANY of the
+  // case's algs, shown or hidden: the main alg is the shortest the filter lets through, so a kind that never gives the
+  // shortest (F/B quarter turns, wide, slice) would match no case by it (user, 2026-09-29: "they all have a number 0")
+  ...ALG_TOOLS.map((t): Filter => ({ key: `a-t-${t}`, group: 'Has an alg with', label: () => TOOL_WORD[t], test: (slot, c) => positionAlgs(slot, c, '').some((x) => x.tools.includes(t)) })),
+  { key: 'a-short', group: 'Has an alg with', label: () => 'a slot shortcut', test: (_slot, c) => c.others.length > 0 },
   // the cases the Algs-with chips are doing something to: one of their algs is hidden (listed greyed in the fold)
-  { key: 'a-hidden', group: 'Algs', label: () => 'one hidden by Algs with', test: (slot, c) => positionAlgs(slot, c, '').some((x) => !shownAlg(x)) },
+  { key: 'a-hidden', group: 'Has an alg with', label: () => 'one hidden by Algs with', test: (slot, c) => positionAlgs(slot, c, '').some((x) => !shownAlg(x)) },
   { key: 'a-pick', group: 'Practice', label: () => 'picked to practice', test: (slot, c) => isPicked(caseId(slot, c.n)) },
 ];
 
