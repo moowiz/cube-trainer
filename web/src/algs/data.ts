@@ -22,7 +22,7 @@ const SCDB = 'https://www.speedcubedb.com/a/';
 const CMLL = `${SCDB}3x3/CMLL`;
 // Found by search on the n×n model (2026-09-28): the shortest M and U sequence with the blocks kept, the corners back
 // where they were and the middle-slice centres home, so each is the whole alg with its AUF and no centre fix owed.
-const SEARCH = 'https://github.com/moowiz/cube_stuff/blob/main/web/src/algs/data.ts';
+const SEARCH = 'https://github.com/moowiz/cube-trainer/blob/main/web/src/algs/data.ts';
 const roux: Puzzle = {
   id: '333', name: 'Roux', n: 3, viewer: '3x3x3',
   notation: 'Face turns as usual. <code>M</code> is the middle slice between the two blocks, turned the way <code>L</code> turns (so <code>M\'</code> brings the front edge up); <code>r</code> is the right face and that slice together (<code>Rw</code>), so <code>r U r\'</code> is <code>R U R\'</code> with the slice along. Held with the blocks on the left and right: the first block\'s centre is on the left, the top colour is whatever the corners show, since the middle slice is free until the end. Every alg here was run on the cube model and keeps both blocks.',
