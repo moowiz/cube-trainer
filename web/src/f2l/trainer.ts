@@ -29,6 +29,7 @@ import { DATA } from './data';
 import {
   acnUrl, caseGroup, caseId, caseOf, describe, explain, f2lIsFavourite, findCase, fullAlg, genF2L, GROUP_WORD, isSlot, listFor, normalizeAlg, randomCase, slotSolved, slotState,
   SLOT_WORD, SLOTS, trace, twinOf, withAuf, type CornerState, type CornerOrient, type F2LCase, type LookupHit, type SlotName, type Solution, type AlgTool,
+  hiddenTools, positionAlgs, shownAlg, TOOL_WORD,
 } from './model';
 import { caseCells, GREY } from './pic';
 import { drawTarget, pool, poolTargets, savePool } from './pool';
@@ -169,6 +170,12 @@ const STYLE = `
   .f2l .alg.on { border-color: var(--ink); box-shadow: 0 0 0 1.5px var(--ink); }
   .f2l .alg.dim { opacity: .5; }
   .f2l .alg .tag { font-size: 12px; color: var(--ink-2); max-width: 17em; }
+  /* the kinds of move an alg uses, each a tap on the Algs-to-show chip: a shown row's hides the kind, a hidden row's (struck) shows it again */
+  .f2l .alg .kind { font-size: 11px; padding: 2px 7px; border-radius: 999px; color: var(--ink-2); border: 1px solid var(--line); }
+  .f2l .alg .kind.off { text-decoration: line-through; opacity: .7; }
+  .f2l .hiddenalgs { margin-top: 14px; font-size: 14px; color: var(--ink-2); }
+  .f2l .hiddenalgs summary { cursor: pointer; }
+  .f2l .hiddenalgs .alg { margin-top: 8px; }
   .f2l .alg.na { opacity: .55; background: transparent; border-style: dashed; }
   .f2l-tools { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
   .f2l-tools .eo-chip.on { color: var(--bg); background: var(--ink); border-color: var(--ink); }
@@ -872,7 +879,15 @@ export function mountF2L(root: HTMLElement): Stage {
   // the explanations open, by pair and alg: the panel is rebuilt on every turn, and one being watched along stays open
   // (user, 2026-09-26), its table marking the moves done and the one to do next (markFollow)
   const explaining = new Set<string>();
-  function algRow(a: string, auf: string, tag: string, c: F2LCase | null, usable = true): HTMLElement {
+  // the finder's short word for a kind of move, on the rows' kind chips
+  const KIND_SHORT: Record<AlgTool, string> = { LR: 'R+L', D: 'D', F2: 'F2/B2', FB: 'F/B', wide: 'wide/slice' };
+  /**
+   * A row for an alg: its moves (each a span the cube's progress is marked on), its count, `tag`, the kinds of move it
+   * uses (`tools`: each a chip that turns that kind off in Algs to show, or back on when it is what hides the row -
+   * user, 2026-09-28: "if I see an alg, I want to be able to turn it off if I don't want to learn it right now"),
+   * Explain and Animate. Not `usable` (it needs a solved slot, or the filter hides it): greyed, no route for the cube.
+   */
+  function algRow(a: string, auf: string, tag: string, c: F2LCase | null, usable = true, tools: readonly AlgTool[] = []): HTMLElement {
     const { pre, rest } = withAuf(auf, a); const full = fullAlg(auf, a);
     // a row the cube cannot take (it needs a solved slot) is greyed and carries no route: nothing follows it
     const div = document.createElement('div'); div.className = usable ? 'alg' : 'alg na'; if (usable) div.dataset.alg = full;
@@ -884,6 +899,12 @@ export function mountF2L(root: HTMLElement): Stage {
     div.appendChild(txt);
     const n = document.createElement('span'); n.className = 'n'; n.textContent = `${moveCount(full)} moves`; div.appendChild(n);
     if (tag) { const s = document.createElement('span'); s.className = 'tag'; s.textContent = tag; div.appendChild(s); }
+    for (const t of tools) {
+      const off = hiddenTools().has(t);
+      const k = document.createElement('button'); k.type = 'button'; k.className = off ? 'kind off' : 'kind'; k.textContent = KIND_SHORT[t];
+      k.title = off ? `Show algs with ${TOOL_WORD[t]} again` : `Hide algs with ${TOOL_WORD[t]} (Algs to show)`;
+      k.addEventListener('click', () => toggleTool(t)); div.appendChild(k);
+    }
     const ex = document.createElement('button'); ex.type = 'button'; ex.textContent = 'Explain'; div.appendChild(ex);
     const a2 = document.createElement('a'); a2.href = acnUrl(full); a2.target = '_blank'; a2.rel = 'noopener'; a2.textContent = 'Animate'; div.appendChild(a2);
     if (tracked && !fedBy && usable) {
@@ -941,6 +962,7 @@ export function mountF2L(root: HTMLElement): Stage {
    * The finder's rows for a slot's case: every solution the move filter lets through (the sheet's, its slot shortcuts,
    * the searched ones), `usable` unless it needs a slot that is solved; the lead is the favourite or the shortest usable.
    */
+  let hiddenOpen = false; // the "hidden by Algs to show" fold, kept through redraws
   const rowsFor = (s: SlotName, c: F2LCase, auf: string) => listFor(s, c, auf, new Set([...solvedSlots].filter((x) => x !== s)));
   /** A row's note: where the alg is from, and the open slots it needs (why it is greyed when one is solved). */
   function rowTag(x: Solution & { usable: boolean }, c: F2LCase, lead: boolean): string {
@@ -1008,13 +1030,22 @@ export function mountF2L(root: HTMLElement): Stage {
     hb.hidden = !showHints() || hide;
     const wrap = document.createElement('div');
     // every solution the filter lets through, fewest moves first after the lead; one that needs a solved slot greyed
-    for (const x of rows.filter((r) => r.usable)) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, x === lead), c));
+    for (const x of rows.filter((r) => r.usable)) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, x === lead), c, true, x.tools));
     const off = rows.filter((r) => !r.usable);
     if (off.length) {
       const h3 = document.createElement('h3'); h3.textContent = 'Through slots you have solved (for learning the case)'; wrap.appendChild(h3);
-      for (const x of off) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, false), c, false));
+      for (const x of off) wrap.appendChild(algRow(x.alg, hit.auf, rowTag(x, c, false), c, false, x.tools));
     }
-    if (!rows.length) { const p = document.createElement('p'); p.className = 'note'; p.textContent = 'The move filter hides every alg for this case: turn a kind of move back on in the settings.'; wrap.appendChild(p); }
+    // the algs Algs to show hides, folded: each with its struck kind chips, a tap on one showing that kind again
+    const hidden = positionAlgs(slot, c, hit.auf).filter((x) => !shownAlg(x));
+    if (hidden.length) {
+      const d = document.createElement('details'); d.className = 'hiddenalgs'; d.open = hiddenOpen;
+      d.addEventListener('toggle', () => { hiddenOpen = d.open; });
+      const sm = document.createElement('summary'); sm.textContent = `${hidden.length} alg${hidden.length === 1 ? '' : 's'} hidden by Algs to show`; d.appendChild(sm);
+      for (const x of hidden) d.appendChild(algRow(x.alg, hit.auf, rowTag({ ...x, usable: true }, c, false), c, false, x.tools));
+      wrap.appendChild(d);
+    }
+    if (!rows.length) { const p = document.createElement('p'); p.className = 'note'; p.textContent = 'Algs to show hides every alg for this case: tap a struck kind below, or turn one back on in the settings.'; wrap.appendChild(p); }
     wrap.appendChild(nextButton());
     r.appendChild(wrap);
     if (c.note) { const nn = document.createElement('p'); nn.className = 'note'; nn.textContent = /keyhole/i.test(c.note) ? 'Keyhole case (the sheet lists no other-slot alg).' : c.note; r.appendChild(nn); }
