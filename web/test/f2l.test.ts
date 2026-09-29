@@ -176,8 +176,10 @@ describe('explanations', () => {
     expect(c5.algs).toContain(alg);
     expect(borrowedSlots('FR', alg, new Set())).toEqual(['BR']);
     const e = explain('FR', c5, alg);
-    expect(e.head).toBe('Borrow a neighbouring slot.');
-    expect(e.body).toContain('back-right');
+    // the pair is built in the back-right column and R2 swings it home: that head, with the borrowing in the body
+    expect(e.head).toBe('Pair it next door, half-turn it home.');
+    expect(e.body).toContain('swings the back-right column');
+    expect(e.body).toContain("lifts the back-right slot's pieces out");
   });
   it("R U R' from case 12's picture: the corner is carried round, the top layer repositions, the last move inserts", () => {
     const t = trace('FR', "R U R'");
@@ -299,5 +301,18 @@ describe('a setup and its undo: what it is for', () => {
     expect(e.body).toContain("L is a setup: U' D R U R' D' on its own would put the pair in but leave the front-left pair out of place, so L moves it out of the way first and L' brings it back.");
     expect(e.body).toContain('The back-left pair rides out and back meanwhile');
     expect(e.body).not.toContain('Along the way it lifts');
+  });
+});
+
+describe('the pair built next door and half-turned home', () => {
+  it("front-right 13's R2 U' R' U R2: the edge in the back-right slot with the corner on top of it, then R2 swings the column round; the first R2 did the reverse", () => {
+    const e = explain('FR', DATA.slots.FR.cases['13']!, "R2 U' R' U R2");
+    expect(e.head).toBe('Pair it next door, half-turn it home.');
+    expect(e.body).toContain('The last move, R2, swings the back-right column round into the front-right slot');
+    expect(e.body).toContain('The first R2 does the same thing backwards');
+    expect(e.body).toContain('runs through the back-right slot');
+  });
+  it('the same idea through the front: F2 brings the pair from the front-left column (the old "F2 flip")', () => {
+    expect(explain('FR', DATA.slots.FR.cases['9']!, "F2 U' L' U L F2").head).toBe('Pair it next door, half-turn it home.');
   });
 });

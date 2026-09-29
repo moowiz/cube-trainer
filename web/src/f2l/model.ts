@@ -293,6 +293,16 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
   const hFB = toks.find((t) => /^[FB]2$/.test(t));
   const slice = toks.some((t) => /^[urfdlbMESxyz]/.test(t));
   const allHalf = toks.every((t) => /2/.test(t) || t[0] === 'U') && toks.some((t) => /2/.test(t) && t[0] !== 'U');
+  // the pair built in a neighbouring column and half-turned home: the last move is a half turn of the slot's side or
+  // its front/back, and just before it the edge is in the slot that half turn swaps with, the corner above it white up
+  const nextDoor = ((): SlotName | null => {
+    if (n < 2 || usesD || qFB || slice) return null;
+    const last = toks[n - 1]!;
+    const other = last === `${slot[1]}2` ? (`${slot[0] === 'F' ? 'B' : 'F'}${slot[1]}` as SlotName) : last === `${slot[0]}2` ? (`${slot[0]}${slot[1] === 'R' ? 'L' : 'R'}` as SlotName) : null;
+    if (!other) return null;
+    const b = S[n - 1]!;
+    return b.eAt === other && b.cAt === `U${other}` && b.white === 'U' ? other : null;
+  })();
   // the move that puts the pair in for good
   let lastIn = S.length - 1;
   while (lastIn > 0 && S[lastIn - 1]!.cHome && S[lastIn - 1]!.eHome) lastIn--;
@@ -307,6 +317,15 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
   } else if (usesD && eIn && eStays && cU && cornerHomeBy[0] === 'D') {
     head = 'Corner under the edge.';
     body = `The edge is already solved in the slot and never moves. The corner goes into the bottom layer at another spot, and the D turns carry it round underneath the edge${dBack}.`;
+  } else if (nextDoor) {
+    // user, 2026-09-29, on FR 13's R2 U' R' U R2: "it's an interesting idea, I want to know how widely applicable it
+    // is" - 340 of the sheet's 1426 algs end this way (the shortest alg of 177 cases), the F2 ones included
+    head = 'Pair it next door, half-turn it home.';
+    const last = toks[n - 1]!, other = SLOT_WORD[nextDoor];
+    body = `The last move, ${last}, swings the ${other} column round into the ${SLOT_WORD[slot]} slot: just before it the edge sits in the ${other} slot with the corner on top of it, white up - the pair built one slot along, and the half turn carries both home at once.`;
+    const first = S[1]!;
+    if (n > 1 && toks[0] === last && first.cU && first.white === 'U' && /^D/.test(first.eAt)) body += ` The first ${last} does the same thing backwards: it takes the corner out to the top, white up, and tucks the edge into the bottom layer; the moves between bring them together next door.`;
+    else body += ' The moves before it build the pair there.';
   } else if (allHalf) {
     head = 'Half-turn shuffle.';
     body = 'Half turns (with U turns) move pieces between the top layer and the slots without changing which way they face. Both pieces already face the right way, so this shuffle is enough to route them home.';
@@ -417,7 +436,7 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
     const fs = [SOLVED, ...stepStates(SOLVED, normalizeAlg(full))], all = algTokens(full);
     const liftMoves = bor.flatMap((b) => fs.slice(1).flatMap((f, i) => (!liftedU(fs[i]!, b) && liftedU(f, b) ? [all[i]!] : [])));
     const byHalf = liftMoves.every((t) => /2/.test(t));
-    if (cU && eU && !usesD && !qFB && !hFB && !slice && n > 3) head = 'Borrow a neighbouring slot.';
+    if (cU && eU && !usesD && !qFB && !hFB && !slice && !nextDoor && n > 3) head = 'Borrow a neighbouring slot.';
     body += ` Along the way it lifts the ${names} pieces out${byHalf ? ' (the half turns do that)' : ''} and puts them back before the end, so whatever is in ${bor.length > 1 ? 'those slots ends up where it was' : 'that slot ends up where it was'}.`;
   }
   const end = state(normalizeAlg(full));

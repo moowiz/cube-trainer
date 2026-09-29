@@ -69,6 +69,17 @@ function falseClaims(slot: SlotName, c: (typeof DATA.slots)['FR']['cases'][strin
   }
   if (/^[FB] conjugate\.$/.test(head)) claim(toks.some((t) => new RegExp(`^${head[0]}'?$`).test(t)), `${head} turns ${head[0]}`);
   if (/^[FB]2 flip\.$/.test(head)) claim(toks.includes(`${head[0]}2`), `${head} turns ${head[0]}2`);
+  // the pair built next door: before the last move (a half turn) the edge is in the named slot, the corner above it white up
+  const nextDoor = /The last move, (\S+), swings the ([a-z-]+) column round into the ([a-z-]+) slot/.exec(body);
+  claim((head === 'Pair it next door, half-turn it home.') === !!nextDoor, 'the next-door head and sentence go together');
+  if (nextDoor) {
+    const other = SLOTS.find((s) => SLOT_WORD[s] === nextDoor[2]);
+    claim(!!other && nextDoor[3] === SLOT_WORD[slot], 'names the neighbour and the slot');
+    claim(toks[toks.length - 1] === nextDoor[1] && /2$/.test(nextDoor[1]!), `${nextDoor[1]} is the last move, a half turn`);
+    const b = S[S.length - 2]!;
+    claim(b.eAt === other && b.cAt === `U${other}` && b.white === 'U', 'before it: edge next door, corner on top of it white up');
+    if (has('does the same thing backwards')) claim(toks[0] === nextDoor[1] && S[1]!.cU && S[1]!.white === 'U' && /^D/.test(S[1]!.eAt), 'the first half turn lifts the corner white up and tucks the edge under');
+  }
   const pairedWith = /it is paired with (\S+) later/.exec(body);
   if (pairedWith) {
     const q = /\(([FB]'?)\)/.exec(body)![1]!;
