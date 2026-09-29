@@ -68,6 +68,9 @@ const STYLE = `
   .llr-alt { margin: 6px 0 0; }
   .llr-alt .llr-alg { font-size: 15px; line-height: 1.8; margin: 0; }
   .llr-alt small { display: block; font-size: 12px; color: var(--ink-2); margin-top: 1px; }
+  /* an alg the move filter hides: listed greyed so the filter's chips can be seen doing something */
+  .llr-alt.off .llr-alg { opacity: .45; }
+  .llr-alt.off small b { color: var(--ink); font-weight: 500; }
   .llr-fav { font: inherit; font-size: 15px; line-height: 1; padding: 2px 5px; border: 0; background: none; color: var(--ink-2); cursor: pointer; vertical-align: middle; word-spacing: normal; }
   .llr-fav.on { color: #C8930A; }
   .llr-fav:hover { color: var(--ink); }
@@ -109,10 +112,18 @@ export function noteHtml(kind: AlgKind, caseId: string, alg: string, what: strin
   return `<textarea class="llr-note${t ? ' has' : ''}" rows="${t ? Math.min(4, Math.ceil(t.length / 46) + (t.match(/\n/g)?.length ?? 0)) : 1}" data-note="${esc(alg)}" placeholder="Your note on ${esc(what)}…">${esc(t)}</textarea>`;
 }
 
-/** A case's other algs, folded: each with its star, its note (`what` names the case) and a line on it. */
-export function altsHtml(kind: AlgKind, caseId: string, alts: readonly { alg: string; note: string }[], what: string, show: (alg: string) => string = algHtml): string {
+/**
+ * A case's other algs, folded: each with its star, its note (`what` names the case) and a line on it. One with
+ * `hidden` set is one the move filter hides, listed greyed after the shown ones with `hidden` (the chips that hide
+ * it) in its line, and counted in the fold's summary, so the filter can be seen doing something.
+ */
+export function altsHtml(kind: AlgKind, caseId: string, alts: readonly { alg: string; note: string; hidden?: string }[], what: string, show: (alg: string) => string = algHtml): string {
   if (!alts.length) return '';
-  return `<details class="llr-more"><summary>${alts.length} other alg${alts.length === 1 ? '' : 's'}</summary>${alts.map((a) => `<div class="llr-alt"><span class="llr-alg">${show(a.alg)}</span>${starHtml(a.alg, false)}<small>${esc(a.note)}</small>${noteHtml(kind, caseId, a.alg, what)}</div>`).join('')}</details>`;
+  const on = alts.filter((a) => !a.hidden), off = alts.filter((a) => a.hidden);
+  const head = on.length ? `${on.length} other alg${on.length === 1 ? '' : 's'}` : 'no other alg shown';
+  const summary = off.length ? `${head} · ${off.length} hidden by Algs with` : head;
+  const row = (a: { alg: string; note: string; hidden?: string }) => `<div class="llr-alt${a.hidden ? ' off' : ''}"><span class="llr-alg">${show(a.alg)}</span>${starHtml(a.alg, false)}<small>${a.hidden ? `hidden: uses <b>${esc(a.hidden)}</b>${a.note ? '; ' : ''}` : ''}${esc(a.note)}</small>${noteHtml(kind, caseId, a.alg, what)}</div>`;
+  return `<details class="llr-more"><summary>${summary}</summary>${[...on, ...off].map(row).join('')}</details>`;
 }
 
 /** The name box: typed into, the list follows (the sheet keeps the caret through the redraw). */

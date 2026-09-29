@@ -675,6 +675,23 @@ export const hiddenTools = (): ReadonlySet<AlgTool> => HIDDEN;
 export function setHiddenTools(t: Iterable<AlgTool>): void { HIDDEN = new Set([...t].filter((x) => ALG_TOOLS.includes(x))); }
 /** A solution the filter lets through. */
 export const shownAlg = (s: Pick<Solution, 'tools'>): boolean => s.tools.every((t) => !HIDDEN.has(t));
+/** The kinds of move in a solution the filter hides it for ([] when it is shown). */
+export const hiddenBy = (s: Pick<Solution, 'tools'>): AlgTool[] => s.tools.filter((t) => HIDDEN.has(t));
+/**
+ * What each chip decides, so the settings and the case sheet can say what "Algs to show" shows (user, 2026-09-28:
+ * "it's silly to have Algs to show but not be able to see what algs those are"): per kind of move, how many algs
+ * on `slots`' sheets (every case, from its picture) use it and are hidden by nothing else, and in how many cases.
+ * That is what turning the chip alone on or off adds or takes away.
+ */
+export function toolCounts(slots: readonly SlotName[] = SLOTS): Record<AlgTool, { algs: number; cases: number }> {
+  const out = Object.fromEntries(ALG_TOOLS.map((t) => [t, { algs: 0, cases: 0 }])) as Record<AlgTool, { algs: number; cases: number }>;
+  for (const s of slots) for (const c of Object.values(DATA.slots[s].cases)) {
+    const inCase = new Set<AlgTool>();
+    for (const x of positionAlgs(s, c, '')) for (const t of x.tools) if (hiddenBy(x).every((h) => h === t)) { out[t].algs++; inCase.add(t); }
+    for (const t of inCase) out[t].cases++;
+  }
+  return out;
+}
 
 /**
  * The finder's list for a position: every solution the filter lets through, `usable` when no slot it needs is solved.
