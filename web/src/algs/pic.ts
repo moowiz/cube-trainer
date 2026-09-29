@@ -1,7 +1,8 @@
 // Pictures of an n×n case for the algs sheet, as inner SVG (viewBox 0 0
 // 200 200): the top view (the top face with a strip of each side, the
 // last-layer picture the OCLL / PLL drills use, generalised to n and to
-// deeper strips so a whole 2x2 fits) and the three-face view (top, front,
+// deeper strips so a whole 2x2 fits, or a 3x3's middle slice; pieces a
+// case ignores can be drawn grey) and the three-face view (top, front,
 // right in parallel projection, for centres and edges that a top view
 // hides). Colours follow the trainer's scheme (white down, the chosen
 // colour in front) through faceHex, so a case looks like the user's cube.
@@ -10,15 +11,19 @@
 // colours.
 
 import { FTO_CORNERS, FTO_FACES, FTO_HEX, FTO_STICKERS, type FtoFace, type FtoState } from '../cube/fto';
-import { stickerPos, type Face } from '../cube/nxn';
+import { pieceTypeNxN, stickerPos, type Face } from '../cube/nxn';
 import { faceHex } from '../cube/scheme';
 
-const rect = (x: number, y: number, w: number, h: number, letter: string, r = 2.5) => `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${r}" fill="${faceHex(letter)}"/>`;
+/** A sticker the case ignores: a grey that reads as "not this piece" on both themes. */
+export const DIM_HEX = '#7b8391';
+type PieceType = 'corner' | 'edge' | 'centre';
+const hex = (letter: string, dimmed: boolean) => (dimmed ? DIM_HEX : faceHex(letter));
+const rect = (x: number, y: number, w: number, h: number, letter: string, dimmed = false, r = 2.5) => `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="${r}" fill="${hex(letter, dimmed)}"/>`;
 
-/** Every sticker of `state` with where it sits, once per call (n ≤ 7: at most 294 of them). */
-function stickers(n: number, state: string): { face: Face; x: number; y: number; z: number; letter: string }[] {
+/** Every sticker of `state` with where it sits, once per call (n ≤ 7: at most 294 of them); `dim` names the piece types drawn grey. */
+function stickers(n: number, state: string, dim?: readonly PieceType[]): { face: Face; x: number; y: number; z: number; letter: string; dimmed: boolean }[] {
   const out = [];
-  for (let i = 0; i < state.length; i++) out.push({ ...stickerPos(n, i), letter: state[i]! });
+  for (let i = 0; i < state.length; i++) out.push({ ...stickerPos(n, i), letter: state[i]!, dimmed: !!dim?.includes(pieceTypeNxN(n, i)) });
   return out;
 }
 
@@ -30,34 +35,34 @@ export const TOP_CELL = (n: number, rows: number): number => (200 - 2 * (4 + row
  * face). The front is at the bottom of the picture, so the left strip is the left face and the back strip
  * reads left to right as the cube's left to right.
  */
-export function picTop(n: number, state: string, rows = 1): string {
+export function picTop(n: number, state: string, rows = 1, dim?: readonly PieceType[]): string {
   const cell = TOP_CELL(n, rows), o = (200 - n * cell) / 2, size = n * cell, t = rows === 1 ? 14 : 12, gap = 4;
   let out = '';
-  for (const s of stickers(n, state)) {
+  for (const s of stickers(n, state, dim)) {
     const row = n - 1 - s.y; // 0 = the top layer, for the side strips
-    if (s.face === 'U') out += rect(o + s.x * cell + 1, o + s.z * cell + 1, cell - 2, cell - 2, s.letter);
+    if (s.face === 'U') out += rect(o + s.x * cell + 1, o + s.z * cell + 1, cell - 2, cell - 2, s.letter, s.dimmed);
     else if (row >= rows || s.face === 'D') continue;
-    else if (s.face === 'F') out += rect(o + s.x * cell + 1, o + size + gap + row * t, cell - 2, t - 2, s.letter);
-    else if (s.face === 'B') out += rect(o + s.x * cell + 1, o - gap - (row + 1) * t + 2, cell - 2, t - 2, s.letter);
-    else if (s.face === 'L') out += rect(o - gap - (row + 1) * t + 2, o + s.z * cell + 1, t - 2, cell - 2, s.letter);
-    else if (s.face === 'R') out += rect(o + size + gap + row * t, o + s.z * cell + 1, t - 2, cell - 2, s.letter);
+    else if (s.face === 'F') out += rect(o + s.x * cell + 1, o + size + gap + row * t, cell - 2, t - 2, s.letter, s.dimmed);
+    else if (s.face === 'B') out += rect(o + s.x * cell + 1, o - gap - (row + 1) * t + 2, cell - 2, t - 2, s.letter, s.dimmed);
+    else if (s.face === 'L') out += rect(o - gap - (row + 1) * t + 2, o + s.z * cell + 1, t - 2, cell - 2, s.letter, s.dimmed);
+    else if (s.face === 'R') out += rect(o + size + gap + row * t, o + s.z * cell + 1, t - 2, cell - 2, s.letter, s.dimmed);
   }
   return out;
 }
 
 /** The three-face view: top, front and right faces in parallel projection, the front-top-right corner in the middle. */
-export function picIso(n: number, state: string): string {
+export function picIso(n: number, state: string, dim?: readonly PieceType[]): string {
   // screen axes: x runs right-and-down, z (toward the viewer) left-and-down, y straight up; scaled so 2n units fill the height
   const k = 200 / (2 * n), cx = 100, cy = 100;
   const P = (x: number, y: number, z: number): string => `${(cx + (x - z) * 0.866 * k).toFixed(1)},${(cy + ((x + z) * 0.5 - y) * k).toFixed(1)}`;
-  const quad = (pts: [number, number, number][], letter: string) => `<polygon points="${pts.map((p) => P(...p)).join(' ')}" fill="${faceHex(letter)}" stroke="#2b3340" stroke-width="1.2" stroke-linejoin="round"/>`;
+  const quad = (pts: [number, number, number][], letter: string, dimmed: boolean) => `<polygon points="${pts.map((p) => P(...p)).join(' ')}" fill="${hex(letter, dimmed)}" stroke="#2b3340" stroke-width="1.2" stroke-linejoin="round"/>`;
   const e = 0.06; // the gap between stickers, in cubie units
   let out = '';
-  for (const s of stickers(n, state)) {
+  for (const s of stickers(n, state, dim)) {
     const { x, y, z } = s;
-    if (s.face === 'U') out += quad([[x + e, n, z + e], [x + 1 - e, n, z + e], [x + 1 - e, n, z + 1 - e], [x + e, n, z + 1 - e]], s.letter);
-    else if (s.face === 'F') out += quad([[x + e, y + e, n], [x + 1 - e, y + e, n], [x + 1 - e, y + 1 - e, n], [x + e, y + 1 - e, n]], s.letter);
-    else if (s.face === 'R') out += quad([[n, y + e, z + e], [n, y + e, z + 1 - e], [n, y + 1 - e, z + 1 - e], [n, y + 1 - e, z + e]], s.letter);
+    if (s.face === 'U') out += quad([[x + e, n, z + e], [x + 1 - e, n, z + e], [x + 1 - e, n, z + 1 - e], [x + e, n, z + 1 - e]], s.letter, s.dimmed);
+    else if (s.face === 'F') out += quad([[x + e, y + e, n], [x + 1 - e, y + e, n], [x + 1 - e, y + 1 - e, n], [x + e, y + 1 - e, n]], s.letter, s.dimmed);
+    else if (s.face === 'R') out += quad([[n, y + e, z + e], [n, y + e, z + 1 - e], [n, y + 1 - e, z + 1 - e], [n, y + 1 - e, z + e]], s.letter, s.dimmed);
   }
   return out;
 }

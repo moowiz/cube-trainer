@@ -19,6 +19,8 @@ function violates(n: number, alg: string, check: Check): string {
   const types = new Set(moved.map((i) => pieceTypeNxN(n, i)));
   if (check.only) for (const t of types) if (!check.only.includes(t)) return `moves ${t} stickers (${moved.filter((i) => pieceTypeNxN(n, i) === t).length} of them)`;
   if (check.top) { const off = moved.filter((i) => stickerPos(n, i).y !== n - 1); if (off.length) return `moves ${off.length} stickers outside the top layer`; }
+  // the Roux blocks: everything but the top layer and the middle slice between them (an odd cube's x = (n-1)/2)
+  if (check.blocks) { const off = moved.filter((i) => { const s = stickerPos(n, i); return s.y !== n - 1 && s.x !== (n - 1) / 2; }); if (off.length) return `moves ${off.length} stickers of the blocks`; }
   return '';
 }
 
@@ -42,9 +44,9 @@ const fto = PUZZLES.find((p) => p.id === 'fto')!;
 const others = PUZZLES.filter((p) => !p.n && p.id !== 'fto');
 const cases = (p: Puzzle): [string, AlgCase][] => p.sections.flatMap((s) => s.cases.map((c): [string, AlgCase] => [`${p.name} / ${s.title} / ${c.name}`, c]));
 
-describe('the sheet has the six puzzles and well-formed cases', () => {
-  it('lists the 2x2, 4x4, 5x5, Pyraminx, Skewb and FTO once each (the 3x3\'s OCLL and PLL are the Cases sheet\'s own)', () => {
-    expect(PUZZLES.map((p) => p.id)).toEqual(['222', '444', '555', 'pyra', 'skewb', 'fto']);
+describe('the sheet has the seven puzzles and well-formed cases', () => {
+  it('lists Roux, then the 2x2, 4x4, 5x5, Pyraminx, Skewb and FTO once each (the 3x3\'s OCLL and PLL are the Cases sheet\'s own)', () => {
+    expect(PUZZLES.map((p) => p.id)).toEqual(['333', '222', '444', '555', 'pyra', 'skewb', 'fto']);
   });
   for (const p of PUZZLES) {
     it(`${p.name}: names are unique, algs and notes are filled in, sources are https`, () => {

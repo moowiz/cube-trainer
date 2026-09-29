@@ -118,9 +118,10 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      (hear.ts parses the answer); a repeat mode: the algs over and over from wherever the
                      cube is, no scramble), practice (per-case
                      stats off the store's attempts, which sync to Firestore as their own collection)
-    algs/            the Algs sheet (the other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
+    algs/            the Algs sheet (Roux on the 3x3: CMLL and the LSE cases, each alg checked to keep the blocks; and the
+                     other puzzles' cheat sheet: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO): types,
                      data (the table; every cube alg is run on cube/nxn and checked by test), pic (n×n case
-                     pictures: top view with side strips, three-face view; the FTO's square), sheet (the picker
+                     pictures: top view with side strips, ignored pieces greyed, three-face view; the FTO's square), sheet (the picker
                      and the cards), player (the 3D move player any puzzle plugs into: an Animatable gives ops,
                      apply and polys; drag to orbit, step, play), nxn3d / fto3d (the cube's and the FTO's
                      Animatables; the LL reference sheet uses nxn3d too)

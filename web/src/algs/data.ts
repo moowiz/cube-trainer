@@ -1,5 +1,6 @@
-// The algs sheet's content: what is worth memorising on the other puzzles.
-// Researched 2026-09-20 from cubingcheatsheet.com (2x2-6x6), jperm.net,
+// The algs sheet's content: Roux on the 3x3 (CMLL from speedcubedb, the LSE
+// algs found by search on the model) and what is worth memorising on the
+// other puzzles. Researched 2026-09-20 from cubingcheatsheet.com (2x2-6x6), jperm.net,
 // speedcubedb.com, the speedsolving wiki, sarah.cubing.net (skewb, 5x5 L2E)
 // and Ben Streeter's FTO document. Every cube alg is run on the n×n model
 // by test/algs.test.ts and must do what its `check` claims, and so is every
@@ -17,6 +18,153 @@ import type { Puzzle } from './types';
 const SS = 'https://www.speedsolving.com/wiki/index.php/';
 const CCS = 'https://cubingcheatsheet.com/';
 const SCDB = 'https://www.speedcubedb.com/a/';
+
+const CMLL = `${SCDB}3x3/CMLL`;
+// Found by search on the n×n model (2026-09-28): the shortest M and U sequence with the blocks kept, the corners back
+// where they were and the middle-slice centres home, so each is the whole alg with its AUF and no centre fix owed.
+const SEARCH = 'https://github.com/moowiz/cube_stuff/blob/main/web/src/algs/data.ts';
+const roux: Puzzle = {
+  id: '333', name: 'Roux', n: 3, viewer: '3x3x3',
+  notation: 'Face turns as usual. <code>M</code> is the middle slice between the two blocks, turned the way <code>L</code> turns (so <code>M\'</code> brings the front edge up); <code>r</code> is the right face and that slice together (<code>Rw</code>), so <code>r U r\'</code> is <code>R U R\'</code> with the slice along. Held with the blocks on the left and right: the first block\'s centre is on the left, the top colour is whatever the corners show, since the middle slice is free until the end. Every alg here was run on the cube model and keeps both blocks.',
+  intro: '<b>Roux</b>: a 1x2x3 block on the left (a centre, the edge below it and the two corner-edge pairs either side), the same on the right, then <b>CMLL</b> (the four top corners in one alg, the edges ignored: 42 cases, the same seven orientations as the OCLL drill), then <b>LSE</b>, the last six edges with only <code>M</code> and <code>U</code>: orient them, put the left and right top edges in, and finish the middle slice. Nothing but CMLL is memorised; LSE\'s algs below are for reference and for the cases you get stuck on.',
+  sections: [
+    {
+      title: 'The method, step by step',
+      steps: [
+        '<b>First block.</b> Pick a centre for the left. Pair its bottom edge with the centre, then build the two corner-edge pairs on either side (a corner in the bottom layer with the edge above it) and slot them in. Anything goes: the cube is free, so turn whatever is quickest.',
+        '<b>Second block.</b> The same 1x2x3 on the right, with <code>R</code>, <code>r</code>, <code>M</code> and <code>U</code> so the first block never moves. Build each pair in the top layer or with the middle slice, then <code>R U R\'</code> it home.',
+        '<b>CMLL.</b> Look at the four top corners only. Their orientation is one of the seven OCLL shapes (the top-colour stickers), and within a shape the six permutations are told apart by which side stickers match: a <i>bar</i> is two matching side stickers next to each other, a pair of <i>opposites</i> is two stickers of opposite colours. One alg, from the tables below.',
+        '<b>LSE 4a: orient the six edges.</b> An edge is right when its top-or-bottom colour faces up or down. Count the wrong ones on top and below, hold them as the picture shows (a <code>U</code> turn is free, so is turning the cube over), and do the alg. Every alg is <code>M</code> and <code>U</code> turns alternating; the arrow, the commonest, is three of them and an AUF.',
+        '<b>LSE 4b: the left and right top edges.</b> Bring the two edges that belong beside the left and right centres into the top layer and put them there with <code>U</code> and <code>M</code> turns (<code>M2</code> swaps the front top edge with the back bottom one). When they sit across from each other on top, turn them to the left and right places; when they are together, <code>M2</code> after a <code>U</code> or two separates them.',
+        '<b>LSE 4c: the last four.</b> Turn the middle slice until its centres match the left and right blocks (top colour up), then it is one of the eleven cases below, all of them <code>M2</code> and <code>U2</code>.',
+      ],
+      cases: [],
+    },
+    {
+      title: 'CMLL: all four up',
+      blurb: 'All four corners have the top colour up: only their order is wrong. Two cases, and both are 3x3 PLLs in disguise (a T perm and a Y perm), because a corner swap that keeps the blocks must move top edges too.',
+      cases: [
+        { name: 'O Adjacent', alg: "R U R' F' R U R' U' R' F R2 U' R'", alt: ["R U R' U' R' F R2 U' R' U' R U R' F' U"], note: 'Same colour: front-left and right-back; front-right and back-right; right-front and back-left; left-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'O Diagonal', alg: "F R U' R' U' R U R' F' R U R' U' R' F R F'", alt: ["R U' R2 F R F' R U' B U2 B' R' U'"], note: 'Same colour: front-left and back-left; front-right and back-right; right-front and left-front; right-back and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: H',
+      blurb: 'No corner has the top colour up, and the four top-colour stickers make two pairs, one on the front and one on the back.',
+      cases: [
+        { name: 'H Columns', alg: "U R U R' U R U' R' U R U2 R'", alt: ["R U2 R' U' R U R' U' R U' R' U"], note: 'Top colour at front-left, front-right, back-right and back-left. Same colour: right-front and left-front; right-back and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'H Rows', alg: "F R U R' U' R U R' U' R U R' U' F'", alt: ["F U R U' R' U R U' R' U R U' R' F'"], note: 'Top colour at front-left, front-right, back-right and back-left. Same colour: right-front and right-back; left-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'H Column', alg: "R' F2 D R2 U R2 D' F2 R", alt: ["U R U2 R2 F R F' U2 R' F R F' U2"], note: 'Top colour at front-left, front-right, back-right and back-left. Same colour: left-back and left-front. Opposite colours: right-front and right-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'H Row', alg: "U2 r U' r2 D' r U' r' D r2 U r'", alt: ["U' R U R' U R U r' F R' F' r U"], note: 'Top colour at front-left, front-right, back-right and back-left. Same colour: right-back and left-back. Opposite colours: right-front and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: Pi',
+      blurb: 'No corner up; two top-colour stickers make a pair on the left, the other two sit at front-right and back-left.',
+      cases: [
+        { name: 'Pi Right Bar', alg: "F R U R' U' R U R' U' F'", alt: ["r' U r2 U' r2 U' r2 U r' U2"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: front-left and back-left. Opposite colours: right-front and right-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'Pi Down Slash', alg: "U F R' F' R U2 R U' R' U R U2 R'", alt: ["U F U R U' R2 F' R U2 R U2 R'"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: front-left and right-back. Opposite colours: right-front and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'Pi X', alg: "R' F2 D R2 U' R2 D' F2 R", alt: ["U' R' F R U F U' R U R' U' F' U'"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: front-left and back-left; right-front and right-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'Pi Up Slash', alg: "R U2 R' U' R U R' U2 R' F R F'", alt: ["R U2 R' U2 R' F R2 U R' U' F'"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: right-front and back-left. Opposite colours: front-left and right-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'Pi Columns', alg: "U' r U' r2 D' r U r' D r2 U r'", alt: ["U2 R' F R F' r U' r' U' R U' R' U'"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: front-left and right-back; right-front and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'Pi Left Bar', alg: "U' R' U' R' F R F' R U' R' U2 R", alt: ["R' F' U' F U' R U R' U R U'"], note: 'Top colour at front-right, back-right, left-back and left-front. Same colour: right-front and right-back. Opposite colours: front-left and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: U',
+      blurb: 'The two front corners are up; the two back corners show their top colour on the back.',
+      cases: [
+        { name: 'U Up Slash', alg: "U2 R2 D R' U2 R D' R' U2 R'", alt: ["U2 R r D r' U2 r D' r' U2 R'"], note: 'Top colour at back-right and back-left. Same colour: front-right and right-back; right-front and left-back. Opposite colours: front-left and right-front; front-left and left-back; front-right and left-front; right-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'U Down Slash', alg: "R2 D' R U2 R' D R U2 R", alt: ["R' F R U R' F R U F U2 F' U2"], note: 'Top colour at back-right and back-left. Same colour: front-left and left-back; right-back and left-front. Opposite colours: front-left and right-front; front-right and right-back; front-right and left-front; right-front and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'U Bottom Row', alg: "R' U' R U' R' U2 R2 U R' U R U2 R'", alt: ["U' R2 F2 r U r' F R2 U2 r' U' r"], note: 'Top colour at back-right and back-left. Same colour: front-left and front-right; right-back and left-back. Opposite colours: right-front and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'U Rows', alg: "U' F R2 D R' U R D' R2 U' F'", alt: ["F U R2 D R' U' R D' R2 F' U"], note: 'Top colour at back-right and back-left. Same colour: front-left and front-right; right-front and left-back; right-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'U X', alg: "U2 r U' r' U r' D' r U' r' D r", alt: ["F R U' R' U R U R' U R U' R' F' U2"], note: 'Top colour at back-right and back-left. Same colour: right-front and left-front; right-back and left-back. Opposite colours: front-left and front-right.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'U Upper Row', alg: "U' F R U R' U' F'", alt: ["U F U R U' R' F' U2"], note: 'Top colour at back-right and back-left. Same colour: front-left and left-back; front-right and right-back; right-front and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: T',
+      blurb: 'The two front corners are up; the back-right corner shows its top colour on the right and the back-left one on the left.',
+      cases: [
+        { name: 'T Left Bar', alg: "U' R U R' U' R' F R F'", alt: ["U' r U R' U' r' F R F'"], note: 'Top colour at right-back and left-back. Same colour: front-right and back-left; right-front and back-right. Opposite colours: front-left and right-front; front-left and back-right; front-right and left-front; back-left and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'T Right Bar', alg: "U L' U' L U L F' L' F", alt: ["U r' F' r U r U' r' F"], note: 'Top colour at right-back and left-back. Same colour: front-left and back-right; back-left and left-front. Opposite colours: front-left and right-front; front-right and back-left; front-right and left-front; right-front and back-right.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'T Rows', alg: "R U2 R' U' R U' R2 U2 R U R' U R", alt: ["F R' F R2 U' R' U' R U R' F2 U"], note: 'Top colour at right-back and left-back. Same colour: front-left and front-right; right-front and back-right; back-left and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'T Bottom Row', alg: "r' U r U2 R2 F R F' R", alt: ["R U R2 F R F' U r U r'"], note: 'Top colour at right-back and left-back. Same colour: front-left and front-right; back-right and back-left. Opposite colours: right-front and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'T Top Row', alg: "r' D' r U r' D r U' r U r'", alt: ["U R' D R U' R U R' U R' D' R U'"], note: 'Top colour at right-back and left-back. Same colour: front-left and back-right; front-right and back-left; right-front and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'T Columns', alg: "U2 r U' r2 D' r U2 r' D r2 U r'", alt: ["U2 r2 D' r U r' D r2 U' r' U' r U"], note: 'Top colour at right-back and left-back. Same colour: right-front and left-front; back-right and back-left. Opposite colours: front-left and front-right.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: Sune',
+      blurb: 'One corner up, the front-right one; the other three show their top colour at right-back, back-left and left-front, each one place round from its corner.',
+      cases: [
+        { name: 'S Left Bar', alg: "U R U R' U R U2 R'", alt: ["R' U2 R U R' U R U"], note: 'Top colour at right-back, back-left and left-front. Same colour: right-front and back-right. Opposite colours: front-left and right-front; front-left and back-right; front-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'S X', alg: "U L' U2 L U2 r U' r' F", alt: ["U r' F2 r U2 r U' r' F"], note: 'Top colour at right-back, back-left and left-front. Same colour: right-front and back-right. Opposite colours: front-left and front-right; right-front and left-back; back-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'S Up Slash', alg: "U F R' F' R U2 R U2 R'", note: 'Top colour at right-back, back-left and left-front. Same colour: right-front and left-back. Opposite colours: front-left and right-front; front-left and left-back; front-right and back-right.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'S Columns', alg: "U R U R' U' R' F R F' R U R' U R U2 R'", alt: ["R U R' U R U' R D R' U' R D' R2 U"], note: 'Top colour at right-back, back-left and left-front. Same colour: right-front and left-back. Opposite colours: front-left and front-right; right-front and back-right; back-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'S Right Bar', alg: "U' R U R' U R' F R F' R U2 R'", alt: ["U' R U R' U r' F R F' r U2 R'"], note: 'Top colour at right-back, back-left and left-front. Same colour: front-left and right-front. Opposite colours: front-left and back-right; front-right and left-back; right-front and back-right.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'S Down Slash', alg: "U r U' r' F R' F' R", alt: ["U R U' r' F R' F' r"], note: 'Top colour at right-back, back-left and left-front. Same colour: front-left and right-front. Opposite colours: front-left and left-back; front-right and back-right; right-front and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: Anti-Sune',
+      blurb: 'One corner up, the front-left one; the other three show their top colour at right-front, back-right and left-back.',
+      cases: [
+        { name: 'AS Right Bar', alg: "U R' U' R U' R' U2 R", alt: ["U2 R U2 R' U' R U' R' U'"], note: 'Top colour at right-front, back-right and left-back. Same colour: back-left and left-front. Opposite colours: front-left and right-back; front-right and back-left; front-right and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'AS Columns', alg: "U2 R U R2 F' r F R U' r2 F r", alt: ["U' R2 D R' U R D' R' U R' U' R U' R' U2"], note: 'Top colour at right-front, back-right and left-back. Same colour: right-back and left-front. Opposite colours: front-left and front-right; right-back and back-left; back-left and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'AS Down Slash', alg: "U' F' L F L' U2 L' U2 L", alt: ["U' F' r U r' U2 r' F2 r"], note: 'Top colour at right-front, back-right and left-back. Same colour: right-back and left-front. Opposite colours: front-left and back-left; front-right and right-back; front-right and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'AS X', alg: "U' R U2 R' U2 R' F R F'", alt: ["U' R U2 R' U2 r' F R F' M'"], note: 'Top colour at right-front, back-right and left-back. Same colour: back-left and left-front. Opposite colours: front-left and front-right; right-back and back-left; right-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'AS Up Slash', alg: "U' R' F R F' r U r'", alt: ["U' r' F R F' r U R'"], note: 'Top colour at right-front, back-right and left-back. Same colour: front-right and left-front. Opposite colours: front-left and back-left; front-right and right-back; right-back and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'AS Left Bar', alg: "U R U2 R' F R' F' R U' R U' R'", alt: ["R' U' R U' R' U R' F R F' U R U"], note: 'Top colour at right-front, back-right and left-back. Same colour: front-right and left-front. Opposite colours: front-left and right-back; front-right and back-left; back-left and left-front.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'CMLL: L',
+      blurb: 'Two corners up on a diagonal, back-left and front-right; the other two show their top colour at back-right and left-front.',
+      cases: [
+        { name: 'L Best', alg: "U' F' r U r' U' r' F r", alt: ["U2 F R U' R' U' R U R' F' U2"], note: 'Top colour at back-right and left-front. Same colour: front-left and right-back; right-front and back-left. Opposite colours: front-right and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'L Good', alg: "U2 F R' F' R U R U' R'", alt: ["U2 F R' F' r U R U' r'"], note: 'Top colour at back-right and left-front. Same colour: front-left and right-back; front-right and left-back. Opposite colours: right-front and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'L Pure', alg: "R U R' U R U' R' U R U' R' U R U2 R'", alt: ["R U2 R' U' R U R' U' R U R' U' R U' R'"], note: 'Top colour at back-right and left-front. Same colour: front-left and left-back; right-back and back-left. Opposite colours: front-left and right-front; front-right and right-back; front-right and back-left; right-front and left-back.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'L Front Commutator', alg: "U2 R U2 R D R' U2 R D' R2", alt: ["U2 R U2 r D r' U2 r D' r' R'"], note: 'Top colour at back-right and left-front. Same colour: front-left and right-front; front-right and left-back; right-back and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'L Diagonal', alg: "U2 R U2 R2 F R F' R U2 R'", alt: ["U2 r U2 R2 F R F' R U2 r'"], note: 'Top colour at back-right and left-front. Same colour: front-left and right-front; front-right and right-back. Opposite colours: front-left and left-back; front-right and back-left; right-front and left-back; right-back and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+        { name: 'L Back Commutator', alg: "U R' U2 R' D' R U2 R' D R2", alt: ["U2 R U R' U' R' F R2 U' R' U R U R' F' U2"], note: 'Top colour at back-right and left-front. Same colour: front-left and left-back; front-right and right-back; right-front and back-left.', pic: 'top', dim: ['edge', 'centre'], check: { blocks: true }, source: CMLL },
+      ],
+    },
+    {
+      title: 'LSE 4a: edge orientation',
+      blurb: 'Nine cases, counted as wrong edges on top and below; the pictures show every side down to the bottom edge, so a wrong edge below is the top-or-bottom colour showing on the front or back strip. The corners are greyed: they are done and the algs put them back.',
+      cases: [
+        { name: 'Two on top, across from each other', alg: "M U M' U' M U M' U'", note: 'Flipped: top-front and top-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two on top, next to each other', alg: "M' U M' U2 M' U M'", note: 'Flipped: top-back and top-left.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Four on top', alg: "U M' U2 M' U2 M' U' M'", note: 'Flipped: top-front, top-back, top-left and top-right.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'One on top, one below', alg: "U2 M U' M' U' M U M' U'", note: 'Flipped: top-back and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Arrow: three on top, one below', alg: "U M U' M'", note: 'Flipped: top-front, top-back, top-left and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two below', alg: "U M U M U' M' U' M'", note: 'Flipped: bottom-front and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two below, two on top across from each other', alg: "U M U2 M U2 M' U' M'", note: 'Flipped: top-front, top-back, bottom-front and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two below, two on top next to each other', alg: "M2 U' M' U M'", note: 'Flipped: top-back, top-left, bottom-front and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'All six', alg: "M' U M' U2 M' U' M U' M' U' M'", note: 'Flipped: top-front, top-back, top-left, top-right, bottom-front and bottom-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+      ],
+    },
+    {
+      title: 'LSE 4c: the last four edges',
+      folded: true,
+      blurb: 'With the left and right top edges in and the middle-slice centres matched, the four edges left are top-front, top-back, bottom-front and bottom-back. Eleven cases: eight three-cycles (one edge already right) and three pairs of swaps. The pictures are read like the ones above.',
+      cases: [
+        { name: 'Three cycle, bottom-front stays: top-front → top-back → bottom-back', alg: "M U2 M' U2", note: 'Bottom-front is already right; the other three each move one place on: top-front → top-back → bottom-back → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, bottom-back stays: top-front → bottom-front → top-back', alg: "M' U2 M U2", note: 'Bottom-back is already right; the other three each move one place on: top-front → bottom-front → top-back → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, bottom-front stays: top-front → bottom-back → top-back', alg: "U2 M U2 M'", note: 'Bottom-front is already right; the other three each move one place on: top-front → bottom-back → top-back → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, bottom-back stays: top-front → top-back → bottom-front', alg: "U2 M' U2 M", note: 'Bottom-back is already right; the other three each move one place on: top-front → top-back → bottom-front → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, top-front stays: top-back → bottom-front → bottom-back', alg: "M U2 M U2 M2", note: 'Top-front is already right; the other three each move one place on: top-back → bottom-front → bottom-back → top-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two swaps: top-front with bottom-front, top-back with bottom-back', alg: "M U2 M2 U2 M", note: 'The pieces change places in pairs.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, top-back stays: top-front → bottom-back → bottom-front', alg: "M' U2 M' U2 M2", note: 'Top-back is already right; the other three each move one place on: top-front → bottom-back → bottom-front → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, top-back stays: top-front → bottom-front → bottom-back', alg: "M2 U2 M U2 M", note: 'Top-back is already right; the other three each move one place on: top-front → bottom-front → bottom-back → top-front.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Three cycle, top-front stays: top-back → bottom-back → bottom-front', alg: "M2 U2 M' U2 M'", note: 'Top-front is already right; the other three each move one place on: top-back → bottom-back → bottom-front → top-back.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two swaps: top-front with top-back, bottom-front with bottom-back', alg: "M2 U2 M2 U2", note: 'The pieces change places in pairs.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+        { name: 'Two swaps: top-front with bottom-back, top-back with bottom-front', alg: "U2 M U2 M2 U2 M U2", note: 'The pieces change places in pairs.', pic: 'top3', dim: ['corner'], check: { blocks: true, only: ['edge', 'centre'] }, source: SEARCH },
+      ],
+    },
+  ],
+};
 
 const p222: Puzzle = {
   id: '222', name: '2x2', n: 2, viewer: '2x2x2',
@@ -277,5 +425,5 @@ const fto: Puzzle = {
   ],
 };
 
-// (the 3x3's last layer is not here: its OCLL and PLL are the Cases sheet's own, user 2026-09-27)
-export const PUZZLES: Puzzle[] = [p222, p444, p555, pyra, skewb, fto];
+// (the 3x3's last layer is not here: its OCLL and PLL are the Cases sheet's own, user 2026-09-27; Roux is, 2026-09-28)
+export const PUZZLES: Puzzle[] = [roux, p222, p444, p555, pyra, skewb, fto];

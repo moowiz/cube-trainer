@@ -8,7 +8,7 @@
   "background_color": "#ECEEF2",
   "theme_color": "#ECEEF2",
   "shortcuts": [
-    { "name": "Algs", "short_name": "Algs", "description": "The other puzzles' algs: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO", "url": "./?tab=algs" },
+    { "name": "Algs", "short_name": "Algs", "description": "Roux on the 3x3 and the other puzzles' algs: 2x2, 4x4, 5x5, Pyraminx, Skewb, FTO", "url": "./?tab=algs" },
     { "name": "Scan", "short_name": "Scan", "description": "Scan the cube", "url": "./?tab=scan" }
   ],
   "icons": [

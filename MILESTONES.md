@@ -655,6 +655,12 @@ video-window-model call `docs/twist-head-plan.md` leaves open.
   cheat sheet - 2x2 Ortega, 4x4 / 5x5 parities, centres and edges with
   pictures off an n×n model (`cube/nxn.ts`, every alg checked by test),
   Pyraminx / Skewb / FTO as text, checked once against cubing.js.
+  **Roux added 2026-09-28** as the sheet's first tab: the method's steps, the
+  42 CMLL cases (speedcubedb's algs, each run on the model to keep the blocks,
+  the pictures with the edges greyed) and LSE (the nine edge-orientation cases
+  and the eleven last-four-edge cases, algs found by search on the model with
+  the centres home). No Roux drill, timer splits or stars/notes: those need a
+  Roux stage predicate and a new store kind.
   Installable as a PWA since 2026-09-17 (manifest +
   icons; the isolation service worker satisfies the install check);
   offline caching of the app is NOT done and is the expensive half

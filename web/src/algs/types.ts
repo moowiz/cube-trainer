@@ -7,7 +7,7 @@
 import type { FtoFace } from '../cube/fto';
 
 // not store/types.ts's PuzzleId (WCA / csTimer codes: 'pyram', 'minx'): these name the sheet's sections
-export type AlgPuzzleId = '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
+export type AlgPuzzleId = '333' | '222' | '444' | '555' | 'pyra' | 'skewb' | 'fto';
 
 /** What an NxN or FTO alg is allowed to change on a solved puzzle (checked by test). */
 export interface Check {
@@ -17,6 +17,8 @@ export interface Check {
   top?: boolean;
   /** the alg does change something (the default); false for a pure rotation check */
   changes?: boolean;
+  /** Roux: the two 1x2x3 blocks stay (every sticker off the top layer and the middle slice between the blocks) */
+  blocks?: boolean;
 }
 
 export interface AlgCase {
@@ -28,9 +30,12 @@ export interface AlgCase {
   /** what it does, or how to recognise it: one or two sentences, in colours not letters */
   note?: string;
   /** NxN only: the picture is the case (the alg's inverse on a solved cube) - top view with one row of each side
-   *  (`top`), with two rows (`top2`, the whole 2x2 but its bottom), the three-face view (`iso`), or none.
+   *  (`top`), with two rows (`top2`, the whole 2x2 but its bottom), with three (`top3`, every side of a 3x3 to its
+   *  bottom edge, for the Roux middle slice), the three-face view (`iso`), or none.
    *  The FTO has one view (the square from the front corner, cube/fto.ts) and draws every case unless `none`. */
-  pic?: 'top' | 'top2' | 'iso' | 'none';
+  pic?: 'top' | 'top2' | 'top3' | 'iso' | 'none';
+  /** NxN only: piece types drawn grey in the picture, for a case that ignores them (CMLL ignores the edges) */
+  dim?: ('corner' | 'edge' | 'centre')[];
   /** NxN only: a rotation the picture is turned by, so the pieces the alg moves are in view (the check ignores it) */
   setup?: string;
   /** NxN and FTO: the claim the test verifies */

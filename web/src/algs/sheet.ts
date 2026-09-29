@@ -1,5 +1,5 @@
-// The algs sheet: the other puzzles' cheat sheet (2x2, 4x4, 5x5,
-// Pyraminx, Skewb, FTO) in index.html's #algs-sheet. A puzzle picker,
+// The algs sheet: Roux on the 3x3 and the other puzzles' cheat sheet (2x2,
+// 4x4, 5x5, Pyraminx, Skewb, FTO) in index.html's #algs-sheet. A puzzle picker,
 // the puzzle's notation and intro, then its sections of cases: for the
 // cubes a picture of the case (the alg's inverse on the n×n model, in the
 // user's colour scheme; the FTO from its front corner), the alg, what it does, and a link that plays it
@@ -92,7 +92,7 @@ export function caseSvg(p: Puzzle, c: AlgCase): string | null {
   if (p.id === 'fto') inner = picFto(applyFto(setupAlg(p, c.alg), undefined, c.frame ?? 'ben'), c.scheme);
   else if (p.n) {
     const state = rawNxN(p.n, c.setup ?? '', applyNxN(p.n, setupAlg(p, c.alg)));
-    inner = c.pic === 'iso' ? picIso(p.n, state) : picTop(p.n, state, c.pic === 'top2' ? 2 : 1);
+    inner = c.pic === 'iso' ? picIso(p.n, state, c.dim) : picTop(p.n, state, c.pic === 'top3' ? 3 : c.pic === 'top2' ? 2 : 1, c.dim);
   } else return null;
   return `<svg viewBox="0 0 200 200" aria-label="${esc(c.name)}">${inner}</svg>`;
 }
