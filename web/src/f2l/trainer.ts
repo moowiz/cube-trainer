@@ -109,7 +109,7 @@ const STYLE = `
   .f2l .result.askhide > :not(.askmsg) { display: none; }
   .f2l .askmsg { font-size: 15px; color: var(--ink-2); }
   /* the algs hidden: the fewest moves and the kind, the rows kept (hidden) so the cube's turns are still followed */
-  .f2l .result.noalgs .alg, .f2l .result.noalgs h3, .f2l .result.noalgs table.trace { display: none; }
+  .f2l .result.noalgs .alg, .f2l .result.noalgs h3, .f2l .result.noalgs table.trace, .f2l .result.noalgs .hiddenalgs { display: none; }
   .f2l .fewest { font-size: 16px; margin: 4px 0 14px; } .f2l .fewest span { color: var(--ink-2); font-size: 14px; }
   .f2l .tracker.cards > span.best:not(.cur) { border-color: #1B7A3E; }
   .f2l .tracker > span.done { opacity: .45; text-decoration: line-through; cursor: default; }

@@ -217,7 +217,10 @@ function pickRow(r: RowId, stop?: SplitStage): void {
 // ---- a mode's settings: the stages' own rows, moved into one sheet ----
 function openSetup(): void {
   const sec = mode;
-  document.querySelectorAll<HTMLElement>('#setup-sheet [data-setup]').forEach((s) => { s.hidden = s.dataset.setup !== sec; });
+  // the finder shows the F2L section too (its hint, algs and Algs-to-show rows; the practice-only rows hidden by
+  // CSS): user, 2026-09-29, "the settings at the top didn't show anything", with the algs switched off out of reach
+  document.querySelectorAll<HTMLElement>('#setup-sheet [data-setup]').forEach((s) => { s.hidden = s.dataset.setup !== sec && !(sec === 'find' && s.dataset.setup === 'f2l'); });
+  document.getElementById('setup-sheet')!.classList.toggle('find', sec === 'find');
   document.querySelectorAll<HTMLElement>('#setup-sheet [data-llset]').forEach((s) => { s.hidden = s.dataset.llset !== llSet(); });
   document.getElementById('setup-title')!.textContent = `${modeDef(mode).name()} · settings`;
   paintSegs();

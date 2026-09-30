@@ -153,6 +153,10 @@
   .set-sec { max-width: 560px; margin: 0 auto 8px; }
   .set-sec h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-2); margin: 16px 2px 2px; }
   .set-sec .lbl label { cursor: pointer; }
+  /* the finder (Find an F2L case) shares the F2L section, minus the rows that need a scramble or a cube */
+  #setup-sheet.find [data-practice] { display: none; }
+  /* the Algs-to-show chips take the row's full width instead of a squeezed column beside the blurb */
+  #setup-sheet .eo-opt:has(.f2l-tools) { flex-direction: column; align-items: stretch; }
   .set-sec select, .set-sec .ll-opts select { font: inherit; font-size: 15px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
   .eo-opt { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
   .eo-opt:last-of-type { border-bottom: none; }
@@ -271,17 +275,17 @@
           <div class="eo-seg" data-set="target"><button type="button" data-v="any">Any</button><button type="button" data-v="2">2</button><button type="button" data-v="4">4</button><button type="button" data-v="6">6</button><button type="button" data-v="8">8</button></div></div>
       </section>
       <section class="set-sec" data-setup="f2l">
-        <div class="eo-opt" id="f2l-kindrow"><div><div class="lbl">Scrambles</div><span class="sub">All four pairs mixed, or one of the cases you picked (Cases → F2L → Practice) put on its pair.</span></div>
+        <div class="eo-opt" id="f2l-kindrow" data-practice><div><div class="lbl">Scrambles</div><span class="sub">All four pairs mixed, or one of the cases you picked (Cases → F2L → Practice) put on its pair.</span></div>
           <div class="eo-seg" id="f2l-kind"><button type="button" data-v="all">All pairs</button><button type="button" data-v="picked">Picked cases</button></div></div>
-        <div id="setup-f2l-moved"></div>
+        <div id="setup-f2l-moved" data-practice></div>
         <div class="eo-opt"><div class="lbl"><label><input type="checkbox" id="showhints" checked> Show the hint above the cube</label></div></div>
         <div class="eo-opt"><div><div class="lbl"><label><input type="checkbox" id="showalgs" checked> Show the algs</label></div><span class="sub">Off: each pair shows only its fewest moves and what kind of alg that is (D conjugate, D2 conjugate, pop then insert, ...), and you work out the moves yourself.</span></div></div>
         <div class="eo-opt"><div><div class="lbl">Algs to show</div><span class="sub">Every way to solve the case is listed; an alg shows when each kind of move it uses is on. One side and U are always on. The number is how many algs across the four slots a chip alone shows or hides; the case sheet (Cases → F2L) lists the hidden ones greyed under each case, and its "one hidden by Algs with" chip narrows to those cases.</span></div>
           <div class="f2l-tools" id="f2l-tools"></div></div>
-        <div class="eo-opt"><div><div class="lbl">Voice: name the case</div><span class="sub">With a smart cube: say a pair and what you'd do for it (“front left D conjugate”) and hear yes or no. A pair's case stays hidden on the page until you name it. Listening uses the browser's speech recognition (Google's servers, on Android).</span></div>
+        <div class="eo-opt" data-practice><div><div class="lbl">Voice: name the case</div><span class="sub">With a smart cube: say a pair and what you'd do for it (“front left D conjugate”) and hear yes or no. A pair's case stays hidden on the page until you name it. Listening uses the browser's speech recognition (Google's servers, on Android).</span></div>
           <div class="eo-seg" data-f2lvoice="ask"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div></div>
-        <details class="f2l-say"><summary>What to say</summary><div id="f2l-voice-words"></div></details>
-        <div class="eo-opt"><div><div class="lbl">Voice: call out cases</div><span class="sub">When the cube is at F2L and still, the pairs whose case you picked (Cases → F2L → Practice), or every case, are said once each: “front left D conjugate, front right keyhole”.</span></div>
+        <details class="f2l-say" data-practice><summary>What to say</summary><div id="f2l-voice-words"></div></details>
+        <div class="eo-opt" data-practice><div><div class="lbl">Voice: call out cases</div><span class="sub">When the cube is at F2L and still, the pairs whose case you picked (Cases → F2L → Practice), or every case, are said once each: “front left D conjugate, front right keyhole”.</span></div>
           <div class="eo-seg" data-f2lvoice="call"><button type="button" data-v="off">Off</button><button type="button" data-v="picked">Picked</button><button type="button" data-v="all">All</button></div></div>
       </section>
       <section class="set-sec" data-setup="ll">
@@ -290,7 +294,7 @@
         <div id="setup-ll-ocll" data-llset="ocll"></div>
         <div id="setup-ll-pll" data-llset="pll"></div>
       </section>
-      <section class="set-sec" data-setup="find"><p style="color:var(--ink-2)">Nothing to set: pick the slot on the chips above the cube, then tap where the pieces are.</p></section>
+      <section class="set-sec" data-setup="find"><p style="color:var(--ink-2)">Pick the slot on the chips above the cube, then tap where the pieces are. The rows above are the finder's display settings, shared with the F2L practice; the scramble and voice settings come with the practice.</p></section>
     </div>
   </div>
 </div>
