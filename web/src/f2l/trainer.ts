@@ -206,7 +206,7 @@ const MARKUP = `
   <h1>ZZF2L case finder</h1>
   <p>Tap the facelet where the <b>white</b> sticker of your corner is, then tap where the <span id="edgename">green-red</span> edge is. White stays on the bottom.</p>
   <p style="margin-top:8px">All four slots start open, like right after EOCross. A practice scramble keeps EO and the cross solved and is tracked from the moment it is made; on a smart cube the pieces follow your turns. Solve a pair on your cube, press <b>Solved, next pair</b>, and it's marked done.</p>
-  <details class="principles"><summary>The principles behind the cases</summary>
+  <details class="principles" open><summary>The principles behind the cases</summary>
     <ol>
       <li><b>EO is done, so no F/B quarter turns.</b> Edge orientation stops being a variable: a top-layer edge always has its front/back colour facing up, and a slotted edge always has it facing front/back. You only ever need to know <i>where</i> the edge is.</li>
       <li><b>A case is corner orientation first, edge position second.</b> Three corner states: white facing up (the awkward one), or white on a side with one of the pair's two colours on top. The case sheet groups them that way; which colour is on top does not change when you turn the top layer.</li>

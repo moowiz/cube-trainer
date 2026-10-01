@@ -533,7 +533,7 @@ gets exactly that. Section 8 has the alternatives.
   - "Undo the pair" and "New scramble" at the bottom.
   - "Did this" and "Solved, next pair" appear only with source
     "Nothing".
-  - The principles move to Cases → F2L.
+  - The principles sit under the mode's ? help (user, 2026-09-30), open, not on the run view.
 - **Find an F2L case** (P8): its own preset.
   - The instruction line, the four slot chips, the tappable net or 3D
     view, and the answer card; Clear and Random case at the bottom.
@@ -567,7 +567,7 @@ gets exactly that. Section 8 has the alternatives.
 ### 6.7 Cases (the library)
 
 - **One destination.** Tabs: **F2L · OCLL · PLL · Other puzzles ·
-  Fingertricks.** The F2L principles become the head of the F2L tab.
+  Fingertricks.** (The F2L principles stayed with the F2L mode, under its ? help.)
 - **One card design** (today's `ui/refsheet.ts` scaffold, already
   shared by the last-layer and F2L sheets):
   - the picture and the alg with chunk labels;
@@ -689,7 +689,7 @@ on the gear · Settings (s) → the gear.
 |---|---|
 | Heading, intro paragraph 1 | the Find preset |
 | Intro paragraph 2 | gone |
-| The principles | Cases → F2L |
+| The principles | the F2L mode's ? help |
 | F2L practice scramble | F2L's New (the rail) |
 | Practise picked cases | the F2L picked-cases preset |
 | Picked line, mirrors, other pairs solved | F2L setup → Cases |

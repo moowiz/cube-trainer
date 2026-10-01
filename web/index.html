@@ -93,10 +93,10 @@
   .focus .eo-head, .focus #tm-scr, .focus #tm-track, .focus #tm-pad, .focus #tm-sess, .focus #tm-next,
   .focus #eo-timer, .focus #eo-scramble, .focus #eo-orient, .focus .eo-row:has(#eo-timerBtn), .focus .eo-note:not(.eo-stratnote),
   .focus #ocll-timer, .focus #ocll-setup, .focus #ocll-track, .focus #pll-timer, .focus #pll-setup, .focus #pll-track, .focus #ocll-ref, .focus #pll-ref,
-  .focus .f2l .scrbtns, .focus .f2l #scrfollow, .focus .f2l .pairbtns #allcases, .focus .f2l > header > h1, .focus .f2l > header > p { display: none !important; }
+  .focus .f2l .scrbtns, .focus .f2l #scrfollow, .focus .f2l .pairbtns #allcases, .focus .f2l > header > h1, .focus .f2l > header > p, .focus .f2l > header > .principles { display: none !important; }
   /* the ? shows the prose again, where it was */
   .focus.help .eo-head { display: flex !important; } .focus.help .eo-head button { display: none; }
-  .focus.help #eo-orient, .focus.help .eo-note:not(.eo-stratnote), .focus.help .f2l > header > p { display: block !important; }
+  .focus.help #eo-orient, .focus.help .eo-note:not(.eo-stratnote), .focus.help .f2l > header > p, .focus.help .f2l > header > .principles { display: block !important; }
   /* with a cube the pairs move on by themselves: "Solved, next pair" is for tracking by hand */
   body.has-cube .focus .f2l .nextbtn { display: none !important; }
   /* typed moves only without a cube */
@@ -107,7 +107,7 @@
   .focus #pll-showSol, .focus #ocll-showSol { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
   /* F2L: the finder's tapping only in its own mode, the practice parts only in practice */
   .focus .f2l:not(.find) .views, .focus .f2l:not(.find) .netwrap, .focus .f2l:not(.find) .legend, .focus .f2l:not(.find) .controls { display: none !important; }
-  .focus .f2l.find .principles, .focus .f2l.find #scr, .focus .f2l.find #f2lpractice { display: none !important; }
+  .focus .f2l.find #scr, .focus .f2l.find #f2lpractice { display: none !important; }
   .focus .f2l.find > header > p:first-of-type { display: block !important; }
   .focus .f2l:not(.picked) #target { display: none; }
   /* the pane is narrower than the page the finder was laid out for: an alg keeps its line, the rest wraps under it */
