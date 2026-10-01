@@ -97,7 +97,8 @@ firebase/            firestore.rules (per-user) + firebase.json; paste into the 
                      favourite alg per case), search (the fewest R/L/U turns for a case, keeping the solved slots or going through
                      the open ones: the sheet is not assumed complete; scripts/f2l-derive.ts measures the sheet against it per
                      technique, docs/f2l-techniques.md; scripts/f2l-searched.ts precomputes every position's algs into searched.ts, the app
-                     only looks them up), algfilter (the move filter: which kinds of move the finder and the case sheet list;
+                     only looks them up); scripts/f2l-review.ts reads a coach export and lists the F2L cases met in the solves
+                     against the algs: what was done, the shortest from where the pair was, every option with its head, algfilter (the move filter: which kinds of move the finder and the case sheet list;
                      model.positionAlgs is every solution, greyed in the finder when it needs a solved slot), pic (the pair pictured on the cube), trainer (on a smart cube: the
                      scramble followed, the cube tracked from it, each pair's case read off it, the alg being done
                      lit and followed; `npm run check:f2l` replays that headlessly), reference (the case sheet: one
