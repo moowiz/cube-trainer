@@ -888,7 +888,7 @@ export function mountF2L(root: HTMLElement): Stage {
   // (user, 2026-09-26), its table marking the moves done and the one to do next (markFollow)
   const explaining = new Set<string>();
   // the finder's short word for a kind of move, on the rows' kind chips
-  const KIND_SHORT: Record<AlgTool, string> = { LR: 'R+L', D: 'D conj', D2: 'D2 conj', F2: 'F2/B2 pair', F2x: 'F2/B2 more', FB: 'F/B', wide: 'wide', slice: 'slice/rot' };
+  const KIND_SHORT: Record<AlgTool, string> = { LR: 'R+L', D: 'D conj', D2: 'D2 conj', F2: 'F2/B2 pair', F2x: 'F2/B2 more', FB: 'F/B', wide: 'wide', slice: 'slice/rot', crossUp: 'cross up' };
   /**
    * A row for an alg: its moves (each a span the cube's progress is marked on), its count, `tag`, the kinds of move it
    * uses (`tools`: each a chip that turns that kind off in Algs to show, or back on when it is what hides the row -

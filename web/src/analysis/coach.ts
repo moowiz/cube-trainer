@@ -113,10 +113,10 @@ const stepsOf = (list: readonly SolveAnalysis[], kind: CaseKind): Phase[] =>
 const caseName = (kind: CaseKind, id: string): string =>
   kind === 'f2l' ? `F2L ${id}` : `${KIND_WORD[kind]} ${CASES[kind].find((c) => c.id === id)?.name ?? id}`;
 
-/** An alg is easy to pick up when it is short and only one side and U (or R and L). */
+/** An alg is easy to pick up when it is short and only one side and U (or R and L), and keeps the cross edges down. */
 function ease(par: number | null, tools: readonly AlgTool[]): { w: number; word: string } {
   if (par === null) return { w: 0.5, word: '' };
-  const hard = tools.some((t) => t === 'FB' || t === 'wide' || t === 'D');
+  const hard = tools.some((t) => t === 'FB' || t === 'wide' || t === 'D' || t === 'crossUp');
   if (!hard && par <= 8) return { w: 1, word: 'easy' };
   if (!hard && par <= 11) return { w: 0.8, word: 'medium' };
   return { w: 0.55, word: 'harder' };

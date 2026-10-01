@@ -10,7 +10,7 @@ import { moveCount, tokens } from '../src/cube/alg';
 import { state } from '../src/cube/state';
 import { DATA } from '../src/f2l/data';
 import type { SlotName } from '../src/f2l/data';
-import { algTools, execCost, fullAlg, invert, overlaps, SLOTS, slotSolved } from '../src/f2l/model';
+import { algTools, crossUpAt, execCost, fullAlg, invert, overlaps, SLOTS, slotSolved } from '../src/f2l/model';
 import { ownSideAlg } from '../src/f2l/ownside';
 import { occupiedSlots, placedIn, RLU, RLUD, shortestAlgs } from '../src/f2l/search';
 
@@ -40,12 +40,16 @@ for (const slot of SLOTS) {
     for (const open of subsets) {
       const keep = others.filter((s) => !open.includes(s));
       for (let k = 0; k < SETS.length; k++) {
-        // twice: any alg, and one that never works R and L at once (hide that in the filter and its best is there)
-        for (const oneAtATime of [false, true]) {
-          const cap = Math.min(15, ...found.filter((f) => f.set <= k && within(f.open, open) && (!oneAtATime || !f.tools.includes('LR'))).map((f) => f.n));
+        // four times: any alg; one that never works R and L at once; one that never brings a cross edge up into the
+        // top layer; one that does neither - each kind hidden in the filter still has its best there (case 45's only
+        // sheet alg, R2 U' R2 U R2, lifts a cross edge, and hiding that kind left the case with nothing, 2026-09-30)
+        for (const oneAtATime of [false, true]) for (const crossDown of [false, true]) {
+          const fits = (tools: readonly string[]) => (!oneAtATime || !tools.includes('LR')) && (!crossDown || !tools.includes('crossUp'));
+          const cap = Math.min(15, ...found.filter((f) => f.set <= k && within(f.open, open) && fits(f.tools)).map((f) => f.n));
           // every shortest one (up to 200), one kept per mix of move kinds
           const byTools = new Map<string, string>();
-          const algs = shortestAlgs(pair, keep, { moves: SETS[k], maxDepth: cap - 1, limit: 200, accept: oneAtATime ? (a) => !overlaps(tokens(a)) : undefined });
+          const accept = oneAtATime || crossDown ? (a: string) => (!oneAtATime || !overlaps(tokens(a))) && (!crossDown || !crossUpAt(a)) : undefined;
+          const algs = shortestAlgs(pair, keep, { moves: SETS[k], maxDepth: cap - 1, limit: 200, accept });
           // the cheapest to do of each mix (a D where a D2 would do, execCost)
           for (const alg of algs) { const t = algTools(alg).join(), was = byTools.get(t); if (was === undefined || execCost(alg) < execCost(was)) byTools.set(t, alg); }
           for (const alg of byTools.values()) {

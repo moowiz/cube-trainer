@@ -152,7 +152,7 @@ function falseClaims(slot: SlotName, c: (typeof DATA.slots)['FR']['cases'][strin
   for (const b of borrowed) claim(setupM ? body.includes(SLOT_WORD[b]) : new RegExp(`lifts the [a-z -]*${SLOT_WORD[b]}`).test(body), `names the borrowed ${SLOT_WORD[b]} slot`);
   if (has('the half turns do that')) claim(lifts.every((t) => /2/.test(t)), `half turns lift the borrowed slot (${lifts.join(' ')})`);
   claim(has('slot shortcut') === used.length > 0, `shortcut through: ${used.join(',') || 'none'}`);
-  for (const s of used) claim(body.includes(`runs through the ${SLOT_WORD[s]}`) || body.includes(`and ${SLOT_WORD[s]} slots`), `names the used ${SLOT_WORD[s]} slot`);
+  for (const s of used) claim(body.includes(`runs through the ${SLOT_WORD[s]}`) || body.includes(`, ${SLOT_WORD[s]}`) || body.includes(`and ${SLOT_WORD[s]} slots`), `names the used ${SLOT_WORD[s]} slot`);
   const o = c.others.find((x) => x.alg === alg);
   if (o) claim([...o.free].sort().join() === [...used].sort().join(), `the sheet's free slots (${o.free}) are the ones it uses`);
   return bad.map((b) => `${slot} ${c.n} ${alg} [${head}]: ${b}`);
@@ -171,6 +171,9 @@ describe('explain() says only what the alg does', () => {
     expect(e('FR', 48, "D R U R' D' R U' R'").head).toBe('D conjugate.'); // the edge rides out and back: no slide
     expect(e('FL', 18, "R' D R U' R' D' R").head).toBe('Corner under the edge.');
     expect(e('BR', 26, "(U') r' U2 r B2").head).toBe('B2 flip.');
+    // a cross edge lifted into the top layer is said, with the move that does it (user, 2026-09-30, hiding such algs)
+    expect(e('FR', 16, 'R2 U R2 U R2 U2 R2').body).toContain('R2 brings a cross edge up into the top layer on the way');
+    expect(e('FR', 16, "R U R' U' R U R' U' R U R'").body).not.toContain('cross edge up');
     const cut = DATA.slots.FR.cases['51']!.others[0]!; // the pair sits in front-left; this one also goes through back-right
     expect(cut.free).toEqual(['BR']);
     expect(e('FR', 51, cut.alg).body).toContain('runs through the back-right slot and leaves other pieces there');

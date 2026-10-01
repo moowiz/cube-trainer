@@ -409,6 +409,9 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
 
   // the two sides at once: one side's slot still open (its turns not back to zero) while the other side turns
   if (overlaps(toks)) body += ' The two sides overlap: R and L turn different layers, so one side\'s slot is still open while the other side turns, instead of the pop and the insert one after the other.';
+  // a cross edge lifted into the top layer on the way (the user hides these: harder to follow than a dip into a slot)
+  const up = crossUpAt(full);
+  if (up) body += ` ${up} brings a cross edge up into the top layer on the way; it is back in the bottom by the end.`;
   // other slots the alg goes through: lifted and put back (whatever is there comes back), or left changed (a shortcut)
   const occ = new Set([cSlot, eSlot].filter((s): s is string => !!s));
   const bor = borrowedSlots(slot, alg, occ);
@@ -442,7 +445,8 @@ export function explain(slot: SlotName, c: F2LCase, alg: string): { head: string
   const end = state(normalizeAlg(full));
   const used = SLOTS.filter((s) => s !== slot && !occ.has(s) && !slotSolved(end, s));
   if (used.length) {
-    const names = used.map((s) => SLOT_WORD[s]).join(' and ');
+    // "front-left, back-right and back-left": the search's first-pair algs can run through three
+    const names = used.map((s) => SLOT_WORD[s]).reduce((acc, w, i, all) => (i === 0 ? w : i === all.length - 1 ? `${acc} and ${w}` : `${acc}, ${w}`), '');
     body += ` This is a slot shortcut: it runs through the ${names} slot${used.length > 1 ? 's' : ''} and leaves other pieces there, so use it only while ${used.length > 1 ? 'those slots are' : 'that slot is'} still unsolved.`;
   }
   return { head, body };
@@ -618,14 +622,26 @@ export function caseOf(id: string): { slot: SlotName; c: F2LCase } | null {
  * their shape (dShape: one out and one back, or a D2 among them / several, the harder ones to see - the sheet has
  * no several-D alg without a D2, so they share a kind); F2/B2 as one pair of the same half turn or as more than
  * that; F/B quarter turns (flip edges); wide turns; slices and rotations. Measured on the sheet 2026-09-28:
- * 326 / 254 / 108 / 211 / 159 / 6 / 10 / 3 algs.
+ * 326 / 254 / 108 / 211 / 159 / 6 / 10 / 3 algs. And one kind that is not a move but what the moves do: a cross
+ * edge brought up into the top layer on the way (an R2 from home, or two quarter turns the same way: R2 U R2 U R2
+ * U2 R2 lifts the right cross edge to UR with its first turn), which the user hides as too hard to follow
+ * (2026-09-30: "they take the white edge out of the bottom layer"). A basic insert only dips its cross edge into
+ * the middle layer, and R' U2 R2 U R2 U R keeps it there throughout, so neither counts.
  */
-export type AlgTool = 'LR' | 'D' | 'D2' | 'F2' | 'F2x' | 'FB' | 'wide' | 'slice';
-export const ALG_TOOLS: readonly AlgTool[] = ['LR', 'D', 'D2', 'F2', 'F2x', 'FB', 'wide', 'slice'];
+export type AlgTool = 'LR' | 'D' | 'D2' | 'F2' | 'F2x' | 'FB' | 'wide' | 'slice' | 'crossUp';
+export const ALG_TOOLS: readonly AlgTool[] = ['LR', 'D', 'D2', 'F2', 'F2x', 'FB', 'wide', 'slice', 'crossUp'];
 export const TOOL_WORD: Record<AlgTool, string> = {
   LR: 'R and L at once', D: 'D conjugate', D2: 'D2 / more D turns',
   F2: 'one F2 / B2 pair', F2x: 'more F2 / B2', FB: 'F / B quarter turns', wide: 'wide turns', slice: 'slice, rotation',
+  crossUp: 'a cross edge comes up',
 };
+/** The move that first brings a cross edge into the top layer, following `full` from a cube with the cross solved; null when none does. */
+export function crossUpAt(full: string): string | null {
+  const toks = tokens(normalizeAlg(full));
+  if (!toks.length) return null;
+  const k = stepStates(SOLVED, toks.join(' ')).findIndex(crossUp);
+  return k < 0 ? null : toks[k]!;
+}
 /** The kinds of move in an alg; [] for U and one side at a time (a pop on one side, then the insert on the other, is []). */
 export function algTools(alg: string): AlgTool[] {
   const t = tokens(normalizeAlg(alg)), has = (re: RegExp) => t.some((x) => re.test(x));
@@ -638,6 +654,7 @@ export function algTools(alg: string): AlgTool[] {
   if (has(/^[FB]'?$/)) out.push('FB');
   if (has(/^[rludfb]/)) out.push('wide');
   if (has(/^[MESxyz]/)) out.push('slice');
+  if (crossUpAt(alg)) out.push('crossUp');
   return out;
 }
 
@@ -720,8 +737,9 @@ export function positionAlgs(slot: SlotName, c: F2LCase, auf = ''): Solution[] {
   return list;
 }
 
-// the kinds of move the finder and the case sheet leave out (the settings' filter; F2/B2 hidden to begin with)
-let HIDDEN = new Set<AlgTool>(['F2', 'F2x']);
+// the kinds of move the finder and the case sheet leave out (the settings' filter; F2/B2 and the cross coming up
+// hidden to begin with)
+let HIDDEN = new Set<AlgTool>(['F2', 'F2x', 'crossUp']);
 export const hiddenTools = (): ReadonlySet<AlgTool> => HIDDEN;
 export function setHiddenTools(t: Iterable<AlgTool>): void { HIDDEN = new Set([...t].filter((x) => ALG_TOOLS.includes(x))); }
 /** A solution the filter lets through. */

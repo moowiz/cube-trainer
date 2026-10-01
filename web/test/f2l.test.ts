@@ -211,14 +211,16 @@ describe('explanations', () => {
 
 describe('the favourite alg (the case sheet\'s star)', () => {
   it('leads the list once starred, where it can be done, and the standard comes back on null', async () => {
-    const { allAlgs, byLength, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, f2lStandardAlg, fullAlg, listFor, orderedAlgs, positionAlgs, shownAlg, SLOTS } = await import('../src/f2l/model');
+    const { allAlgs, byLength, caseId, caseOf, f2lIsFavourite, f2lMainAlg, f2lSetMainAlg, f2lStandardAlg, fullAlg, listFor, orderedAlgs, positionAlgs, setHiddenTools, shownAlg, SLOTS } = await import('../src/f2l/model');
     const { moveCount } = await import('../src/cube/alg');
     const { DATA } = await import('../src/f2l/data');
     const c = DATA.slots.FR.cases['4']!; // three sheet algs and two slot shortcuts
     const id = caseId('FR', c.n);
     expect(caseOf(id)).toEqual({ slot: 'FR', c });
     expect(caseOf('FR-999')).toBeNull();
-    // the standard: the shortest solution the filter shows that needs no slot open
+    // the standard: the shortest solution the filter shows that needs no slot open (the cross-comes-up kind shown
+    // here: the searched 9 that beats the sheet's 11 lifts a cross edge, and is hidden to begin with)
+    setHiddenTools(['F2', 'F2x']);
     const std = f2lStandardAlg(id)!;
     expect(f2lMainAlg(id)).toBe(std);
     const ok = positionAlgs('FR', c, '').filter((x) => shownAlg(x) && !x.needs.length);
@@ -241,20 +243,30 @@ describe('the favourite alg (the case sheet\'s star)', () => {
     expect([f2lMainAlg(id), f2lIsFavourite(id)]).toEqual([std, false]);
     expect(f2lSetMainAlg(id, std)).toBe(true); // the standard starred is no favourite
     expect(f2lIsFavourite(id)).toBe(false);
+    setHiddenTools(['F2', 'F2x', 'crossUp']);
   });
   it('the move filter: a hidden kind of move takes its algs out of every list', async () => {
-    const { algTools, listFor, positionAlgs, setHiddenTools, SLOTS } = await import('../src/f2l/model');
+    const { algTools, crossUpAt, listFor, positionAlgs, setHiddenTools, SLOTS } = await import('../src/f2l/model');
     const { DATA } = await import('../src/f2l/data');
     expect(algTools("R L' U R' L")).toEqual(['LR']);
     expect(algTools("R U R'")).toEqual([]);
     expect(algTools("R U R' U' L' U L")).toEqual([]); // one side, then the other: not at once
-    expect(algTools("F2 U F2 U' F2")).toEqual(['F2x']); // three half turns: more than one pair
-    expect(algTools("R U R2 F2 R F2")).toEqual(['F2']); // one F2 pair
-    expect(algTools("R U B2 R' B2 R2 F2 R F2")).toEqual(['F2x']); // a pair on each face
+    expect(algTools("F2 U F2 U' F2")).toEqual(['F2x', 'crossUp']); // three half turns: more than one pair (and F2 lifts the front cross edge)
+    expect(algTools("R U R2 F2 R F2")).toEqual(['F2', 'crossUp']); // one F2 pair
+    expect(algTools("R U B2 R' B2 R2 F2 R F2")).toEqual(['F2x', 'crossUp']); // a pair on each face
     expect(algTools("R' F R F'")).toEqual(['FB']);
-    expect(algTools("r U R' U' M")).toEqual(['wide', 'slice']);
-    expect(algTools("R2 u R2 u' R2")).toEqual(['wide']);
-    expect(algTools("(U) L' U S' L2 S L2 U' L")).toEqual(['slice']);
+    expect(algTools("r U R' U' M")).toEqual(['wide', 'slice', 'crossUp']);
+    expect(algTools("R2 u R2 u' R2")).toEqual(['wide', 'crossUp']);
+    expect(algTools("(U) L' U S' L2 S L2 U' L")).toEqual(['slice', 'crossUp']);
+    // a cross edge comes up (user, 2026-09-30): read off the cube, not the letters - an R2 from home lifts the right
+    // cross edge to UR, two R' the same way take it to BR and then UR, but a basic insert only dips it into the slot
+    // and R' U2 R2 U R2 U R shuffles it between the two right slots without it ever reaching the top
+    expect(algTools("R2 U R2 U R2 U2 R2")).toEqual(['crossUp']);
+    expect(algTools("R' U' R' U R2 U' R2")).toEqual(['crossUp']);
+    expect(algTools("R U R' U R U' R'")).toEqual([]);
+    expect(algTools("R' U2 R2 U R2 U R")).toEqual([]);
+    expect(crossUpAt("R2 U' R' U R2")).toBe('R2');
+    expect(crossUpAt("D R U' R' D'")).toBeNull();
     // the D turns by their shape, as the explanations already tell them apart: one out and back, or a D2 / several
     // (the sheet has no several-D alg without a D2, so those share the D2 kind)
     expect(algTools("R' D' R U' R' D R")).toEqual(['D']);
@@ -267,7 +279,7 @@ describe('the favourite alg (the case sheet\'s star)', () => {
     setHiddenTools(['D', 'D2', 'LR']);
     expect(listFor('FR', c, '', new Set(SLOTS)).rows.some(anyF2)).toBe(true);
     expect(listFor('FR', c, '', new Set(SLOTS)).rows.some((x) => x.tools.some((t) => t === 'D' || t === 'D2' || t === 'LR'))).toBe(false);
-    setHiddenTools(['F2', 'F2x']);
+    setHiddenTools(['F2', 'F2x', 'crossUp']);
   });
 });
 
@@ -291,6 +303,7 @@ describe('what the move filter does (the chips say it)', () => {
     // with wide and slice shown their counts say what each chip alone would hide: the shared alg now counts for both
     expect(toolCounts().wide.algs).toBe(8);
     expect(toolCounts().slice.algs).toBe(3);
+    setHiddenTools(['F2', 'F2x', 'crossUp']);
   });
 });
 
