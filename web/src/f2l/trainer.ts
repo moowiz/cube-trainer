@@ -672,16 +672,24 @@ export function mountF2L(root: HTMLElement): Stage {
   }
   /**
    * The cube stepped back into the alg of the pair solved last (short of its end): that pair is up again, with
-   * its progress, the slot open. False when the cube is nowhere on those algs, or no further along them than `than`
-   * (moves along the current pair's algs).
+   * its progress, the slot open. False when the cube is nowhere on those algs. `along` is how far the same turns
+   * go along the current pair's algs: the turns since the pair went in are both the undo of its alg's tail and,
+   * often, the start of the next pair's alg (an alg ending R', the next starting R), and one turn cannot tell
+   * which. DECISION (user, 2026-09-30: "sometimes I want to undo, sometimes I want to move on"): one such turn
+   * reads as moving on - the next pair stays up with that move lit - and a second undo reads as doing the pair
+   * over; a turn that starts none of the next pair's algs reads as an undo at once, as before.
    */
-  function backToPrevious(than = 0): boolean {
+  function backToPrevious(along = 0): boolean {
     const prev = pairsDone.at(-1);
     if (!prev || !tracked) return false;
     const setup = [tracked.scr, tracked.pre].map(fromWca).concat(fed.slice(0, prev.at)).filter(Boolean).join(' ');
     let cur: string;
     try { cur = state(`${setup} ${fed.slice(prev.at).join(' ')}`); } catch { return false; }
-    const back = routesFor(prev.slot, prev.corner, prev.edge).some((route) => { const r = routeProgress(setup, route, cur); return r.onRoute && (r.half || r.done < route.length) && r.done + (r.half ? 0.5 : 0) > than; });
+    const back = routesFor(prev.slot, prev.corner, prev.edge).some((route) => {
+      const r = routeProgress(setup, route, cur);
+      const undone = route.length - (r.done + (r.half ? 0.5 : 0));
+      return r.onRoute && undone > 0 && (along === 0 || undone >= 2);
+    });
     if (!back) return false;
     pairsDone.pop();
     slot = prev.slot; corner = prev.corner; edge = prev.edge; pairAt = prev.at; solvedSlots.delete(prev.slot);

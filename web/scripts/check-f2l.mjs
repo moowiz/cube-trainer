@@ -71,17 +71,17 @@ const alg = await page.$eval('#result .alg[data-alg]', (e) => e.dataset.alg);
 const algToks = alg.split(' ');
 console.log(`    alg: ${alg}`);
 check(/^\d+ moves$/.test(await text('#result .alg .n')) && (await text('#result .alg .n')) === `${algToks.length} moves`, `the row carries its move count: ${await text('#result .alg .n')}`);
-check((await count('#result .alg button')) === (await count('#result .alg')), 'no "Did this" on a cube (Explain only)');
+check((await count('#result .alg button:not(.kind)')) === (await count('#result .alg')), 'no "Did this" on a cube (Explain only)');
 await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && !b.checked) b.click(); }); await wait(200);
 // the case's own rows (the slot shortcuts under their heading are their own list, and the own-side alg that never
 // lifts the neighbouring pair comes after the sheet's on purpose, shorter or not)
-const counts = await page.$$eval('#result .alg', (es) => es.filter((e) => !/^uses|never lifts/.test(e.querySelector('.tag')?.textContent ?? '')).map((e) => Number.parseInt(e.querySelector('.n').textContent, 10)));
+const counts = await page.$$eval('#result .alg:not(.na)', (es) => es.filter((e) => !/^uses|never lifts/.test(e.querySelector('.tag')?.textContent ?? '')).map((e) => Number.parseInt(e.querySelector('.n').textContent, 10)));
 check(counts.length > 0 && counts.every((n, i) => i === 0 || counts[i - 1] <= n), `advanced: the algs come fewest moves first (${counts.join(', ')})`);
 await page.evaluate(() => { const b = document.getElementById('advanced'); if (b && b.checked) b.click(); }); await wait(200);
 check((await count('#result .alg.on')) === 0, 'no alg lit before a turn');
 // Explain open on the first alg, then a turn: it stays open to watch along, its table marking the move done and the
 // one to do next (user, 2026-09-26: a turn closed it)
-await page.$eval('#result .alg[data-alg] button', (b) => b.click()); await wait(100);
+await page.$eval('#result .alg[data-alg] button:not(.kind)', (b) => b.click()); await wait(100);
 check((await count('#result table.trace')) === 1, 'Explain opens the move table');
 await replay(`${cube2} ${await cubeOf(algToks[0])}`);
 check((await count('#result .alg.on')) === 1, 'one turn in: the alg being done is lit');
@@ -129,9 +129,19 @@ check(new RegExp(`tracking · ${algToks.length} moves so far`).test(await text('
 await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(alg))}`);
 check((await text('#result .case-title h2')) === title2, `undone through the pair: its case is back (${await text('#result .case-title h2')})`);
 check(!(await page.$$eval('#tracker > span', (es) => es[0].className)).includes('done'), 'and the slot is open again');
-// the pair's last move undone (its cross-breaking R' say): back in the pair, one move short, not "solve EOCross"
-await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(algToks.at(-1)))}`);
-check((await text('#result .case-title h2')) === title2 && (await count('#result .alg.on .mv.done')) === algToks.length - 1, `the last move undone: back in the pair, ${await count('#result .alg.on .mv.done')} of ${algToks.length} done (${await text('#result .case-title h2')})`);
+// the pair's last move undone (its cross-breaking R' say): one turn cannot tell an undo from the start of the next
+// pair's alg (user, 2026-09-30), so when it starts one of those the next pair stays up with that move lit, and
+// only when it starts none is it back in the pair, one move short - never "solve EOCross"
+await replay(`${cube2} ${await cubeOf(alg)}`);
+const nextTitle = await text('#result .case-title h2');
+const nextStarts = await page.$$eval('#result .alg[data-alg]', (es) => es.map((e) => e.dataset.alg.split(' ')[0]));
+const lastUndone = inverse(algToks.at(-1));
+await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(lastUndone)}`);
+if (nextStarts.includes(lastUndone)) check((await text('#result .case-title h2')) === nextTitle && (await count('#result .alg.on .mv.done')) === 1, `the last move undone also starts a ${nextTitle} alg: moving on, one move lit (${await text('#result .case-title h2')}, ${await count('#result .alg.on .mv.done')} lit)`);
+else check((await text('#result .case-title h2')) === title2 && (await count('#result .alg.on .mv.done')) === algToks.length - 1, `the last move undone (starts no ${nextTitle} alg): back in the pair, ${await count('#result .alg.on .mv.done')} of ${algToks.length} done (${await text('#result .case-title h2')})`);
+// two moves undone: doing the pair over, whatever the turns might have started
+await replay(`${cube2} ${await cubeOf(alg)} ${await cubeOf(inverse(algToks.slice(-2).join(' ')))}`);
+check((await text('#result .case-title h2')) === title2 && (await count('#result .alg.on .mv.done')) === algToks.length - 2, `two moves undone: back in the pair, ${await count('#result .alg.on .mv.done')} of ${algToks.length} done (${await text('#result .case-title h2')})`);
 // all four pairs in: F2L done, and the turns still arrive (the tab is never "done" with the scramble)
 await page.evaluate(() => { document.getElementById('rescramble').checked = false; });
 const solveAll = await cubeOf(inverse(scr2));
@@ -139,7 +149,7 @@ await replay(`${cube2} ${solveAll}`);
 check(/All four pairs solved/.test(await text('#result .hint') ?? ''), 'F2L done on the cube');
 // no cube: "Did this" moves the tracked cube on, and the cards follow it (they showed the scramble's cases: user, 2026-09-26)
 await page.$eval('#genF2L', (b) => b.click()); await wait(200); // the replayed cube is not at this scramble: nothing feeds
-if ((await count('#result .alg button')) > (await count('#result .alg'))) {
+if ((await count('#result .alg button:not(.kind)')) > (await count('#result .alg'))) {
   const before = await page.$eval('#tracker > span.cur small', (e) => e.textContent);
   await page.$eval('#result .alg button:last-child', (b) => b.click()); await wait(200); // Did this on the first alg
   const cardNow = await page.$eval('#tracker > span.cur small', (e) => e.textContent);
